@@ -191,6 +191,7 @@ export function ensureDocModelTables(): void {
   // #604: a chapter title keeps its alignment (it used to be text only).
   const secCols = (db.prepare('PRAGMA table_info(wb_doc_sections)').all() as { name: string }[]).map((c) => c.name)
   if (!secCols.includes('align')) db.exec('ALTER TABLE wb_doc_sections ADD COLUMN align TEXT')
+  if (!secCols.includes('rich')) db.exec('ALTER TABLE wb_doc_sections ADD COLUMN rich TEXT')
   if (!blockCols.includes('rich')) db.exec('ALTER TABLE wb_doc_blocks ADD COLUMN rich TEXT')
   if (!blockCols.includes('align')) db.exec('ALTER TABLE wb_doc_blocks ADD COLUMN align TEXT')
   if (!blockCols.includes('pfmt')) db.exec('ALTER TABLE wb_doc_blocks ADD COLUMN pfmt TEXT')
@@ -252,7 +253,9 @@ const newId = (): string => randomUUID().slice(0, 12)
 
 export interface SectionRow { id: string; work_item_id: string; position: number; title: string; status: SectionStatus; created_at: number; updated_at: number
   /** #604: 'l' | 'c' | 'r' | 'j' or null (the default). */
-  align?: string | null }
+  align?: string | null
+  /** #604: inline formatting of the title (same marks as a paragraph), only meaningful while its plain text equals `title`. */
+  rich?: string | null }
 export interface BlockRow { id: string; work_item_id: string; section_id: string; position: number; kind: BlockKind; text: string; author: 'agent' | 'owner'; owner_edited_at: number | null; created_at: number; updated_at: number
   /** Inline formatting (<b><i><u><s><br>), only meaningful while its plain text equals `text`. */
   rich?: string | null
@@ -331,7 +334,7 @@ export function getBlock(itemId: string, id: string): BlockRow | undefined {
   return getDb().prepare('SELECT * FROM wb_doc_blocks WHERE id = ? AND work_item_id = ?').get(id, itemId) as BlockRow | undefined
 }
 
-export function updateSection(itemId: string, id: string, patch: { title?: unknown; status?: unknown; position?: unknown; align?: unknown }): ModelResult<{ section: SectionRow }> {
+export function updateSection(itemId: string, id: string, patch: { title?: unknown; status?: unknown; position?: unknown; align?: unknown; rich?: unknown }): ModelResult<{ section: SectionRow }> {
   ensureDocModelTables()
   const s = getSection(itemId, String(id || ''))
   if (!s) return { ok: false, code: 'not_found', detail: 'no section with this id in this work item' }
@@ -347,7 +350,11 @@ export function updateSection(itemId: string, id: string, patch: { title?: unkno
   }
   const db = getDb()
   const align = patch.align === undefined ? (s.align ?? null) : (isBlockAlign(patch.align) ? patch.align : null)
-  db.prepare('UPDATE wb_doc_sections SET title = ?, status = ?, align = ?, updated_at = ? WHERE id = ?').run(title, status, align, now(), s.id)
+  // #604: the formatted title; a changed title without a new `rich` loses its formatting (it would no longer match).
+  let rich: string | null = title === s.title ? (s.rich ?? null) : null
+  if (typeof patch.rich === 'string') rich = sanitizeRich(patch.rich) || null
+  if (rich && !richMatches(rich, title)) rich = null
+  db.prepare('UPDATE wb_doc_sections SET title = ?, status = ?, align = ?, rich = ?, updated_at = ? WHERE id = ?').run(title, status, align, rich, now(), s.id)
   if (patch.position !== undefined && patch.position !== null && Number.isFinite(Number(patch.position))) {
     const list = listSections(itemId).filter((x) => x.id !== s.id)
     const pos = Math.max(0, Math.min(list.length, Math.floor(Number(patch.position))))
@@ -497,7 +504,7 @@ export function removeBlock(itemId: string, id: string): ModelResult<{ removed: 
 
 /** One block of a page save: an existing id (maybe with new content) or a new block. */
 export interface PageBlockIn { id?: unknown; kind?: unknown; text?: unknown; rich?: unknown; align?: unknown; pfmt?: unknown }
-export interface PageSectionIn { id?: unknown; title?: unknown; align?: unknown; blocks?: unknown }
+export interface PageSectionIn { id?: unknown; title?: unknown; align?: unknown; rich?: unknown; blocks?: unknown }
 export interface PageIds { sections: { id: string; blocks: string[] }[] }
 
 class PageError extends Error {
@@ -537,13 +544,15 @@ export function replacePage(itemId: string, rawSections: unknown, rawKnown: unkn
         const wantId = typeof sIn.id === 'string' && have.has(sIn.id) && !usedSections.has(sIn.id) ? sIn.id : ''
         if (wantId) {
           usedSections.add(wantId)
-          const r = updateSection(itemId, wantId, { title: String(sIn.title ?? '').trim() ? sIn.title : undefined, position: i, align: sIn.align === undefined ? undefined : (sIn.align ?? '') })
+          const r = updateSection(itemId, wantId, { title: String(sIn.title ?? '').trim() ? sIn.title : undefined, position: i, align: sIn.align === undefined ? undefined : (sIn.align ?? ''), rich: sIn.rich === undefined ? undefined : (sIn.rich ?? '') })
           if (!r.ok) fail(r.code, r.detail)
           sectionIds.push(wantId)
         } else {
           const r = addSection(itemId, sIn.title, { position: i })
           if (!r.ok) return fail(r.code, r.detail)
           if (isBlockAlign(sIn.align)) getDb().prepare('UPDATE wb_doc_sections SET align = ? WHERE id = ?').run(sIn.align, r.section.id)
+          const newRich = typeof sIn.rich === 'string' ? sanitizeRich(sIn.rich) : ''
+          if (newRich && richMatches(newRich, r.section.title)) getDb().prepare('UPDATE wb_doc_sections SET rich = ? WHERE id = ?').run(newRich, r.section.id)
           usedSections.add(r.section.id)
           sectionIds.push(r.section.id)
         }
@@ -903,7 +912,7 @@ export function documentOutline(itemId: string): { sections: SectionView[] } {
       return { ...b, rich: richMatches(b.rich, b.text) ? b.rich : null, align: isBlockAlign(b.align) ? b.align : null, pfmt: parsePfmt(b.pfmt ?? null) as ParaFmt | null, claims: claims.filter((c) => c.block_id === b.id), missing: missingMarks(b.text), rewrite: rw ? rewriteView(rw, b.text) : null }
     })
     const problems = bs.reduce((n, b) => n + b.missing.length + b.claims.filter((c) => c.strength === 'unverified').length, 0)
-    return { ...s, align: isBlockAlign(s.align) ? s.align : null, blocks: bs, problems, untitled: isPlaceholderSectionTitle(s.title) }
+    return { ...s, align: isBlockAlign(s.align) ? s.align : null, rich: richMatches(s.rich, s.title) ? s.rich : null, blocks: bs, problems, untitled: isPlaceholderSectionTitle(s.title) }
   })
   return { sections }
 }

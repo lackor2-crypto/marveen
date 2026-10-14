@@ -40,6 +40,21 @@ describe('dokumentum-lap: a fejezetcim igazitasa (#604)', () => {
     expect(documentOutline(itemId).sections[0].align).toBeNull()
   })
 
+  it('a formatted title (bold, colour) is saved, returned, dropped when the text changes, and drawn in the export', async () => {
+    const s = await callWorkbench(`/api/workbench/items/${itemId}/outline/sections`, 'POST', { title: 'Tényállás' })
+    const sec = s.body.outline.sections[0].id as string
+    const rich = '<b>Tény</b>állás'
+    await callWorkbench(`/api/workbench/items/${itemId}/outline/page`, 'POST', { sections: [{ id: sec, title: 'Tényállás', rich, blocks: [] }], known: [sec] })
+    expect(documentOutline(itemId).sections[0].rich).toBe(rich)
+    // a rich that does not match the title is thrown away
+    await callWorkbench(`/api/workbench/items/${itemId}/outline/page`, 'POST', { sections: [{ id: sec, title: 'Más', rich, blocks: [] }], known: [sec] })
+    expect(documentOutline(itemId).sections[0].rich).toBeNull()
+    await callWorkbench(`/api/workbench/items/${itemId}/outline/page`, 'POST', { sections: [{ id: sec, title: 'Más', rich: '<b>Más</b>', blocks: [] }], known: [sec] })
+    const o = toRenderOutline(documentOutline(itemId) as never)
+    expect(o.sections[0].rich).toBe('<b>Más</b>')
+    expect(outlineHash(o, 'x')).not.toBe(outlineHash({ sections: [{ ...o.sections[0], rich: null }] } as never, 'x'))
+  })
+
   it('the render outline and its hash follow the title alignment', () => {
     const base = { sections: [{ title: 'A', status: 'draft' as const, blocks: [] }] }
     const centred = { sections: [{ title: 'A', status: 'draft' as const, align: 'c', blocks: [] }] }
@@ -52,5 +67,6 @@ describe('dokumentum-lap: a fejezetcim igazitasa (#604)', () => {
     expect(js).toContain("dpEditHtml('wb-dp-title' + dpAlignAttrs(sec.align).cls")
     expect(js).toContain("align: el ? (el.getAttribute('data-wb-align') || '') : ''")
     expect(js).toContain('dpTitleTarget()')
+    expect(js).toContain("rich: tf && tf.rich && tf.plain === title ? tf.rich : ''")
   })
 })
