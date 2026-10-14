@@ -15711,10 +15711,20 @@
     return out + '</div>'
   }
 
-  function dbModelInput(id, label, value) {
+  /** A dropdown of the model catalog (like the agent card's model picker), not a free-text box with a type-ahead list.
+   *  `optional`: the judge may stay empty. A value the catalog does not hold (a saved one, or the catalog could not be
+   *  read) stays selectable, so opening the page never silently changes the choice. */
+  function dbModelInput(id, label, value, optional) {
+    var cat = ((WB.db && WB.db.models && WB.db.models.catalog) || [])
+    var opts = ['<option value=""' + (!value ? ' selected' : '') + '>' + esc(t(optional ? 'workbench.db.judge_none' : 'workbench.db.model_pick')) + '</option>']
+    var seen = false
+    cat.forEach(function (c) {
+      if (c.id === value) seen = true
+      opts.push('<option value="' + escA(c.id) + '"' + (c.id === value ? ' selected' : '') + '>' + esc(c.name || c.id) + '</option>')
+    })
+    if (value && !seen) opts.push('<option value="' + escA(value) + '" selected>' + esc(value) + '</option>')
     return '<label class="wb-db-field"><span>' + esc(label) + '</span>'
-      + '<input type="text" class="wb-input" id="' + id + '" list="wbDbModelList" autocomplete="off" spellcheck="false"'
-      + ' placeholder="' + escA(t('workbench.db.model_ph')) + '" value="' + escA(value) + '"></label>'
+      + '<select class="wb-input" id="' + id + '">' + opts.join('') + '</select></label>'
   }
 
   function dbSetupHtml(s) {
@@ -15746,9 +15756,8 @@
     // The two models, like two documents side by side
     out += '<div class="wb-db-models">' + dbModelInput('wbDbModelA', t(crit ? 'workbench.db.model_a_critic' : 'workbench.db.model_a'), s.a)
       + dbModelInput('wbDbModelB', t(crit ? 'workbench.db.model_b_defender' : 'workbench.db.model_b'), s.b) + '</div>'
-    out += '<datalist id="wbDbModelList">' + ((m && m.catalog) || []).map(function (c) { return '<option value="' + escA(c.id) + '">' + esc(c.name) + '</option>' }).join('') + '</datalist>'
     if (m && m.catalog_error) out += '<p class="wb-muted">' + esc(t('workbench.db.catalog_error')) + '</p>'
-    out += dbModelInput('wbDbJudge', t('workbench.db.judge_label'), s.judge) + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.judge_help')) + '</p>'
+    out += dbModelInput('wbDbJudge', t('workbench.db.judge_label'), s.judge, true) + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.judge_help')) + '</p>'
     out += '<div id="wbDbWarn">' + dbWarnInner(s) + '</div>'
     out += '<p class="wb-db-est" id="wbDbEst" role="status">' + dbEstInner(s) + '</p>'
     out += '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-start"' + (s.busy || s.reading ? ' disabled' : '') + '>' + esc(t('workbench.db.start')) + '</button></div>'
@@ -15828,7 +15837,7 @@
       out += dbAdviceHtml(s)
       out += '<label class="wb-db-field"><span>' + esc(t('workbench.db.steer_label')) + '</span>'
         + '<textarea class="wb-input" id="wbDbSteer" rows="3" maxlength="20000" placeholder="' + escA(t('workbench.db.steer_ph')) + '">' + esc(s.steer) + '</textarea></label>'
-      out += dbModelInput('wbDbJudge', t('workbench.db.judge_label'), s.judge) + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.judge_help')) + '</p>'
+      out += dbModelInput('wbDbJudge', t('workbench.db.judge_label'), s.judge, true) + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.judge_help')) + '</p>'
       out += '<div id="wbDbWarn">' + dbWarnInner(s) + '</div>'
       out += '<p class="wb-db-est" id="wbDbEst" role="status">' + dbEstInner(s) + '</p>'
       out += '<div class="wb-actions"><button type="button" class="' + (stop ? 'btn-secondary' : 'btn-primary') + '" data-wb-act="db-next"' + (left === 0 ? ' disabled title="' + escA(t('workbench.db.round_limit_hint')) + '"' : '') + '>' + esc(t('workbench.db.next')) + '</button>'

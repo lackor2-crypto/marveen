@@ -6197,6 +6197,8 @@ window._i18n.en = {
   "workbench.db.file_unreadable": "The file could not be read.",
   "workbench.db.model_a": "Left model",
   "workbench.db.model_b": "Right model",
+  "workbench.db.model_pick": "Choose a model…",
+  "workbench.db.judge_none": "None (the left model sums up)",
   "workbench.db.model_ph": "for example openai/gpt-5.5",
   "workbench.db.catalog_error": "The model list could not be downloaded now; you can still type a model name by hand (for example anthropic/claude-sonnet-5).",
   "workbench.db.start": "Start the debate",
