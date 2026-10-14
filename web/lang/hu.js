@@ -6336,7 +6336,7 @@ window._i18n.hu = {
   "workbench.db.board.by_critic2": "2. kötekedő hozta",
   "workbench.db.stats.from_second": "ebből {n} a 2. kötekedőtől",
   "workbench.db.share.title": "Módok megosztása fájllal",
-  "workbench.db.share.help": "A saját módjaidat egy fájlba mentheted, és egy másik Marveen telepítésbe be is olvashatod. A fájl csak a módok nevét, leírását, szövegeit és beállításait tartalmazza, a gépedről semmit. Beolvasáskor sosem írunk felül meglévő módot: minden beolvasott mód új mód lesz, és ha a neve foglalt, sorszámot kap. Használat: nyomd meg az Exportálás gombot, küldd el a fájlt, a másik telepítésen pedig válaszd a Beolvasás fájlból gombot.",
+  "workbench.db.share.help": "A saját módjaidat egy fájlba mentheted, és egy másik Marveen telepítésbe be is olvashatod. A fájl csak a módok nevét, leírását, szövegeit és beállításait tartalmazza, a gépedről semmit. Beolvasáskor sosem írunk felül meglévő módot: minden beolvasott mód új mód lesz, és ha a neve foglalt, sorszámot kap. Használat: nyomd meg a Saját módok exportálása gombot, küldd el a fájlt, a másik telepítésen pedig válaszd a Beolvasás fájlból gombot.",
   "workbench.db.share.export_all": "Saját módok exportálása",
   "workbench.db.share.export_one": "Exportálás",
   "workbench.db.share.import": "Beolvasás fájlból",

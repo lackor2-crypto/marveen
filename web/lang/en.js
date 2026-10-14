@@ -6262,7 +6262,7 @@ window._i18n.en = {
   "workbench.db.board.by_critic2": "raised by critic 2",
   "workbench.db.stats.from_second": "{n} of them from critic 2",
   "workbench.db.share.title": "Sharing modes with a file",
-  "workbench.db.share.help": "You can save your own modes to a file and read it into another Marveen install. The file holds only the modes' names, descriptions, texts and settings, nothing from your machine. Importing never overwrites a mode: every imported mode is a new one, and if its name is taken it gets a number. How to use it: press Export, send the file, and on the other install choose Import from file.",
+  "workbench.db.share.help": "You can save your own modes to a file and read it into another Marveen install. The file holds only the modes' names, descriptions, texts and settings, nothing from your machine. Importing never overwrites a mode: every imported mode is a new one, and if its name is taken it gets a number. How to use it: press Export my modes, send the file, and on the other install choose Import from file.",
   "workbench.db.share.export_all": "Export my modes",
   "workbench.db.share.export_one": "Export",
   "workbench.db.share.import": "Import from file",

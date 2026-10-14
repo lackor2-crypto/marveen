@@ -25,7 +25,7 @@ function fail(res: RouteContext['res'], status: number, error: string, message: 
 
 const SHARE_ERRORS: Record<string, [string, string]> = {
   bad_json: ['Ez a fájl nem olvasható: nem érvényes JSON.', 'This file cannot be read: it is not valid JSON.'],
-  not_a_mode_file: ['Ez nem vita-mód fájl. Olyan fájlt válassz, amit a „Módok exportálása” gomb készített.', 'This is not a debate mode file. Pick a file made by the “Export modes” button.'],
+  not_a_mode_file: ['Ez nem vita-mód fájl. Olyan fájlt válassz, amit a „Saját módok exportálása” gomb készített.', 'This is not a debate mode file. Pick a file made by the “Export my modes” button.'],
   newer_version: ['Ezt a fájlt a Marveen újabb változata készítette, ez a változat még nem tudja beolvasni. Frissítsd a Marveent.', 'This file was made by a newer version of Marveen that this version cannot read yet. Update Marveen.'],
   too_big: ['A fájl túl nagy ahhoz, hogy módokat tartalmazzon.', 'The file is too big to hold modes.'],
   empty: ['A fájlban nincs egyetlen mód sem.', 'The file holds no modes.'],
