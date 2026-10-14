@@ -1215,6 +1215,9 @@ export function codeTaskQueueAhead(taskId: string, now = Date.now()): CodeTaskQu
  * A tema-dontes (kartya 2741d289, #252) ELO adatforrasai. Kulon fuggveny, hogy a
  * dontes maga tesztelheto maradjon adatbazis nelkul.
  */
+/** #598: a card in one of these columns still has work to do; `waiting` (the agent finished) and `done` do not. */
+const OPEN_WORK_STATUSES = new Set(['planned', 'in_progress', 'testing'])
+
 function liveTopicSessionDeps(session: CodeSession): TopicSessionDeps {
   return {
     priorSessionsForCard: (cardRef, project, excludeTaskId) => {
@@ -1236,6 +1239,21 @@ function liveTopicSessionDeps(session: CodeSession): TopicSessionDeps {
         out.push(r.session_id)
       }
       return out
+    },
+    openCardRefForProject: (project, excludeTaskId) => {
+      // #598: the card of the project's latest card-bound task, while that card's work is still open.
+      const rows = getDb()
+        .prepare(
+          `SELECT card_ref FROM code_tasks
+            WHERE project = ? AND id != ? AND card_ref IS NOT NULL AND card_ref != ''
+            ORDER BY created_at DESC
+            LIMIT 1`,
+        )
+        .all(project, excludeTaskId) as { card_ref: string }[]
+      const ref = rows[0]?.card_ref
+      if (!ref) return null
+      const card = resolveCardRefToCard(ref)
+      return card && OPEN_WORK_STATUSES.has(card.status) && !card.archived_at ? ref : null
     },
     wasClosed: (cardRef, sessionId) => {
       // A tablat a code-session-close-notice.ts hozza letre az ELSO zaro
@@ -1344,12 +1362,22 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       // korabbi gondolatmenetet, es ne egyen ra tokent. Cimzett fulnel nincs
       // forced-fresh (a cimzes eros), ezert a `!task.targetSessionId` feltetel.
       const forcedFresh = Boolean(task.startFresh) && !task.targetSessionId
+      const topicDeps = liveTopicSessionDeps(session)
+      // #598 (Boss TG 3272): a plain Telegram message ("folytasd") carries no card, so it used to open a fresh chat
+      // that lost the context. While the project's last card-bound work is still open it continues THAT work.
+      const inheritedCardRef = !forcedFresh && !task.cardRef && !task.targetSessionId && task.origin === 'telegram'
+        ? topicDeps.openCardRefForProject?.(task.project, task.id) ?? null
+        : null
+      const topicCardRef = task.cardRef || inheritedCardRef
       const topic = forcedFresh
         ? null
         : decideTopicSession(
-          { cardRef: task.cardRef, project: task.project, taskId: task.id },
-          liveTopicSessionDeps(session),
+          { cardRef: topicCardRef, project: task.project, taskId: task.id },
+          topicDeps,
         )
+      if (inheritedCardRef && topic && topic.kind === 'reuse') {
+        db.prepare(`UPDATE code_tasks SET card_ref = ? WHERE id = ?`).run(inheritedCardRef, task.id)
+      }
       if (topic && topic.kind === 'fresh' && topic.why === 'cannot_see') {
         // A NULLA KET DOLGOT JELENT: nem azt mondjuk ki, hogy a szal nincs meg,
         // hanem azt, hogy nem lattunk oda -- es uj beszelgetest nyitunk, mert az
