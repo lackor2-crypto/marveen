@@ -24,7 +24,7 @@ import { isBlockAlign, richMatches, richRuns, type ParaFmt, type RichRun } from 
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
 export interface RenderOutline {
-  sections: { title: string; status: SectionStatus; /** #604: the chapter title's alignment. */ align?: string | null; blocks: { kind: BlockKind; text: string; img?: RenderImage | null; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[]
+  sections: { title: string; status: SectionStatus; /** #604: the chapter title's alignment. */ align?: string | null; rich?: string | null; blocks: { kind: BlockKind; text: string; img?: RenderImage | null; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[]
   /** Mellekletjegyzek a dokumentum vegen (K-1.18): cimke + rovid leiras, a fajl utja NEM. */
   annexes?: { label: string; title: string }[]
   annexTitle?: string
@@ -247,6 +247,12 @@ function paragraphs(text: string, style: 'Body' | 'Note', draft: boolean, st: St
   return out
 }
 
+/** The heading text: the formatted runs when the title has formatting, else the plain title. */
+function titleInner(s: { title: string; rich?: string | null }, draft: boolean, st: StyleCtx): string {
+  if (s.rich && richMatches(s.rich, s.title)) return richRuns(String(s.rich)).map((r) => richSpan(r, draft, st)).join('')
+  return inline(s.title)
+}
+
 /** One formatted run in ODF: the marks as nested character-style spans around the (marked) text. */
 function richSpan(r: RichRun, draft: boolean, st: StyleCtx): string {
   let x = inlineMarked(r.text, draft)
@@ -370,7 +376,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   const st: StyleCtx = { extra: extraStyles, names: new Map() }
   for (const s of outline.sections) {
     // #534: a section the program titled with its own placeholder has no heading in the document.
-    if (!isPlaceholderSectionTitle(s.title)) body.push(`<text:h text:style-name="${isBlockAlign(s.align) ? `Heading_20_1_Al_${s.align}` : 'Heading_20_1'}" text:outline-level="1">${inline(s.title)}</text:h>`)
+    if (!isPlaceholderSectionTitle(s.title)) body.push(`<text:h text:style-name="${isBlockAlign(s.align) ? `Heading_20_1_Al_${s.align}` : 'Heading_20_1'}" text:outline-level="1">${titleInner(s, o.draft, st)}</text:h>`)
     const sec: string[] = []
     for (const b of s.blocks) {
       if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
@@ -465,15 +471,15 @@ ${body.join('\n')}
 }
 
 /** A renderelt tartalom: ami a PDF-be kerul. Mas mezo (allitas, forras) nem. */
-export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; align?: string | null; blocks: { kind: BlockKind; text: string; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[] }): RenderOutline {
-  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, ...(isBlockAlign(s.align) ? { align: s.align } : {}), blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}), ...(b.pfmt ? { pfmt: b.pfmt } : {}) })) })) }
+export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; align?: string | null; rich?: string | null; blocks: { kind: BlockKind; text: string; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[] }): RenderOutline {
+  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, ...(isBlockAlign(s.align) ? { align: s.align } : {}), ...(s.rich && richMatches(s.rich, s.title) ? { rich: s.rich } : {}), blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}), ...(b.pfmt ? { pfmt: b.pfmt } : {}) })) })) }
 }
 
 /** A dokumentum tartalmanak ujjlenyomata: ha a vegleges PDF utan valtozik, a vegleges allapot megszunik (K-1.23). */
 export function outlineHash(outline: RenderOutline, title: string): string {
   const core = {
     title,
-    s: outline.sections.map((s) => ({ t: s.title, st: s.status, ...(isBlockAlign(s.align) ? { al: s.align } : {}), b: s.blocks.map((b) => ({ k: b.kind, x: b.text, ...(b.rich ? { r: b.rich } : {}), ...(b.align ? { al: b.align } : {}), ...(b.pfmt ? { pf: b.pfmt } : {}) })) })),
+    s: outline.sections.map((s) => ({ t: s.title, st: s.status, ...(isBlockAlign(s.align) ? { al: s.align } : {}), ...(s.rich && richMatches(s.rich, s.title) ? { r: s.rich } : {}), b: s.blocks.map((b) => ({ k: b.kind, x: b.text, ...(b.rich ? { r: b.rich } : {}), ...(b.align ? { al: b.align } : {}), ...(b.pfmt ? { pf: b.pfmt } : {}) })) })),
     ...(outline.annexes && outline.annexes.length ? { a: outline.annexes.map((a) => [a.label, a.title]), at: outline.annexTitle || '' } : {}),
   }
   return createHash('sha256').update(JSON.stringify(core)).digest('hex')
