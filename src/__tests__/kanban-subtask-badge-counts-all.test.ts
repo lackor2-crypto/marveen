@@ -12,6 +12,11 @@ describe('kanban subtask badge', () => {
     expect(body).not.toContain('embeddedSubtaskIds.has')
   })
 
+  it('names the subtask card numbers (Boss TG 3349)', () => {
+    expect(body).toContain('c.seq')
+    expect(body).toContain('refs:')
+  })
+
   it('uses a translated label in both languages', () => {
     expect(body).toContain("t('kanban.card.subtask_count'")
     for (const l of ['hu', 'en']) {
