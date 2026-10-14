@@ -2992,7 +2992,7 @@ function updateSubtaskBadges(embeddedSubtaskIds) {
     // Boss (#597 miss): the count covers ALL subtasks, also the ones nested inside this card.
     const nonEmbedded = kanbanCards.filter(c => c.parent_id === id)
     if (nonEmbedded.length > 0) {
-      badge.textContent = t('kanban.card.subtask_count', { n: nonEmbedded.length, refs: nonEmbedded.map(c => (c.seq != null ? `#${c.seq}` : '')).filter(Boolean).join(', ') })
+      badge.textContent = t('kanban.card.subtask_count', { n: nonEmbedded.length })
       badge.style.display = ''
       badge.onclick = (e) => {
         e.stopPropagation()
@@ -3001,6 +3001,27 @@ function updateSubtaskBadges(embeddedSubtaskIds) {
       }
     } else {
       badge.style.display = 'none'
+    }
+    // Boss TG 3357: the subtasks that sit in ANOTHER column (not drawn inside the card) are listed under the count, one per line:
+    // "#597 title", like the embedded ones, each opening its own detail.
+    let list = el.querySelector('.kanban-subtask-refs')
+    if (list) list.remove()
+    const apart = nonEmbedded.filter(c => !(embeddedSubtaskIds && embeddedSubtaskIds.has(c.id)))
+    if (apart.length > 0) {
+      list = document.createElement('div')
+      list.className = 'kanban-embedded-subtasks kanban-subtask-refs'
+      list.innerHTML = apart.map(c => {
+        const cSeq = c.seq != null ? `<span class="kanban-embedded-seq">#${c.seq}</span> ` : ''
+        return `<div class="kanban-embedded-subtask" data-id="${escapeHtml(c.id)}">${cSeq}${escapeHtml(c.title)}</div>`
+      }).join('')
+      list.querySelectorAll('.kanban-embedded-subtask').forEach(subEl => {
+        subEl.addEventListener('click', (e) => {
+          e.stopPropagation()
+          const child = kanbanCards.find(c => c.id === subEl.dataset.id)
+          if (child) showCardDetail(child)
+        })
+      })
+      badge.insertAdjacentElement('afterend', list)
     }
   }
 }
