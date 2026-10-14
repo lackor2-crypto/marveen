@@ -15,6 +15,8 @@ import { resolveAgentConfigDir } from './claude-plans.js'
 import { loginSequence, literalKeyArgs, specialKeyArgs } from './tmux-keys.js'
 import { exactTmuxTarget } from './tmux-target.js'
 import { withSessionSendLock } from './session-send-lock.js'
+import { readAvailabilityState } from './agent-availability-watch.js'
+import type { AgentAvailability } from '../availability-transitions.js'
 
 // Autonomous re-auth healer (Adam stability-fix #1, scoped 2026-06-03).
 //
@@ -294,6 +296,26 @@ export function overrideStaleStatusLine(state: ReauthState, fresh: Pick<Credenti
   return { needsReauth: false, source: state.source, reason: `stale status line ("${state.reason}"), valid credentials on disk` }
 }
 
+/** How old the availability measurement may be to still count (the watcher re-measures every minute). */
+export const QUOTA_HOLD_MAX_AGE_MS = 10 * 60_000
+
+/**
+ * Boss 2026-10-14: a "dead OAuth token" alert for an agent whose 5-hour quota is spent is noise: it cannot work
+ * until the window rolls over, and the pane's "Not logged in" is the quota's side effect, not something the owner
+ * can fix with a /login. While the agent's availability reads quota-exhausted (fresh measurement, reset still ahead
+ * or unknown) the escalation is held back; the probe keeps running, so once the quota is back and the token is
+ * STILL dead, the normal alert follows.
+ */
+export function isQuotaHeld(a: Pick<AgentAvailability, 'available' | 'reason' | 'resetsAt' | 'measuredAt'> | undefined, nowMs: number): boolean {
+  if (!a || a.available || a.reason !== 'quota') return false
+  if (nowMs - a.measuredAt > QUOTA_HOLD_MAX_AGE_MS) return false
+  return a.resetsAt == null || a.resetsAt > nowMs
+}
+
+function quotaHeld(label: string): boolean {
+  try { return isQuotaHeld(readAvailabilityState().agents[label], Date.now()) } catch { return false }
+}
+
 function checkSession(label: string, session: string, isMain: boolean, quiet: boolean): void {
   const pane = capturePane(session)
   const sessionAlive = pane != null
@@ -329,7 +351,9 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
   }
   if (decision.escalate) {
     logger.error({ label, session, reason: reauth.reason, quiet }, 'reauth-healer: dead OAuth token on live session -- escalating to owner')
-    routeEscalation(
+    if (quotaHeld(label)) {
+      logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: dead-token escalation held back -- the agent is out of quota (cannot work until the window resets)')
+    } else routeEscalation(
       { session, label, reason: reauth.reason ?? 'auth failure', consecutiveDead: decision.next.consecutiveDead },
       quiet,
       sendNotify,

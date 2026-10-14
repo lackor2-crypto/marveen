@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideReauthAction, NO_REAUTH_STATE, overrideStaleStatusLine, type ReauthHealerState } from '../web/reauth-healer.js'
+import { decideReauthAction, NO_REAUTH_STATE, overrideStaleStatusLine, isQuotaHeld, type ReauthHealerState } from '../web/reauth-healer.js'
 
 const T = { threshold: 3, cooldownMs: 30 * 60 * 1000 }
 const base = (over: Partial<Parameters<typeof decideReauthAction>[0]> = {}) => ({
@@ -202,5 +202,21 @@ describe('overrideStaleStatusLine', () => {
   it('a transcript event is never overridden', () => {
     const ev = { needsReauth: true, source: 'transcript' as const, reason: 'API Error: 401' }
     expect(overrideStaleStatusLine(ev, { verdict: 'valid' }).needsReauth).toBe(true)
+  })
+})
+
+describe('isQuotaHeld (#quota-quiet): no dead-token alert for an agent that is out of quota', () => {
+  const now = 1_000_000_000_000
+  const base = { available: false, reason: 'quota' as const, resetsAt: now + 3_600_000, measuredAt: now - 60_000 }
+  it('holds while the quota is spent, the measurement is fresh and the reset is ahead (or unknown)', () => {
+    expect(isQuotaHeld(base, now)).toBe(true)
+    expect(isQuotaHeld({ ...base, resetsAt: null }, now)).toBe(true)
+  })
+  it('does not hold for a working agent, a stopped one, a passed reset, a stale measurement or no data', () => {
+    expect(isQuotaHeld({ ...base, available: true, reason: 'ok' as never }, now)).toBe(false)
+    expect(isQuotaHeld({ ...base, reason: 'stopped' as never }, now)).toBe(false)
+    expect(isQuotaHeld({ ...base, resetsAt: now - 1 }, now)).toBe(false)
+    expect(isQuotaHeld({ ...base, measuredAt: now - 11 * 60_000 }, now)).toBe(false)
+    expect(isQuotaHeld(undefined, now)).toBe(false)
   })
 })
