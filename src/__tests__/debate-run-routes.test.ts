@@ -79,6 +79,12 @@ describe('GET /api/debate/models', () => {
       defaults: ['openai/gpt-5.5', 'deepseek/deepseek-v4'],
       catalog: [{ id: 'openai/gpt-5.5', name: 'GPT 5.5', free: false }],
       has_key: true, catalog_error: false,
+      // a beepitett modok (#597): az alap az Egyenrangu, a Kotekedo-vedo az elso modell a kotekedo
+      modes: [
+        { id: 'peer', builtin: true, roles: ['peer', 'peer'] },
+        { id: 'critic', builtin: true, roles: ['critic', 'defender'] },
+      ],
+      default_mode: 'peer',
     })
   })
 
@@ -159,6 +165,12 @@ describe('POST /api/debate/run', () => {
     expect(h.run.mock.calls[1][0].project).toBe('p1')
   })
 
+  it('a kert modot tovabbadja a futtatonak', async () => {
+    h.run.mockResolvedValue({ session: 's', round: 1, responses: [{ model: 'm', ok: true, text: 'x' }] })
+    await call('POST', '/api/debate/run', { question: 'q', models: ['a', 'b'], mode: 'critic' })
+    expect(h.run.mock.calls[0][0].mode).toBe('critic')
+  })
+
   it('ha egyik modell sem valaszolt: 502, a kor nincs mentve, a valaszok mellekelve', async () => {
     h.run.mockResolvedValue({ session: 's', round: 1, responses: [{ model: 'a', ok: false, error: 'down' }, { model: 'b', ok: false, error: 'down' }] })
     const r = await call('POST', '/api/debate/run', { question: 'q', models: ['a', 'b'] })
@@ -171,6 +183,7 @@ describe('POST /api/debate/run', () => {
     [new DebateKeyMissingError(), 409, 'no_key', 'Nincs OpenRouter-kulcs'],
     [new DebateBusyError(), 409, 'busy', 'még fut'],
     [new DebateInputError('question_missing'), 400, 'question_missing', 'Írd be a kérdést'],
+    [new DebateInputError('mode_unknown'), 400, 'mode_unknown', 'mód nem létezik'],
     [new DebateInputError('two_models_required'), 400, 'two_models_required', 'két különböző modellt'],
     [new DebateInputError('session_not_found'), 404, 'session_not_found', 'nem található'],
     [new DebateInputError('session_concluded'), 400, 'session_concluded', 'le van zárva'],

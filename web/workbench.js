@@ -15266,7 +15266,7 @@
 
   function dbState() {
     if (!WB.db) {
-      WB.db = { models: null, a: '', b: '', q: '', steer: '', files: [], reading: 0, session: null, rounds: [], modelsList: [],
+      WB.db = { models: null, mode: 'peer', a: '', b: '', q: '', steer: '', files: [], reading: 0, session: null, rounds: [], modelsList: [],
         busy: '', error: '', summary: null, consensus: null, concluded: false, past: null, pastOpen: false, loadingState: false }
     }
     return WB.db
@@ -15277,7 +15277,7 @@
     WB.db = null
     var s = dbState()
     // The model choice is kept: the next debate usually uses the same pair.
-    if (keep) { s.models = keep.models; s.a = keep.a; s.b = keep.b }
+    if (keep) { s.models = keep.models; s.a = keep.a; s.b = keep.b; s.mode = keep.mode }
   }
 
   /** Reply text -> safe HTML: escaped first, then only headings, **bold**, `code` and line breaks are recognised. */
@@ -15298,7 +15298,7 @@
     s.rounds.forEach(function (r) {
       out.push('', '=== ' + t('workbench.db.round_head', { n: r.round }) + ' ===')
       if (r.round > 1 && r.prompt) out.push(t('workbench.db.round_note') + ': ' + r.prompt)
-      r.responses.forEach(function (x) { out.push('', '--- ' + x.model + ' ---', x.ok ? (x.text || '') : t('workbench.db.model_failed', { error: x.error || '' })) })
+      r.responses.forEach(function (x) { out.push('', '--- ' + x.model + (x.role ? ' (' + t('workbench.db.role.' + x.role) + ')' : '') + ' ---', x.ok ? (x.text || '') : t('workbench.db.model_failed', { error: x.error || '' })) })
     })
     if (s.summary) out.push('', '=== ' + t('workbench.db.result_title') + ' ===', s.summary)
     return out.join('\n')
@@ -15359,7 +15359,7 @@
       st.loadingState = false
       if (!r.ok) { st.error = r.message; render(); return }
       var d = r.data
-      st.session = d.id; st.q = d.question; st.a = d.models[0] || ''; st.b = d.models[1] || ''
+      st.session = d.id; st.q = d.question; st.a = d.models[0] || ''; st.b = d.models[1] || ''; st.mode = d.mode || 'peer'
       st.files = (d.attachments || []).map(function (a) { return { name: a.name, chars: a.chars, text: '', kept: true } })
       st.rounds = d.rounds; st.concluded = !!d.concluded; st.summary = d.summary; st.consensus = d.consensus
       st.steer = ''
@@ -15407,7 +15407,7 @@
   function dbRun(steer) {
     var s = dbState()
     if (s.busy) return
-    var body = s.session ? { session: s.session, steer: steer || '' } : { project: WB.projectId, question: s.q, models: [s.a.trim(), s.b.trim()], attachments: s.files }
+    var body = s.session ? { session: s.session, steer: steer || '' } : { project: WB.projectId, question: s.q, models: [s.a.trim(), s.b.trim()], attachments: s.files, mode: s.mode }
     if (!s.session) {
       if (!s.q.trim()) { s.error = t('workbench.db.err_question'); render(); return }
       if (!s.a.trim() || !s.b.trim() || s.a.trim() === s.b.trim()) { s.error = t('workbench.db.err_models'); render(); return }
@@ -15449,6 +15449,33 @@
     return '<button type="button" class="' + cls + (WB.dbOpen && cls.indexOf('wb-fr-tbtn') >= 0 ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="db-open" aria-pressed="' + !!WB.dbOpen + '" title="' + escA(t('workbench.db.open_hint')) + '">🔀 ' + esc(t('workbench.db.open')) + '</button>'
   }
 
+  /** A text with a fallback: the translation when the key exists, otherwise `fallback` (a mode made later has no key). */
+  function dbTOr(key, fallback) {
+    var v = t(key)
+    return v && v !== key ? v : fallback
+  }
+
+  function dbModeName(id) { return dbTOr('workbench.db.mode.' + id + '.name', id) }
+
+  /** The mode list: what the server offers, or the two built-in ones while it has not answered. */
+  function dbModeIds(s) {
+    var list = s.models && s.models.modes && s.models.modes.length ? s.models.modes.map(function (m) { return m.id }) : ['peer', 'critic']
+    if (list.indexOf(s.mode) < 0) list = list.concat([s.mode])
+    return list
+  }
+
+  /** The mode picker, with a plain explanation of what the chosen mode does. */
+  function dbModeHtml(s) {
+    var opts = dbModeIds(s).map(function (id) {
+      return '<option value="' + escA(id) + '"' + (id === s.mode ? ' selected' : '') + '>' + esc(dbModeName(id)) + '</option>'
+    }).join('')
+    return '<div class="wb-db-field"><label for="wbDbMode"><strong>' + esc(t('workbench.db.mode_label')) + '</strong></label>'
+      + '<select class="wb-input wb-db-modepick" id="wbDbMode">' + opts + '</select>'
+      + '<p class="wb-muted wb-db-modedesc">' + esc(dbTOr('workbench.db.mode.' + s.mode + '.desc', '')) + '</p></div>'
+  }
+
+  function dbIsCritic(mode) { return mode === 'critic' }
+
   function dbModelInput(id, label, value) {
     return '<label class="wb-db-field"><span>' + esc(label) + '</span>'
       + '<input type="text" class="wb-input" id="' + id + '" list="wbDbModelList" autocomplete="off" spellcheck="false"'
@@ -15457,11 +15484,13 @@
 
   function dbSetupHtml(s) {
     var m = s.models
-    var out = '<ol class="wb-db-steps"><li>' + esc(t('workbench.db.step1')) + '</li><li>' + esc(t('workbench.db.step2')) + '</li>'
-      + '<li>' + esc(t('workbench.db.step3')) + '</li><li>' + esc(t('workbench.db.step4')) + '</li></ol>'
+    var crit = dbIsCritic(s.mode)
+    var out = '<ol class="wb-db-steps"><li>' + esc(t('workbench.db.step0')) + '</li><li>' + esc(t('workbench.db.step1')) + '</li><li>' + esc(t('workbench.db.step2')) + '</li>'
+      + '<li>' + esc(t('workbench.db.step3')) + '</li><li>' + esc(t(crit ? 'workbench.db.step4_critic' : 'workbench.db.step4')) + '</li></ol>'
     if (m && m.has_key === false) out += '<p class="wb-error">' + esc(t('workbench.db.no_key')) + '</p>'
-    out += '<label class="wb-db-field"><span>' + esc(t('workbench.db.q_label')) + '</span>'
-      + '<textarea class="wb-input" id="wbDbQ" rows="5" maxlength="20000" placeholder="' + escA(t('workbench.db.q_ph')) + '">' + esc(s.q) + '</textarea></label>'
+    out += dbModeHtml(s)
+    out += '<label class="wb-db-field"><span>' + esc(t(crit ? 'workbench.db.q_label_critic' : 'workbench.db.q_label')) + '</span>'
+      + '<textarea class="wb-input" id="wbDbQ" rows="5" maxlength="20000" placeholder="' + escA(t(crit ? 'workbench.db.q_ph_critic' : 'workbench.db.q_ph')) + '">' + esc(s.q) + '</textarea></label>'
     // Supporting material
     out += '<div class="wb-db-field"><span>' + esc(t('workbench.db.files_label')) + '</span><div class="wb-db-files">'
     s.files.forEach(function (f, i) {
@@ -15480,21 +15509,55 @@
     if (WB.selectedId) out += '<button type="button" class="btn-secondary btn-compact" data-wb-act="db-attach-item">' + esc(t('workbench.db.attach_item')) + '</button>'
     out += '</div></div>'
     // The two models, like two documents side by side
-    out += '<div class="wb-db-models">' + dbModelInput('wbDbModelA', t('workbench.db.model_a'), s.a) + dbModelInput('wbDbModelB', t('workbench.db.model_b'), s.b) + '</div>'
+    out += '<div class="wb-db-models">' + dbModelInput('wbDbModelA', t(crit ? 'workbench.db.model_a_critic' : 'workbench.db.model_a'), s.a)
+      + dbModelInput('wbDbModelB', t(crit ? 'workbench.db.model_b_defender' : 'workbench.db.model_b'), s.b) + '</div>'
     out += '<datalist id="wbDbModelList">' + ((m && m.catalog) || []).map(function (c) { return '<option value="' + escA(c.id) + '">' + esc(c.name) + '</option>' }).join('') + '</datalist>'
     if (m && m.catalog_error) out += '<p class="wb-muted">' + esc(t('workbench.db.catalog_error')) + '</p>'
     out += '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-start"' + (s.busy || s.reading ? ' disabled' : '') + '>' + esc(t('workbench.db.start')) + '</button></div>'
     return out
   }
 
+  /** The critic's objections as cards (K1, K2 ...): number, kind, the quoted words, the objection. */
+  function dbObjectionsHtml(list) {
+    return '<ol class="wb-db-obj">' + list.map(function (o) {
+      return '<li><div class="wb-db-obj-head"><strong>' + esc(o.id) + '</strong>'
+        + (o.kind ? ' <span class="wb-db-kind wb-db-kind-' + escA(o.kind) + '">' + esc(t('workbench.db.kind.' + o.kind)) + '</span>' : '') + '</div>'
+        + (o.quote ? '<blockquote class="wb-db-quote">' + esc(o.quote) + '</blockquote>' : '')
+        + '<div class="wb-db-text">' + dbTextHtml(o.text) + '</div></li>'
+    }).join('') + '</ol>'
+  }
+
+  /** The defender's answers, one per objection: the verdict, the reason, and the proposed new wording. */
+  function dbRepliesHtml(list) {
+    return '<ol class="wb-db-obj">' + list.map(function (r) {
+      return '<li><div class="wb-db-obj-head"><strong>' + esc(r.id) + '</strong>'
+        + (r.verdict ? ' <span class="wb-db-verdict wb-db-verdict-' + escA(r.verdict) + '">' + esc(t('workbench.db.verdict.' + r.verdict)) + '</span>' : '') + '</div>'
+        + (r.reason ? '<div class="wb-db-text">' + dbTextHtml(r.reason) + '</div>' : '')
+        + (r.rewrite ? '<div class="wb-db-rewrite"><em>' + esc(t('workbench.db.rewrite')) + ':</em> ' + dbTextHtml(r.rewrite) + '</div>' : '')
+        + '</li>'
+    }).join('') + '</ol>'
+  }
+
+  /** One answer: cards when the roles' format could be read out of it, the plain text otherwise (always reachable). */
+  function dbAnswerHtml(x) {
+    var structured = x.objections && x.objections.length ? dbObjectionsHtml(x.objections)
+      : x.replies && x.replies.length ? dbRepliesHtml(x.replies) : ''
+    if (!structured) return '<div class="wb-db-text">' + dbTextHtml(x.text) + '</div>'
+    return structured + '<details class="wb-db-raw"><summary>' + esc(t('workbench.db.raw')) + '</summary><div class="wb-db-text">' + dbTextHtml(x.text) + '</div></details>'
+  }
+
   function dbRoundHtml(s, r) {
+    var critic = null
+    r.responses.forEach(function (y) { if (y.role === 'critic') critic = y })
     var cols = [s.a, s.b].map(function (model) {
       var x = null
       r.responses.forEach(function (y) { if (y.model === model) x = y })
-      var body = !x ? '<p class="wb-muted">–</p>'
-        : x.ok ? '<div class="wb-db-text">' + dbTextHtml(x.text) + '</div>'
+      var body = !x ? (critic && critic.noObjections ? '<p class="wb-muted">' + esc(t('workbench.db.no_objections_note')) + '</p>' : '<p class="wb-muted">–</p>')
+        : x.ok ? dbAnswerHtml(x)
         : '<p class="wb-error">' + esc(t('workbench.db.model_failed', { error: x.error || '' })) + '</p>'
-      return '<div class="wb-db-col"><div class="wb-db-colhead"><strong>' + esc(dbModelShort(model)) + '</strong>'
+      var role = x && x.role ? x.role : (dbIsCritic(s.mode) ? (model === s.a ? 'critic' : 'defender') : '')
+      return '<div class="wb-db-col"><div class="wb-db-colhead"><span><strong>' + esc(dbModelShort(model)) + '</strong>'
+        + (role ? ' <span class="wb-db-role wb-db-role-' + escA(role) + '">' + esc(t('workbench.db.role.' + role)) + '</span>' : '') + '</span>'
         + (x && x.ok ? ' <button type="button" class="wb-linklike" data-wb-act="db-copy" data-wb-round="' + r.round + '" data-wb-model="' + escA(model) + '">' + esc(t('workbench.db.copy')) + '</button>' : '')
         + '</div>' + body + '</div>'
     }).join('')
@@ -15504,7 +15567,7 @@
   }
 
   function dbSessionHtml(s) {
-    var out = '<div class="wb-db-question"><strong>' + esc(t('workbench.db.q_shown')) + ':</strong> ' + esc(s.q)
+    var out = '<div class="wb-db-question"><strong>' + esc(t('workbench.db.mode_shown')) + ':</strong> ' + esc(dbModeName(s.mode)) + '<br><strong>' + esc(t('workbench.db.q_shown')) + ':</strong> ' + esc(s.q)
       + (s.files.length ? '<div class="wb-db-files">' + s.files.map(function (f) { return '<span class="wb-db-chip">📎 ' + esc(f.name) + '</span>' }).join('') + '</div>' : '')
       + '</div>'
     s.rounds.forEach(function (r) { out += dbRoundHtml(s, r) })
@@ -15578,7 +15641,9 @@
   })
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
-    if (e.target.id === 'wbDbFile') {
+    if (e.target.id === 'wbDbMode') {
+      if (WB.db && !WB.db.session) { WB.db.mode = e.target.value; render() }
+    } else if (e.target.id === 'wbDbFile') {
       var f = e.target.files && e.target.files[0]
       try { e.target.value = '' } catch (_e) { /* old browser: harmless */ }
       dbAttachFile(f)

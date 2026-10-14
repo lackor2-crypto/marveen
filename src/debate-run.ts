@@ -17,6 +17,10 @@ import { getDb } from './db.js'
 import { getSecret } from './web/vault.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
+import {
+  findMode, resolveMode, hasRoleInstructions, modeSystemPrompt, buildModeRoundPrompt, isNoObjections, readResponse,
+  DEFAULT_MODE_ID, type DebateModeDef, type DebateRoleId, type ParsedObjection, type ParsedReply,
+} from './debate-modes.js'
 
 export const DEBATE_LOG_PATH = join(STORE_DIR, 'debate-log.jsonl')
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -39,6 +43,11 @@ export interface DebateResponse {
   error?: string
   tokensIn?: number | null
   tokensOut?: number | null
+  /** Role-based modes only (debate-modes.ts): who this response is from, and what could be read out of it. */
+  role?: DebateRoleId
+  objections?: ParsedObjection[]
+  replies?: ParsedReply[]
+  noObjections?: boolean
 }
 
 export interface DebateRoundView {
@@ -51,6 +60,8 @@ export interface DebateRoundView {
 export interface DebateSessionState {
   id: string
   project: string | null
+  /** Id of the debate mode (debate-modes.ts); debates from before the modes read as the default. */
+  mode: string
   models: string[]
   question: string
   attachments: DebateAttachment[]
@@ -114,9 +125,14 @@ export interface RoundPromptInput {
   steer: string
 }
 
+/** The question and the material: the block every prompt of a debate starts with. */
+export function questionHead(question: string, attachments: DebateAttachment[]): string {
+  return `Question / task from the owner:\n${question}${materialBlock(attachments)}`
+}
+
 /** The user message one model gets for one round. Round 1: independent answer. Later: respond to the other side. */
 export function buildRoundPrompt(a: RoundPromptInput): string {
-  const head = `Question / task from the owner:\n${a.question}${materialBlock(a.attachments)}`
+  const head = questionHead(a.question, a.attachments)
   if (a.round <= 1) {
     return `${head}\n\nRound 1: answer on your own. Give your position and the reasoning behind it.`
   }
@@ -132,13 +148,16 @@ export function buildRoundPrompt(a: RoundPromptInput): string {
 }
 
 /** The closing synthesis prompt: what both sides ended up with, as a neutral write-up the owner can copy. */
-export function buildConcludePrompt(state: Pick<DebateSessionState, 'question' | 'attachments' | 'rounds'>): string {
+export function buildConcludePrompt(state: Pick<DebateSessionState, 'question' | 'attachments' | 'rounds'> & { mode?: string }): string {
   const last = state.rounds[state.rounds.length - 1]
-  const positions = (last?.responses ?? []).filter(r => r.ok && r.text).map(r => `### ${r.model}\n${r.text}`).join('\n\n')
+  const mode = resolveMode(state.mode)
+  const positions = (last?.responses ?? []).filter(r => r.ok && r.text)
+    .map(r => `### ${r.model}${r.role && r.role !== 'peer' ? ` (${r.role})` : ''}\n${r.text}`).join('\n\n')
   const notes = state.rounds.filter(r => r.round > 1 && r.prompt.trim()).map(r => `Round ${r.round}: ${r.prompt.trim()}`).join('\n')
   return [
     `You are the neutral secretary of a debate between two models. Question:\n${state.question}${materialBlock(state.attachments)}`,
     notes ? `The owner steered the debate with these notes:\n${notes}` : '',
+    mode.conclusionNote ?? '',
     `The final positions (round ${last?.round ?? 1}):\n${positions || '(none)'}`,
     'Write the result for the owner. The very first line must be exactly "CONSENSUS: yes" or "CONSENSUS: no". Then: what both sides agree on, what they still disagree about, and your recommended answer. Reply in the language of the question.',
   ].filter(Boolean).join('\n\n')
@@ -194,13 +213,15 @@ export function loadDebateSession(id: string): DebateSessionState | null {
   const roundLines = lines.filter(l => l.type === 'round')
   if (!roundLines.length) return null
   const ctx = [...lines].reverse().find(l => l.type === 'context') as
-    { models?: string[]; question?: string; files?: DebateAttachment[]; project?: string } | undefined
+    { models?: string[]; question?: string; files?: DebateAttachment[]; project?: string; mode?: string } | undefined
   const byRound = new Map<number, DebateRoundView>()
   for (const l of roundLines) {
     const n = Number(l.round) || 1
     if (!byRound.has(n)) byRound.set(n, { round: n, prompt: String(l.prompt ?? ''), responses: [] })
+    const role = typeof l.role === 'string' && l.role !== 'peer' ? l.role as DebateRoleId : undefined
     byRound.get(n)!.responses.push({
       model: String(l.model ?? ''), ok: l.ok === true,
+      ...(role ? { role, ...readResponse(role, typeof l.text === 'string' ? l.text : null) } : {}),
       ...(typeof l.text === 'string' ? { text: l.text } : {}),
       ...(typeof l.error === 'string' ? { error: l.error } : {}),
       tokensIn: typeof l.tokensIn === 'number' ? l.tokensIn : null,
@@ -212,7 +233,7 @@ export function loadDebateSession(id: string): DebateSessionState | null {
   const models = ctx?.models?.length ? ctx.models : [...new Set(roundLines.map(l => String(l.model ?? '')))]
   const project = (roundLines.find(l => l.project)?.project as string | undefined) ?? ctx?.project ?? null
   return {
-    id, project: project || null, models,
+    id, project: project || null, mode: findMode(ctx?.mode)?.id ?? DEFAULT_MODE_ID, models,
     question: ctx?.question ?? rounds[0]?.prompt ?? '',
     attachments: Array.isArray(ctx?.files) ? ctx!.files! : [],
     rounds, concluded: !!conclude,
@@ -310,6 +331,8 @@ export interface RunRoundInput {
   models?: string[]
   attachments?: unknown
   steer?: string
+  /** Debate mode id (debate-modes.ts), first round only; a later round keeps the mode the debate started with. */
+  mode?: string
 }
 
 export interface RunRoundResult { session: string; round: number; responses: DebateResponse[] }
@@ -327,6 +350,9 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
   const prior = input.session ? loadDebateSession(input.session) : null
   if (input.session && !prior) throw new DebateInputError('session_not_found')
   if (prior?.concluded) throw new DebateInputError('session_concluded')
+  const chosen = prior ? resolveMode(prior.mode) : findMode(input.mode)
+  if (!chosen) throw new DebateInputError('mode_unknown')
+  const mode: DebateModeDef = chosen
 
   const models = prior ? prior.models : cleanModels(input.models)
   const question = (prior ? prior.question : String(input.question ?? '')).trim().slice(0, MAX_QUESTION_CHARS)
@@ -346,21 +372,41 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
       const r = prev?.responses.find(x => x.model === model && x.ok && x.text)
       return r?.text ?? null
     }
-    const responses = await Promise.all(models.map((m, i) => callModel(m, SYSTEM_PROMPT, buildRoundPrompt({
-      question, attachments, round, own: textOf(m), other: textOf(models[1 - i]), steer,
-    }), key)))
+    const roleMode = hasRoleInstructions(mode)
+    const head = questionHead(question, attachments)
+    const callAs = async (i: number, otherNow: string | null): Promise<DebateResponse> => {
+      const role = mode.roles[i]
+      if (!roleMode) {
+        return callModel(models[i], SYSTEM_PROMPT, buildRoundPrompt({ question, attachments, round, own: textOf(models[i]), other: textOf(models[1 - i]), steer }), key)
+      }
+      const r = await callModel(models[i], modeSystemPrompt(mode, role) ?? SYSTEM_PROMPT, buildModeRoundPrompt(role, {
+        head, round, ownPrev: textOf(models[i]), otherPrev: textOf(models[1 - i]), otherNow, steer,
+      }), key)
+      return { ...r, role, ...readResponse(role, r.text) }
+    }
+    let responses: DebateResponse[]
+    if (mode.sequential) {
+      // The second model answers the first one's answer of THIS round (critic -> defender). If the first model
+      // failed, or found nothing to object to, there is nothing to answer: the second call is skipped.
+      const first = await callAs(0, null)
+      responses = [first]
+      if (first.ok && first.text && !isNoObjections(first.text)) responses.push(await callAs(1, first.text))
+    } else {
+      responses = await Promise.all(models.map((_m, i) => callAs(i, null)))
+    }
     if (!responses.some(r => r.ok)) return { session, round, responses }
 
     const ts = Math.floor(Date.now() / 1000)
     const project = input.project || prior?.project || null
     if (!prior) {
-      appendLine({ ts, session, type: 'context', models, question, files: attachments, ...(project ? { project } : {}) })
+      appendLine({ ts, session, type: 'context', models, question, files: attachments, mode: mode.id, ...(project ? { project } : {}) })
     }
     for (const r of responses) {
       appendLine({
         ts, session, round, type: 'round', prompt: round === 1 ? question : steer, model: r.model, ok: r.ok,
         text: r.ok ? r.text : null, tokensIn: r.tokensIn ?? null, tokensOut: r.tokensOut ?? null,
         error: r.ok ? null : r.error,
+        ...(r.role ? { role: r.role } : {}),
         ...(project ? { project } : {}),
       })
       recordTokenUsage(session, ts, r)

@@ -2056,6 +2056,23 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 @media (max-width: 900px) {
   .wb-db-models, .wb-db-cols { grid-template-columns: minmax(0, 1fr); }
 }
+.wb-db-modepick { width: auto; max-width: 360px; }
+.wb-db-modedesc { margin: 2px 0 0; font-size: 0.85rem; line-height: 1.45; }
+.wb-db-role { font-size: 0.74rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
+.wb-db-role-critic { background: rgba(217, 119, 6, 0.15); color: #b45309; }
+.wb-db-role-defender { background: rgba(37, 99, 235, 0.14); color: #1d4ed8; }
+.wb-db-obj { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.wb-db-obj > li { border-left: 3px solid var(--border); padding-left: 10px; }
+.wb-db-obj-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 3px; }
+.wb-db-kind, .wb-db-verdict { font-size: 0.74rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: rgba(127, 127, 127, 0.16); }
+.wb-db-kind-legal { background: rgba(220, 38, 38, 0.14); color: #b91c1c; }
+.wb-db-verdict-accept { background: rgba(22, 163, 74, 0.15); color: #15803d; }
+.wb-db-verdict-partial { background: rgba(217, 119, 6, 0.15); color: #b45309; }
+.wb-db-verdict-reject { background: rgba(220, 38, 38, 0.14); color: #b91c1c; }
+.wb-db-quote { margin: 2px 0 4px; padding: 3px 10px; border-left: 3px solid rgba(127, 127, 127, 0.45); font-size: 0.88rem; font-style: italic; overflow-wrap: anywhere; }
+.wb-db-rewrite { margin-top: 4px; padding: 5px 8px; border-radius: 6px; background: rgba(22, 163, 74, 0.08); font-size: 0.9rem; overflow-wrap: anywhere; }
+.wb-db-raw { margin-top: 8px; font-size: 0.85rem; }
+.wb-db-raw > summary { cursor: pointer; color: var(--text-muted); }
 .wb-db .wb-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .wb-db .wb-actions > button { width: auto; }
 
