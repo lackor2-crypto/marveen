@@ -1231,6 +1231,8 @@ const OPEN_WORK_STATUSES = new Set(['planned', 'in_progress', 'testing'])
 
 /** #598: a classifier that never answers must not strand a message; after this the task is claimable again. */
 const TOPIC_PENDING_MAX_MS = 5 * 60 * 1000
+/** #602: how long an unanswered "which topic?" question holds the message before it falls back to continuing. */
+const TOPIC_ASK_MAX_MS = 15 * 60 * 1000
 
 /** What a plain Telegram message is compared with: the project's open card, or (#602) its latest finished chat. */
 export interface OpenTopicCard {
@@ -1284,6 +1286,41 @@ export function markTopicPending(taskId: string, now = Date.now()): void {
 
 /** #598: apply the classifier's verdict. `related` (also the failure default) continues the open card's chat;
  *  `unrelated` holds the task until that card's work is finished. Only acts on a still-pending task. */
+/** #602: the classifier was unsure -> the message waits ('asking') until the owner answers which topic it belongs to. */
+export function markTopicAsking(taskId: string, card: OpenTopicCard, now = Date.now()): void {
+  ensureTables()
+  const anchor = card.chatSessionId ? `session:${card.chatSessionId}` : card.ref
+  getDb().prepare(`UPDATE code_tasks SET topic_state = 'asking', hold_card = ?, topic_at = ? WHERE id = ? AND topic_state = 'pending'`).run(anchor, now, taskId)
+}
+
+/** The project's newest message still waiting for the owner's topic answer. */
+export function askingTaskForProject(project: string, now = Date.now()): string | null {
+  ensureTables()
+  const row = getDb()
+    .prepare(`SELECT id FROM code_tasks WHERE project = ? AND status = 'queued' AND topic_state = 'asking' AND topic_at >= ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+    .get(project, now - TOPIC_ASK_MAX_MS) as { id: string } | undefined
+  return row?.id ?? null
+}
+
+export function answerTopicQuestion(taskId: string, verdict: 'related' | 'unrelated'): boolean {
+  ensureTables()
+  const db = getDb()
+  const row = db.prepare(`SELECT hold_card FROM code_tasks WHERE id = ? AND topic_state = 'asking'`).get(taskId) as { hold_card: string | null } | undefined
+  if (!row?.hold_card) return false
+  const anchor = row.hold_card
+  let res
+  if (anchor.startsWith('session:')) {
+    res = verdict === 'related'
+      ? db.prepare(`UPDATE code_tasks SET topic_state = NULL, target_session_id = ? WHERE id = ? AND topic_state = 'asking'`).run(anchor.slice(8), taskId)
+      : db.prepare(`UPDATE code_tasks SET topic_state = 'fresh' WHERE id = ? AND topic_state = 'asking'`).run(taskId)
+  } else {
+    res = verdict === 'related'
+      ? db.prepare(`UPDATE code_tasks SET topic_state = NULL, card_ref = ? WHERE id = ? AND topic_state = 'asking'`).run(anchor, taskId)
+      : db.prepare(`UPDATE code_tasks SET topic_state = 'held' WHERE id = ? AND topic_state = 'asking'`).run(taskId)
+  }
+  return res.changes > 0
+}
+
 export function resolveTopicCheck(taskId: string, verdict: 'related' | 'unrelated', card: OpenTopicCard): boolean {
   ensureTables()
   const db = getDb()
@@ -1424,6 +1461,11 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       if (task.topicState === 'pending') {
         if (now - ((row['topic_at'] as number | null) ?? 0) < TOPIC_PENDING_MAX_MS) continue
         // The classifier never answered: fall back to the safe default (continue the open work).
+        db.prepare(`UPDATE code_tasks SET topic_state = NULL WHERE id = ?`).run(task.id)
+        task.topicState = null
+      } else if (task.topicState === 'asking') {
+        if (now - ((row['topic_at'] as number | null) ?? 0) < TOPIC_ASK_MAX_MS) continue
+        // No answer from the owner: the safe default, continue the open work.
         db.prepare(`UPDATE code_tasks SET topic_state = NULL WHERE id = ?`).run(task.id)
         task.topicState = null
       } else if (task.topicState === 'held') {

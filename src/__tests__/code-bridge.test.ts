@@ -20,9 +20,9 @@ import {
   reapExpiredCodeLeases, failOrphanedCodeTasks, matchesExcluded, summarizeResult, formatDuration,
   recordCodeTaskDispatchWorkspace, codeTaskQueueAhead, recordCodeWorkerSeen,
   LEASE_MS, MAX_ATTEMPTS, PROMPT_MAX_CHARS, ORPHAN_GRACE_MS,
-  openTopicCardForProject, previousChatForProject, markTopicPending,
+  openTopicCardForProject, previousChatForProject, markTopicPending, askingTaskForProject, answerTopicQuestion,
 } from '../web/code-bridge-store.js'
-import { parseTopicVerdict } from '../web/code-topic-classifier.js'
+import { parseTopicVerdict, parseTopicAnswer } from '../web/code-topic-classifier.js'
 import { isRepoWorktreePath, tryHandleCode } from '../web/routes/code.js'
 import { PROJECT_ROOT } from '../config.js'
 import { Readable } from 'node:stream'
@@ -569,6 +569,35 @@ describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () =>
       expect(sent.length).toBe(0)
       const c = claimNextCodeTask('w')!
       expect(c.startFresh).toBe(true)
+    })
+
+    it('#602: bizonytalan -> megkerdezi Bosst, a valasz (1) a regi sessionben folytatja', async () => {
+      finishedTelegramChat()
+      const out = enqueueCodeTask({ project: 'marvin', prompt: 'hmm', origin: 'telegram' })
+      const id = ('task' in out ? out.task : null)!.id
+      const prev = previousChatForProject('marvin', id)!
+      markTopicPending(id)
+      const sent: string[] = []
+      expect(await routeByTopic(id, 'hmm', 'c1', prev, async () => 'unsure', async (_c, t) => { sent.push(t) })).toBe('unsure')
+      expect(sent.length).toBe(1)
+      expect(sent[0]).toContain('1 =')
+      expect(claimNextCodeTask('w')).toBe(null)
+      expect(askingTaskForProject('marvin')).toBe(id)
+      expect(parseTopicAnswer('1')).toBe('related')
+      expect(parseTopicAnswer('Új téma')).toBe('unrelated')
+      expect(parseTopicAnswer('talan')).toBe(null)
+      expect(answerTopicQuestion(id, 'related')).toBe(true)
+      const c = claimNextCodeTask('w')!
+      expect(c.sessionId).toBe(prev.chatSessionId)
+    })
+
+    it('#602: valasz nelkul 15 perc utan a biztonsagos alapertek', async () => {
+      finishedTelegramChat()
+      const out = enqueueCodeTask({ project: 'marvin', prompt: 'hmm', origin: 'telegram' })
+      const id = ('task' in out ? out.task : null)!.id
+      markTopicPending(id)
+      await routeByTopic(id, 'hmm', 'c1', previousChatForProject('marvin', id)!, async () => 'unsure', async () => {})
+      expect(claimNextCodeTask('w', Date.now() + 16 * 60 * 1000)!.id).toBe(id)
     })
 
     it('#602: 6 oran tuli elozo chat nem jelolt', () => {

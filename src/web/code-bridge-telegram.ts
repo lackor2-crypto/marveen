@@ -24,10 +24,10 @@ import {
   enqueueCodeTask, listCodeSessions, listCodeTasks, latestCodeTaskForProject,
   getCodeTaskByPrefix, getCodeTask, cancelCodeTask, formatDuration, normalizeAlias,
   listCodeTabs, codeTaskQueueAhead,
-  isExcludedProject, openTopicCardForProject, previousChatForProject, markTopicPending, resolveTopicCheck,
+  isExcludedProject, openTopicCardForProject, previousChatForProject, markTopicPending, resolveTopicCheck, markTopicAsking, askingTaskForProject, answerTopicQuestion,
   type OpenTopicCard,
 } from './code-bridge-store.js'
-import { classifyTopic, type TopicVerdict } from './code-topic-classifier.js'
+import { classifyTopic, parseTopicAnswer, type TopicVerdict } from './code-topic-classifier.js'
 import { shortId, chunkMessage } from './code-bridge-notify.js'
 import { transcribeWithBotToken } from './routes/voice.js'
 import { ol, uiString } from '../owner-lang.js'
@@ -408,6 +408,16 @@ export async function routeByTopic(
   let verdict: TopicVerdict = 'related'
   try { verdict = await classify(card, message) } catch { verdict = 'related' }
   try {
+    if (verdict === 'unsure') {
+      // #602 (Boss TG 3322): when the AI is not sure, the owner decides instead of a guess.
+      markTopicAsking(taskId, card)
+      const what = card.chatSessionId ? ol('az elozo beszelgeteshez', 'the previous conversation') : (card.seq != null ? `#${card.seq}` : card.title)
+      await notify(chatId, ol(
+        `Nem vagyok biztos benne, hogy ez az uzenet a(z) ${what} temajahoz tartozik-e. Valaszolj: 1 = igen, folytassa azt (ugyanabban a chatben), 2 = nem, ez uj tema (uj chat).`,
+        `I am not sure whether this message belongs to ${what}. Reply: 1 = yes, continue that (same chat), 2 = no, it is a new topic (new chat).`,
+      ))
+      return verdict
+    }
     const applied = resolveTopicCheck(taskId, verdict, card)
     if (applied && verdict === 'unrelated' && !card.chatSessionId) {
       const n = card.seq != null ? `#${card.seq}` : card.title
@@ -428,6 +438,10 @@ export async function routeByTopic(
 const SILENT_ACK = ''
 
 function enqueueFromTelegram(project: string, tab: string | null, prompt: string, chatId: string, from: string): string {
+  // #602: a "1" / "2" answers the pending "which topic?" question instead of becoming a new task.
+  const answer = parseTopicAnswer(prompt)
+  const asking = answer ? askingTaskForProject(project) : null
+  if (answer && asking && answerTopicQuestion(asking, answer)) return SILENT_ACK
   const out = enqueueCodeTask({
     project,
     prompt,

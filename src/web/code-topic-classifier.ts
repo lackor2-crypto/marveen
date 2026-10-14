@@ -9,7 +9,7 @@
 import { logger } from '../logger.js'
 import type { OpenTopicCard } from './code-bridge-store.js'
 
-export type TopicVerdict = 'related' | 'unrelated'
+export type TopicVerdict = 'related' | 'unrelated' | 'unsure'
 export type TopicRun = (prompt: string) => Promise<{ text: string | null; error?: string }>
 
 const CLASSIFY_TIMEOUT_MS = 60_000
@@ -26,7 +26,8 @@ export function buildTopicPrompt(card: OpenTopicCard, message: string): string {
       : 'Answer related=true when the message continues, asks about, corrects or extends that work',
     '(including short follow-ups such as "continue", "ok, do all of it" or "go on"). Answer related=false only when it is clearly',
     'a different, new request.',
-    'Respond with ONLY this JSON, no markdown, no explanation: {"related":true} or {"related":false}',
+    'If you cannot tell with confidence which it is, answer unsure: the owner will then be asked.',
+    'Respond with ONLY this JSON, no markdown, no explanation: {"verdict":"related"} or {"verdict":"unrelated"} or {"verdict":"unsure"}',
     chat ? `<first_request>${card.title}</first_request>` : `<card_title>${card.title}</card_title>`,
     chat ? `<answer>${(card.description ?? '').slice(0, 1500)}</answer>` : `<card_description>${(card.description ?? '').slice(0, 1500)}</card_description>`,
     `<message>${message.slice(0, 2000)}</message>`,
@@ -38,7 +39,8 @@ export function parseTopicVerdict(text: string | null): TopicVerdict | null {
   const m = text.match(/\{[^{}]*\}/)
   if (!m) return null
   try {
-    const parsed = JSON.parse(m[0]) as { related?: unknown }
+    const parsed = JSON.parse(m[0]) as { related?: unknown; verdict?: unknown }
+    if (parsed.verdict === 'related' || parsed.verdict === 'unrelated' || parsed.verdict === 'unsure') return parsed.verdict
     if (parsed.related === true) return 'related'
     if (parsed.related === false) return 'unrelated'
   } catch { /* fall through */ }
@@ -59,4 +61,12 @@ export async function classifyTopic(card: OpenTopicCard, message: string, run?: 
     logger.warn({ err }, 'code-topic: classifier failed, continuing the open work')
   }
   return 'related'
+}
+
+/** The owner's answer to the "which topic?" question: 1 / continue -> related, 2 / new -> unrelated, anything else null. */
+export function parseTopicAnswer(text: string): 'related' | 'unrelated' | null {
+  const t = text.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, '').trim()
+  if (['1', 'a', 'folytat', 'folytatas', 'elozo', 'continue', 'previous'].includes(t)) return 'related'
+  if (['2', 'b', 'uj', 'uj tema', 'new', 'new topic'].includes(t)) return 'unrelated'
+  return null
 }
