@@ -13061,7 +13061,7 @@
     return '<section class="wb-dp-sec" data-wb-secbox="' + escA(sec.id) + '">'
       + (untitled ? '<span hidden contenteditable="false" data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '" data-wb-untitled="1">' + esc(sec.title) + '</span>' : '')
       + (untitled ? '' : '<div class="wb-dp-sechead">')
-      + (untitled ? '' : dpEditHtml('wb-dp-title', 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"', dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro))
+      + (untitled ? '' : dpEditHtml('wb-dp-title' + dpAlignAttrs(sec.align).cls, 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(sec.align).attr, dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro))
       + (untitled ? '' : '<span class="wb-dp-secbar" contenteditable="false">'
       + (sec.problems ? ' <span class="wb-doc-low">&#9888; ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
       + (ro || !chk ? '' : ' <button type="button" class="wb-dp-secdel" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.sec_del')) + '" aria-label="' + escA(t('workbench.dp.sec_del')) + '">&#10005;</button>')
@@ -13679,6 +13679,12 @@
   }
 
   /** The block / new-line field the toolbar acts on: the focused one, else the last one the cursor was in. */
+  /** #604: the chapter title the cursor is in (it takes an alignment of its own), else null. */
+  function dpTitleTarget() {
+    var a = dpCurrent()
+    return a && a.getAttribute('data-wb-dp') === 'sec' && a.isConnected ? a : null
+  }
+
   function dpFmtTarget() {
     var a = dpCurrent()
     var ok = function (n) { return n && typeof n.getAttribute === 'function' && n.isConnected && /^(block|new)$/.test(n.getAttribute('data-wb-dp') || '') && !n.classList.contains('wb-outline-kind-table') }
@@ -13946,7 +13952,7 @@
     var els = []
     var cur = null
     var begin = function (id, title, el) {
-      cur = { id: id || '', title: title || t('workbench.sh.seed.section'), blocks: [] }
+      cur = { id: id || '', title: title || t('workbench.sh.seed.section'), align: el ? (el.getAttribute('data-wb-align') || '') : '', blocks: [] }
       secs.push(cur)
       els.push({ el: el, si: secs.length - 1, bi: -1 })
     }
@@ -18792,10 +18798,13 @@
     var btns = document.querySelectorAll('[data-wb-fmt]')
     if (!btns.length) return
     var el = dpFmtTarget()
+    var ttl = el ? null : dpTitleTarget()
     for (var i = 0; i < btns.length; i++) {
       var f = btns[i].getAttribute('data-wb-fmt')
       var on = false
-      if (el) {
+      if (ttl) {
+        if (f.indexOf('align-') === 0) on = (ttl.getAttribute('data-wb-align') || '') === f.slice(6)
+      } else if (el) {
         if (f === 'bold' || f === 'italic' || f === 'underline' || f === 'strikeThrough') { try { on = dpCurrent() === el && document.queryCommandState(f) } catch (_e) { on = false } }
         else if (f.indexOf('align-') === 0) on = (el.getAttribute('data-wb-align') || '') === f.slice(6)
         else if (f === 'list') on = el.classList.contains('wb-outline-kind-list')
@@ -19218,6 +19227,14 @@
       return
     }
     var el = dpFmtTarget()
+    // #604 (Boss TG 3357): a chapter title takes the alignment buttons like a Heading 2 paragraph does.
+    var ttlEl = el ? null : dpTitleTarget()
+    if (ttlEl && f.indexOf('align-') === 0) {
+      var tn = (ttlEl.getAttribute('data-wb-align') || '') === f.slice(6) ? '' : f.slice(6)
+      dpSetAlign(ttlEl, f.slice(6), tn)
+      dpFmtSync()
+      return
+    }
     if (!el) { window.showToast(t(dpOnTitle() ? 'workbench.dp.fmt_title' : 'workbench.dp.fmt_pick')); return }
     if (f === 'clear') { dpClearFormat(el); return }
     // #534: "Insert signature" lives on the toolbar (it was in the "+" menu): the picture goes after the paragraph the cursor is in.
