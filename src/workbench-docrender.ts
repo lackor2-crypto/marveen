@@ -24,7 +24,7 @@ import { isBlockAlign, richMatches, richRuns, type ParaFmt, type RichRun } from 
 
 /** Amit a renderelo a modellbol lat: CSAK cim, allapot, blokk-fajta es szoveg. */
 export interface RenderOutline {
-  sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; img?: RenderImage | null; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[]
+  sections: { title: string; status: SectionStatus; /** #604: the chapter title's alignment. */ align?: string | null; blocks: { kind: BlockKind; text: string; img?: RenderImage | null; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[]
   /** Mellekletjegyzek a dokumentum vegen (K-1.18): cimke + rovid leiras, a fajl utja NEM. */
   annexes?: { label: string; title: string }[]
   annexTitle?: string
@@ -370,7 +370,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   const st: StyleCtx = { extra: extraStyles, names: new Map() }
   for (const s of outline.sections) {
     // #534: a section the program titled with its own placeholder has no heading in the document.
-    if (!isPlaceholderSectionTitle(s.title)) body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(s.title)}</text:h>`)
+    if (!isPlaceholderSectionTitle(s.title)) body.push(`<text:h text:style-name="${isBlockAlign(s.align) ? `Heading_20_1_Al_${s.align}` : 'Heading_20_1'}" text:outline-level="1">${inline(s.title)}</text:h>`)
     const sec: string[] = []
     for (const b of s.blocks) {
       if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
@@ -419,6 +419,7 @@ ${(['l', 'c', 'r'] as const).map((a) => {
 <style:style style:name="ListP" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0.1cm"/></style:style>
 <style:style style:name="Title" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:text-align="center" fo:margin-bottom="0.6cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="16pt" fo:font-weight="bold"/></style:style>
 <style:style style:name="Heading_20_1" style:display-name="Heading 1" style:family="paragraph" style:parent-style-name="Standard" style:default-outline-level="1"><style:paragraph-properties fo:margin-top="0.45cm" fo:margin-bottom="0.2cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="13pt" fo:font-weight="bold"/></style:style>
+${(['l', 'c', 'r', 'j'] as const).map((a) => `<style:style style:name="Heading_20_1_Al_${a}" style:family="paragraph" style:parent-style-name="Heading_20_1"><style:paragraph-properties fo:text-align="${a === 'l' ? 'start' : a === 'c' ? 'center' : a === 'r' ? 'end' : 'justify'}"/></style:style>`).join('\n')}
 <style:style style:name="Heading_20_2" style:display-name="Heading 2" style:family="paragraph" style:parent-style-name="Standard" style:default-outline-level="2"><style:paragraph-properties fo:margin-top="0.35cm" fo:margin-bottom="0.15cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="12pt" fo:font-weight="bold"/></style:style>
 <style:style style:name="Heading_20_3" style:display-name="Heading 3" style:family="paragraph" style:parent-style-name="Standard" style:default-outline-level="3"><style:paragraph-properties fo:margin-top="0.3cm" fo:margin-bottom="0.12cm" fo:keep-with-next="always"/><style:text-properties fo:font-size="11pt" fo:font-weight="bold" fo:font-style="italic"/></style:style>
 <style:style style:name="Note" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-bottom="0.15cm"/><style:text-properties fo:font-size="9.5pt"/></style:style>
@@ -464,15 +465,15 @@ ${body.join('\n')}
 }
 
 /** A renderelt tartalom: ami a PDF-be kerul. Mas mezo (allitas, forras) nem. */
-export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; blocks: { kind: BlockKind; text: string; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[] }): RenderOutline {
-  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}), ...(b.pfmt ? { pfmt: b.pfmt } : {}) })) })) }
+export function toRenderOutline(outline: { sections: { title: string; status: SectionStatus; align?: string | null; blocks: { kind: BlockKind; text: string; rich?: string | null; align?: string | null; pfmt?: ParaFmt | null }[] }[] }): RenderOutline {
+  return { sections: outline.sections.map((s) => ({ title: s.title, status: s.status, ...(isBlockAlign(s.align) ? { align: s.align } : {}), blocks: s.blocks.map((b) => ({ kind: b.kind, text: b.text, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}), ...(b.pfmt ? { pfmt: b.pfmt } : {}) })) })) }
 }
 
 /** A dokumentum tartalmanak ujjlenyomata: ha a vegleges PDF utan valtozik, a vegleges allapot megszunik (K-1.23). */
 export function outlineHash(outline: RenderOutline, title: string): string {
   const core = {
     title,
-    s: outline.sections.map((s) => ({ t: s.title, st: s.status, b: s.blocks.map((b) => ({ k: b.kind, x: b.text, ...(b.rich ? { r: b.rich } : {}), ...(b.align ? { al: b.align } : {}), ...(b.pfmt ? { pf: b.pfmt } : {}) })) })),
+    s: outline.sections.map((s) => ({ t: s.title, st: s.status, ...(isBlockAlign(s.align) ? { al: s.align } : {}), b: s.blocks.map((b) => ({ k: b.kind, x: b.text, ...(b.rich ? { r: b.rich } : {}), ...(b.align ? { al: b.align } : {}), ...(b.pfmt ? { pf: b.pfmt } : {}) })) })),
     ...(outline.annexes && outline.annexes.length ? { a: outline.annexes.map((a) => [a.label, a.title]), at: outline.annexTitle || '' } : {}),
   }
   return createHash('sha256').update(JSON.stringify(core)).digest('hex')

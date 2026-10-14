@@ -903,7 +903,7 @@ export function documentOutline(itemId: string): { sections: SectionView[] } {
       return { ...b, rich: richMatches(b.rich, b.text) ? b.rich : null, align: isBlockAlign(b.align) ? b.align : null, pfmt: parsePfmt(b.pfmt ?? null) as ParaFmt | null, claims: claims.filter((c) => c.block_id === b.id), missing: missingMarks(b.text), rewrite: rw ? rewriteView(rw, b.text) : null }
     })
     const problems = bs.reduce((n, b) => n + b.missing.length + b.claims.filter((c) => c.strength === 'unverified').length, 0)
-    return { ...s, blocks: bs, problems, untitled: isPlaceholderSectionTitle(s.title) }
+    return { ...s, align: isBlockAlign(s.align) ? s.align : null, blocks: bs, problems, untitled: isPlaceholderSectionTitle(s.title) }
   })
   return { sections }
 }
