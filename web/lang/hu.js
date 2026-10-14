@@ -6271,6 +6271,8 @@ window._i18n.hu = {
   "workbench.db.file_unreadable": "A fájlt nem sikerült beolvasni.",
   "workbench.db.model_a": "Bal oldali modell",
   "workbench.db.model_b": "Jobb oldali modell",
+  "workbench.db.model_pick": "Válassz modellt…",
+  "workbench.db.judge_none": "Nincs (a bal oldali modell foglal össze)",
   "workbench.db.model_ph": "például openai/gpt-5.5",
   "workbench.db.catalog_error": "A modellek listáját most nem sikerült letölteni; a modell nevét ettől még beírhatod kézzel (például anthropic/claude-sonnet-5).",
   "workbench.db.start": "Vita indítása",
