@@ -34,7 +34,7 @@ describe('/api/debate/modes', () => {
     const r = await call('GET', '/api/debate/modes')
     expect(r.status).toBe(200)
     expect(r.body.custom).toEqual([])
-    expect(r.body.builtin.map((m: any) => [m.id, m.base])).toEqual([['peer', 'peer'], ['critic', 'critic']])
+    expect(r.body.builtin.map((m: any) => [m.id, m.base])).toEqual([['peer', 'peer'], ['critic', 'critic'], ['assumptions', 'critic'], ['premortem', 'critic']])
     expect(r.body.builtin[1]).toMatchObject({ strength: 'medium', swapRoles: false, maxRounds: 6 })
     expect(r.body.defaults.critic).toContain('CRITIC')
     expect(r.body.defaults.defender).toContain('DEFENDER')

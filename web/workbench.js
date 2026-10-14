@@ -15488,11 +15488,11 @@
     return v && v !== key ? v : fallback
   }
 
-  /** What the server says about a mode (built in or the owner's own); the two built-in ones while it has not answered. */
+  /** What the server says about a mode (built in or the owner's own); the built-in ones while it has not answered. */
   function dbModeMeta(id) {
     var list = (dbState().models && dbState().models.modes) || []
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]
-    return { id: id, builtin: true, roles: id === 'critic' ? ['critic', 'defender'] : ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null }
+    return { id: id, builtin: true, roles: (id === 'critic' || id === 'assumptions' || id === 'premortem') ? ['critic', 'defender'] : ['peer', 'peer'], name: null, description: null, strength: 'medium', swap_roles: false, max_rounds: null }
   }
 
   function dbModeName(id) {
@@ -15507,9 +15507,9 @@
     return !m.builtin ? (m.description || '') : dbTOr('workbench.db.mode.' + id + '.desc', '')
   }
 
-  /** The mode list: what the server offers, or the two built-in ones while it has not answered. */
+  /** The mode list: what the server offers, or the built-in ones while it has not answered. */
   function dbModeIds(s) {
-    var list = s.models && s.models.modes && s.models.modes.length ? s.models.modes.map(function (m) { return m.id }) : ['peer', 'critic']
+    var list = s.models && s.models.modes && s.models.modes.length ? s.models.modes.map(function (m) { return m.id }) : ['peer', 'critic', 'assumptions', 'premortem']
     if (list.indexOf(s.mode) < 0) list = list.concat([s.mode])
     return list
   }
