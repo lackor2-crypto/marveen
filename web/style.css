@@ -13215,3 +13215,6 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
   border: 1px solid var(--danger, #d64545); color: var(--danger, #d64545); font-weight: 600;
 }
 .schedule-problem-filter { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 500; color: var(--text); }
+
+/* #603: the subtasks that live in another column, listed under the count on the parent card */
+.kanban-subtask-refs { margin-top: 6px; padding-top: 6px; }

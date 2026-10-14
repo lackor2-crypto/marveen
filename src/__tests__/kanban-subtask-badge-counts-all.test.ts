@@ -9,12 +9,15 @@ describe('kanban subtask badge', () => {
 
   it('counts every child, embedded ones included', () => {
     expect(body).toContain('kanbanCards.filter(c => c.parent_id === id)')
-    expect(body).not.toContain('embeddedSubtaskIds.has')
+    expect(body).toContain("badge.textContent = t('kanban.card.subtask_count', { n: nonEmbedded.length })")
   })
 
-  it('names the subtask card numbers (Boss TG 3349)', () => {
+  it('lists the subtasks that sit in another column one per line, number + title (Boss TG 3357)', () => {
+    expect(body).toContain('kanban-subtask-refs')
     expect(body).toContain('c.seq')
-    expect(body).toContain('refs:')
+    expect(body).toContain('escapeHtml(c.title)')
+    expect(body).toContain('embeddedSubtaskIds.has(c.id)')
+    expect(body).not.toContain('refs:')
   })
 
   it('uses a translated label in both languages', () => {
