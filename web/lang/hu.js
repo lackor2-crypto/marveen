@@ -1448,6 +1448,7 @@ window._i18n.hu = {
   'kanban.filter.group_by':      'Csoportosítás:',
   'kanban.btn.new_card':         'Új kártya',
   'kanban.card.no_description':  '(nincs leírás)',
+  'kanban.card.subtask_count':    '{n} alfeladat',
   'kanban.card.subtasks':        '{done}/{total} alfeladat',
   'kanban.card.comments':        '{n} megjegyzés',
   'kanban.card.children':        '{n} alfeladat',
