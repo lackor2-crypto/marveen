@@ -15707,6 +15707,8 @@
   function dbOpenPanel() {
     WB.dbOpen = !WB.dbOpen
     if (WB.dbOpen) {
+      // One panel in the middle at a time: the button pressed last wins (Boss TG 2926).
+      WB.pdOpen = false; WB.shFinal = false
       dbLoadModels()
       if (dbState().tpl.list === null) dbLoadTemplates()
       if (dbState().past === null) dbLoadPast()
@@ -17995,7 +17997,7 @@
     else if (a === 'tw-run') twRun()
     else if (a === 'tw-save') twSave()
     else if (a === 'sh-doc-tab') { WB.shDocTab = act.getAttribute('data-wb-tab') || 'draft'; render() }
-    else if (a === 'sh-final') { WB.shFinal = !WB.shFinal; render() }
+    else if (a === 'sh-final') { WB.shFinal = !WB.shFinal; if (WB.shFinal) { WB.dbOpen = false; WB.pdOpen = false } render() }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
@@ -18033,7 +18035,7 @@
     else if (a === 'tl-close') { WB.tlOpen = false; render() }
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
-    else if (a === 'item-finalize') approvalAction('finalize')
+    else if (a === 'item-finalize') { WB.dbOpen = false; approvalAction('finalize') }
     else if (a === 'item-reopen') approvalAction('reopen')
     else if (a === 'approval-submit') approvalAction('submit')
     else if (a === 'approval-withdraw') approvalAction('withdraw')
@@ -18078,7 +18080,7 @@
     else if (a === 'brand-tpl-use') useBrandTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'brand-tpl-del') deleteBrandTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }
-    else if (a === 'pd-open') { WB.pdOpen = !WB.pdOpen; render(); if (WB.pdOpen) loadProjectDocs() }
+    else if (a === 'pd-open') { WB.pdOpen = !WB.pdOpen; if (WB.pdOpen) { WB.dbOpen = false; WB.shFinal = false } render(); if (WB.pdOpen) loadProjectDocs() }
     else if (a === 'pd-close') { WB.pdOpen = false; render() }
     else if (a === 'pd-add') {
       var pdRoleEl = document.getElementById('wbPdRole')
