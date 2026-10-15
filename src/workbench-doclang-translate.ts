@@ -17,8 +17,8 @@
 import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { isBlankLine, isPlaceholderSectionTitle, listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
-import { richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
-import { LANG_NAMES, carriedLook, sourceForTranslated, createVariant, listGlossary, lostFormat, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
+import { parsePfmt, richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
+import { LANG_NAMES, carriedLook, sourceForTranslated, createVariant, listGlossary, listVariants, lostFormat, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
@@ -299,6 +299,69 @@ export function saveShownTranslation(source: WorkItemRow, lang: unknown, section
     formatLost += r.result.format_lost
   }
   return { ok: true, variant: v.item, existing: v.existing, saved, unchanged, failed, claims_not_carried: notCarried, format_lost: formatLost }
+}
+
+export interface SavedTranslationSection {
+  source_section: string
+  /** `current`: the original has not changed since it was translated; `stale`: it has (the page marks it, a new run refreshes it). */
+  state: 'current' | 'stale'
+  title: string
+  blocks: SectionPreview['blocks']
+}
+
+export type SavedTranslationResult =
+  | { ok: true; found: false }
+  | { ok: true; found: true; variant: { id: string; title: string }; sections: SavedTranslationSection[] }
+  | { ok: false; code: 'is_variant' | 'bad_lang'; message: string }
+
+/** What a block's sources look like, without the ids: a claim carried into the language version keeps its sources verbatim (translateSection). */
+function claimSignature(claimId: string): string {
+  const rows = getDb().prepare('SELECT kind, path, page, quote, citation, url, said FROM wb_doc_sources WHERE claim_id = ? ORDER BY created_at').all(claimId) as unknown[]
+  return JSON.stringify(rows)
+}
+
+/**
+ * The translation the owner already SAVED into the language version, in the shape of a live preview, so the side-by-side
+ * page can show it again after a reload (the preview itself lives only in the browser tab -- F5 emptied the right column
+ * although the language version was there). `found: false` = there is no language version for that language yet (the
+ * page says "not translated yet"); a variant section that was never translated (empty link) is simply not listed.
+ * The claims are paired back to the claims of the original by their sources, so a section saved again does not lose them.
+ */
+export function savedTranslationFor(source: WorkItemRow, targetLang: string): SavedTranslationResult {
+  if (variantOf(source.id)) return { ok: false, code: 'is_variant', message: '' }
+  const lang = String(targetLang || '').trim().toLowerCase()
+  if (!/^[a-z]{2}$/.test(lang)) return { ok: false, code: 'bad_lang', message: '' }
+  const v = listVariants(source.id).find((x) => x.lang === lang)
+  const item = v ? getWorkItem(v.work_item_id) : null
+  if (!v || !item || item.deleted_at) return { ok: true, found: false }
+  const info = variantInfo(item.id)
+  if (!info) return { ok: true, found: false }
+  const db = getDb()
+  const varBlocks = listBlocks(item.id)
+  const varSections = new Map(listSections(item.id).map((s) => [s.id, s]))
+  const sections: SavedTranslationSection[] = []
+  for (const st of info.sections) {
+    if (st.state !== 'current' && st.state !== 'stale') continue
+    const vs = varSections.get(st.section_id)
+    if (!vs) continue
+    const srcClaims = (db.prepare(`SELECT c.id, c.text FROM wb_doc_claims c JOIN wb_doc_blocks b ON b.id = c.block_id
+      WHERE b.section_id = ? ORDER BY c.created_at`).all(st.source_section_id) as { id: string; text: string }[]).map((c) => ({ id: c.id, sig: claimSignature(c.id) }))
+    const used = new Set<string>()
+    const blocks = varBlocks.filter((b) => b.section_id === vs.id).map((b): SectionPreview['blocks'][number] => {
+      const claims: { source_claim: string; text: string }[] = []
+      for (const c of db.prepare('SELECT id, text FROM wb_doc_claims WHERE block_id = ? ORDER BY created_at').all(b.id) as { id: string; text: string }[]) {
+        const sig = claimSignature(c.id)
+        const orig = srcClaims.find((x) => !used.has(x.id) && x.sig === sig)
+        if (!orig) continue
+        used.add(orig.id)
+        claims.push({ source_claim: orig.id, text: c.text })
+      }
+      const pf = parsePfmt(b.pfmt)
+      return { kind: b.kind, text: b.text, claims, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}), ...(pf ? { pfmt: pf } : {}) }
+    })
+    sections.push({ source_section: st.source_section_id, state: st.state, title: vs.title, blocks })
+  }
+  return { ok: true, found: true, variant: { id: item.id, title: item.title }, sections }
 }
 
 /**

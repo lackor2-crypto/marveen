@@ -64,7 +64,7 @@ import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
-import { previewSectionTranslation, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
+import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
@@ -3692,6 +3692,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         return docPdfFail(res, r.code, lang, r.detail)
       }
       json(res, { hash: contentHash(item), pages: r.pages, marks: r.marks })
+      return true
+    }
+    // MENTETT FORDITAS (oldal melletti nezet): a nyelvi valtozatba MAR lementett forditas, elo elonezet alakban --
+    // az elonezet csak a bongeszolap memoriajaban el, az F5 kiuritette a jobb oszlopot. OLVASAS, archivalt projektben is.
+    if (segs.length === 3 && segs[2] === 'translation' && method === 'GET') {
+      const r = savedTranslationFor(item, String(url.searchParams.get('to') ?? ''))
+      if (!r.ok) { json(res, { error: 'preview_' + r.code, message: msg(r.code === 'is_variant' ? 'preview_is_variant' : 'preview_bad_lang', lang) }, 400); return true }
+      json(res, r)
       return true
     }
     // SZERKESZTHETO DOCX (K-1.26): ugyanabbol a modellbol, barmikor -- OLVASAS, archivalt projektben is.
