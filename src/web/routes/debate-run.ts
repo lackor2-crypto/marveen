@@ -177,7 +177,11 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
     try {
       const out = await runDebateRound({ ...body, project })
       if (!out.responses.some(r => r.ok)) {
-        json(res, { error: 'all_failed', message: T(l, 'Egyik modell sem válaszolt, a kör nem lett mentve. Próbáld újra.', 'No model answered, the round was not saved. Try again.'), ...out }, 502)
+        // The reason per model (HTTP status / the maker's own message) is what the owner needs to see, and it is the
+        // only trace of a round that fails in a second: nothing is filed for it (Boss TG 2939).
+        const why = out.responses.map(r => `${r.model}: ${String(r.error || '?').replace(/\s+/g, ' ').slice(0, 160)}`).join(' | ').slice(0, 500)
+        logger.warn({ reasons: why }, '[debate] every model of the round failed')
+        json(res, { error: 'all_failed', message: T(l, `Egyik modell sem válaszolt, a kör nem lett mentve. Ok: ${why}`, `No model answered, the round was not saved. Reason: ${why}`), ...out }, 502)
         return true
       }
       json(res, out)
