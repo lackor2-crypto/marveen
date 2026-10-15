@@ -1,25 +1,26 @@
 ---
 name: letter-workitem-send-only-content
-description: Amikor a tulajdonos azt kéri, hogy egy levelet/beadványt/hiánypótlást "munkadarabként" készíts el a meglévő tudásból, a munkadarab CSAK azt a szöveget tartalmazza, amit ténylegesen elküldünk. Belső jegyzet, útvonal, ellenőrzés-jelzés nem kerülhet bele, és a végleges PDF karakterre egyezzen a munkadarabbal.
+description: Amikor a felhasználó levelet, beadványt, hiánypótlást, bírósági iratot kér "munkadarabként" (Munkapad), a munkadarab CSAK a küldendő szöveg legyen, betűre azonos a generált PDF-fel, és ALAPBÓL a felhasználó anyanyelvén készüljön, nem németül/angolul. Fordítás csak kérésre, utólag.
 scope: global
 ---
 
-# Levél-munkadarab: csak az kerül bele, amit elküldünk
+# Levél-munkadarab: csak a küldendő szöveg, a felhasználó nyelvén
 
 ## Mikor használd
-A tulajdonos levelet, hiánypótlást, beadványt kér a Munkapadon ("csináljuk meg a munkadarabot a meglévő tudásunk alapján"). Valós eset (2026-10-15): a hivatalnak szánt munkadarabban belső hivatkozások, elérési utak és gépi ellenőrzés-jelzések látszottak, a PDF pedig nem azt mutatta, amit a munkadarab.
+Levelet, hiánypótlást, beadványt, bírósági iratot, bármilyen hivatalos dokumentumot fogalmazol a Munkapadon. Valós eset (2026-10-15): a munkadarab tele volt belső magyarázattal, elérési úttal és ellenőrzés-jelzéssel, ami a PDF-ben nem volt ott, ráadásul az ágens németül írta, holott a felhasználó magyarul kérte.
 
 ## Szabályok
-1. **A munkadarab = a küldendő levél.** Címzett, tárgy, megszólítás, törzs, záró forma, aláírás, és a hivatalosan hivatkozott mellékletek (Anlage-szám + cím). Más nem.
-2. **Belső anyag a kontextus-fájlba** (a projekt CLAUDE.md-je / kontextus md), nem a levélbe: forrás-útvonalak, "elkészített/ellenőrzött" jelzések, megjegyzések, amit a tulajdonos és az ágens használ. A levélben ilyen mondat nem lehet.
-3. **Nyelv:** a tulajdonos kérése dönt. Ha magyarul kérte, az első szöveg magyar; a hivatalnak szánt fordítás külön, jelezve. Ha a kért nyelv nem világos, kérdezd meg, ne találd ki.
-4. **PDF = munkadarab, karakterre.** A "Megnyitom és átnézem" és a véglegesítés a munkadarab blokkjaiból rendereljen; a külalak eltérhet, a szöveg nem. Ami a PDF-ben van, annak a munkadarabban kell lennie, és fordítva.
-5. Átadás előtt hasonlítsd össze: a letöltött piszkozat-PDF szövege (`pdftotext`) és a blokkok szövege. Eltérést jelents, ne magyarázd el.
+1. **A munkadarab = a PDF.** Ami a munkadarabban van, az szóról szóra, karakterre ugyanaz, mint a generált PDF-ben, és fordítva: ha a munkadarabban A betű van, a PDF-ben nem lehet B. A PDF külalakja a felhasználó dolga, a szöveg nem térhet el.
+2. **A munkadarabba CSAK a küldendő szöveg kerül:** címzett, tárgy, megszólítás, törzs, záró forma, aláírás. Magyarázat, megjegyzés, forrás-útvonal, "elkészített/ellenőrzött" jelzés, "igaz/következtetés" sor SOHA. Ezek a projekt kontextus-fájljába vagy az ágens válaszába mennek, nem a levélbe.
+3. **Nyelv: a felhasználó anyanyelve.** Nézd meg, milyen nyelven használja a felhasználó a Marvint (felület nyelve, `APP_LANG`, a beszélgetés nyelve), és azon fogalmazd meg és készítsd el a dokumentumot. Német, angol vagy más nyelv CSAK akkor az első nyelv, ha az a felhasználó anyanyelve. A felhasználó utána maga kéri a fordítást (németre, angolra, ...), vagy ha ő külföldi, magyarra; addig ne fordíts, és ne írj eleve idegen nyelven. Ha a nyelv bizonytalan, kérdezd meg.
+4. Az Ellenőrző nézet (állapotjelzők, forrás-sorok, "Egyszerűbben/Hivatalosabban") eszköz, alapból ki van kapcsolva; ne tegyél a blokkok szövegébe semmit, ami csak abban a nézetben értelmes.
+5. Átadás előtt hasonlítsd össze a letöltött piszkozat-PDF szövegét (`pdftotext`) a munkadarab blokkjaival. Eltérést jelents, ne magyarázd el.
 
 ## Buktatók
-- A mellékletek panelje a szerkesztőben a levél része? Nem: a PDF-ben a mellékletjegyzék és a mellékletek a levél UTÁN jönnek. Ezt mondd meg a tulajdonosnak, ha összekeveri.
-- "Új fejezet" névtelen fejezet maradhat a levélben: töröld vagy nevezd át, mielőtt átadod.
+- A mellékletek a PDF-ben a levél UTÁN jönnek (jegyzék + mellékletek); ez rendben van, nem eltérés.
+- "Új fejezet" névtelen fejezet: töröld vagy nevezd át, mielőtt átadod.
 
 ## Ellenőrzés
-- A munkadarab blokkjaiban nincs elérési út, "ellenőrizve", "elkészített" vagy forrás-jelzés.
+- A blokkokban nincs elérési út, "ellenőrizve", "elkészített", forrás-jelzés, magyarázat.
+- A dokumentum nyelve a felhasználó nyelve.
 - A PDF első része szóról szóra a blokkok szövege.
