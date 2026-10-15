@@ -18,7 +18,7 @@ import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { isBlankLine, isPlaceholderSectionTitle, listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
 import { richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
-import { LANG_NAMES, carriedLook, createVariant, listGlossary, lostFormat, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
+import { LANG_NAMES, carriedLook, sourceForTranslated, createVariant, listGlossary, lostFormat, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
@@ -260,10 +260,9 @@ export async function previewSectionTranslation(source: WorkItemRow, sectionId: 
     const parsed = parseTranslation(r.text, blocks, sec.title)
     if (parsed.ok) {
       const rows = listBlocks(source.id).filter((b: BlockRow) => b.section_id === sec.id)
-      const paired = rows.length === parsed.blocks.length
       // The formatted translation the model gave (when usable) wins over the one-piece format carried by position.
       const shown = parsed.blocks.map((b, i): SectionPreview['blocks'][number] => {
-        const sb = paired && rows[i]!.kind === b.kind ? rows[i]! : null
+        const sb = sourceForTranslated(rows, i, b.kind, parsed.blocks.length)
         const one = sb ? { ...b, ...carriedLook(sb, b.text), ...(b.rich ? { rich: b.rich } : {}) } : b
         // #558: a formatted paragraph that came back plain is marked, so the page can say which one it is.
         return lostFormat(sb, one.rich) ? { ...one, format_lost: true } : one
