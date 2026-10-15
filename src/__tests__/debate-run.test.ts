@@ -20,7 +20,7 @@ vi.mock('../settings-store.js', () => ({ getEffectiveSettingValue: () => 20 }))
 
 const {
   parseModelSpec, clampAttachments, buildRoundPrompt, buildConcludePrompt, parseConclusion, compareReadings,
-  runDebateRound, concludeDebate, loadDebateSession, DEBATE_LOG_PATH,
+  runDebateRound, runningDebates, concludeDebate, loadDebateSession, DEBATE_LOG_PATH,
   DebateInputError, DebateKeyMissingError, MAX_ATTACHMENT_CHARS, MAX_ATTACHMENTS, MAX_ATTACHMENTS_TOTAL_CHARS,
 } = await import('../debate-run.js')
 
@@ -759,5 +759,25 @@ describe('Haromoldalu mod: ket kotekedo, egy vedo (#597, 7. fazis)', () => {
     expect(e.next.calls[1].tokensIn).toBeGreaterThan(e.next.calls[0].tokensIn)
     expect(e.next.calls[2].tokensIn).toBeGreaterThan(e.next.calls[1].tokensIn)
     expect(() => estimateNextRound({ question: 'q', models: [A, B], mode: 'triad' }, prices)).toThrow(DebateInputError)
+  })
+})
+
+describe('a futo kor a listaban (Boss TG 2935)', () => {
+  it('az elso kor alatt van sora, a kor vegen eltunik (a naplo ekkor kapja meg)', async () => {
+    let release: () => void = () => {}
+    const gate = new Promise<void>(res => { release = res })
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await gate
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'valasz' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }) }
+    }))
+    expect(runningDebates()).toEqual([])
+    const run = runDebateRound({ question: 'Mi legyen?', models: [A, B], project: 'p1' })
+    await new Promise(r => setTimeout(r, 20))
+    const live = runningDebates()
+    expect(live).toHaveLength(1)
+    expect(live[0]).toMatchObject({ project: 'p1', round: 1, question: 'Mi legyen?', models: [A, B] })
+    release()
+    await run
+    expect(runningDebates()).toEqual([])
   })
 })

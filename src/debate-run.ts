@@ -443,6 +443,16 @@ function recordTokenUsage(session: string, ts: number, r: DebateResponse): void 
 
 const running = new Set<string>()
 
+/** What a round that is running right now looks like to the debate list: the log only gets a line when a round
+ *  ENDS, so without this a debate in its first round has no row anywhere (Boss TG 2935). Memory only: a restart
+ *  ends the run, so a stale row cannot outlive it. */
+export interface RunningDebate { id: string; project: string | null; startedAt: number; round: number; question: string; models: string[] }
+const runningInfo = new Map<string, RunningDebate>()
+
+export function runningDebates(): RunningDebate[] {
+  return Array.from(runningInfo.values())
+}
+
 export class DebateBusyError extends Error {
   constructor() { super('a round of this debate is already running') }
 }
@@ -519,6 +529,10 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
   if (running.has(session)) throw new DebateBusyError()
   const key = apiKey()
   running.add(session)
+  runningInfo.set(session, {
+    id: session, project: prior ? prior.project : (input.project ?? null), startedAt: Math.floor(Date.now() / 1000),
+    round: prior ? prior.rounds[prior.rounds.length - 1].round + 1 : 1, question: question.slice(0, 140), models: models.slice(),
+  })
   try {
     const round = prior ? prior.rounds[prior.rounds.length - 1].round + 1 : 1
     const prev = prior ? prior.rounds[prior.rounds.length - 1] : null
@@ -598,6 +612,7 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
     }
   } finally {
     running.delete(session)
+    runningInfo.delete(session)
   }
 }
 
