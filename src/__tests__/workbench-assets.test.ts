@@ -14,6 +14,7 @@ import {
   migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders,
 } from '../workbench-assets.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
+import { rootStrays, resolveRootStrays } from '../workbench-root-guard.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
 import { buildContext } from '../workbench-agent/context.js'
@@ -122,6 +123,31 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     if (!r2.ok) throw new Error('mozgatas2')
     expect(r2.results[0].ok).toBe(false)
     expect(readFileSync(join(depot, 'Cel', 'kesz.pdf'), 'utf8')).toBe('k')
+  })
+
+  it('#624: a new file in the item root is asked about; yes keeps it (asked once), no moves it to Feltoltesek; own files never', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    const cur = getProject(pid) as ProjectRow
+    const w = getWorkItem(item.id) as any
+    writeFileSync(join(dir, 'regi.pdf'), 'r')
+    // first look: baseline, nothing is asked
+    expect(rootStrays(cur, w)).toEqual([])
+    writeFileSync(join(dir, 'level.pdf'), 'l')
+    writeFileSync(join(dir, 'GPT.md'), 'g')
+    writeFileSync(join(dir, 'Kontextus - Wohngeld valasz.md'), 'c')
+    writeFileSync(join(dir, 'rajz.canvas.json'), '{}')
+    writeFileSync(join(dir, '~$lock.docx'), 'x')
+    expect(rootStrays(cur, w).map((x) => x.name).sort()).toEqual(['GPT.md', 'level.pdf'])
+    const r = resolveRootStrays(cur, w, [{ name: 'level.pdf', keep: true }, { name: 'GPT.md', keep: false }, { name: 'nincs.pdf', keep: false }], 'hu')
+    if (!r.ok) throw new Error('dontes')
+    expect(r.results.map((x) => x.ok)).toEqual([true, true, false])
+    expect(existsSync(join(dir, 'level.pdf'))).toBe(true)
+    expect(existsSync(join(dir, 'GPT.md'))).toBe(false)
+    expect(existsSync(join(dir, 'Feltöltések', 'GPT.md'))).toBe(true)
+    expect(rootStrays(cur, w)).toEqual([])
   })
 
   it('K-0.9/K-0.16: az elso fajl a munkadarab nevevel keszult SAJAT mappaba kerul, NEM lesz uj munkadarab', async () => {
