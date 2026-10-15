@@ -1415,7 +1415,10 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       uploads?: { name?: string; data_base64?: string }[]
       // A draft being edited: its attachments to keep, and the draft to move to Trash after a successful send.
       draft?: { mailbox?: string; id?: string; keep?: string[]; remove?: boolean }
+      // Save into the Drafts mailbox instead of sending (#636): no recipient needed, nothing goes out.
+      save_draft?: boolean
     }
+    const asDraft = data.save_draft === true
     // SEND FROM THE INTEZO (#389): tree items as attachments -- files as they
     // are, folders zipped. Built only now, at the user's own Send press. With
     // attachments the body may be empty -- a photo needs no letter.
@@ -1425,7 +1428,8 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // ids go to himalaya as arguments: only plain UIDs / attachment ids, never something that reads as an option.
     if ((data.draft?.id && !/^\d+$/.test(String(data.draft.id))) || keepIds.some(k => !/^[A-Za-z0-9._-]+$/.test(k) || k.startsWith('-'))) { json(res, { error: 'bad draft id' }, 400); return true }
     const hasFiles = lifeRels.length > 0 || uploads.length > 0 || keepIds.length > 0
-    if (!isKnownAccount(data.account ?? null) || !data.to?.trim() || (!data.text?.trim() && !hasFiles)) { json(res, { error: 'account, to and text required' }, 400); return true }
+    const hasAnything = !!(data.to?.trim() || data.subject?.trim() || data.text?.trim() || hasFiles)
+    if (asDraft ? (!isKnownAccount(data.account ?? null) || !hasAnything) : (!isKnownAccount(data.account ?? null) || !data.to?.trim() || (!data.text?.trim() && !hasFiles))) { json(res, { error: asDraft ? 'account and something to save required' : 'account, to and text required' }, 400); return true }
     const prep = lifeRels.length ? prepareLifeAttachments(lifeRels, lang === 'en' ? 'en' : 'hu') : null
     if (prep && !prep.ok) { json(res, { error: prep.message, code: prep.code }, 400); return true }
     const work = mkdtempSync(join(tmpdir(), 'marveen-compose-'))
@@ -1469,8 +1473,12 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
         json(res, { error: L(lang, `A csatolmányok ${mbs(total)} MB-osak, a levél legfeljebb ${mbs(EMAIL_ATTACH_LIMIT)} MB lehet.`, `The attachments are ${mbs(total)} MB, a message can be at most ${mbs(EMAIL_ATTACH_LIMIT)} MB.`), code: 'too_big' }, 400)
         return true
       }
-      const composeSentMailbox = await mailboxFor(data.account as string, 'sent')
-      const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text?.trim() ? data.text : '\n', '--send', '--save', composeSentMailbox]
+      const composeSentMailbox = await mailboxFor(data.account as string, asDraft ? 'drafts' : 'sent')
+      const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string)]
+      if (data.to?.trim()) args.push('-t', data.to.trim())
+      args.push('--body', data.text?.trim() ? data.text : '\n')
+      if (!asDraft) args.push('--send')
+      args.push('--save', composeSentMailbox)
       if (data.cc?.trim()) args.push('--cc', data.cc.trim())
       if (data.subject?.trim()) args.push('-s', data.subject.trim())
       for (const p of prep ? prep.paths : []) args.push('--attach', p)
@@ -1492,7 +1500,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
           invalidateEnvelopeCache(data.account as string, trash)
         } catch (err) { draftMoved = false; logger.warn(`[email] compose: draft cleanup failed: ${err}`) }
       }
-      json(res, { ok: true, draft_moved: draftMoved })
+      json(res, { ok: true, draft_moved: draftMoved, saved_as_draft: asDraft })
       return true
     } finally {
       if (prep) prep.cleanup()
