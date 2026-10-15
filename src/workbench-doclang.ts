@@ -355,6 +355,23 @@ export function lostFormat(sb: { kind: string; text: string; rich?: string | nul
   return !!(sb && sb.rich && sb.kind !== 'image' && sb.kind !== 'table' && !isBlankLine(sb.text) && !translatedRich)
 }
 
+/**
+ * The source blocks the translated blocks are matched to: by position when both sections hold the same number of
+ * blocks (exact), else -- the translator merged or split paragraphs -- only what is NOT a guess: when every text
+ * paragraph of the source section wears the SAME alignment / paragraph format, a translated paragraph wears it too.
+ * (Boss TG 3473: the whole original was justified, the translation lost it up to point 4.)
+ */
+export function sourceForTranslated<T extends { kind: string; text: string; rich?: string | null; align?: string | null; pfmt?: string | null }>(srcList: T[], index: number, kind: string, total: number): { kind: string; text: string; rich?: string | null; align?: string | null; pfmt?: string | null } | null {
+  if (srcList.length === total) { const sb = srcList[index]; return sb && sb.kind === kind ? sb : null }
+  if (kind !== 'paragraph' && kind !== 'list') return null
+  const words = srcList.filter((x) => x.kind !== 'image' && x.kind !== 'table' && !isBlankLine(x.text))
+  if (!words.length) return null
+  const a = words[0]!
+  if (!words.every((x) => (x.align ?? '') === (a.align ?? '') && (x.pfmt ?? '') === (a.pfmt ?? ''))) return null
+  if (!a.align && !a.pfmt) return null
+  return { kind, text: '', rich: null, align: a.align ?? null, pfmt: a.pfmt ?? null }
+}
+
 /** The look a translated block is saved with: the one it came with (#534, what the owner edited on the page) when it
  *  has any, else what the source block at the same place wears (#558). */
 export function lookOfBlock(sb: { text: string; rich?: string | null; align?: string | null; pfmt?: string | null } | null, b: { rich?: unknown; align?: unknown; pfmt?: unknown }, text: string): { rich?: string; align?: string; pfmt?: NonNullable<ReturnType<typeof parsePfmt>> } {
@@ -387,12 +404,11 @@ export function translationAlreadySaved(variantId: string, input: { source_secti
   // #558: "the same" includes the look the block inherits from the source: a variant saved before the look was
   // carried (or whose source was reformatted since) is written again, so it gets it.
   const srcList = listBlocks(v.source_item_id).filter((x) => x.section_id === src.id)
-  const paired = srcList.length === raw.length
   return raw.every((b, i) => {
     const kind = (b.kind === undefined || b.kind === null || b.kind === '') ? 'paragraph' : String(b.kind)
     const text = String(b.text ?? '').replace(/\r\n/g, '\n').trim()
     if (have[i]!.kind !== kind || have[i]!.text !== text) return false
-    const sb = paired && srcList[i]!.kind === kind ? srcList[i]! : null
+    const sb = sourceForTranslated(srcList, i, kind, raw.length)
     const look = lookOfBlock(sb, b, text)
     if (!sb && !Object.keys(look).length) return true
     return (have[i]!.align ?? '') === (look.align ?? '') && JSON.stringify(parsePfmt(have[i]!.pfmt)) === JSON.stringify(look.pfmt ?? null)
@@ -447,13 +463,12 @@ export function translateSection(variantId: string, input: { source_section?: un
     // unchanged) their whole formatting; a paragraph formatted as ONE piece that same format. Paired by position, and
     // only when the two sections have the same number of blocks: a guess would paint the format on the wrong block.
     const srcList = listBlocks(v.source_item_id).filter((x) => x.section_id === src.id)
-    const paired = srcList.length === blocks.length
     const notCarried: TranslateOutcome['claims_not_carried'] = []
     const pendingInference: { newClaim: string; basedOn: string[] }[] = []
     let formatLost = 0
     for (let bi = 0; bi < blocks.length; bi++) {
       const b = blocks[bi]!
-      const sb = paired && srcList[bi]!.kind === b.kind ? srcList[bi]! : null
+      const sb = sourceForTranslated(srcList, bi, b.kind, blocks.length)
       const look = lookOfBlock(sb, b.own, b.text)
       if (sb && lostFormat(sb, look.rich)) formatLost++
       const nb = addBlock(variantId, secId, { kind: b.kind, text: b.text, ...look, author: 'agent' })
@@ -487,7 +502,7 @@ export function translateSection(variantId: string, input: { source_section?: un
       db.prepare('UPDATE wb_doc_sources SET based_on = ? WHERE claim_id = ? AND kind = \'inference\'').run(JSON.stringify(mapped), p.newClaim)
     }
     // No pairing (the page's paragraph count changed): the formatted source paragraphs not matched by a formatted translation.
-    if (!paired) formatLost = Math.max(0, srcList.filter((x) => lostFormat(x, null)).length - blocks.filter((x) => typeof x.own.rich === 'string' && x.own.rich).length)
+    if (srcList.length !== blocks.length) formatLost = Math.max(0, srcList.filter((x) => lostFormat(x, null)).length - blocks.filter((x) => typeof x.own.rich === 'string' && x.own.rich).length)
     for (const c of srcClaims) {
       if (!carried.has(c.id) && !notCarried.some((n) => n.id === c.id)) notCarried.push({ id: c.id, text: c.text, reason: 'not given in claims' })
     }
