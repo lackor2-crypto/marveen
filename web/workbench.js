@@ -13798,7 +13798,7 @@
   // its text page by page and looks every chapter / block up). Drawn into the page after every redraw; the page is never
   // redrawn for it, so typing is not interrupted.
   function dpPagesOn() {
-    if (WB.dpPagesOn === undefined) WB.dpPagesOn = readPref('marveen.workbench.dpPages', '') === '1'
+    if (WB.dpPagesOn === undefined) WB.dpPagesOn = readPref('marveen.workbench.dpSheets', '') !== '0'
     return !!WB.dpPagesOn
   }
   function dpPageMarkHtml(m) {
@@ -18964,7 +18964,7 @@
     }
     else if (a === 'dp-pages-toggle') {
       WB.dpPagesOn = !dpPagesOn()
-      writePref('marveen.workbench.dpPages', WB.dpPagesOn ? '1' : '0')
+      writePref('marveen.workbench.dpSheets', WB.dpPagesOn ? '1' : '0')
       act.classList.toggle('is-on', WB.dpPagesOn)
       act.setAttribute('aria-pressed', WB.dpPagesOn ? 'true' : 'false')
       WB.dpPagesError = ''
