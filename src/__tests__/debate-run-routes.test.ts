@@ -181,6 +181,9 @@ describe('POST /api/debate/run', () => {
     expect(r.status).toBe(502)
     expect(r.body.error).toBe('all_failed')
     expect(r.body.responses).toHaveLength(2)
+    // The owner sees WHY (Boss TG 2939), not only that nobody answered.
+    expect(r.body.message).toContain('a: down')
+    expect(r.body.message).toContain('b: down')
   })
 
   it.each([
