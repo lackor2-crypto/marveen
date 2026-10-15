@@ -1448,6 +1448,20 @@
 .wb-tw-block { margin: 0 0 8px; white-space: pre-wrap; line-height: 1.55; }
 .wb-tw-img { margin: 6px 0; }
 .wb-tw-img img { max-width: 100%; }
+/* To-do panel (Boss TG 3462): rows with alternating background, green tick = done, red X = not yet. */
+.wb-tw-cols.has-both { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr); }
+
+.wb-tp-head { margin-bottom: 8px; }
+.wb-tp-list { list-style: none; margin: 0; padding: 0; }
+.wb-tp-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 6px; line-height: 1.4; }
+.wb-tp-row.is-alt { background: rgba(120, 130, 160, 0.14); }
+.wb-tp-row:not(.is-alt) { background: rgba(120, 130, 160, 0.04); }
+.wb-tp-mark { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; border: 0; font-size: 15px; font-weight: 700; line-height: 26px; padding: 0; cursor: pointer; color: #fff; }
+.wb-tp-row.is-done .wb-tp-mark { background: #1f9d4c; }
+.wb-tp-row.is-open .wb-tp-mark { background: #d1352b; }
+.wb-tp-mark:disabled { cursor: default; opacity: 0.7; }
+.wb-tp-row.is-done .wb-tp-text { opacity: 0.7; }
+.wb-tp-text { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 1100px) { .wb-tw-cols { grid-template-columns: minmax(0, 1fr); } .wb-tw-right { position: static; max-height: none; } }
 
 /* ---- Dokumentum lapja (#462, 4. lepes): a lap maga a szerkeszto ---- */
@@ -1703,6 +1717,8 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 /* The bottom zoom slider also scales text documents (Boss, card #466): the text shrinks with --wb-zoom
    (set on .wb-fr-scroll), the layout and the buttons stay put, so there is no transform and no scroll drift. */
 .wb-fr-scroll .wb-md-live, .wb-fr-scroll .wb-preview-text, .wb-fr-scroll .wb-dp-wrap { zoom: var(--wb-zoom, 1); }
+/* Whatever sits in the middle area scales with the slider: the translation and the to-do panel beside the page too (Boss TG 3467). */
+.wb-fr-scroll .wb-tw-right { zoom: var(--wb-zoom, 1); }
 .wb-fr-scroll .wb-text-edit { font-size: calc(0.9rem * var(--wb-zoom, 1)); }
 
 /* Bilingual translator + read-aloud in the text editor and reader (#467) */

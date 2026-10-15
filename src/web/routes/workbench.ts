@@ -35,6 +35,7 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { isContextFileName, kickItemContextSweep } from '../../workbench-item-context.js'
+import { isTodoFileName } from '../../workbench-item-todos.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
@@ -2134,7 +2135,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (!path.startsWith('/api/workbench/')) return false
   const lang = uiLang(url)
   ensureWorkbenchTables()
-  if (method !== 'GET' && path.startsWith('/api/workbench/items')) kickItemContextSweep()
+  if (method !== 'GET' && (path.startsWith('/api/workbench/items') || path.startsWith('/api/workbench/todos'))) kickItemContextSweep()
 
   // MI ALL RENDELKEZESRE EZEN A GEPEN (spec 1-2), es ami nem, azzal MI A
   // TEENDO. Friss telepitesen a valasz tobbnyire "nincs meg" -- es az NEM
@@ -4267,7 +4268,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     // The item's own context file (the case notes, #590 follow-up) is never the item's FILE: the chat agent once attached it,
     // and the tree then showed the notes as the open document.
-    if (typeof body['source_path'] === 'string' && isContextFileName(basenamePath(body['source_path'].trim()))) return fail(res, 400, 'context_not_attachable', lang)
+    if (typeof body['source_path'] === 'string' && (isContextFileName(basenamePath(body['source_path'].trim())) || isTodoFileName(basenamePath(body['source_path'].trim())))) return fail(res, 400, 'context_not_attachable', lang)
     const r = createWorkItemVersion(item.id, {
       prompt: body['prompt'],
       // A `source_path` csak akkor valtozik, ha a hivo KIMONDJA -- kulonben marad.

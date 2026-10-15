@@ -13371,11 +13371,60 @@
     return '<button type="button" class="btn-secondary btn-compact wb-tw-toggle' + (tw.on ? ' is-on' : '') + '" data-wb-act="tw-toggle" aria-pressed="' + (tw.on ? 'true' : 'false') + '" title="' + escA(t('workbench.tw.toggle_hint')) + '">'
       + esc(t(tw.on ? 'workbench.tw.hide' : 'workbench.tw.show')) + '</button>'
   }
+  // ---- To-do list beside the document (Boss TG 3462) ------------------------------------------------
+  // The item's to-dos (the same list the "Teendők" box edits) as a right-hand panel: one row per to-do, alternating
+  // background, a green tick when done and a red X when not yet. Switchable, like the translation. The rows come from
+  // WB.todos (the project's list); a click on the mark ticks it through the same request as the box.
+  function tpState() {
+    if (!WB.tp) WB.tp = { on: readPref('wb.tp.on', '') === '1', loading: false }
+    return WB.tp
+  }
+  function tpAvailable() {
+    return !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
+  }
+  function tpToggleHtml() {
+    if (!tpAvailable()) return ''
+    var tp = tpState()
+    return '<button type="button" class="btn-secondary btn-compact wb-tp-toggle' + (tp.on ? ' is-on' : '') + '" data-wb-act="tp-toggle" aria-pressed="' + (tp.on ? 'true' : 'false') + '" title="' + escA(t('workbench.tp.toggle_hint')) + '">'
+      + esc(t(tp.on ? 'workbench.tp.hide' : 'workbench.tp.show')) + '</button>'
+  }
+  function tpPanelInnerHtml() {
+    var id = WB.detail && WB.detail.item ? WB.detail.item.id : ''
+    var ro = archived()
+    if (WB.tdError) return '<p class="wb-error">' + esc(WB.tdError) + '</p><button type="button" class="btn-secondary" data-wb-act="td-retry">' + esc(t('workbench.tpl.retry')) + '</button>'
+    if (WB.todos === null) return '<p class="wb-muted">' + esc(t('workbench.td.loading')) + '</p>'
+    var mine = WB.todos.filter(function (x) { return x.work_item_id === id })
+    var done = mine.filter(function (x) { return x.done_at != null }).length
+    var rows = mine.map(function (x, i) {
+      var isDone = x.done_at != null
+      return '<li class="wb-tp-row ' + (isDone ? 'is-done' : 'is-open') + (i % 2 ? ' is-alt' : '') + '">'
+        + '<button type="button" class="wb-tp-mark" data-wb-act="td-toggle" data-wb-todo="' + escA(x.id) + '"' + (ro ? ' disabled' : '') + ' aria-pressed="' + isDone + '" title="' + escA(t(isDone ? 'workbench.td.undo' : 'workbench.td.tick')) + '">' + (isDone ? '&#10003;' : '&#10005;') + '</button>'
+        + '<span class="wb-tp-text">' + esc(x.text) + (x.due_date ? ' <span class="wb-muted">' + esc(tdDueLabel(x)) + '</span>' : '') + '</span></li>'
+    }).join('')
+    return '<div class="wb-tp-head"><strong>' + esc(t('workbench.tp.title')) + '</strong>'
+      + (mine.length ? ' <span class="wb-muted">' + esc(t('workbench.tp.count', { done: done, n: mine.length })) + '</span>' : '') + '</div>'
+      + (rows ? '<ol class="wb-tp-list">' + rows + '</ol>' : '<p class="wb-muted">' + esc(t('workbench.tp.empty')) + '</p>')
+  }
+  /** The list is loaded once for the project; this starts that load the first time the panel needs it. */
+  function tpEnsure() {
+    var tp = tpState()
+    if (!tp.on || tp.loading || WB.todos !== null || WB.tdError || !WB.projectId) return
+    tp.loading = true
+    var p = loadTodos()
+    if (p && typeof p.then === 'function') p.then(function () { tp.loading = false }, function () { tp.loading = false })
+    else tp.loading = false
+  }
   function twWrapHtml(o, ro) {
     var tw = twState()
-    if (!twAvailable(o) || !tw.on) return docPageHtml()
-    return '<div class="wb-tw-cols"><div class="wb-tw-left">' + docPageHtml() + '</div>'
-      + '<aside class="wb-tw-right" id="wbTwPanel" aria-label="' + escA(t('workbench.tw.panel_label')) + '">' + twPanelInnerHtml(o, ro) + '</aside></div>'
+    var tp = tpState()
+    var showTw = twAvailable(o) && tw.on
+    var showTp = tpAvailable() && tp.on
+    if (!showTw && !showTp) return docPageHtml()
+    if (showTp) tpEnsure()
+    return '<div class="wb-tw-cols' + (showTw && showTp ? ' has-both' : '') + '"><div class="wb-tw-left">' + docPageHtml() + '</div>'
+      + (showTw ? '<aside class="wb-tw-right" id="wbTwPanel" aria-label="' + escA(t('workbench.tw.panel_label')) + '">' + twPanelInnerHtml(o, ro) + '</aside>' : '')
+      + (showTp ? '<aside class="wb-tw-right wb-tp-right" id="wbTpPanel" aria-label="' + escA(t('workbench.tp.title')) + '">' + tpPanelInnerHtml() + '</aside>' : '')
+      + '</div>'
   }
   function twRefresh() {
     var el = document.getElementById('wbTwPanel')
@@ -14400,7 +14449,7 @@
         + ' title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</a> '
         : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</button> ')
       // (Finalize is in the frame's top bar, where every other kind has it: finalizeTopHtml.)
-      + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o))
+      + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o) + ' ' + tpToggleHtml())
       + '</p>'
     var finalPanel = o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : ''
     // Boss TG 2754: a drafted document has no file yet, so the Preview tab shows the draft page itself (read only).
@@ -17666,6 +17715,11 @@
       var twS = twState(); twS.on = !twS.on; writePref('wb.tw.on', twS.on ? '1' : '')
       // Two pages side by side need the room the tool panel takes: close it, as a click on its open rail tab would (#527).
       if (twS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }
+      render()
+    }
+    else if (a === 'tp-toggle') {
+      var tpS = tpState(); tpS.on = !tpS.on; writePref('wb.tp.on', tpS.on ? '1' : '')
+      if (tpS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }
       render()
     }
     else if (a === 'tw-run') twRun()
