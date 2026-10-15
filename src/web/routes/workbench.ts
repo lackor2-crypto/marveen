@@ -3075,7 +3075,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(String(body['project_id'] ?? '').trim())
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = moveLooseFiles(project, body['rels'], body['folder'] === '\u0000box' ? '' : body['folder'])
+    const r = moveLooseFiles(project, body['rels'], body['folder'] === '\u0000box' ? '' : body['folder'], { allowItem: body['allow_item'] === true })
     if (!r.ok) {
       const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'no_files' ? 'files_no_files' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, null)
