@@ -147,6 +147,9 @@ function workItemFileLines(w: CodeBridgePromptInput['workItem']): string[] {
   if (m.length) {
     const shown = m.slice(0, MATERIALS_IN_PROMPT)
     out.push(`Work item materials (files the owner attached, path inside the project folder [support]): ${shown.join('; ')}${m.length > shown.length ? ` ... and ${m.length - shown.length} more` : ''}`)
+    // What the owner attaches in the chat is already filed in the item's Uploads folder: read it there, never copy it
+    // next to the work item (Boss, 2026-10-16).
+    out.push('A file the owner attaches in this chat is already in the work item\'s Uploads folder (Feltöltések): use it from there, and do NOT copy or move it into the work item folder itself.')
   }
   if (w.family?.length) out.push(...w.family)
   if (w.documentsHint) out.push(w.documentsHint)

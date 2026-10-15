@@ -8258,7 +8258,7 @@ window._i18n.en = {
   "workbench.assets.support.needs_processor": "needs a processor",
   "workbench.assets.support.unsupported": "not supported",
   "workbench.chat.attached_uploading": "⏳ Uploading: {done}/{total}…",
-  "workbench.chat.attached_hint": "Attached: they went into the materials of the work item. The agent gets them with your next message; you can also send it without text.",
+  "workbench.chat.attached_hint": "Attached: they went into the Uploads folder and the materials of the work item. The agent gets them with your next message; you can also send it without text.",
   "workbench.chat.attached_show": "Show me among the materials",
   "workbench.chat.attached_drop_title": "Leave it out of the message. The file stays among the materials.",
   "workbench.chat.attached_line": "📎 Attached files: {names}",
