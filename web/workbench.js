@@ -8414,21 +8414,11 @@
       + '<ul>' + open.concat(acked).map(function (i) { return consistencyIssueHtml(i, ro) }).join('') + '</ul>'
   }
 
-  /** Boss TG 3438 (#611): a grey finalize button must show WHICH points are open, right in the finalize box -- the
-   *  failed checks with their details, and the owner's own unconfirmed statements with the confirm button. */
+  /** Boss TG 3438 (#611): a grey finalize button must show WHICH points are open, right in the finalize box. */
   function outlineOpenPointsHtml(o, ro) {
     var check = o && o.check
     if (!check || check.ready) return ''
-    var own = []
-    ;((o && o.sections) || []).forEach(function (sec) {
-      ;(sec.blocks || []).forEach(function (b) { (b.claims || []).forEach(function (c) { if (c.strength === 'owner_unconfirmed') own.push(c) }) })
-    })
-    // The owner's statements are listed below with their confirm buttons: no second plain list of the same texts.
-    var open = { ready: false, items: (check.items || []).filter(function (i) { return !i.ok }).map(function (i) {
-      return i.key === 'owner_statements' ? { key: i.key, ok: false, count: i.count, total: i.total, detail: [] } : i
-    }) }
-    return outlineCheckHtml(open, o, ro)
-      + (own.length ? '<ul class="wb-outline-claims">' + own.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
+    return outlineCheckHtml({ ready: false, items: (check.items || []).filter(function (i) { return !i.ok }) }, o, ro)
   }
 
   function outlineCheckHtml(check, o, ro) {
