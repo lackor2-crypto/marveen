@@ -2212,6 +2212,13 @@
             <select class="input" id="emailComposeNewAccount"></select>
           </div>
           <div id="emailComposeNewAttach" hidden style="margin-top:8px;font-size:13px"></div>
+          <!-- #635: a piszkozat meglevo mellekletei (kivehetok) + fajl csatolasa a geprol. -->
+          <div id="emailComposeNewDraftAtt" hidden style="margin-top:8px;font-size:13px"></div>
+          <div style="margin-top:8px">
+            <input type="file" id="emailComposeNewFiles" multiple hidden>
+            <button type="button" class="btn-secondary btn-compact" id="emailComposeNewAttachBtn" data-i18n="email.compose_attach_btn">📎 Fájl csatolása a gépről</button>
+            <div id="emailComposeNewFilesList" style="margin-top:6px;font-size:13px"></div>
+          </div>
         </div>
         <div class="modal-actions">
           <button class="btn-primary" id="emailComposeNewSendBtn" data-i18n="email.btn.send">Küldés</button>

@@ -2,13 +2,13 @@ import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { simpleParser } from 'mailparser'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readBody, json, reqLang, L } from '../http-helpers.js'
 import { cacheGet, cacheGetStale, cacheSet, refreshInBackground, singleFlight } from '../email-list-cache.js'
-import { prepareLifeAttachments } from '../../life-send.js'
+import { prepareLifeAttachments, EMAIL_ATTACH_LIMIT } from '../../life-send.js'
 import { readAttachmentFlags, saveAttachmentFlags } from '../email-attachment-flag-store.js'
 import type { CacheEntry } from '../email-list-cache.js'
 import { logger } from '../../logger.js'
@@ -1407,28 +1407,96 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   // automatically over its own web client, but a raw SMTP send bypasses
   // that -- IMAP APPEND is the only way to get the same effect here).
   if (path === '/api/email/compose' && method === 'POST') {
-    const body = await readBody(req)
-    const data = JSON.parse(body.toString()) as { account?: string; to?: string; cc?: string; subject?: string; text?: string; lifeAttachments?: unknown }
+    // Base64 uploads ride in the JSON: room for the 25 MB mail limit plus the encoding overhead.
+    const body = await readBody(req, { maxBytes: Math.ceil(EMAIL_ATTACH_LIMIT * 1.4) + 1024 * 1024 })
+    const data = JSON.parse(body.toString()) as {
+      account?: string; to?: string; cc?: string; subject?: string; text?: string; lifeAttachments?: unknown
+      // Files picked on the owner's computer (Boss TG 2981, #635).
+      uploads?: { name?: string; data_base64?: string }[]
+      // A draft being edited: its attachments to keep, and the draft to move to Trash after a successful send.
+      draft?: { mailbox?: string; id?: string; keep?: string[]; remove?: boolean }
+    }
     // SEND FROM THE INTEZO (#389): tree items as attachments -- files as they
     // are, folders zipped. Built only now, at the user's own Send press. With
     // attachments the body may be empty -- a photo needs no letter.
     const lifeRels = Array.isArray(data.lifeAttachments) ? data.lifeAttachments : []
-    if (!isKnownAccount(data.account ?? null) || !data.to?.trim() || (!data.text?.trim() && !lifeRels.length)) { json(res, { error: 'account, to and text required' }, 400); return true }
+    const uploads = Array.isArray(data.uploads) ? data.uploads.filter(u => u && u.name && u.data_base64) : []
+    const keepIds = Array.isArray(data.draft?.keep) ? (data.draft?.keep as string[]).map(String) : []
+    // ids go to himalaya as arguments: only plain UIDs / attachment ids, never something that reads as an option.
+    if ((data.draft?.id && !/^\d+$/.test(String(data.draft.id))) || keepIds.some(k => !/^[A-Za-z0-9._-]+$/.test(k) || k.startsWith('-'))) { json(res, { error: 'bad draft id' }, 400); return true }
+    const hasFiles = lifeRels.length > 0 || uploads.length > 0 || keepIds.length > 0
+    if (!isKnownAccount(data.account ?? null) || !data.to?.trim() || (!data.text?.trim() && !hasFiles)) { json(res, { error: 'account, to and text required' }, 400); return true }
     const prep = lifeRels.length ? prepareLifeAttachments(lifeRels, lang === 'en' ? 'en' : 'hu') : null
     if (prep && !prep.ok) { json(res, { error: prep.message, code: prep.code }, 400); return true }
+    const work = mkdtempSync(join(tmpdir(), 'marveen-compose-'))
+    const extraPaths: string[] = []
     try {
+      let total = 0
+      const used = new Set<string>()
+      const unique = (raw: string): string => {
+        const clean = basename(String(raw)).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || 'file'
+        let name = clean
+        const dot = clean.lastIndexOf('.')
+        for (let i = 2; used.has(name.toLowerCase()); i++) name = dot > 0 ? `${clean.slice(0, dot)} (${i})${clean.slice(dot)}` : `${clean} (${i})`
+        used.add(name.toLowerCase())
+        return name
+      }
+      for (const u of uploads) {
+        const buf = Buffer.from(String(u.data_base64), 'base64')
+        total += buf.length
+        const dir = mkdtempSync(join(work, 'u-'))
+        const file = join(dir, unique(String(u.name)))
+        writeFileSync(file, buf)
+        extraPaths.push(file)
+      }
+      if (keepIds.length && data.draft?.id) {
+        const mb = data.draft.mailbox || 'Inbox'
+        for (const attId of keepIds) {
+          const dl = mkdtempSync(join(work, 'k-'))
+          const r = await himalayaRead(['-a', data.account as string, 'attachment', 'download', String(data.draft.id), attId, '-m', mb, '--dir', dl, '--json'])
+          if (!r.ok) { logger.warn(`[email] compose: kept attachment download failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
+          const att = (JSON.parse(r.stdout).attachments || [])[0]
+          if (!att?.path) { json(res, { error: 'attachment not found' }, 404); return true }
+          const st = statSync(att.path)
+          total += st.size
+          const file = join(dl, unique(att.filename || basename(att.path)))
+          if (file !== att.path) renameSync(att.path, file)
+          extraPaths.push(file)
+        }
+      }
+      if (total > EMAIL_ATTACH_LIMIT) {
+        const mbs = (n: number) => (n / 1024 / 1024).toFixed(1)
+        json(res, { error: L(lang, `A csatolmányok ${mbs(total)} MB-osak, a levél legfeljebb ${mbs(EMAIL_ATTACH_LIMIT)} MB lehet.`, `The attachments are ${mbs(total)} MB, a message can be at most ${mbs(EMAIL_ATTACH_LIMIT)} MB.`), code: 'too_big' }, 400)
+        return true
+      }
       const composeSentMailbox = await mailboxFor(data.account as string, 'sent')
       const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text?.trim() ? data.text : '\n', '--send', '--save', composeSentMailbox]
       if (data.cc?.trim()) args.push('--cc', data.cc.trim())
       if (data.subject?.trim()) args.push('-s', data.subject.trim())
       for (const p of prep ? prep.paths : []) args.push('--attach', p)
+      for (const p of extraPaths) args.push('--attach', p)
       const r = await himalaya(args)
       if (!r.ok) { logger.warn(`[email] compose failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
       invalidateEnvelopeCache(data.account as string, composeSentMailbox)
-      json(res, { ok: true })
+      // The edited draft is done: it goes to Trash (recoverable), so the Drafts list does not keep a sent letter.
+      let draftMoved = true
+      if (data.draft?.remove && data.draft.id) {
+        const draftBox = data.draft.mailbox || ''
+        try {
+          const trash = await mailboxFor(data.account as string, 'trash')
+          const mv = await himalayaRead(['-a', data.account as string, 'message', 'move', String(data.draft.id), '-f', draftBox, '-t', trash])
+          draftMoved = mv.ok
+          if (!mv.ok) logger.warn(`[email] compose: sent, but the draft could not be moved to Trash: ${himalayaErrorText(mv)}`)
+          purgeMessageBodyCache(data.account as string, draftBox, String(data.draft.id))
+          invalidateEnvelopeCache(data.account as string, draftBox)
+          invalidateEnvelopeCache(data.account as string, trash)
+        } catch (err) { draftMoved = false; logger.warn(`[email] compose: draft cleanup failed: ${err}`) }
+      }
+      json(res, { ok: true, draft_moved: draftMoved })
       return true
     } finally {
       if (prep) prep.cleanup()
+      try { rmSync(work, { recursive: true, force: true }) } catch { /* temp dir */ }
     }
   }
 
