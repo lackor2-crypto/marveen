@@ -1452,7 +1452,7 @@
 
 /* ---- Dokumentum lapja (#462, 4. lepes): a lap maga a szerkeszto ---- */
 .wb-dp-wrap { padding: 8px 0 24px; }
-.wb-dp-page { width: min(100%, 794px); min-height: 1000px; margin: 0 auto; box-sizing: border-box; padding: 56px 64px 72px 72px; background: #fff; color: #1b1b1f; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); border-radius: 2px; font-size: 15px; line-height: 1.6; }
+.wb-dp-page { --pg-pt: 56px; --pg-pr: 64px; --pg-pb: 72px; --pg-pl: 72px; width: min(100%, 794px); min-height: 1000px; margin: 0 auto; box-sizing: border-box; padding: var(--pg-pt) var(--pg-pr) var(--pg-pb) var(--pg-pl); background: #fff; color: #1b1b1f; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); border-radius: 2px; font-size: 15px; line-height: 1.6; }
 .wb-dp-toolbar { position: sticky; top: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; width: min(100%, 794px); box-sizing: border-box; margin: 0 auto 10px; padding: 5px 8px; background: #f3f4f8; color: #1b1b1f; border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
 .wb-dp-tb { min-width: 32px; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
 .wb-dp-tb:hover { background: rgba(80, 100, 220, 0.12); }
@@ -1529,7 +1529,7 @@
 .wb-dp-annex > summary { font-weight: 600; }
 .wb-dp-annex .wb-annexes > h4 { display: none; }
 @media (max-width: 900px) {
-  .wb-dp-page { padding: 28px 18px 40px 44px; min-height: 0; }
+  .wb-dp-page { --pg-pt: 28px; --pg-pr: 18px; --pg-pb: 40px; --pg-pl: 44px; min-height: 0; }
   .wb-dp-gutter { opacity: 1; width: 44px; }
   .wb-dp-row, .wb-dp-sechead { margin-left: -40px; padding-left: 44px; }
   .wb-dp-gbtn { width: 20px; height: 28px; }
@@ -2131,7 +2131,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 @media (max-width: 900px) { .wb-fr-chat { flex-basis: auto; max-width: none; } }
 
 /* #590: where the next page of the PDF begins -- a dashed line across the sheet; text under it lands on the next page. */
-.wb-dp-pagebreak { clear: both; position: relative; height: 0; margin: 10px 0; border-top: 2px dashed #d9534f; user-select: none; pointer-events: none; }
-.wb-dp-pagebreak > span { position: absolute; right: 0; top: -11px; padding: 0 6px; background: var(--card-bg, #fff); color: #b02a25; font-size: .72rem; font-weight: 600; line-height: 1.2; }
-.wb-dp-pagebreak.is-inside { border-top-style: dotted; }
+/* #608 (Boss, TG 3402): the page break is a real sheet edge. The white sheet ends (its bottom padding is this band's top margin),
+   a grey gap shows the table behind it, and the next white sheet starts (its top padding is the bottom margin). The band reaches
+   out over the sheet's side padding, so the white page looks cut in two. The place is still MEASURED on the draft PDF (#590). */
+.wb-dp-pagebreak { clear: both; position: relative; height: 34px; margin: var(--pg-pb) calc(-1 * var(--pg-pr)) var(--pg-pt) calc(-1 * var(--pg-pl)); background: #e9ecef; box-shadow: inset 0 7px 7px -7px rgba(0, 0, 0, 0.3), inset 0 -7px 7px -7px rgba(0, 0, 0, 0.3); user-select: none; pointer-events: none; }
+.wb-dp-pagebreak > span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 90%; padding: 0 6px; background: transparent; color: #5b6470; font-size: .74rem; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-dp-pagebreak.is-inside > span { font-style: italic; }
 .wb-dp-tb.is-busy { opacity: .6; cursor: progress; }

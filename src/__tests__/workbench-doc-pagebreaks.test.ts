@@ -66,4 +66,10 @@ describe('the editor', () => {
     expect(js).toContain('dpPagesSoon() // the lines of the PDF')
     expect(css).toContain('.wb-dp-pagebreak')
   })
+
+  it('is on by default for every document, and the break is a grey band between two white sheets', () => {
+    expect(js).toContain("readPref('marveen.workbench.dpSheets', '') !== '0'")
+    expect(css).toMatch(/\.wb-dp-pagebreak \{[^}]*margin: var\(--pg-pb\) calc\(-1 \* var\(--pg-pr\)\)/)
+    expect(css).toContain('--pg-pl: 72px')
+  })
 })
