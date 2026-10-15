@@ -40,4 +40,19 @@ describe('email draft editing and attaching (#635)', () => {
     expect(compose).toContain("json(res, { error: 'bad draft id' }, 400)")
     expect(compose).toContain('rmSync(work, { recursive: true, force: true })')
   })
+
+  it('a new draft can be saved from the compose window (#636): no send, Drafts mailbox, no recipient needed', () => {
+    expect(html).toContain('id="emailComposeNewDraftSaveBtn"')
+    expect(app).toContain('asDraft ? { save_draft: true } : {}')
+    expect(compose).toContain("asDraft ? 'drafts' : 'sent'")
+    expect(compose).toContain("if (!asDraft) args.push('--send')")
+    expect(compose).toContain("if (data.to?.trim()) args.push('-t', data.to.trim())")
+  })
+
+  it('closing a changed, unsent letter keeps it as a draft, like Gmail (Boss TG 2995)', () => {
+    expect(app).toContain('async function emailComposeNewClose()')
+    expect(app).toContain('emailComposeSnapshot() !== _emailComposeBase')
+    expect(app).toContain("getElementById('emailComposeNewClose')?.addEventListener('click', emailComposeNewClose)")
+    expect(app).toContain("getElementById('emailComposeNewCancelBtn')?.addEventListener('click', emailComposeNewClose)")
+  })
 })
