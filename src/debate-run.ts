@@ -17,6 +17,7 @@ import { getDb } from './db.js'
 import { getSecret } from './web/vault.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
+import { askOnSubscription, claudeCliModel } from './debate-claude-cli.js'
 import {
   isRoleMode, isCriticRole, modelCountOf, TRIAD_ROLES, modeSystemPrompt, buildModeRoundPrompt, isNoObjections, readResponse, rolesForRound, effectiveStrength, effectiveSwap,
   familyWarnings, modeFromStored, isStrength, DEFAULT_MODE_ID, BUILTIN_MODES,
@@ -376,14 +377,26 @@ export class DebateKeyMissingError extends Error {
   constructor() { super('no OpenRouter key in the vault') }
 }
 
-function apiKey(): string {
+/** The OpenRouter key, or null: a debate whose models all run on the Claude subscription needs none. */
+function apiKey(specs: string[]): string | null {
   const key = getSecret(VAULT_SECRET_ID)
-  if (!key) throw new DebateKeyMissingError()
-  return key
+  if (key) return key
+  if (specs.length && specs.every((s) => claudeCliModel(parseModelSpec(s).webSearch ? '' : s) !== null)) return null
+  throw new DebateKeyMissingError()
 }
 
-async function callModelOnce(spec: string, system: string, prompt: string, key: string): Promise<DebateResponse> {
+async function callModelOnce(spec: string, system: string, prompt: string, key: string | null): Promise<DebateResponse> {
   const { model, webSearch } = parseModelSpec(spec)
+  // An Anthropic model runs on the owner's Claude subscription first (Boss TG 2960); OpenRouter is the fallback.
+  const cli = webSearch ? null : claudeCliModel(spec)
+  let subscriptionError = ''
+  if (cli) {
+    const r = await askOnSubscription(cli, system, prompt, PER_MODEL_TIMEOUT_MS)
+    if (r.ok && r.text.trim()) return { model: spec, ok: true, text: r.text, tokensIn: r.tokensIn, tokensOut: r.tokensOut }
+    subscriptionError = r.ok ? 'empty answer' : r.error
+    logger.warn({ model: spec, reason: subscriptionError }, '[debate] the Claude subscription did not answer, falling back to OpenRouter')
+  }
+  if (!key) return { model: spec, ok: false, error: `Claude subscription: ${subscriptionError || 'not used'}; no OpenRouter key to fall back to` }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS)
   try {
@@ -401,7 +414,7 @@ async function callModelOnce(spec: string, system: string, prompt: string, key: 
     })
     const data = await resp.json().catch(() => null) as
       { error?: { message?: string }; choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null
-    if (!resp.ok) return { model: spec, ok: false, error: data?.error?.message || `HTTP ${resp.status}` }
+    if (!resp.ok) return { model: spec, ok: false, error: (data?.error?.message || `HTTP ${resp.status}`) + (subscriptionError ? ` (Claude subscription: ${subscriptionError})` : '') }
     return {
       model: spec, ok: true, text: data?.choices?.[0]?.message?.content ?? '',
       tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null,
@@ -415,7 +428,7 @@ async function callModelOnce(spec: string, system: string, prompt: string, key: 
 }
 
 /** A reasoning model sometimes answers 200 with an empty message on the first try (see scripts/debate.mjs): retried. */
-async function callModel(spec: string, system: string, prompt: string, key: string): Promise<DebateResponse> {
+async function callModel(spec: string, system: string, prompt: string, key: string | null): Promise<DebateResponse> {
   let last: DebateResponse = { model: spec, ok: false, error: 'no attempt' }
   for (let attempt = 0; attempt <= EMPTY_RESPONSE_MAX_RETRIES; attempt++) {
     last = await callModelOnce(spec, system, prompt, key)
@@ -527,7 +540,7 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
 
   const session = prior ? prior.id : randomUUID()
   if (running.has(session)) throw new DebateBusyError()
-  const key = apiKey()
+  const key = apiKey(models)
   running.add(session)
   runningInfo.set(session, {
     id: session, project: prior ? prior.project : (input.project ?? null), startedAt: Math.floor(Date.now() / 1000),
@@ -639,8 +652,8 @@ export async function concludeDebate(id: string, owner?: { summary?: string; con
   if (given) {
     result = { consensus: owner?.consensus === true, summary: given }
   } else {
-    const key = apiKey()
     const writer = cleanJudge(owner?.judge) ?? state.judge ?? state.models[0]
+    const key = apiKey([writer])
     running.add(id)
     try {
       const outsider = !state.models.includes(writer)
