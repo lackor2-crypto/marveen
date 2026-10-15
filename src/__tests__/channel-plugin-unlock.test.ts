@@ -185,4 +185,12 @@ describe('absent-plugin verdict feeds the down-cascade restart budget', () => {
   it('monitor clears the absent verdict on a healthy sweep', () => {
     expect(monitor).toMatch(/clearPluginAbsent\(t\.session\)/)
   })
+  // #554: the settles between keystrokes were execFileSync('/bin/sleep'), which
+  // froze the whole dashboard for seconds per call (29 measured stalls, up to 5.4 s).
+  it('never blocks the event loop with a synchronous sleep', () => {
+    const code = helper.split('\n').filter(l => !l.trim().startsWith('*') && !l.trim().startsWith('//')).join('\n')
+    expect(code).not.toMatch(/execFileSync\(\s*'\/bin\/sleep'/)
+    expect(code).toMatch(/async function sendUnlockKeystrokes/)
+    expect(code).toMatch(/sendUnlockKeystrokes\([^)]*\)\.finally\(releaseLane\)/)
+  })
 })

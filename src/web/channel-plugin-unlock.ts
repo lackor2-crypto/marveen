@@ -164,12 +164,23 @@ function isSessionReadyForUnlock(session: string): boolean {
   }
 }
 
-function sendUnlockKeystrokes(session: string, provider: ChannelProviderType): void {
+/**
+ * Wait without holding the event loop. These settles used to be
+ * `execFileSync('/bin/sleep', ...)`, which froze the whole dashboard (every
+ * request, every timer) for the seconds each one lasted -- measured 2026-10-11..15
+ * in store/event-loop-stalls.jsonl: 29 stalls of up to 5.4 s, all with the stack
+ * sendUnlockKeystrokes <- execFileSync (#554).
+ */
+function settle(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function sendUnlockKeystrokes(session: string, provider: ChannelProviderType): Promise<void> {
   try {
     // Open the MCP dialog. Claude renders the server list within ~2s; the
     // 3s settle ensures the cursor is on the first item before we move.
     execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), '/mcp', 'Enter'], { timeout: 5000 })
-    execFileSync('/bin/sleep', [String(MCP_OPEN_SETTLE_MS / 1000)], { timeout: MCP_OPEN_SETTLE_MS + 2000 })
+    await settle(MCP_OPEN_SETTLE_MS)
 
     // Safety gate: check whether the channel plugin appears in the /mcp list
     // before navigating to it. When the CC regression prevents the plugin from
@@ -202,10 +213,10 @@ function sendUnlockKeystrokes(session: string, provider: ChannelProviderType): v
     // (claude lists them last). Built-in MCPs are above Plugin MCPs in the
     // sort order, so the bottommost entry is the channel plugin we want.
     execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Up'], { timeout: 5000 })
-    execFileSync('/bin/sleep', [String(KEYSTROKE_SETTLE_MS / 1000)], { timeout: KEYSTROKE_SETTLE_MS + 2000 })
+    await settle(KEYSTROKE_SETTLE_MS)
     // First Enter opens the action menu for the selected MCP server.
     execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 5000 })
-    execFileSync('/bin/sleep', [String(KEYSTROKE_SETTLE_MS / 1000)], { timeout: KEYSTROKE_SETTLE_MS + 2000 })
+    await settle(KEYSTROKE_SETTLE_MS)
     // Second Enter activates the first action - "Enable" for disabled,
     // "Reconnect" for failed. Both revive the plugin.
     execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 5000 })
@@ -219,9 +230,9 @@ function sendUnlockKeystrokes(session: string, provider: ChannelProviderType): v
     // back out of both menu levels (action menu -> server list -> idle
     // prompt), with a settle between so the first Escape lands before
     // the second arrives.
-    execFileSync('/bin/sleep', [String(POST_UNLOCK_SETTLE_MS / 1000)], { timeout: POST_UNLOCK_SETTLE_MS + 2000 })
+    await settle(POST_UNLOCK_SETTLE_MS)
     execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 5000 })
-    execFileSync('/bin/sleep', [String(KEYSTROKE_SETTLE_MS / 1000)], { timeout: KEYSTROKE_SETTLE_MS + 2000 })
+    await settle(KEYSTROKE_SETTLE_MS)
     execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 5000 })
     logger.warn({ session }, 'channel-plugin-unlock: sent /mcp+Up+Enter+Enter+Esc+Esc unlock sequence')
 
@@ -321,11 +332,8 @@ function runUnlockProbe(state: UnlockProbeState): void {
     { session: state.session, claudePid, provider: state.provider },
     'channel-plugin-unlock: bun child absent after cold-start window, firing /mcp unlock sequence',
   )
-  try {
-    sendUnlockKeystrokes(state.session, state.provider)
-  } finally {
-    releaseLane()
-  }
+  // The lane stays held until the (now asynchronous) sequence has finished.
+  void sendUnlockKeystrokes(state.session, state.provider).finally(releaseLane)
 }
 
 /**
