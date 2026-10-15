@@ -2,7 +2,7 @@
 // folder, so Windows Explorer shows it. The file is a mirror: a hand-edited copy
 // is never overwritten.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
@@ -46,6 +46,13 @@ function filesIn(folderRel: string): string[] {
   return readdirSync(join(dir, 'Projektek', 'Robotok', ...folderRel.split('/')), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)
 }
 
+/** The PDF twin: inside the item folder's finished-documents subfolder (named after the app language). */
+function pdfOf(folder: string): string {
+  const base = join(dir, 'Projektek', 'Robotok', ...folder.split('/'))
+  const sub = ['Elk\u00e9sz\u00edtett iratok', 'Finished documents'].find((n) => existsSync(join(base, n))) ?? 'Elk\u00e9sz\u00edtett iratok'
+  return join(base, sub, 'Box szignal optimalizalasa.pdf')
+}
+
 describe('outline mirror file', () => {
   it('an empty outline writes nothing and creates no folder', async () => {
     const id = docItem()
@@ -60,10 +67,10 @@ describe('outline mirror file', () => {
     if (!r.ok) throw new Error('mirror: ' + r.code)
     expect(r.written).toBe(true)
     const folder = getWorkItem(id)!.folder!
-    // #636: a PDF twin sits next to the Word copy (only when a converter made the Word copy)
-    expect(filesIn(folder).sort()).toEqual(r.format === 'docx' ? ['Box szignal optimalizalasa.docx', 'Box szignal optimalizalasa.pdf'] : ['Box szignal optimalizalasa.md'])
+    // #636 + Boss TG 3021 (A): the PDF twin sits in the item's finished-documents folder (only when a converter made the Word copy)
+    expect(filesIn(folder).sort()).toEqual(r.format === 'docx' ? ['Box szignal optimalizalasa.docx'] : ['Box szignal optimalizalasa.md'])
     if (r.format === 'docx') {
-      const pdf = readFileSync(join(dir, 'Projektek', 'Robotok', ...folder.split('/'), 'Box szignal optimalizalasa.pdf'))
+      const pdf = readFileSync(pdfOf(folder))
       expect(pdf.subarray(0, 4).toString()).toBe('%PDF')
     }
     const again = await mirrorOutlineToFile(id)
@@ -76,7 +83,7 @@ describe('outline mirror file', () => {
     const r = await mirrorOutlineToFile(id)
     if (!r.ok || r.format !== 'docx') return // no Word converter on this machine: no PDF twin either
     const folder = getWorkItem(id)!.folder!
-    const pdfPath = join(dir, 'Projektek', 'Robotok', ...folder.split('/'), 'Box szignal optimalizalasa.pdf')
+    const pdfPath = pdfOf(folder)
     const first = readFileSync(pdfPath)
     fill(id, 'Masodik szoveg')
     await mirrorOutlineToFile(id)

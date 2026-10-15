@@ -440,3 +440,16 @@ export function attachmentsFolderFor(p: ProjectRow, itemFolder: string | null | 
   const r = makeProjectFolder(p, base, ol('Mell\u00e9kletek', 'Attachments'))
   return r.ok ? r.sub : null
 }
+
+/** Boss TG 3021 (A): the PDF twin of a document goes into a "Elkészített iratok" folder inside the item's own
+ *  folder (made on demand), same naming rule as the versions folder. Null when it cannot be made. */
+export function finishedFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return null
+  for (const n of ['Elkészített iratok', 'Finished documents']) {
+    const have = projectFileTarget(p, `${base}/${n}`)
+    if (have.ok) return `${base}/${n}`
+  }
+  const r = makeProjectFolder(p, base, ol('Elkészített iratok', 'Finished documents'))
+  return r.ok ? r.sub : null
+}
