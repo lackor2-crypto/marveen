@@ -162,12 +162,20 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     const main = attachAsset(w, 'Beadvany.pdf', Buffer.from('%PDF-main'), { force: true })
     const annex = attachAsset(w, 'K1 - Melleklet.pdf', Buffer.from('%PDF-annex'), { force: true, into: 'attachments' })
     if (!main.ok || !annex.ok) throw new Error('csatolas')
-    expect(existsSync(join(dir, 'Beadvany.pdf'))).toBe(true)
+    expect(existsSync(join(dir, 'Feltöltések', 'Beadvany.pdf'))).toBe(true)
     expect(existsSync(join(dir, 'K1 - Melleklet.pdf'))).toBe(false)
     expect(annex.asset.path).toMatch(/Mell[ée]kletek\/K1 - Melleklet\.pdf$/)
     expect(rootStrays(cur, w)).toEqual([])
     writeFileSync(join(dir, 'level.pdf'), 'l')
     expect(rootStrays(cur, w).map((x) => x.name)).toEqual(['level.pdf'])
+  })
+
+  it('Boss TG 3025: a new work item folder has Finished documents, Uploads and Attachments from the start', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    for (const n of ['Elkészített iratok', 'Feltöltések', 'Mellékletek']) expect(existsSync(join(dir, n))).toBe(true)
   })
 
   it('#625: only a drawing / deck JSON no work item uses is listed; approval trashes it, an item JSON is never a candidate', () => {
@@ -198,8 +206,8 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(r.body.folder).toBe('Munkadarabok/Marvin Workbench terv')
     expect(r.body.folder_created).toBe(true)
     expect(r.body.asset.support).toBe('readable')
-    expect(r.body.asset.project_path).toBe('Munkadarabok/Marvin Workbench terv/valasz.md')
-    expect(readFileSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'valasz.md'), 'utf-8')).toBe('# Valasz')
+    expect(r.body.asset.project_path).toBe('Munkadarabok/Marvin Workbench terv/Feltöltések/valasz.md')
+    expect(readFileSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'Feltöltések', 'valasz.md'), 'utf-8')).toBe('# Valasz')
     expect(listWorkItems(pid)).toHaveLength(1)
     expect(getWorkItem(item.id)?.folder).toBe('Munkadarabok/Marvin Workbench terv')
   })
@@ -274,7 +282,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     const del = await callWorkbench(`/api/workbench/items/${item.id}/assets/${up.body.asset.id}`, 'DELETE')
     expect(del.status).toBe(200)
     expect(del.body.assets).toHaveLength(0)
-    expect(existsSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'a.md'))).toBe(true)
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Marvin Workbench terv', 'Feltöltések', 'a.md'))).toBe(true)
     expect((await callWorkbench(`/api/workbench/items/${item.id}/assets/${up.body.asset.id}`, 'DELETE')).status).toBe(404)
   })
 
@@ -349,7 +357,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       const item = newItem('Regi nev')
       const r0 = attachAsset(item, 'a.md', Buffer.from('A'))
       if (!r0.ok) throw new Error('attach')
-      const src = 'Projektek/Iroda/Munkadarabok/Regi nev/a.md'
+      const src = 'Projektek/Iroda/Munkadarabok/Regi nev/Feltöltések/a.md'
       createWorkItemVersion(item.id, { source_path: src })
       const r = executeTool('workItem.update', { id: item.id, title: 'Uj nev' }, { projectId: pid, workItemId: item.id, lang: 'hu' })
       expect(r.ok).toBe(true)
@@ -358,9 +366,9 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       expect(after?.title).toBe('Uj nev')
       // A mappa neve FUGGETLEN: marad a regi, az utak nem mozdulnak.
       expect(after?.folder).toBe('Munkadarabok/Regi nev')
-      expect(after?.source_path).toBe('Projektek/Iroda/Munkadarabok/Regi nev/a.md')
-      expect(listWorkItemAssets(item.id)[0].path).toBe('Projektek/Iroda/Munkadarabok/Regi nev/a.md')
-      expect(readFileSync(join(projDir(), 'Munkadarabok', 'Regi nev', 'a.md'), 'utf-8')).toBe('A')
+      expect(after?.source_path).toBe('Projektek/Iroda/Munkadarabok/Regi nev/Feltöltések/a.md')
+      expect(listWorkItemAssets(item.id)[0].path).toBe('Projektek/Iroda/Munkadarabok/Regi nev/Feltöltések/a.md')
+      expect(readFileSync(join(projDir(), 'Munkadarabok', 'Regi nev', 'Feltöltések', 'a.md'), 'utf-8')).toBe('A')
     })
 
     it('#478 (fuggetlen nevek): a felulet atnevezes-vegpontja csak a munkadarabot nevezi at, a mappat nem; ures nev elutasitva', async () => {
@@ -373,7 +381,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       expect(r.body.item.title).toBe('Friss')
       expect(r.body.folder_rename).toEqual({ ok: true, renamed: false, reason: 'independent' })
       // A fajl a regi mappaban marad (a nevek fuggetlenek).
-      expect(existsSync(join(projDir(), 'Munkadarabok', 'Regi', 'a.md'))).toBe(true)
+      expect(existsSync(join(projDir(), 'Munkadarabok', 'Regi', 'Feltöltések', 'a.md'))).toBe(true)
       expect(existsSync(join(projDir(), 'Munkadarabok', 'Friss'))).toBe(false)
     })
 
@@ -393,7 +401,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       attachAsset(c, 'rajz.canvas.json', Buffer.from('{}'))
       // A drawing no longer blocks the rename: its saved versions live in the item's folder and follow it (TG 2545).
       expect(renameWorkItemFolder(getWorkItem(c.id)!, 'Rajz uj')).toEqual({ ok: true, renamed: true, from: 'Munkadarabok/C nev', to: 'Munkadarabok/Rajz uj' })
-      expect(existsSync(join(projDir(), 'Munkadarabok', 'Rajz uj', 'rajz.canvas.json'))).toBe(true)
+      expect(existsSync(join(projDir(), 'Munkadarabok', 'Rajz uj', 'Feltöltések', 'rajz.canvas.json'))).toBe(true)
     })
   })
 
@@ -411,8 +419,8 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       const data = r.data as { folder: string; assets: { path: string; support: string }[] }
       expect(data.folder).toBe('Munkadarabok/Marvin Workbench terv')
       expect(data.assets).toEqual([
-        expect.objectContaining({ path: 'Munkadarabok/Marvin Workbench terv/valasz.md', support: 'readable' }),
-        expect.objectContaining({ path: 'Munkadarabok/Marvin Workbench terv/logo.png', support: 'usable' }),
+        expect.objectContaining({ path: 'Munkadarabok/Marvin Workbench terv/Feltöltések/valasz.md', support: 'readable' }),
+        expect.objectContaining({ path: 'Munkadarabok/Marvin Workbench terv/Feltöltések/logo.png', support: 'usable' }),
       ])
       // ...es a kapott uttal a file.read tenyleg olvas.
       const read = executeTool('file.read', { path: data.assets[0].path }, { projectId: pid, workItemId: item.id, lang: 'hu' })
@@ -425,7 +433,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       attachAsset(item, 'valasz.md', Buffer.from('# V'))
       const c = await buildContext(project, getWorkItem(item.id) ?? null, 'hu')
       expect(c.contextText).toContain('folder: Munkadarabok/Marvin Workbench terv')
-      expect(c.contextText).toContain('Munkadarabok/Marvin Workbench terv/valasz.md [readable]')
+      expect(c.contextText).toContain('Munkadarabok/Marvin Workbench terv/Feltöltések/valasz.md [readable]')
       const prompt = buildCodeBridgePrompt({
         projectName: 'Iroda', projectFolder: '/x', history: [], message: 'olvasd el', lang: 'hu',
         workItem: { title: 'Marvin Workbench terv', type: 'note', folder: 'Marvin Workbench terv', materials: ['Marvin Workbench terv/valasz.md [readable]'] },

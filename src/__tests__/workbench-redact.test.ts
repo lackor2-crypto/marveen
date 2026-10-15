@@ -257,7 +257,7 @@ describe('vegpont es Agent-eszkoz', () => {
     const w = createWorkItem({ project_id: pid, title: 'Level', type: 'note' })
     if (!w.ok) throw new Error('munkadarab')
     attachAsset(w.item, 'jegyzet.md', Buffer.from('# j'))
-    const r = await callWorkbench(`/api/workbench/items/${w.item.id}/document/redact/scan`, 'POST', { path: 'Munkadarabok/Level/jegyzet.md' })
+    const r = await callWorkbench(`/api/workbench/items/${w.item.id}/document/redact/scan`, 'POST', { path: 'Munkadarabok/Level/Feltöltések/jegyzet.md' })
     expect(r.status).toBe(400)
     expect(r.body.error).toBe('redact_not_pdf')
     expect(String(r.body.message)).toContain('PDF')
@@ -267,22 +267,22 @@ describe('vegpont es Agent-eszkoz', () => {
     const w = createWorkItem({ project_id: pid, title: 'Level', type: 'note' })
     if (!w.ok) throw new Error('munkadarab')
     attachAsset(w.item, 'kereset.pdf', readFileSync(FIXTURE))
-    const path = 'Munkadarabok/Level/kereset.pdf'
+    const path = 'Munkadarabok/Level/Feltöltések/kereset.pdf'
     const s = await callWorkbench(`/api/workbench/items/${w.item.id}/document/redact/scan`, 'POST', { path, terms: ['Die Klage'] })
     expect(s.status).toBe(200)
     expect(s.body.findings.some((f: { category: string; text: string }) => f.category === 'custom' && f.text === 'Die Klage')).toBe(true)
     const r = await callWorkbench(`/api/workbench/items/${w.item.id}/document/redact`, 'POST', { path, terms: [], skip: [] })
     expect(r.status).toBe(201)
-    expect(r.body).toMatchObject({ name: 'kereset (kitakart).pdf', path: 'Munkadarabok/Level/kereset (kitakart).pdf', pages: 2 })
-    expect(existsSync(join(projDir(), 'Munkadarabok', 'Level', 'kereset (kitakart).pdf'))).toBe(true)
+    expect(r.body).toMatchObject({ name: 'kereset (kitakart).pdf', path: 'Munkadarabok/Level/Feltöltések/kereset (kitakart).pdf', pages: 2 })
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Level', 'Feltöltések', 'kereset (kitakart).pdf'))).toBe(true)
 
     const ctx = { projectId: pid, workItemId: w.item.id, lang: 'hu' as const }
     const dry = await runTool('document.redact', { path, dry_run: true }, ctx)
     expect(dry.ok && (dry.data as { findings: unknown[] }).findings.length).toBeGreaterThan(5)
-    expect(existsSync(join(projDir(), 'Munkadarabok', 'Level', 'kereset (kitakart) (2).pdf'))).toBe(false)
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Level', 'Feltöltések', 'kereset (kitakart) (2).pdf'))).toBe(false)
     const made = await runTool('document.redact', { path, terms: ['Nagy Péter'] }, ctx)
     expect(made.ok && (made.data as { created: string; verified: boolean })).toMatchObject({ verified: true })
-    expect(made.ok && String((made.data as { created: string }).created)).toMatch(/^Munkadarabok\/Level\/kereset \(kitakart\).*\.pdf$/)
+    expect(made.ok && String((made.data as { created: string }).created)).toMatch(/^Munkadarabok\/Level\/Feltöltések\/kereset \(kitakart\).*\.pdf$/)
   }, 240_000)
 })
 

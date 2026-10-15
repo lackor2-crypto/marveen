@@ -5883,6 +5883,7 @@ window._i18n.en = {
   "workbench.file.copy_only_many": "{n} of the ticked files cannot be moved, only copied, because they belong to their work item. You can use the copies in another work item.",
   "workbench.file.copy_only_ask": "Shall I copy it to \"{folder}\"? The original stays where it is, the copy is a file of its own.",
   "workbench.file.copy_only_rest": "The other {n} ticked file(s) I will move.",
+  "workbench.annexlink.hint": "A Life-tree document linked as an annex (no copy): {path}. You manage it in the document's annex list.",
   "workbench.file.move_item_ask": "The file \"{name}\" lies in the work item's folder. Move it from there?",
   "workbench.file.move_item_ask_many": "{n} of the ticked files lie in the work item's folder. Move them from there?",
   "workbench.file.move_item_to": "Target: \"{folder}\". The moved file will be there and gone from the work item's folder.",

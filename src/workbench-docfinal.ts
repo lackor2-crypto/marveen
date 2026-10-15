@@ -334,7 +334,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   const checkIn: CheckFile[] = []
   const save = (name: string, pdf: Buffer, role: FinalFile['role'], a?: { label: string }): { path: string; name: string } | string => {
     // The annex PDFs belong in the item's Attachments subfolder, not next to the submission (Boss TG 2956, #633).
-    const x = attachAsset(fresh, profileFileName(name, profile, index++, total), pdf, { force: true, createdBy: input.by, ...(role === 'annex' ? { into: 'attachments' as const } : {}) })
+    const x = attachAsset(fresh, profileFileName(name, profile, index++, total), pdf, { force: true, createdBy: input.by, into: role === 'annex' ? 'attachments' as const : 'finished' as const })
     if (!x.ok) return x.code
     const annexId = a ? annexIdOf(fresh.id, a.label) : undefined
     checkIn.push({ name: x.asset.name, pdf, role, ...(a ? { label: a.label } : {}), ...(annexId ? { annex_id: annexId } : {}), path: x.asset.path })

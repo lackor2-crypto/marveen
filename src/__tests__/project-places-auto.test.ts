@@ -86,7 +86,8 @@ describe('the places of a project are found by the system', () => {
     const it = (await import('../workbench.js')).getWorkItem(itemId)!
     attachAsset(it, 'szamla.txt', Buffer.from('x'), {})
     const v = projectPlacesView(project.id)
-    expect(v.length).toBe(1)
+    // The item folder itself plus its Uploads subfolder, where the material now lands (Boss TG 3025).
+    expect(v.map((x) => x.rel.split('/').pop())).toEqual(['Beadvány', 'Feltöltések'])
     expect(v[0]!.reasons[0]).toEqual({ kind: 'item', name: 'Beadvány', item_id: itemId })
   })
 
