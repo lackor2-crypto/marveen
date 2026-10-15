@@ -14,6 +14,7 @@ import { logger } from '../../logger.js'
 import { PROJECT_ROOT } from '../../config.js'
 import type { RouteContext } from './types.js'
 import { debateProject } from '../../project-scope.js'
+import { runningDebates } from '../../debate-run.js'
 
 const LOG_PATH = join(PROJECT_ROOT, 'store', 'debate-log.jsonl')
 
@@ -122,7 +123,17 @@ export async function tryHandleDebate(ctx: RouteContext): Promise<boolean> {
           summary: conclude ? conclude.summary : null,
           concluded: !!conclude,
         }
-      }).sort((a, b) => b.lastAt - a.lastAt)
+      })
+      // A debate whose first round is still running has no log line yet: list it as "in progress" anyway.
+      const known = new Set(sessions.map(s => s.id))
+      for (const rd of runningDebates()) {
+        if (known.has(rd.id)) continue
+        sessions.push({
+          id: rd.id, project: debateProject(rd.id, rd.project), startedAt: rd.startedAt, lastAt: rd.startedAt, rounds: rd.round - 1,
+          models: rd.models, questionPreview: rd.question, consensus: null, summary: null, concluded: false,
+        })
+      }
+      sessions.sort((a, b) => b.lastAt - a.lastAt)
       // ?project=<id> / ?project=none -- a projektre szurt Vitaztatas-oldal.
       const pf = url.searchParams.get('project') || ''
       json(res, { sessions: pf ? sessions.filter(s => (pf === 'none' ? !s.project : s.project === pf)) : sessions })
