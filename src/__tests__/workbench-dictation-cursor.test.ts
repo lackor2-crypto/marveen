@@ -31,3 +31,13 @@ describe('dictation: stop keeps the late words', () => {
     expect(js).not.toContain('dictJoin(d.base')
   })
 })
+
+describe('dictation: a sent message does not come back into the cleared field (Boss TG 3608)', () => {
+  it('sendChat makes the dictation session forget the sent text before it can write it back', () => {
+    expect(js).toContain('function dictForgetSent(targetId)')
+    expect(js).toContain('WB.dictLast = d')
+    const send = js.slice(js.indexOf('function sendChat()'))
+    expect(send.indexOf("dictForgetSent('wbChatInput')")).toBeGreaterThan(0)
+    expect(send.indexOf("dictForgetSent('wbChatInput')")).toBeLessThan(send.indexOf('startChatTurn(text)'))
+  })
+})
