@@ -13399,7 +13399,13 @@
     twRefresh()
     var lang = tw.lang
     var next = function (i) {
-      if (i >= todo.length || WB.selectedId !== id) { tw.busy = false; tw.current = null; twRefresh(); return }
+      if (i >= todo.length || WB.selectedId !== id) {
+        tw.busy = false; tw.current = null; twRefresh()
+        // Boss TG (2026-10-15): a finished run puts the language version into the item list by itself; the owner no
+        // longer has to find the separate save button (the preview alone lived only in this browser tab).
+        if (i >= todo.length && WB.selectedId === id) twSave(true)
+        return
+      }
       var sec = todo[i]
       tw.current = sec.id
       twRefresh()
@@ -13417,7 +13423,7 @@
     }
     next(0)
   }
-  function twSave() {
+  function twSave(auto) {
     var tw = twState()
     var id = WB.selectedId
     var o = WB.detail && WB.detail.outline
@@ -13429,7 +13435,7 @@
       var pv = tw.prev[id + ':' + lang + ':' + sec.id]
       if (pv && pv.sig === twSig(sec)) list.push({ source_section: sec.id, title: pv.title, blocks: pv.blocks })
     })
-    if (!list.length) { tw.note = t('workbench.tw.nothing_current'); twRefresh(); return }
+    if (!list.length) { if (auto !== true) tw.note = t('workbench.tw.nothing_current'); twRefresh(); return }
     tw.busy = true; tw.note = ''
     twRefresh()
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translation-save', { lang: lang, sections: list }).then(function (r) {
@@ -13438,7 +13444,7 @@
       tw.failed = r.data.failed || []
       // #527 (Boss TG 2849): saving the same translation again says it is already there, under which name.
       tw.note = r.data.saved > 0
-        ? t('workbench.tw.saved', { n: r.data.saved, title: r.data.variant.title })
+        ? t(auto === true ? 'workbench.tw.autosaved' : 'workbench.tw.saved', { n: r.data.saved, title: r.data.variant.title })
         : t('workbench.tw.already_saved', { title: r.data.variant.title })
       if (WB.selectedId === id && WB.detail && r.data.outline) WB.detail.outline = r.data.outline
       load(WB.projectId)

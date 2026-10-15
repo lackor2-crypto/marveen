@@ -318,6 +318,13 @@ describe('the draft page wiring', () => {
     expect(js).toContain('/outline/translate-preview')
     expect(js).toContain('/outline/translation-save')
   })
+  it('a finished translation run saves the language version by itself (the preview alone never made the work item appear in the list)', () => {
+    // the end of the run (all sections done, still on the same item) calls the save; a provider stop does not reach it
+    expect(js).toMatch(/if \(i >= todo\.length && WB\.selectedId === id\) twSave\(true\)/)
+    expect(js).toContain("a === 'tw-save') twSave()")
+    expect(js).toContain("auto === true ? 'workbench.tw.autosaved' : 'workbench.tw.saved'")
+    for (const f of ['hu', 'en']) expect(readFileSync(join(__dirname, '..', '..', 'web', 'lang', f + '.js'), 'utf8')).toContain('"workbench.tw.autosaved"')
+  })
   it('turning the side-by-side view on closes the tool panel, so the two columns are not squeezed to a few words a line', () => {
     const at = js.indexOf("a === 'tw-toggle'")
     const handler = js.slice(at, js.indexOf('render()', at))
@@ -343,7 +350,7 @@ describe('the draft page wiring', () => {
     expect(page).not.toContain('outline-add')
     // what was typed is read back before every redraw and before the save, and only from a page drawn for this language
     expect(js).toMatch(/function twRefresh\(\)[\s\S]{0,400}twCollect\(\)/)
-    expect(js).toMatch(/function twSave\(\)[\s\S]{0,500}twCollect\(\)/)
+    expect(js).toMatch(/function twSave\(auto\)[\s\S]{0,500}twCollect\(\)/)
     expect(js).toContain('data-tw-shown')
     // Enter makes a paragraph by hand (Chromium would clone the element and its attributes)
     expect(js).toContain('function twSplitAtCaret(plain)')
