@@ -2611,10 +2611,11 @@
     for (var i = 0; fileList && i < fileList.length; i++) if (fileList[i]) files.push(fileList[i])
     if (!files.length || WB.upload || !WB.projectId) return Promise.resolve()
     if (archived()) { window.showToast(t('workbench.archived_hint')); return Promise.resolve() }
-    var intoItem = (target === 'item' || target === 'assets' || target === 'frassets') && WB.selectedId ? WB.selectedId : null
-    var assetsOnly = target === 'assets' || target === 'frassets'
-    // The editor's Uploads panel keeps its files in the Uploads folder beside the work item (Boss, TG 2872).
-    var upFolder = target === 'frassets' ? '&uploads=1' : ''
+    var intoItem = (target === 'item' || target === 'assets' || target === 'frassets' || target === 'chat') && WB.selectedId ? WB.selectedId : null
+    var assetsOnly = target === 'assets' || target === 'frassets' || target === 'chat'
+    // The editor's Uploads panel and the chat's attach button / drop keep their files in the Uploads folder of the work
+    // item, not loose in the item's own folder (Boss, TG 2872; chat attachments: Boss, 2026-10-16).
+    var upFolder = target === 'frassets' || target === 'chat' ? '&uploads=1' : ''
     var projectId = WB.projectId
     var lang = encodeURIComponent(window._lang || 'hu')
     WB.upload = { done: 0, total: files.length, item: intoItem }
@@ -2703,6 +2704,7 @@
     var zone = e && e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-wb-drop]') : null
     var kind = zone && typeof zone.getAttribute === 'function' ? zone.getAttribute('data-wb-drop') : null
     if (kind === 'assets' && WB.selectedId) return 'assets'
+    if (kind === 'chat' && WB.selectedId) return 'chat'
     return kind === 'item' && WB.selectedId ? 'item' : 'new'
   }
 
@@ -9328,7 +9330,7 @@
   }
 
   /** A chat 📎 gombja (#441): a fajl a megnyitott munkadarab ANYAGAI koze
-   *  kerul, nem lesz belole uj munkadarab. Munkadarab nelkul nincs gomb. */
+   *  kerul (a munkadarab "Feltoltesek" mappajaba, nem a munkadarab melle), nem lesz belole uj munkadarab. Munkadarab nelkul nincs gomb. */
   function chatAttachHtml() {
     if (!WB.selectedId || !WB.detail || archived()) return ''
     return '<label class="btn-secondary wb-chat-attach" for="wbChatAssetUpload" title="' + escA(t('workbench.assets.attach_title')) + '"'
@@ -10726,7 +10728,7 @@
   }
 
   function chatBarHtml() {
-    return '<div class="wb-chat" id="wbChat"' + (WB.selectedId && WB.detail && !archived() ? ' data-wb-drop="assets"' : '') + '>' + chatInnerHtml() + '</div>'
+    return '<div class="wb-chat" id="wbChat"' + (WB.selectedId && WB.detail && !archived() ? ' data-wb-drop="chat"' : '') + '>' + chatInnerHtml() + '</div>'
   }
 
   /** A chat-naplo alapbol a legaljan all: mindig a legutolso uzenet latszik
@@ -19180,7 +19182,8 @@
     }
     if (e.target.id === 'wbAssetUpload' || e.target.id === 'wbChatAssetUpload') {
       var att = e.target.files
-      if (att && att.length) uploadFiles(att, 'assets')
+      // The chat's paperclip files into the work item's Uploads folder; the Materials box button keeps the item folder.
+      if (att && att.length) uploadFiles(att, e.target.id === 'wbChatAssetUpload' ? 'chat' : 'assets')
       try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
       return
     }

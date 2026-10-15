@@ -554,6 +554,8 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     expect(html).toMatch(/<input type="file" id="wbAssetUpload"[^>]*multiple/)
     expect(html).toMatch(/<input type="file" id="wbChatAssetUpload"[^>]*multiple/)
     expect(html).toContain('data-wb-drop="assets"')
+    // The chat is its own drop zone: what lands in it goes to the Uploads folder, not beside the item.
+    expect(html).toContain('data-wb-drop="chat"')
     // A fo fajl meg omlesztve all: felajanljuk a rendrakast.
     expect(html).toContain('data-wb-act="asset-tidy"')
   })
@@ -569,6 +571,22 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     expect(p.filter((u) => u.includes('/items/w1/assets'))).toHaveLength(2)
     expect(p.some((u) => u.includes('/items/upload'))).toBe(false)
     expect(p.some((u) => u.includes('/parts/image'))).toBe(false)
+  })
+
+  // Boss, 2026-10-16: what is attached in the chat goes to the work item's Uploads folder, not loose beside the item.
+  it('a 📎-val csatolt fajl a Feltoltesek mappaba megy (uploads=1), az Anyagok doboz gombja a munkadarab mappajaba', async () => {
+    const h = setup()
+    await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
+    h.change('wbChatAssetUpload', [file('Screenshot (2526).png', 'image/png')])
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.assets.done'))
+    const chatPosts = posts(h).filter((u) => u.includes('/items/w1/assets'))
+    expect(chatPosts).toHaveLength(1)
+    expect(chatPosts[0]).toContain('uploads=1')
+    h.change('wbAssetUpload', [file('level.pdf')])
+    await vi.waitFor(() => expect(posts(h).filter((u) => u.includes('/items/w1/assets'))).toHaveLength(2))
+    expect(posts(h).filter((u) => u.includes('/items/w1/assets'))[1]).not.toContain('uploads=1')
   })
 
   // Boss, 2026-09-29: "csatoltam ket mellekletet, nem tortent semmi, nem tudom

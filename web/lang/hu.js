@@ -8332,7 +8332,7 @@ window._i18n.hu = {
   "workbench.assets.support.needs_processor": "feldolgozó kell hozzá",
   "workbench.assets.support.unsupported": "nem támogatott",
   "workbench.chat.attached_uploading": "⏳ Feltöltés: {done}/{total}…",
-  "workbench.chat.attached_hint": "Csatolva: a munkadarab Anyagai közé kerültek. Az Agent a következő üzeneteddel együtt kapja meg őket, szöveg nélkül is elküldheted.",
+  "workbench.chat.attached_hint": "Csatolva: a munkadarab Feltöltések mappájába, az Anyagai közé kerültek. Az Agent a következő üzeneteddel együtt kapja meg őket, szöveg nélkül is elküldheted.",
   "workbench.chat.attached_show": "Megmutatom az Anyagok között",
   "workbench.chat.attached_drop_title": "Kihagyom az üzenetből. A fájl az Anyagok között marad.",
   "workbench.chat.attached_line": "📎 Csatolt fájlok: {names}",
