@@ -8,10 +8,10 @@ import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, type WorkItemRow } from '../workbench.js'
-import { addSection, addBlock, documentOutline, listBlocks } from '../workbench-docmodel.js'
+import { addSection, addBlock, addClaim, documentOutline, listBlocks, type SourceWorld } from '../workbench-docmodel.js'
 import { createVariant, listVariants, variantInfo } from '../workbench-doclang.js'
 import {
-  previewSectionTranslation, saveShownTranslation, setTranslateCallerForTest, resetTranslateJobsForTest, startVariantTranslation, translateJobState, waitForTranslationForTest, usableRich, type TranslateCaller,
+  previewSectionTranslation, savedTranslationFor, saveShownTranslation, setTranslateCallerForTest, resetTranslateJobsForTest, startVariantTranslation, translateJobState, waitForTranslationForTest, usableRich, type TranslateCaller,
 } from '../workbench-doclang-translate.js'
 
 describe('side-by-side translation of a draft', () => {
@@ -468,5 +468,109 @@ describe('the draft page wiring', () => {
     expect(js).toContain("b.kind === 'table' ? twTableHtml(b.text)")
     expect(js).toContain("twTableLines(el) : null")
     expect(readFileSync(join(__dirname, '..', '..', 'web', 'workbench.css'), 'utf8')).toContain('.wb-tw-tbl th, .wb-tw-tbl td')
+  })
+})
+
+// Boss, 2026-10-15 (screenshot after F5): the right column stood empty ("Még nincs lefordítva") although the German
+// version was saved -- the preview lives only in the browser tab. The saved translation is read back from the server.
+describe("the saved translation comes back after a reload", () => {
+  let src: WorkItemRow
+  let secId = ""
+  beforeEach(() => {
+    initDatabase(":memory:")
+    const p = createProject({ name: "Iroda" })
+    if (!p.ok) throw new Error("project")
+    const w = createWorkItem({ project_id: p.project.id, title: "Új bírósági beadvány", type: "document" })
+    if (!w.ok) throw new Error("item")
+    src = w.item
+    const s = addSection(src.id, "Tényállás")
+    if (!s.ok) throw new Error("section")
+    secId = s.section.id
+    const b = addBlock(src.id, secId, { text: "A keresetet beadtuk.", author: "agent" })
+    if (!b.ok) throw new Error("block")
+  })
+
+  it('no language version yet: found false (the normal first state), not an error', () => {
+    expect(savedTranslationFor(src, 'de')).toEqual({ ok: true, found: false })
+  })
+
+  it('a bad language code and a language version itself are refused with a code, not answered with "nothing"', () => {
+    expect(savedTranslationFor(src, 'deutsch')).toMatchObject({ ok: false, code: 'bad_lang' })
+    const saved = saveShownTranslation(src, 'de', [{ source_section: secId, title: 'Sachverhalt', blocks: [{ kind: 'paragraph', text: 'Die Klage ist eingereicht.' }] }], 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    expect(savedTranslationFor(saved.variant, 'de')).toMatchObject({ ok: false, code: 'is_variant' })
+  })
+
+  it('after a save the same title, blocks and look come back, marked current; another language is still "not found"', () => {
+    const fmt = addBlock(src.id, secId, { rich: '<b>Fontos mondat.</b>', align: 'c', pfmt: { h: 1 }, author: 'owner' })
+    if (!fmt.ok) throw new Error('block')
+    const shown = [{ source_section: secId, title: 'Sachverhalt', blocks: [
+      { kind: 'paragraph', text: 'Die Klage ist eingereicht.' },
+      { kind: 'paragraph', text: 'Wichtiger Satz.' },
+    ] }]
+    const saved = saveShownTranslation(src, 'de', shown, 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    const r = savedTranslationFor(src, 'de')
+    if (!r.ok || !r.found) throw new Error('expected a saved translation')
+    expect(r.variant.id).toBe(saved.variant.id)
+    expect(r.sections).toHaveLength(1)
+    expect(r.sections[0]).toMatchObject({ source_section: secId, state: 'current', title: 'Sachverhalt' })
+    expect(r.sections[0]!.blocks.map((b) => b.text)).toEqual(['Die Klage ist eingereicht.', 'Wichtiger Satz.'])
+    expect(r.sections[0]!.blocks[1]).toMatchObject({ align: 'c', rich: '<b>Wichtiger Satz.</b>', pfmt: { h: 1 } })
+    expect(savedTranslationFor(src, 'en')).toEqual({ ok: true, found: false })
+    // what comes back is exactly what a save of it again treats as "already there": nothing is rewritten
+    const again = saveShownTranslation(src, 'de', r.sections.map((s) => ({ source_section: s.source_section, title: s.title, blocks: s.blocks })), 'owner')
+    if (!again.ok) throw new Error(again.detail)
+    expect([again.saved, again.unchanged]).toEqual([0, 1])
+  })
+
+  it('a section whose original changed after the translation comes back marked stale, and a section never translated is not listed', () => {
+    const s2 = addSection(src.id, 'Kérelem')
+    if (!s2.ok) throw new Error('section')
+    addBlock(src.id, s2.section.id, { text: 'Kérjük a keresetet elfogadni.', author: 'agent' })
+    const saved = saveShownTranslation(src, 'de', [{ source_section: secId, title: 'Sachverhalt', blocks: [{ kind: 'paragraph', text: 'Die Klage ist eingereicht.' }] }], 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    addBlock(src.id, secId, { text: 'Új mondat az eredetiben.', author: 'owner' })
+    const r = savedTranslationFor(src, 'de')
+    if (!r.ok || !r.found) throw new Error('expected a saved translation')
+    expect(r.sections.map((s) => [s.source_section, s.state])).toEqual([[secId, 'stale']])
+  })
+
+  it('a claim carried into the language version is paired back to its original, so saving the section again keeps it', () => {
+    const blockRow = listBlocks(src.id)[0]!
+    const world = { resolveFile: () => null, ownerMessages: () => [] } as unknown as SourceWorld
+    const c = addClaim(src.id, blockRow.id, 'A keresetet', [{ kind: 'owner', said: 'A keresetet beadtuk.' }], world, 'owner')
+    if (!c.ok) throw new Error(c.detail)
+    const shown = [{ source_section: secId, title: 'Sachverhalt', blocks: [{ kind: 'paragraph', text: 'Die Klage ist eingereicht.', claims: [{ source_claim: c.claim.id, text: 'Die Klage' }] }] }]
+    const saved = saveShownTranslation(src, 'de', shown, 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    expect(saved.claims_not_carried).toBe(0)
+    const r = savedTranslationFor(src, 'de')
+    if (!r.ok || !r.found) throw new Error('expected a saved translation')
+    expect(r.sections[0]!.blocks[0]!.claims).toEqual([{ source_claim: c.claim.id, text: 'Die Klage' }])
+  })
+
+  it('the page asks the server once per document and language, never takes a failed request for "nothing saved", and a newer preview wins', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const fn = js.slice(js.indexOf('function twEnsureLoaded()'), js.indexOf('/** What the left column holds of a section right now'))
+    expect(fn).toContain("'/outline/translation?to='")
+    // the server route the page asks: a read (also in an archived project), the language in `to`
+    const route = readFileSync(join(__dirname, "..", "web", "routes", "workbench.ts"), "utf8")
+    expect(route).toContain("segs[2] === 'translation' && method === 'GET'")
+    expect(route).toContain("savedTranslationFor(item, String(url.searchParams.get('to') ?? ''))")
+    expect(fn).toContain('if (tw.loaded[lk]) return')
+    expect(fn).toContain("tw.loaded[lk] = 'failed'")
+    expect(fn).toContain("t('workbench.tw.load_failed'")
+    expect(fn).toContain('t(\'workbench.tw.load_failed_unknown\')')
+    expect(fn).toContain('|| tw.prev[key]')
+    // current -> the page's own signature (shown as translated); stale -> empty signature (the page marks it as out of date)
+    expect(fn).toContain("s.state === 'current' ? twSig(sec) : ''")
+    // drawn from the open page, and again when the language is changed
+    expect(js).toContain('if (showTw) twEnsureLoaded()')
+    expect(js).toMatch(/writePref\('wb\.tw\.lang', tw\.lang\)\n\s+twEnsureLoaded\(\)/)
+    for (const lang of ['hu', 'en']) {
+      const dict = readFileSync(join(__dirname, '..', '..', 'web', 'lang', lang + '.js'), 'utf8')
+      for (const k of ['workbench.tw.loaded_saved', 'workbench.tw.load_failed', 'workbench.tw.load_failed_unknown']) expect(dict).toContain('"' + k + '"')
+    }
   })
 })

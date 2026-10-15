@@ -13176,8 +13176,44 @@
   // Bal oldalon a szerkeszthető eredeti lap, jobb oldalon az ÉLŐ fordítás fejezetenként; a Mentés pontosan
   // azt teszi a nyelvi változatba (fejezetenként, a forrásokkal együtt), amit a tulajdonos lát.
   function twState() {
-    if (!WB.tw) WB.tw = { on: readPref('wb.tw.on', '') === '1', lang: readPref('wb.tw.lang', 'de'), prev: {}, busy: false, note: '', failed: [] }
+    if (!WB.tw) WB.tw = { on: readPref('wb.tw.on', '') === '1', lang: readPref('wb.tw.lang', 'de'), prev: {}, busy: false, note: '', failed: [], loaded: {} }
     return WB.tw
+  }
+  /** The preview (tw.prev) lives only in this browser tab: F5 emptied the right column although the translation was SAVED
+   *  into the language version. Once per document + language the saved translation is read back from the server and put in
+   *  wherever no newer preview stands. "No language version yet" (found: false) stays silent -- that is the normal first
+   *  state; a failed request is said out loud with the server's own words, never taken for "nothing saved". */
+  function twEnsureLoaded() {
+    var tw = twState()
+    var id = WB.selectedId
+    var o = WB.detail && WB.detail.outline
+    if (!id || !o || !twAvailable(o)) return
+    var lang = tw.lang
+    var lk = id + ':' + lang
+    if (tw.loaded[lk]) return
+    tw.loaded[lk] = 'loading'
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translation?to=' + encodeURIComponent(lang)).then(function (r) {
+      if (!r.ok) {
+        tw.loaded[lk] = 'failed'
+        if (WB.selectedId === id && tw.lang === lang) { tw.note = r.message ? t('workbench.tw.load_failed', { why: r.message }) : t('workbench.tw.load_failed_unknown'); twRefresh() }
+        return
+      }
+      var d = r.data || {}
+      tw.loaded[lk] = d.found ? 'done' : 'none'
+      if (!d.found || WB.selectedId !== id) return
+      var cur = WB.detail && WB.detail.outline
+      var n = 0
+      ;(d.sections || []).forEach(function (s) {
+        var sec = ((cur && cur.sections) || []).filter(function (x) { return x.id === s.source_section })[0]
+        var key = id + ':' + lang + ':' + s.source_section
+        if (!sec || tw.prev[key]) return // a preview made meanwhile is newer than the saved one
+        // `stale`: the original changed after it was translated; an empty signature makes the page say so (twPageHtml) and a new run redo it.
+        tw.prev[key] = { source_section: s.source_section, title: s.title, blocks: s.blocks || [], sig: s.state === 'current' ? twSig(sec) : '', fresh: true }
+        n++
+      })
+      if (n && tw.lang === lang && !tw.busy && !tw.note) tw.note = t('workbench.tw.loaded_saved', { n: n, title: (d.variant && d.variant.title) || '' })
+      if (tw.lang === lang) twRefresh()
+    })
   }
   /** What the left column holds of a section right now: if it changes after the preview, the preview is old. */
   function twSig(sec) {
@@ -13625,6 +13661,7 @@
     var showTp = tpAvailable() && tp.on
     if (!showTw && !showTp) return docPageHtml()
     if (showTp) tpEnsure()
+    if (showTw) twEnsureLoaded()
     return '<div class="wb-tw-cols' + (showTw && showTp ? ' has-both' : '') + '"><div class="wb-tw-left">' + docPageHtml() + '</div>'
       + (showTw ? '<aside class="wb-tw-right" id="wbTwPanel" aria-label="' + escA(t('workbench.tw.panel_label')) + '">' + twPanelInnerHtml(o, ro) + '</aside>' : '')
       + (showTp ? '<aside class="wb-tw-right wb-tp-right" id="wbTpPanel" aria-label="' + escA(t('workbench.tp.title')) + '">' + tpPanelInnerHtml() + '</aside>' : '')
@@ -18633,6 +18670,7 @@
     var tw = twState()
     tw.lang = el.value; tw.note = ''; tw.failed = []
     writePref('wb.tw.lang', tw.lang)
+    twEnsureLoaded()
     twRefresh()
   })
 
