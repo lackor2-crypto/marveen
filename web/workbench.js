@@ -10273,6 +10273,11 @@
    *  forras, mint az agens-beallitasoknal). Ami kulcs nelkul nem hasznalhato, azt
    *  KI KELL MONDANI (letiltott sor + hova menjen a felhasznalo), nem eltuntetni. */
   function chatModelSelectHtml(current) {
+    return modelSelectHtml('wbChatModel', current, t('workbench.chat.setup_model_default'))
+  }
+
+  /** The shared picker: the chat setup and the debate show the SAME list (Boss TG 2969). */
+  function modelSelectHtml(selectId, current, emptyLabel) {
     var m = WB.chatModels
     var known = {}
     function opts(list) {
@@ -10287,8 +10292,8 @@
       if (configured) return '<optgroup label="' + escA(t(labelKey)) + '">' + opts(list) + '</optgroup>'
       return '<optgroup label="' + escA(t(labelKey)) + '"><option disabled>' + esc(t(nokeyKey)) + '</option></optgroup>'
     }
-    var html = '<select class="wb-input" id="wbChatModel">'
-      + '<option value=""' + (current ? '' : ' selected') + '>' + esc(t('workbench.chat.setup_model_default')) + '</option>'
+    var html = '<select class="wb-input" id="' + selectId + '">'
+      + '<option value=""' + (current ? '' : ' selected') + '>' + esc(emptyLabel) + '</option>'
     if (m) {
       var claude = (m.claude || []).concat(m.claudeUj || [])
       html += '<optgroup label="' + escA(t('workbench.chat.model_group_claude')) + '">' + opts(claude) + '</optgroup>'
@@ -15698,8 +15703,13 @@
 
   function dbLoadModels(force) {
     var s = dbState()
-    // A missing key or a failed catalog is asked again at the next opening: the key may have been added meanwhile.
-    if (!force && s.models && s.models.has_key && !s.models.catalog_error) return
+    // The agent settings list (Claude, GLM, DeepSeek, OpenRouter, local models): the same one the chat setup shows.
+    if (!WB.chatModels) api('GET', '/api/models/available').then(function (r) { if (r.ok && r.data) { WB.chatModels = r.data; render() } })
+    if (!WB.chatOllama) api('GET', '/api/ollama/models').then(function (r) {
+      WB.chatOllama = r.ok && r.data ? r.data : { verdict: 'check_failed', error: r.message || '', models: [] }
+      render()
+    })
+    if (!force && s.models) return
     api('GET', '/api/debate/models').then(function (r) {
       var st = dbState()
       st.models = r.ok ? r.data : { defaults: [], catalog: [], has_key: true, catalog_error: true }
@@ -15922,6 +15932,9 @@
   // ---- Models from one maker (the warning), same rule as src/debate-modes.ts modelFamily ----
   function dbFamily(spec) {
     var id = String(spec || '').trim().toLowerCase()
+    if (id.indexOf('claude-') === 0) return 'anthropic'
+    if (id.indexOf('glm-') === 0) return 'zai'
+    if (id.indexOf('deepseek-') === 0) return 'deepseek'
     var head = id.indexOf('/') >= 0 ? id.slice(0, id.indexOf('/')) : id.replace(/:.*$/, '')
     return head.replace(/[^a-z0-9]/g, '')
   }
@@ -16096,16 +16109,8 @@
    *  `optional`: the judge may stay empty. A value the catalog does not hold (a saved one, or the catalog could not be
    *  read) stays selectable, so opening the page never silently changes the choice. */
   function dbModelInput(id, label, value, optional) {
-    var cat = ((WB.db && WB.db.models && WB.db.models.catalog) || [])
-    var opts = ['<option value=""' + (!value ? ' selected' : '') + '>' + esc(t(optional ? 'workbench.db.judge_none' : 'workbench.db.model_pick')) + '</option>']
-    var seen = false
-    cat.forEach(function (c) {
-      if (c.id === value) seen = true
-      opts.push('<option value="' + escA(c.id) + '"' + (c.id === value ? ' selected' : '') + '>' + esc(c.name || c.id) + '</option>')
-    })
-    if (value && !seen) opts.push('<option value="' + escA(value) + '" selected>' + esc(value) + '</option>')
     return '<label class="wb-db-field"><span>' + esc(label) + '</span>'
-      + '<select class="wb-input" id="' + id + '">' + opts.join('') + '</select></label>'
+      + modelSelectHtml(id, value, t(optional ? 'workbench.db.judge_none' : 'workbench.db.model_pick')) + '</label>'
   }
 
   function dbSetupHtml(s) {
@@ -16113,7 +16118,8 @@
     var crit = dbIsCritic(s.mode)
     var out = '<ol class="wb-db-steps"><li>' + esc(t('workbench.db.step0')) + '</li><li>' + esc(t('workbench.db.step1')) + '</li><li>' + esc(t('workbench.db.step2')) + '</li>'
       + '<li>' + esc(t('workbench.db.step3')) + '</li><li>' + esc(t(crit ? 'workbench.db.step4_critic' : 'workbench.db.step4')) + '</li></ol>'
-    if (m && m.has_key === false) {
+    var usesOpenRouter = [s.a, s.b, s.c, s.judge].some(function (x) { return x && (x.indexOf('/') >= 0 || x.indexOf('openrouter-auto:') === 0) })
+    if (m && m.has_key === false && usesOpenRouter) {
       out += '<div class="wb-error wb-db-nokey"><p><strong>' + esc(t('workbench.db.no_key')) + '</strong></p>'
         + '<ol><li><a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">' + esc(t('workbench.db.no_key_s1')) + '</a></li>'
         + '<li>' + esc(t('workbench.db.no_key_s2')) + '</li><li>' + esc(t('workbench.db.no_key_s3')) + '</li>'
@@ -16148,7 +16154,6 @@
       out += '<div class="wb-db-models">' + dbModelInput('wbDbModelA', t(crit ? 'workbench.db.model_a_critic' : 'workbench.db.model_a'), s.a)
         + dbModelInput('wbDbModelB', t(crit ? 'workbench.db.model_b_defender' : 'workbench.db.model_b'), s.b) + '</div>'
     }
-    if (m && m.catalog_error) out += '<p class="wb-muted">' + esc(t('workbench.db.catalog_error')) + '</p>'
     out += dbModelInput('wbDbJudge', t('workbench.db.judge_label'), s.judge, true) + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.judge_help')) + '</p>'
     out += '<div id="wbDbWarn">' + dbWarnInner(s) + '</div>'
     out += '<p class="wb-db-est" id="wbDbEst" role="status">' + dbEstInner(s) + '</p>'

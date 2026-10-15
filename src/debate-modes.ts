@@ -300,6 +300,10 @@ export function effectiveSwap(mode: DebateModeDef, chosen?: unknown): boolean {
 /** The maker of a model id: "openai/gpt-5.5:online" -> "openai". An id without a slash is its own family. */
 export function modelFamily(spec: string): string {
   const id = String(spec ?? '').trim().toLowerCase()
+  // The agent-settings ids carry no maker: claude-* is Anthropic's, glm-* is Z.ai's.
+  if (id.startsWith('claude-')) return 'anthropic'
+  if (id.startsWith('glm-')) return 'zai'
+  if (id.startsWith('deepseek-')) return 'deepseek'
   const head = id.includes('/') ? id.slice(0, id.indexOf('/')) : id.replace(/:.*$/, '')
   return head.replace(/[^a-z0-9]/g, '')
 }

@@ -1,3 +1,4 @@
+import { isFlatRate } from './debate-claude-cli.js'
 // Cost estimate of a debate round (#597, phase 4), shown BEFORE the owner presses the button.
 //
 // It is an estimate and says so: the input is counted from the text that will be sent (about 3.5 characters a
@@ -42,6 +43,9 @@ function baseModel(spec: string): string {
   return spec.endsWith(':online') ? spec.slice(0, -':online'.length) : spec
 }
 
+/** A subscription, Z.ai plan or local model costs nothing per token. */
+const FLAT_PRICE: ModelPrice = { promptPrice: 0, completionPrice: 0 } as ModelPrice
+
 export function estimateCalls(calls: readonly EstimateCall[], prices: ReadonlyMap<string, ModelPrice>): Estimate {
   const out: CallEstimate[] = []
   const unpriced = new Set<string>()
@@ -51,7 +55,7 @@ export function estimateCalls(calls: readonly EstimateCall[], prices: ReadonlyMa
   for (const c of calls) {
     const tokensIn = approxTokens(c.chars)
     const tokensOut = c.seenOut && c.seenOut > 0 ? Math.round(c.seenOut) : DEFAULT_OUT_TOKENS
-    const price = prices.get(baseModel(c.model))
+    const price = isFlatRate(c.model) ? FLAT_PRICE : prices.get(baseModel(c.model))
     if (c.model.endsWith(':online')) web.add(c.model)
     let cost: number | null = null
     if (price) {

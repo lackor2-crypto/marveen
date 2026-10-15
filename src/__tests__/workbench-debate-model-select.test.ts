@@ -8,7 +8,10 @@ const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf
 describe('debate model fields', () => {
   it('are selects fed from the catalog; the judge may stay empty; no type-ahead datalist is left', () => {
     const fn = js.slice(js.indexOf('function dbModelInput('), js.indexOf('function dbSetupHtml('))
-    expect(fn).toContain('<select class="wb-input" id="')
+    // the same list as the agent settings (Boss TG 2969), not the OpenRouter catalog
+    expect(fn).toContain('modelSelectHtml(id, value')
+    expect(js).toContain('function modelSelectHtml(selectId, current, emptyLabel)')
+    expect(js).toContain("'/api/models/available'")
     expect(fn).not.toContain('<input')
     expect(fn).toContain('workbench.db.judge_none')
     expect(js).not.toContain('wbDbModelList')

@@ -33,8 +33,9 @@ import {
 import { BUILTIN_MODES, DEFAULT_MODE_ID, DEFAULT_STRENGTH, STRENGTHS, modelCountOf } from '../../debate-modes.js'
 import { loadCustomModes } from '../../debate-mode-store.js'
 import { applicableChanges, previewForItem, applyChanges } from '../../debate-apply.js'
-import { fetchAllOpenRouterModels, openRouterModelsWithin } from '../openrouter-models.js'
+import { openRouterModelsWithin } from '../openrouter-models.js'
 import type { ModelPrice } from '../../debate-estimate.js'
+import { toPickerId } from '../../debate-claude-cli.js'
 
 function lang(url: URL): string {
   const v = url.searchParams.get('lang')
@@ -110,18 +111,10 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/debate/models' && method === 'GET') {
     const raw = String(getEffectiveSettingValue('DEBATE_MODELS') ?? '')
-    const defaults = raw.split(',').map(s => s.trim()).filter(Boolean)
+    const defaults = raw.split(',').map(s => s.trim()).filter(Boolean).map(toPickerId)
     const hasKey = getSecret('openrouter-fleet-key') !== null
-    let catalog: { id: string; name: string; free: boolean }[] = []
-    let catalogError = false
-    if (hasKey) {
-      try {
-        catalog = (await fetchAllOpenRouterModels(Date.now())).map(m => ({ id: m.id, name: m.name, free: m.free }))
-      } catch (err) {
-        catalogError = true
-        logger.warn({ err: String((err as Error)?.message || err) }, '[debate] model catalog fetch failed')
-      }
-    }
+    const catalog: { id: string; name: string; free: boolean }[] = []
+    const catalogError = false
     json(res, {
       defaults, catalog, has_key: hasKey, catalog_error: catalogError,
       modes: [...Object.values(BUILTIN_MODES), ...loadCustomModes()].map(m => ({

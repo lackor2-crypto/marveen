@@ -77,7 +77,8 @@ describe('GET /api/debate/models', () => {
     const r = await call('GET', '/api/debate/models')
     expect(r.body).toEqual({
       defaults: ['openai/gpt-5.5', 'deepseek/deepseek-v4'],
-      catalog: [{ id: 'openai/gpt-5.5', name: 'GPT 5.5', free: false }],
+      // the picker lists the agent settings models (/api/models/available), no OpenRouter catalog any more
+      catalog: [],
       has_key: true, catalog_error: false,
       // a beepitett modok (#597): az alap az Egyenrangu, a Kotekedo-vedo az elso modell a kotekedo
       modes: [
@@ -92,18 +93,11 @@ describe('GET /api/debate/models', () => {
     })
   })
 
-  it('kulcs nelkul nem hiv katalogust, es jelzi', async () => {
+  it('kulcs nelkul jelzi, es nem hiv katalogust', async () => {
     h.secret = null
     const r = await call('GET', '/api/debate/models')
     expect(r.body).toMatchObject({ catalog: [], has_key: false })
     expect(h.catalog).not.toHaveBeenCalled()
-  })
-
-  it('a katalogus hibaja nem viszi el a valaszt: az alap-modellek maradnak, a jelzes igaz', async () => {
-    h.catalog.mockRejectedValue(new Error('down'))
-    const r = await call('GET', '/api/debate/models')
-    expect(r.status).toBe(200)
-    expect(r.body).toMatchObject({ defaults: ['openai/gpt-5.5', 'deepseek/deepseek-v4'], catalog: [], catalog_error: true })
   })
 })
 
