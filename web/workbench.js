@@ -13188,6 +13188,20 @@
   }
   /** #558 (Boss TG 8773): one block of the translation, drawn the way the page draws it -- the picture where and as big
    *  as in the original, the alignment, the heading / spacing, the text format the server carried over (`rich`). */
+  /** #620: a table block of the translation page is drawn as a real table, like the original (it stood there as " | " lines). */
+  function twTableHtml(text) {
+    var rows = dpTableParts(text).text.split('\n')
+    return '<table class="wb-tw-tbl">' + rows.map(function (ln, r) {
+      return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
+    }).join('') + '</table>'
+  }
+  /** The lines of a table drawn by twTableHtml, read back off the page ("a | b" per row); null when the table is gone. */
+  function twTableLines(el) {
+    var trs = el.querySelectorAll ? el.querySelectorAll('tr') : []
+    if (!trs.length) return null
+    var cell = function (c) { return String(c.textContent || '').replace(/\u00a0/g, ' ').replace(/\s*\n\s*/g, ' ').replace(/\|/g, '/').trim() }
+    return Array.prototype.map.call(trs, function (tr) { return Array.prototype.map.call(tr.children, cell).join(' | ') }).join('\n')
+  }
   function twBlockHtml(b) {
     if (b.kind === 'image') {
       var pic = dpImageParts(b.text)
@@ -13229,7 +13243,7 @@
         // A table keeps its size / alignment line (the text of the block after the lines) through an edit of the lines.
         out += '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + (b.kind === 'table' ? '' : dpAlignAttrs(b.align).attr)
           + ' data-tw="block" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="' + escA(b.kind) + '"' + (b.format_lost ? ' data-tw-fmtlost="1" title="' + escA(t('workbench.tw.format_lost_mark')) + '"' : '') + ed + '>'
-          + (b.rich && b.kind !== 'table' ? b.rich : esc(shown)) + '</div>'
+          + (b.kind === 'table' ? twTableHtml(b.text) : b.rich ? b.rich : esc(shown)) + '</div>'
       })
       return out
     }).join('')
@@ -13282,7 +13296,8 @@
       }
       if (!cur) { if (!firstSec) continue; cur = group(firstSec) }
       if (role === 'island') { cur.blocks.push({ kind: el.getAttribute('data-tw-kind') || 'image', text: el.getAttribute('data-tw-text') || '' }); continue }
-      var txt = textOf(el).trim()
+      var tl = role !== 'title' && el.getAttribute('data-tw-kind') === 'table' ? twTableLines(el) : null
+      var txt = (tl != null ? tl : textOf(el)).trim()
       if (!txt) continue
       var kind = role === 'title' ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph')
       var nb = { kind: kind, text: txt }
