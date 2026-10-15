@@ -11,7 +11,7 @@ import { createWorkItem, createWorkItemVersion, getWorkItem, listWorkItems, list
 import {
   assetSupport, folderNameFromTitle, attachAsset, listWorkItemAssets, tidyWorkItemIntoFolder,
   listWorkItemAssetsSynced, renameWorkItemFolder, adoptExistingFolder, registerAsset,
-  migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset,
+  migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders,
 } from '../workbench-assets.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
@@ -71,6 +71,20 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     if (!w.ok) throw new Error('munkadarab')
     return w.item
   }
+
+  it('#618: a work item folder always has its Mellekletek subfolder, and the backfill makes it for older folders', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const att = join(projDir(), f.folder, 'Mellékletek')
+    expect(existsSync(att)).toBe(true)
+    rmSync(att, { recursive: true })
+    expect(ensureAllAttachmentsFolders().items).toBeGreaterThanOrEqual(1)
+    expect(existsSync(att)).toBe(true)
+    // a second run changes nothing (no "Mellekletek (2)")
+    ensureAllAttachmentsFolders()
+    expect(existsSync(join(projDir(), f.folder, 'Mellékletek (2)'))).toBe(false)
+  })
 
   it('K-0.9/K-0.16: az elso fajl a munkadarab nevevel keszult SAJAT mappaba kerul, NEM lesz uj munkadarab', async () => {
     const item = newItem()

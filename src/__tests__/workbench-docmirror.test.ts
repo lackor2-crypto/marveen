@@ -42,7 +42,8 @@ function fill(id: string, text: string): void {
   if (!b.ok) throw new Error('block')
 }
 function filesIn(folderRel: string): string[] {
-  return readdirSync(join(dir, 'Projektek', 'Robotok', ...folderRel.split('/')))
+  // files only: the item folder always has its (empty) Mellekletek subfolder (#618)
+  return readdirSync(join(dir, 'Projektek', 'Robotok', ...folderRel.split('/')), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)
 }
 
 describe('outline mirror file', () => {
