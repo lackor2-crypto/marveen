@@ -101,7 +101,35 @@ export function ensureDocLangTables(): void {
       created_by TEXT
     )
   `)
+  retitleLegacyVariants()
   tablesDb = db
+}
+
+const TITLE_MAX = 200
+
+/**
+ * Boss TG (2026-10-15): a language version's title STARTS with its language code ("DE – Original title"), so the
+ * list row reads "55M DE – ..." and the language is visible even when the long title is cut off. Built in here, for
+ * every language and every way a version is made.
+ */
+export function variantTitle(sourceTitle: string, lang: string): string {
+  const code = lang.toUpperCase()
+  const base = sourceTitle.replace(new RegExp(`^${code}\\s+[–-]\\s+`), '')
+  return `${code} – ${base}`.slice(0, TITLE_MAX)
+}
+
+/** Older versions carry the code as a suffix ("Title (DE)"): move it to the front once. Idempotent. */
+export function retitleLegacyVariants(): void {
+  const db = getDb()
+  const rows = db.prepare(
+    'SELECT v.work_item_id AS id, v.lang AS lang, w.title AS title FROM wb_doc_variants v JOIN work_items w ON w.id = v.work_item_id',
+  ).all() as { id: string; lang: string; title: string }[]
+  const set = db.prepare('UPDATE work_items SET title = ? WHERE id = ?')
+  for (const r of rows) {
+    const suffix = ` (${r.lang.toUpperCase()})`
+    if (!r.title.endsWith(suffix)) continue
+    set.run(variantTitle(r.title.slice(0, -suffix.length), r.lang), r.id)
+  }
 }
 
 const now = (): number => Math.floor(Date.now() / 1000)
@@ -171,7 +199,7 @@ export function createVariant(source: WorkItemRow, rawLang: unknown, by: string 
     const it = getWorkItem(had.work_item_id)
     if (it && !it.deleted_at) { syncSections(it.id, source.id); return { ok: true, item: it, existing: true } }
   }
-  const title = `${source.title} (${lang.toUpperCase()})`.slice(0, 200)
+  const title = variantTitle(source.title, lang)
   // Boss TG 3049/3060: the language version lives in the SAME folder as the original (no new folder, not a
   // sub-folder): it takes over the original's folder; only an original without a usable folder falls back to
   // the container it was made in.

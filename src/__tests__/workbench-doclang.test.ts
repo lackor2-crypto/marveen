@@ -14,7 +14,7 @@ import { addSection, addBlock, addClaim, documentOutline, documentCheck, updateB
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
 import {
   createVariant, variantInfo, variantsSummary, translateSection, addGlossaryTerm, removeGlossaryTerm, listGlossary,
-  glossaryIssues, setBackTranslation, backchecks, variantCheckItems,
+  glossaryIssues, setBackTranslation, backchecks, variantCheckItems, variantTitle, retitleLegacyVariants,
 } from '../workbench-doclang.js'
 import { docLangFor } from '../workbench-docfinal.js'
 import { buildFodt } from '../workbench-docrender.js'
@@ -102,7 +102,7 @@ describe('nyelvi valtozatok a dokumentummodellben', () => {
     const v = makeDe()
     expect(v.id).not.toBe(src.id)
     expect(v.project_id).toBe(pid)
-    expect(v.title).toBe('Válaszbeadvány (DE)')
+    expect(v.title).toBe('DE – Válaszbeadvány')
     expect(documentOutline(v.id).sections.map((s) => s.title)).toEqual(['1. Tényállás', '2. Kérelem'])
     const info = variantInfo(v.id)!
     expect(info.lang).toBe('de')
@@ -110,6 +110,20 @@ describe('nyelvi valtozatok a dokumentummodellben', () => {
     const again = createVariant(src, 'DE', 'teszt')
     expect(again.ok && again.existing && again.item.id).toBe(v.id)
     expect(variantsSummary(src.id)).toEqual([{ item_id: v.id, title: v.title, lang: 'de', stale: 0, untranslated: 2 }])
+  })
+
+  it('a nyelvi valtozat cime a nyelvkoddal KEZDODIK (minden nyelvre), es a regi "(DE)" vegu cim egyszer athelyezodik', () => {
+    expect(variantTitle('Beadvány', 'en')).toBe('EN – Beadvány')
+    expect(variantTitle('DE – Beadvány', 'de')).toBe('DE – Beadvány')
+    expect(variantTitle('x'.repeat(300), 'de').length).toBe(200)
+    expect(variantTitle('x'.repeat(300), 'de').startsWith('DE – ')).toBe(true)
+    const v = makeDe()
+    getDb().prepare('UPDATE work_items SET title = ? WHERE id = ?').run('Válaszbeadvány (DE)', v.id)
+    retitleLegacyVariants()
+    expect(getWorkItem(v.id)!.title).toBe('DE – Válaszbeadvány')
+    retitleLegacyVariants()
+    expect(getWorkItem(v.id)!.title).toBe('DE – Válaszbeadvány')
+    expect(getWorkItem(src.id)!.title).toBe('Válaszbeadvány')
   })
 
   it('rossz nyelvkod, ures vazlat es valtozatbol valtozat: nem keszul', () => {
