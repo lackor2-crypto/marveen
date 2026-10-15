@@ -13,6 +13,7 @@ import {
   listWorkItemAssetsSynced, renameWorkItemFolder, adoptExistingFolder, registerAsset,
   migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders,
 } from '../workbench-assets.js'
+import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
 import { buildContext } from '../workbench-agent/context.js'
@@ -84,6 +85,43 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     // a second run changes nothing (no "Mellekletek (2)")
     ensureAllAttachmentsFolders()
     expect(existsSync(join(projDir(), f.folder, 'Mellékletek (2)'))).toBe(false)
+  })
+
+  it('#618: the life-move list skips uploads / context files, and only an approved row with a target moves (no overwrite)', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    mkdirSync(join(dir, 'Feltöltések'), { recursive: true })
+    mkdirSync(join(dir, 'Elkészített iratok'), { recursive: true })
+    writeFileSync(join(dir, 'Feltöltések', 'bejovo.pdf'), 'x')
+    writeFileSync(join(dir, 'Kontextus - Wohngeld valasz.md'), 'c')
+    writeFileSync(join(dir, 'Teendő - Wohngeld valasz.md'), 't')
+    writeFileSync(join(dir, 'marveen-item.json'), '{}')
+    writeFileSync(join(dir, 'kesz.pdf'), 'k')
+    writeFileSync(join(dir, 'Elkészített iratok', 'level.pdf'), 'l')
+    const cur = getProject(pid) as ProjectRow
+    const w = getWorkItem(item.id) as any
+    const c = lifeMoveCandidates(cur, w)
+    if (!c.ok) throw new Error('jeloltek')
+    expect(c.files.map((x) => x.name).sort()).toEqual(['kesz.pdf', 'level.pdf'])
+    mkdirSync(join(depot, 'Cel'), { recursive: true })
+    const rel = c.files.find((x) => x.name === 'kesz.pdf')!.rel
+    const other = c.files.find((x) => x.name === 'level.pdf')!.rel
+    const r = moveItemFilesToLife(cur, w, [{ rel, target: 'Cel' }, { rel: 'Nincs/a-listan.pdf', target: 'Cel' }, { rel: other, target: '' }], 'hu')
+    if (!r.ok) throw new Error('mozgatas')
+    expect(r.results.map((x) => x.ok)).toEqual([true, false, false])
+    expect(existsSync(join(depot, 'Cel', 'kesz.pdf'))).toBe(true)
+    expect(existsSync(join(dir, 'kesz.pdf'))).toBe(false)
+    expect(existsSync(join(dir, 'Elkészített iratok', 'level.pdf'))).toBe(true)
+    // a second file of the same name never overwrites
+    writeFileSync(join(dir, 'kesz.pdf'), 'masik')
+    const c2 = lifeMoveCandidates(cur, w)
+    if (!c2.ok) throw new Error('jeloltek2')
+    const r2 = moveItemFilesToLife(cur, w, [{ rel: c2.files.find((x) => x.name === 'kesz.pdf')!.rel, target: 'Cel' }], 'hu')
+    if (!r2.ok) throw new Error('mozgatas2')
+    expect(r2.results[0].ok).toBe(false)
+    expect(readFileSync(join(depot, 'Cel', 'kesz.pdf'), 'utf8')).toBe('k')
   })
 
   it('K-0.9/K-0.16: az elso fajl a munkadarab nevevel keszult SAJAT mappaba kerul, NEM lesz uj munkadarab', async () => {
