@@ -10,7 +10,7 @@ describe('Simple view zoom slider on text documents (card #466)', () => {
     expect(js).toContain(`'<div class="wb-fr-scroll" style="--wb-zoom:' + zoom + '">'`)
   })
   it('the slider handler writes --wb-zoom onto that same area', () => {
-    expect(js).toMatch(/querySelector\('\.wb-fr-scroll'\)[\s\S]{0,200}setProperty\('--wb-zoom'/)
+    expect(js).toMatch(/querySelectorAll\('\.wb-fr-scroll, \.wb-fr-fixed'\)[\s\S]{0,200}setProperty\('--wb-zoom'/)
   })
   it('text (rendered markdown, plain text, the editor) scales with it, without transform', () => {
     expect(css).toMatch(/\.wb-fr-scroll \.wb-md-live[^{]*\{\s*zoom: var\(--wb-zoom, 1\)/)
