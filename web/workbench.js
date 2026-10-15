@@ -13502,6 +13502,7 @@
 
   // ---- #624: a NEW file in the root of the item's folder: "is this the triggering document?" -----------------
   var rootGuardTimer = null
+  var rootGuardLater = {}
   function rootGuardCheck(id) {
     if (!id || archived() || document.getElementById('wbRootGuard')) return
     if (rootGuardTimer) clearTimeout(rootGuardTimer)
@@ -13510,18 +13511,30 @@
     api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/root-strays').then(function (r) {
       if (!r.ok || WB.selectedId !== id || document.getElementById('wbRootGuard')) return
       var files = (r.data && r.data.files) || []
-      if (files.length) rootGuardAsk(id, files)
+      // "Later": the same list is not asked again until it changes (a minute's re-check must not pop it back up).
+      var sig = files.map(function (f) { return f.name }).sort().join('|')
+      if (files.length && rootGuardLater[id] !== sig) rootGuardAsk(id, files, sig)
     })
   }
-  function rootGuardAsk(id, files) {
+  function rootGuardAsk(id, files, sig) {
     var overlay = document.createElement('div')
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbRootGuard'
-    overlay.innerHTML = '<div class="modal-content" style="max-width:640px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.rootguard.title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.rootguard.help')) + '</p>'
-      + '<div id="wbRootGuardList"></div></div>'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:640px;max-height:88vh;display:flex;flex-direction:column;padding:18px">'
+      + '<h3 style="margin:0 0 4px;flex:none">' + esc(t('workbench.rootguard.title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px;flex:none">' + esc(t('workbench.rootguard.help')) + '</p>'
+      + '<div id="wbRootGuardList" style="flex:1 1 auto;min-height:0;overflow-y:auto"></div>'
+      + '<div style="text-align:right;margin-top:10px;flex:none"><button type="button" class="btn-secondary" id="wbRootGuardLater">' + esc(t('workbench.rootguard.later')) + '</button></div></div>'
     document.body.appendChild(overlay)
+    var later = function () {
+      rootGuardLater[id] = sig || ''
+      document.removeEventListener('keydown', onKey)
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay)
+    }
+    var onKey = function (e) { if (e.key === 'Escape') later() }
+    document.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) later() })
+    overlay.querySelector('#wbRootGuardLater').addEventListener('click', later)
     var list = overlay.querySelector('#wbRootGuardList')
     var answer = function (name, keep, rowEl) {
       rowEl.querySelectorAll('button').forEach(function (b) { b.disabled = true })
@@ -13531,7 +13544,7 @@
         if (res && !res.ok) { window.showToast(res.message || t('workbench.rootguard.failed')) }
         else window.showToast(t(keep ? 'workbench.rootguard.kept' : 'workbench.rootguard.moved'))
         if (rowEl.parentNode) rowEl.parentNode.removeChild(rowEl)
-        if (!list.children.length) { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); if (WB.selectedId === id) loadDetail(id) }
+        if (!list.children.length) { document.removeEventListener('keydown', onKey); if (overlay.parentNode) overlay.parentNode.removeChild(overlay); if (WB.selectedId === id) loadDetail(id) }
       })
     }
     files.forEach(function (f) {
