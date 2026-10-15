@@ -15,7 +15,8 @@ scope: global
 3. Az ágens KÉRÉS NÉLKÜL bővíti: új információ (feltöltés, elolvasott fájl, a projekt alá csatolt tudásanyag-mappa tartalma, döntés, határidő, nyitott kérdés) -> `context.append` (section: task / info / decisions / open / log). Rendetlen fájlnál `context.rewrite`. A `marveen:files` közötti Anyagok blokkot a rendszer vezeti, nem szerkeszted.
 4. Munkadarab megnyitásakor ismerd fel a feladatot a körülötte lévő fájlokból, és töltsd ki a Feladat szakaszt, ha üres.
 5. EGY munkadarabhoz EGY kontextus-fájl tartozik, bármilyen nyelvre fordítjuk: a nyelvi változat (`doc.createVariant`, pl. német) NEM kap sajátot, az eredeti fájlját használja (olvasás, `context.append`, `context.rewrite`, sweep). Kézzel soha ne hozz létre másik `Kontextus - ...md` fájlt a változatnak.
-6. Titkot (jelszó, token) soha nem írsz bele.
+6. A munkadarab mappájában EGY nyilvántartó JSON van: a saját `marveen-item.json`. Más `id`-jú `marveen-item.json`-t (idegen fájl, sírkő) nem teszel mellé; ha ilyet látsz, szólj a tulajdonosnak. A `.canvas.json` / `.deck.json` tartalom, nem nyilvántartó.
+7. Titkot (jelszó, token) soha nem írsz bele.
 
 ## Buktatók
 - A fájl a munkadarab MAPPÁJÁBAN él; mappa nélküli munkadarabnál a megjelenítési mappában. Ne a projekt gyökerébe tedd.
