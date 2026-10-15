@@ -243,6 +243,11 @@ export async function renderDocx(item: WorkItemRow, lang: 'hu' | 'en'): Promise<
   return renderOutlineDocx(renderInputFor(item, true), { title: item.title, author: documentAuthor(), lang: docLangFor(item, lang) })
 }
 
+/** The PDF twin of the Word copy (#636): the plain document, no watermark and no annex cover, for sending straight away. */
+export async function renderPlainPdf(item: WorkItemRow, lang: 'hu' | 'en'): Promise<RenderResult> {
+  return renderOutlinePdf(renderInputFor(item, true), { title: item.title, author: documentAuthor(), draft: false, lang: docLangFor(item, lang) })
+}
+
 export type DraftResult =
   | { ok: true; pdf: Buffer; hash: string }
   | { ok: false; code: string; detail: string | null; label?: string }

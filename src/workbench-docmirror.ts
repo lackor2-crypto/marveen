@@ -19,7 +19,7 @@ import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
 import { documentOutline, imageBlockParts, tableBlockParts } from './workbench-docmodel.js'
 import { resolveLifePath } from './life-explorer.js'
-import { fileStem, renderDocx } from './workbench-docfinal.js'
+import { fileStem, renderDocx, renderPlainPdf } from './workbench-docfinal.js'
 import { APP_LANG } from './config.js'
 
 const DEBOUNCE_MS = 1500
@@ -30,6 +30,16 @@ export type MirrorResult =
 
 function ensureMirrorTable(): void {
   getDb().exec(`CREATE TABLE IF NOT EXISTS wb_doc_mirror (
+    work_item_id TEXT PRIMARY KEY,
+    file_name TEXT NOT NULL,
+    sha TEXT NOT NULL,
+    outline_sha TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL
+  )`)
+}
+
+function ensurePdfMirrorTable(): void {
+  getDb().exec(`CREATE TABLE IF NOT EXISTS wb_doc_mirror_pdf (
     work_item_id TEXT PRIMARY KEY,
     file_name TEXT NOT NULL,
     sha TEXT NOT NULL,
@@ -74,6 +84,31 @@ export function outlineMarkdown(item: WorkItemRow, dir?: string): string {
   return lines.join('\n')
 }
 
+/**
+ * #636 (Boss TG 3596): the Word copy gets a PDF twin in the same folder, made right away, so what the owner sends is
+ * never the .docx by accident. Same rules as the Word mirror: the outline stays the source, a PDF the owner replaced
+ * or edited is never overwritten, and a failure (no converter) is silent: the Word copy still stands.
+ */
+async function mirrorPdfTwin(item: WorkItemRow, t: { dirAbs: string; dirRel: string }, outlineSha: string): Promise<void> {
+  try {
+    ensurePdfMirrorTable()
+    const db = getDb()
+    const row = db.prepare('SELECT file_name, sha, outline_sha FROM wb_doc_mirror_pdf WHERE work_item_id = ?').get(item.id) as { file_name: string; sha: string; outline_sha: string } | undefined
+    const name = `${fileStem(item.title)}.pdf`
+    const abs = join(t.dirAbs, name)
+    const there = existsSync(abs)
+    if (row && row.file_name === name && row.outline_sha === outlineSha && there && sha(readFileSync(abs)) === row.sha) return
+    if (there && (!row || row.file_name !== name || sha(readFileSync(abs)) !== row.sha)) return
+    if (writeBlockReason(`${t.dirRel}/${name}`)) return
+    const r = await renderPlainPdf(item, APP_LANG === 'en' ? 'en' : 'hu')
+    if (!r.ok) return
+    writeFileSync(abs, r.pdf)
+    db.prepare(`INSERT INTO wb_doc_mirror_pdf (work_item_id, file_name, sha, outline_sha, updated_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(work_item_id) DO UPDATE SET file_name = excluded.file_name, sha = excluded.sha, outline_sha = excluded.outline_sha, updated_at = excluded.updated_at`)
+      .run(item.id, name, sha(r.pdf), outlineSha, Date.now())
+  } catch { /* best effort: the Word copy stands */ }
+}
+
 export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult> {
   const item = getWorkItem(itemId)
   if (!item) return { ok: false, code: 'no_item' }
@@ -91,6 +126,7 @@ export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult>
   const outlineSha = sha(Buffer.from(outlineSource(item), 'utf-8'))
   const existing = row ? join(t.dirAbs, row.file_name) : null
   if (row && existing && existsSync(existing) && row.outline_sha === outlineSha && sha(readFileSync(existing)) === row.sha) {
+    if (row.file_name.endsWith('.docx')) await mirrorPdfTwin(item, t, outlineSha)
     return { ok: true, file: `${t.dirRel}/${row.file_name}`, format: row.file_name.endsWith('.md') ? 'md' : 'docx', written: false }
   }
 
@@ -120,6 +156,7 @@ export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult>
   db.prepare(`INSERT INTO wb_doc_mirror (work_item_id, file_name, sha, outline_sha, updated_at) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(work_item_id) DO UPDATE SET file_name = excluded.file_name, sha = excluded.sha, outline_sha = excluded.outline_sha, updated_at = excluded.updated_at`)
     .run(item.id, name, sha(data), outlineSha, Date.now())
+  if (format === 'docx') await mirrorPdfTwin(item, t, outlineSha)
   return { ok: true, file: `${t.dirRel}/${name}`, format, written: true }
 }
 

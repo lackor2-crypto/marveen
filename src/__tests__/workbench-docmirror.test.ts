@@ -60,9 +60,31 @@ describe('outline mirror file', () => {
     if (!r.ok) throw new Error('mirror: ' + r.code)
     expect(r.written).toBe(true)
     const folder = getWorkItem(id)!.folder!
-    expect(filesIn(folder)).toEqual([`Box szignal optimalizalasa.${r.format}`])
+    // #636: a PDF twin sits next to the Word copy (only when a converter made the Word copy)
+    expect(filesIn(folder).sort()).toEqual(r.format === 'docx' ? ['Box szignal optimalizalasa.docx', 'Box szignal optimalizalasa.pdf'] : ['Box szignal optimalizalasa.md'])
+    if (r.format === 'docx') {
+      const pdf = readFileSync(join(dir, 'Projektek', 'Robotok', ...folder.split('/'), 'Box szignal optimalizalasa.pdf'))
+      expect(pdf.subarray(0, 4).toString()).toBe('%PDF')
+    }
     const again = await mirrorOutlineToFile(id)
     expect(again).toMatchObject({ ok: true, written: false })
+  })
+
+  it('a changed outline refreshes the PDF twin, a PDF the owner replaced is left alone (#636)', async () => {
+    const id = docItem()
+    fill(id, 'Elso szoveg')
+    const r = await mirrorOutlineToFile(id)
+    if (!r.ok || r.format !== 'docx') return // no Word converter on this machine: no PDF twin either
+    const folder = getWorkItem(id)!.folder!
+    const pdfPath = join(dir, 'Projektek', 'Robotok', ...folder.split('/'), 'Box szignal optimalizalasa.pdf')
+    const first = readFileSync(pdfPath)
+    fill(id, 'Masodik szoveg')
+    await mirrorOutlineToFile(id)
+    expect(readFileSync(pdfPath).equals(first)).toBe(false)
+    writeFileSync(pdfPath, 'sajat pdf')
+    fill(id, 'Harmadik szoveg')
+    await mirrorOutlineToFile(id)
+    expect(readFileSync(pdfPath, 'utf-8')).toBe('sajat pdf')
   })
 
   it('markdown fallback carries title, section and text', () => {
