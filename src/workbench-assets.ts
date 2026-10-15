@@ -1261,6 +1261,22 @@ export function migrateSubItemsToFolders(): number {
   return subs.length
 }
 
+/** #618: the "Mellekletek" subfolder every work item folder always has -- made for the items that already existed. Idempotent. */
+export function ensureAllAttachmentsFolders(): { items: number } {
+  ensureAssetTables()
+  let items = 0
+  for (const p of listProjects({ includeArchived: true })) {
+    if (!p.folder_path) continue
+    const rows = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(p.id) as { id: string }[]
+    for (const { id } of rows) {
+      const folder = workItemFolder(id)
+      if (!folder) continue
+      try { if (attachmentsFolderFor(p, folder)) items++ } catch { /* one unreadable folder never stops the rest */ }
+    }
+  }
+  return { items }
+}
+
 export interface FolderMigration { moved: number; skipped: number; container: string | null }
 
 /** Every project with a folder gets its "Munkadarabok" folder and the old item folders move under it. */
@@ -1306,6 +1322,19 @@ export function migrateWorkItemFolders(project: ProjectRow): FolderMigration {
  * letrehozza a munkadarab nevevel es megjegyzi.
  */
 export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
+  const r = ensureWorkItemFolderCore(item)
+  // #618 (Boss TG 3515: "mindig hozza letre"): every work item folder always has its "Mellekletek" / "Attachments"
+  // subfolder, so the annexes have their place before the first one arrives. An existing one (either name) is reused.
+  if (r.ok) {
+    try {
+      const project = getProject(item.project_id)
+      if (project) attachmentsFolderFor(project, r.folder)
+    } catch { /* the folder is made on demand with the first annex instead */ }
+  }
+  return r
+}
+
+function ensureWorkItemFolderCore(item: WorkItemRow): FolderOutcome {
   ensureAssetTables()
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
