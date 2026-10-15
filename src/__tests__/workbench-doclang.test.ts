@@ -352,7 +352,7 @@ describe('a felulet: nyelvi valtozatok', () => {
   })
 
   async function open(outline: Record<string, unknown>, item = SRC) {
-    const h = workbenchHarness({ confirm: true })
+    const h = workbenchHarness({ confirm: true, storage: { 'marveen.workbench.dpCheck': '1' } })
     h.respond((url) => {
       if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
       if (url.includes('/outline/variants')) return { status: 201, body: { ok: true, existing: false, item: { id: 'w2', title: 'Beadvány (DE)' }, outline } }

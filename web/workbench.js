@@ -13045,8 +13045,9 @@
    *  translation / back-translation panels belong to the "check view", switched on by a button. */
   function dpCheckView() {
     if (WB.dpCheck === undefined) {
-      // On unless the user switched it off: both views show the chapter status, the translation bars and the asks.
-      try { WB.dpCheck = localStorage.getItem('marveen.workbench.dpCheck') !== '0' } catch (e) { WB.dpCheck = true }
+      // Off unless the user switched it on (Boss TG 3425): the work item is the letter itself, character for character what the PDF
+      // prints; the chapter status, the translation bars, the source lines and the asks are tools, shown only on request.
+      WB.dpCheck = readPref('marveen.workbench.dpCheck', '') === '1'
     }
     return !!WB.dpCheck
   }
@@ -13096,7 +13097,7 @@
           dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlockRich(b))
         // The check view keeps what the old per-chapter list gave: the missing-data marks and the "simpler / more formal" asks.
         + (chk && b.missing && b.missing.length ? '<p class="wb-dp-extra" contenteditable="false">' + b.missing.map(function (m) { return '<mark class="wb-outline-missing">' + esc(m) + '</mark>' }).join(' ') + '</p>' : '')
-        + (b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra" contenteditable="false">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
+        + (chk && b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra" contenteditable="false">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
         + (b.rewrite ? '<div class="wb-dp-extra" contenteditable="false">' + rewriteHtml(b, ro) + '</div>' : '')
         + (chk && !ro && REWRITABLE[b.kind] ? '<p class="wb-dp-extra wb-outline-tools" contenteditable="false">'
           + '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="simpler" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_simpler_hint')) + '">' + esc(t('workbench.outline.rewrite_simpler')) + '</button> '
