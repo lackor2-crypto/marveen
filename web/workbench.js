@@ -15924,7 +15924,12 @@
     var crit = dbIsCritic(s.mode)
     var out = '<ol class="wb-db-steps"><li>' + esc(t('workbench.db.step0')) + '</li><li>' + esc(t('workbench.db.step1')) + '</li><li>' + esc(t('workbench.db.step2')) + '</li>'
       + '<li>' + esc(t('workbench.db.step3')) + '</li><li>' + esc(t(crit ? 'workbench.db.step4_critic' : 'workbench.db.step4')) + '</li></ol>'
-    if (m && m.has_key === false) out += '<p class="wb-error">' + esc(t('workbench.db.no_key')) + '</p>'
+    if (m && m.has_key === false) {
+      out += '<div class="wb-error wb-db-nokey"><p><strong>' + esc(t('workbench.db.no_key')) + '</strong></p>'
+        + '<ol><li><a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">' + esc(t('workbench.db.no_key_s1')) + '</a></li>'
+        + '<li>' + esc(t('workbench.db.no_key_s2')) + '</li><li>' + esc(t('workbench.db.no_key_s3')) + '</li>'
+        + '<li><a href="#vault">' + esc(t('workbench.db.no_key_s4')) + '</a></li></ol></div>'
+    }
     out += dbTemplateHtml(s)
     out += dbModeHtml(s)
     out += '<label class="wb-db-field"><span>' + esc(t(crit ? 'workbench.db.q_label_critic' : 'workbench.db.q_label')) + '</span>'
