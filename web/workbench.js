@@ -15771,6 +15771,26 @@
     })
   }
 
+  /** Boss TG 3572: models from one maker are allowed, but the start asks first: it is better to choose another maker. */
+  function dbStartChecked() {
+    var s = dbState()
+    if (s.busy || s.session || document.getElementById('wbDbFamilyAsk')) { dbRun(''); return }
+    var w = dbFamilyWarnings([s.a, s.b, s.c, s.judge])
+    if (!w.length || !s.q.trim() || !dbModelsOk(s)) { dbRun(''); return }
+    var overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'
+    overlay.id = 'wbDbFamilyAsk'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:560px;padding:18px">'
+      + '<h3 style="margin:0 0 6px">' + esc(t('workbench.db.family_ask_title')) + '</h3>'
+      + '<p style="margin:0 0 12px">' + esc(t('workbench.db.family_warn', { a: w[0].a, b: w[0].b, family: w[0].family })) + '</p>'
+      + '<div style="text-align:right"><button type="button" class="btn-secondary" id="wbDbFamilyChange">' + esc(t('workbench.db.family_change')) + '</button> '
+      + '<button type="button" class="btn-primary" id="wbDbFamilyGo">' + esc(t('workbench.db.family_go')) + '</button></div></div>'
+    document.body.appendChild(overlay)
+    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    overlay.querySelector('#wbDbFamilyChange').addEventListener('click', close)
+    overlay.querySelector('#wbDbFamilyGo').addEventListener('click', function () { close(); dbRun('') })
+  }
+
   function dbConclude() {
     var s = dbState()
     if (s.busy || !s.session) return
@@ -16708,7 +16728,7 @@
     if (a === 'db-open') dbOpenPanel()
     else if (a === 'db-past') { s.pastOpen = !s.pastOpen; if (s.past === null) dbLoadPast(); render() }
     else if (a === 'db-new') { dbReset(); render() }
-    else if (a === 'db-start') dbRun('')
+    else if (a === 'db-start') dbStartChecked()
     else if (a === 'db-next') dbRun(s.steer)
     else if (a === 'db-conclude') dbConclude()
     else if (a === 'db-resume') dbResume(act.getAttribute('data-wb-id'))
