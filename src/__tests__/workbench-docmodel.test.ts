@@ -103,8 +103,9 @@ describe('forrasrendszer', () => {
     expect(r.claim.strength).toBe('owner_unconfirmed')
     expect(r.claim.sources[0]).toMatchObject({ verdict: 'recorded', message_id: 'm1', said_at: 1_790_000_000 })
     updateSection(itemId, section.id, { status: 'done' })
-    expect(documentCheck(itemId).ready).toBe(false)
-    expect(documentCheck(itemId).items.find((i) => i.key === 'owner_statements')).toMatchObject({ ok: false, count: 0, total: 1 })
+    // Boss TG 3443/3445: the owner's own statement in the letter holds nothing back; no confirmation is asked for.
+    expect(documentCheck(itemId).ready).toBe(true)
+    expect(documentCheck(itemId).items.find((i) => i.key === 'owner_statements')).toBeUndefined()
     // Az agent (tokennel) nem erosithet meg.
     const byAgent = await callWorkbench(`/api/workbench/items/${itemId}/outline/claims/${r.claim.id}/confirm`, 'POST', {}, undefined, { kind: 'token' })
     expect(byAgent.status).toBe(403)
@@ -247,7 +248,7 @@ describe('a felulet: vazlat, forrasok, megerosites', () => {
         blocks: [{ id: 'b1', kind: 'paragraph', text: 'Szöveg. ⚠ Hiányzó adat: a kézbesítés dátuma', owner_edited_at: null, missing: ['⚠ Hiányzó adat: a kézbesítés dátuma'],
           claims: [claim('c1', 'verified', 'document', 'verified'), claim('c2', 'owner_unconfirmed', 'owner', 'recorded')] }],
       }],
-      check: { ready: false, items: [{ key: 'sections_done', ok: false, count: 0, total: 1, detail: ['2. Tényállás'] }, { key: 'owner_statements', ok: false, count: 0, total: 1, detail: ['Állítás c2'] }] },
+      check: { ready: false, items: [{ key: 'sections_done', ok: false, count: 0, total: 1, detail: ['2. Tényállás'] }] },
     }
     h.respond((url, init) => {
       if (url.includes('/outline/claims/c2/confirm') && init && init.method === 'POST') return { status: 200, body: { ok: true, outline: OUTLINE } }
@@ -266,10 +267,10 @@ describe('a felulet: vazlat, forrasok, megerosites', () => {
     expect(html).not.toContain('workbench.outline.status.in_progress')
     expect(html).not.toContain('wb-outline-missing')
     expect(html).not.toContain('wb-outline-claim-verified')
-    // #611 (Boss TG 3438): the finalize box itself lists the open points and carries the confirm button of the owner's own statement.
+    // #611 (Boss TG 3438): the finalize box itself lists the open points; the owner's own statements are not among them.
     const fin = html.slice(html.indexOf('wb-outline-final'))
-    expect(fin).toContain('workbench.outline.check.owner_statements')
-    expect(fin).toContain('data-wb-act="outline-claim-confirm" data-wb-claim="c2"')
+    expect(fin).toContain('workbench.outline.check.sections_in_progress')
+    expect(fin).not.toContain('workbench.outline.check.owner_statements')
     expect(fin).not.toContain('data-wb-claim="c1"')
   })
 })

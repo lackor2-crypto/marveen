@@ -934,8 +934,6 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   const docBad = docSources.filter((s) => s.verdict !== 'verified')
   const official = sources.filter((s) => s.kind === 'official')
   const officialBad = official.filter((s) => s.verdict !== 'verified')
-  const ownerClaims = claims.filter((c) => c.sources.some((s) => s.kind === 'owner'))
-  const ownerUnconfirmed = ownerClaims.filter((c) => !c.sources.some((s) => s.kind === 'owner' && s.confirmed_at) && c.strength !== 'verified')
   const inferenceOnly = claims.filter((c) => c.strength === 'inference')
   const unsupported = claims.filter((c) => c.strength === 'unverified')
   const missing = blocks.flatMap((b) => b.missing)
@@ -954,7 +952,7 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
       key: 'quotes_verified', ok: docBad.length === 0, count: docSources.length - docBad.length, total: docSources.length,
       detail: docBad.map((s) => `${s.path}:${s.page} -- ${s.verdict}`),
     },
-    { key: 'owner_statements', ok: ownerUnconfirmed.length === 0, count: ownerClaims.length - ownerUnconfirmed.length, total: ownerClaims.length, detail: ownerUnconfirmed.map((c) => c.text) },
+    // Boss TG 3443/3445: the owner's own statements in the letter need NO confirmation (what the owner says is so); only the annexes are reviewed and confirmed.
     { key: 'unsupported_claims', ok: unsupported.length === 0, count: unsupported.length, detail: unsupported.map((c) => c.text) },
     { key: 'inference_as_fact', ok: true, count: inferenceOnly.length, detail: inferenceOnly.map((c) => c.text) },
     { key: 'owner_written', ok: true, count: blocks.filter((b) => b.owner_edited_at).length },
