@@ -151,6 +151,25 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(rootStrays(cur, w)).toEqual([])
   })
 
+  it('#633: a file the app itself registered in the item root (a finalised PDF) is not asked about; an annex goes to Mellekletek', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    const cur = getProject(pid) as ProjectRow
+    const w = getWorkItem(item.id) as any
+    expect(rootStrays(cur, w)).toEqual([])
+    const main = attachAsset(w, 'Beadvany.pdf', Buffer.from('%PDF-main'), { force: true })
+    const annex = attachAsset(w, 'K1 - Melleklet.pdf', Buffer.from('%PDF-annex'), { force: true, into: 'attachments' })
+    if (!main.ok || !annex.ok) throw new Error('csatolas')
+    expect(existsSync(join(dir, 'Beadvany.pdf'))).toBe(true)
+    expect(existsSync(join(dir, 'K1 - Melleklet.pdf'))).toBe(false)
+    expect(annex.asset.path).toMatch(/Mell[ée]kletek\/K1 - Melleklet\.pdf$/)
+    expect(rootStrays(cur, w)).toEqual([])
+    writeFileSync(join(dir, 'level.pdf'), 'l')
+    expect(rootStrays(cur, w).map((x) => x.name)).toEqual(['level.pdf'])
+  })
+
   it('#625: only a drawing / deck JSON no work item uses is listed; approval trashes it, an item JSON is never a candidate', () => {
     const item = newItem('Wohngeld valasz')
     const f = ensureWorkItemFolder(item)

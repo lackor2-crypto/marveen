@@ -66,7 +66,13 @@ export function rootStrays(project: ProjectRow, item: WorkItemRow): RootStray[] 
     for (const n of r.names) ins.run(item.id, n)
     return []
   }
-  return r.names.filter((n) => !seen.has(n) && !isOwnName(n, own)).map((name) => ({ name }))
+  // A file the app itself wrote and registered as one of the item's materials (a finalised PDF) is not a stray
+  // someone dropped in: it never raises the question (Boss TG 2956, #633).
+  let mine = new Set<string>()
+  try {
+    mine = new Set((db.prepare('SELECT path FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(item.id) as { path: string }[]).map((x) => x.path))
+  } catch { /* no assets table yet: nothing is registered */ }
+  return r.names.filter((n) => !seen.has(n) && !isOwnName(n, own) && !mine.has(`${r.dirRel}/${n}`)).map((name) => ({ name }))
 }
 
 export interface RootDecision { name: string; keep: boolean }
