@@ -134,7 +134,7 @@ export type ClaudeRunner = (system: string, prompt: string, account: ClaudeAccou
 export type OllamaRunner = (system: string, prompt: string) => Promise<RunnerAnswer | 'missing' | null>
 
 // Variables that would route the CLI to a paid API or a foreign endpoint.
-const STRIPPED_ENV = [
+export const STRIPPED_ENV = [
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN',
   'ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'OPENROUTER_API_KEY',
