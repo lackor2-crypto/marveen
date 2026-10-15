@@ -43,7 +43,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, uploadsFolderFor, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
@@ -308,7 +308,7 @@ export const WORK_FOLDER_MAX = 600
 
 /** A plain file lying in a work folder (not a work item): shown in the list with a preview link.
  *  `item`: the file lies directly in a live work item's own folder, so it belongs to that item (#492: copy only). */
-export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true }
+export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true; annex?: true }
 /** Same name as SNAPSHOT_FILE in workbench-snapshot.ts (not imported: that module imports this area). */
 const ITEM_SNAPSHOT_NAME = 'marveen-item.json'
 export const WORK_FOLDER_FILES_MAX = 200
@@ -461,6 +461,32 @@ export function listProjectFolderLevel(project: ProjectRow, folder: unknown, opt
   return { ok: true, folder: rel, outside: walkOutside(t.dirRel, abs, rel, box, opts) }
 }
 
+/**
+ * Boss TG 3025: a Life-tree document linked as an annex stands in the item's Attachments folder as a link (no copy):
+ * it is listed there with the real path, flagged `linked` (the page offers no rename / move on it).
+ */
+function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): void {
+  let rows: { folder: string; life_rel: string | null }[] = []
+  try {
+    rows = getDb().prepare(`SELECT w.folder AS folder, a.life_rel AS life_rel FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id
+      WHERE w.project_id = ? AND w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != '' AND a.path LIKE 'doc:%' ORDER BY a.position`).all(project.id) as typeof rows
+  } catch { return /* no annex table yet: nothing is linked */ }
+  const have = new Set(folders)
+  for (const r of rows) {
+    const rel = String(r.life_rel ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
+    if (!rel) continue
+    const key = ['Mell\u00e9kletek', 'Attachments'].map((n) => `${r.folder}/${n}`).find((k) => have.has(k))
+    if (!key) continue
+    const name = rel.slice(rel.lastIndexOf('/') + 1)
+    if ((files[key] || []).some((f) => f.name === name)) continue
+    const abs = resolveLifePath(rel)
+    if (!abs) continue
+    let size = 0
+    try { const st = statSync(abs); if (!st.isFile()) continue; size = st.size } catch { continue }
+    ;(files[key] = files[key] || []).push({ name, size, rel, linked: true, annex: true })
+  }
+}
+
 /** `outside: false`: only the box (the file actions that check a path against the box need no more). */
 export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] } {
   const box = findWorkItemsBox(project)
@@ -508,6 +534,7 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
     }
   }
   walk(t.dirAbs, box, 1)
+  linkedAnnexRows(project, out, files)
   return { box, folders: out, truncated, files, outside, root_name: rootName, own_folders: out.filter((f) => ownFolders.has(f)) }
 }
 
@@ -1276,7 +1303,7 @@ export function ensureAllAttachmentsFolders(): { items: number } {
     for (const { id } of rows) {
       const folder = workItemFolder(id)
       if (!folder) continue
-      try { if (attachmentsFolderFor(p, folder)) items++ } catch { /* one unreadable folder never stops the rest */ }
+      try { ensureItemStandardFolders(p, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
     }
   }
   return { items }
@@ -1333,7 +1360,7 @@ export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
   if (r.ok) {
     try {
       const project = getProject(item.project_id)
-      if (project) attachmentsFolderFor(project, r.folder)
+      if (project) ensureItemStandardFolders(project, r.folder)
     } catch { /* the folder is made on demand with the first annex instead */ }
   }
   return r
@@ -1499,7 +1526,7 @@ export function ensureItemUploadsFolder(item: WorkItemRow, lang?: string): Folde
  */
 export function attachAsset(
   item: WorkItemRow, name: string, data: Buffer,
-  opts: { force?: boolean; createdBy?: string | null; uploads?: boolean; lang?: string; into?: 'attachments' } = {},
+  opts: { force?: boolean; createdBy?: string | null; uploads?: boolean; lang?: string; into?: 'attachments' | 'finished' | 'uploads' } = {},
 ): AttachOutcome {
   ensureAssetTables()
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
@@ -1512,9 +1539,14 @@ export function attachAsset(
   }
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
-  const f = opts.uploads ? ensureItemUploadsFolder(item, opts.lang) : ensureWorkItemFolder(item)
+  // Boss TG 3025: an uploaded or attached file goes to Uploads, an attachment of a document to Attachments, a finished
+  // PDF to Finished documents; only a folder that cannot be made falls back to the item's own folder.
+  const f = ensureWorkItemFolder(item)
   if (!f.ok) return f
-  const dir = opts.into === 'attachments' ? (attachmentsFolderFor(project, f.folder) ?? f.folder) : f.folder
+  const into = opts.into ?? 'uploads'
+  const dir = into === 'attachments' ? (attachmentsFolderFor(project, f.folder) ?? f.folder)
+    : into === 'finished' ? (finishedFolderFor(project, f.folder) ?? f.folder)
+      : (uploadsFolderFor(project, f.folder) ?? f.folder)
   // The very same file (same name, same bytes) already stands in the folder -- put there by hand, so it is not one of the
   // materials yet: it is taken as it is, not copied again as "name (2)" (Boss TG 3481). A forced upload still makes a copy.
   let out: WriteOutcome | null = null

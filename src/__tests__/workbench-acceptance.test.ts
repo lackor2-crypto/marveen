@@ -390,7 +390,7 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 0. fazis: 5 vegyes fa
     expect(listWorkItems(e.pid)).toHaveLength(1)
     expect(getWorkItem(e.itemId)?.folder).toBe('Munkadarabok/Kovács-ügy')
     for (const [name] of files) {
-      expect(paths[name]).toBe(`Munkadarabok/Kovács-ügy/${name}`)
+      expect(paths[name]).toBe(`Munkadarabok/Kovács-ügy/Feltöltések/${name}`)
       expect(existsSync(join(e.depot, 'Projektek', 'Iroda', paths[name]!))).toBe(true)
     }
     const detail = await callWorkbench(`/api/workbench/items/${e.itemId}`, 'GET')

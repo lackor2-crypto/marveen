@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ProjectRow } from './projects.js'
-import { writeProjectFile } from './project-files.js'
+import { writeProjectFile, finishedFolderFor } from './project-files.js'
 import { itemOutputFolder } from './workbench-assets.js'
 import type { WorkItemRow } from './workbench.js'
 import { convertOfficeToPdf } from './office-convert.js'
@@ -56,7 +56,10 @@ export async function exportDeck(
     }
   }
   // #496: into the item's own folder (else beside the deck file, else the work-items box), never the project root.
-  const out = writeProjectFile(project, itemOutputFolder(project, item, deckRel), `${stem(item.title)}.${format}`, bytes)
+  // Boss TG 3025: a finished PDF goes to the item's Finished documents folder; a pptx stays beside the item.
+  const outFolder = itemOutputFolder(project, item, deckRel)
+  const target = format === 'pdf' ? (finishedFolderFor(project, outFolder) ?? outFolder) : outFolder
+  const out = writeProjectFile(project, target, `${stem(item.title)}.${format}`, bytes)
   if (!out.ok) return { ok: false, code: out.code === 'write_failed' ? 'deck_export_failed' : out.code, detail: out.message || null }
   return { ok: true, file: { rel: out.rel, name: out.name, bytes: out.bytes }, format, slides: deck.slides.length, warnings: built.warnings }
 }

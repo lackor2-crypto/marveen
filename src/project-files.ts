@@ -453,3 +453,24 @@ export function finishedFolderFor(p: ProjectRow, itemFolder: string | null | und
   const r = makeProjectFolder(p, base, ol('Elkészített iratok', 'Finished documents'))
   return r.ok ? r.sub : null
 }
+
+/** The "Feltöltések" / "Uploads" subfolder of an item's own folder (made on demand): what the owner uploads or attaches
+ *  in the chat lands here (Boss TG 2872, 3025). Null when it cannot be made. */
+export function uploadsFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return null
+  for (const n of ['Feltöltések', 'Uploads']) {
+    const have = projectFileTarget(p, `${base}/${n}`)
+    if (have.ok) return `${base}/${n}`
+  }
+  const r = makeProjectFolder(p, base, ol('Feltöltések', 'Uploads'))
+  return r.ok ? r.sub : null
+}
+
+/** Boss TG 3025: every work item folder has these three subfolders from the start (Finished documents, Uploads,
+ *  Attachments), so each kind of file has its place before the first one arrives. Each one is best effort. */
+export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | null | undefined): void {
+  for (const f of [finishedFolderFor, uploadsFolderFor, attachmentsFolderFor]) {
+    try { f(p, itemFolder) } catch { /* the folder is made on demand with its first file instead */ }
+  }
+}

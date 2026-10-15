@@ -5957,6 +5957,7 @@ window._i18n.hu = {
   "workbench.file.copy_only_many": "A kijelöltek közül {n} fájlt nem tudod áthelyezni, csak másolni, mert a munkadarabjukhoz tartoznak. Másolatként más munkadarabnál felhasználhatod őket.",
   "workbench.file.copy_only_ask": "Lemásoljam ide: „{folder}”? Az eredeti a helyén marad, a másolat önálló fájl lesz.",
   "workbench.file.copy_only_rest": "A többi {n} kijelölt fájlt áthelyezem.",
+  "workbench.annexlink.hint": "Életfa-dokumentum, hivatkozásként melléklet (nincs másolat): {path}. A mellékletek listájában kezelheted.",
   "workbench.file.move_item_ask": "A(z) „{name}” fájl a munkadarab mappájában van. Áthelyezed onnan?",
   "workbench.file.move_item_ask_many": "A kijelöltek közül {n} fájl a munkadarab mappájában van. Áthelyezed őket onnan?",
   "workbench.file.move_item_to": "Cél: „{folder}”. Az áthelyezett fájl ott lesz, a munkadarab mellől eltűnik.",

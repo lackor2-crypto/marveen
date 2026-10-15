@@ -49,7 +49,7 @@ describe('levetel / torles es mappa-megnyitas (szerver)', () => {
     const item = newItem()
     const r = attachAsset(item, 'jegyzet.md', Buffer.from('X'))
     if (!r.ok) throw new Error('anyag')
-    const file = join(projDir(), 'Munkadarabok', 'Ajanlat', 'jegyzet.md')
+    const file = join(projDir(), 'Munkadarabok', 'Ajanlat', 'Feltöltések', 'jegyzet.md')
     expect(existsSync(file)).toBe(true)
     const del = await callWorkbench(`/api/workbench/items/${item.id}/assets/${r.asset.id}?file=1`, 'DELETE')
     expect(del.status).toBe(200)
@@ -65,7 +65,7 @@ describe('levetel / torles es mappa-megnyitas (szerver)', () => {
     if (!r.ok) throw new Error('anyag')
     const del = await callWorkbench(`/api/workbench/items/${item.id}/assets/${r.asset.id}`, 'DELETE')
     expect(del.status).toBe(200)
-    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'jegyzet.md'))).toBe(true)
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Feltöltések', 'jegyzet.md'))).toBe(true)
   })
 
   it('ha a fajlt masik munkadarab is hasznalja, NEM torli, es megmondja, ki hasznalja', async () => {
@@ -92,7 +92,7 @@ describe('levetel / torles es mappa-megnyitas (szerver)', () => {
     getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(r.asset.path, item.id)
     const del = await callWorkbench(`/api/workbench/items/${item.id}/assets/${r.asset.id}?file=1`, 'DELETE')
     expect(del.status).toBe(409)
-    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'terv.md'))).toBe(true)
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Feltöltések', 'terv.md'))).toBe(true)
   })
 
   it('a helyek: Anyagok = a munkadarab mappaja, Kozos tar, Verziok = a fo fajl mappaja, anyag = a fajl kijelolve', () => {
@@ -103,7 +103,7 @@ describe('levetel / torles es mappa-megnyitas (szerver)', () => {
     const assets = workbenchPlace(project, fresh, 'assets')
     expect(assets.ok && assets.dirRel).toBe('Projektek/Iroda/Munkadarabok/Ajanlat')
     const one = workbenchPlace(project, fresh, 'asset', r.asset.id)
-    expect(one.ok && one.dirRel).toBe('Projektek/Iroda/Munkadarabok/Ajanlat')
+    expect(one.ok && one.dirRel).toBe('Projektek/Iroda/Munkadarabok/Ajanlat/Feltöltések')
     expect(one.ok && one.select).toBe('jegyzet.md')
     expect(workbenchPlace(project, null, 'shared')).toMatchObject({ ok: false, code: 'no_shared_folder' })
     const sh = uploadSharedFile(project, 'logo.png', Buffer.from('PNG'))

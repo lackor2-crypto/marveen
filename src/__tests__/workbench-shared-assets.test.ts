@@ -154,7 +154,7 @@ describe('a projekt kozos tara', () => {
     expect(r).toMatchObject({ ok: true, renamed: true, to: 'Munkadarabok/Poszt uj' })
     const assets = listWorkItemAssets(item.id)
     expect(assets.find((x) => x.name === 'logo.png')).toMatchObject({ path: 'Projektek/Iroda/Közös anyagok/logo.png', present: true, shared: true })
-    expect(assets.find((x) => x.name === 'szoveg.md')).toMatchObject({ project_path: 'Munkadarabok/Poszt uj/szoveg.md', shared: false })
+    expect(assets.find((x) => x.name === 'szoveg.md')).toMatchObject({ project_path: 'Munkadarabok/Poszt uj/Feltöltések/szoveg.md', shared: false })
   })
 
   it('az agent: project.listShared (olvaso, szabad) es workItem.linkShared (iro, kategoriaval); a kontextus jeloli', async () => {

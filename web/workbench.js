@@ -1676,6 +1676,14 @@
     WB.linkedFiles = WB.linkedFiles || {}
     if (f.linked) WB.linkedFiles[f.rel] = true; else delete WB.linkedFiles[f.rel]
     var kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB'
+    // Boss TG 3025: a Life-tree document linked as an annex shows in the Attachments folder as a plain link: it is
+    // managed in the document's annex list, so no tick box, menu or drag here (a delete would hit the real file).
+    if (f.annex) {
+      return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '">'
+        + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.annexlink.hint', { path: f.rel })) + '">'
+        + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked">\ud83d\udd17</span> ' + esc(f.name) + '</span>'
+        + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
+    }
     return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
