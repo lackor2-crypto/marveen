@@ -13209,7 +13209,7 @@
     var parts = (o.sections || []).map(function (sec) {
       var pv = tw.prev[twKey(sec.id)]
       var cur = pv && pv.sig === twSig(sec)
-      if (pv) shownIds.push(sec.id)
+      if (pv) { shownIds.push(sec.id); pv.fresh = false } // #619: from this draw on the page shows it
       if (!pv) {
         return (sec.untitled ? '' : '<div class="wb-tw-h wb-dp-h1 wb-tw-todo" contenteditable="false">' + esc(sec.title) + '</div>')
           + '<p class="wb-muted wb-tw-todo" contenteditable="false">' + esc(t(tw.busy && tw.current === sec.id ? 'workbench.tw.working_sec' : 'workbench.tw.not_yet')) + '</p>'
@@ -13307,7 +13307,8 @@
     ;(o.sections || []).forEach(function (sec) {
       var key = twKey(sec.id)
       var pv = tw.prev[key]
-      if (!pv || shownIds.indexOf(sec.id) < 0) return
+      // #619: a translation that arrived after the draw is newer than what stands on the page: the old page text must not overwrite it.
+      if (!pv || pv.fresh || shownIds.indexOf(sec.id) < 0) return
       var g = seen[sec.id]
       // A chapter whose heading was deleted is no longer translated: counted, and the page says how many (twPanelInnerHtml).
       if (!g) { delete tw.prev[key]; dropped++; return }
@@ -13466,6 +13467,7 @@
         }
         var pv = r.data.preview
         pv.sig = sig
+        pv.fresh = true // #619: not drawn yet; twCollect leaves it alone until the page shows it
         tw.prev[id + ':' + lang + ':' + sec.id] = pv
         next(i + 1)
       })

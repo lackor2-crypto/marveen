@@ -453,4 +453,12 @@ describe('the draft page wiring', () => {
     expect(js).toContain('function twLineBreakAtCaret()')
     expect(js).toContain("/^(table|list)$/.test(host.getAttribute('data-tw-kind')")
   })
+
+  it('#619: a retranslation that arrives is not overwritten by the older text still on the page', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    // the arriving preview is marked fresh, twCollect skips a fresh section, and the draw clears the mark
+    expect(js).toMatch(/pv\.sig = sig\n\s+pv\.fresh = true/)
+    expect(js).toMatch(/if \(!pv \|\| pv\.fresh \|\| shownIds\.indexOf\(sec\.id\) < 0\) return/)
+    expect(js).toContain('pv.fresh = false')
+  })
 })
