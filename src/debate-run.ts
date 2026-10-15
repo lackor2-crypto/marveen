@@ -17,7 +17,7 @@ import { getDb } from './db.js'
 import { getSecret } from './web/vault.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
-import { askOnSubscription, claudeCliModel } from './debate-claude-cli.js'
+import { askOnProvider, askOnSubscription, routeFor } from './debate-claude-cli.js'
 import {
   isRoleMode, isCriticRole, modelCountOf, TRIAD_ROLES, modeSystemPrompt, buildModeRoundPrompt, isNoObjections, readResponse, rolesForRound, effectiveStrength, effectiveSwap,
   familyWarnings, modeFromStored, isStrength, DEFAULT_MODE_ID, BUILTIN_MODES,
@@ -377,31 +377,38 @@ export class DebateKeyMissingError extends Error {
   constructor() { super('no OpenRouter key in the vault') }
 }
 
-/** The OpenRouter key, or null: a debate whose models all run on the Claude subscription needs none. */
+/** The OpenRouter key, or null: a debate whose models do not run on OpenRouter needs none. */
 function apiKey(specs: string[]): string | null {
   const key = getSecret(VAULT_SECRET_ID)
   if (key) return key
-  if (specs.length && specs.every((s) => claudeCliModel(parseModelSpec(s).webSearch ? '' : s) !== null)) return null
+  if (specs.length && specs.every((s) => routeFor(s).kind !== 'openrouter' && !routeFor(s).fallback)) return null
+  if (specs.length && specs.every((s) => routeFor(s).kind !== 'openrouter')) return null
   throw new DebateKeyMissingError()
 }
 
 async function callModelOnce(spec: string, system: string, prompt: string, key: string | null): Promise<DebateResponse> {
-  const { model, webSearch } = parseModelSpec(spec)
-  // An Anthropic model runs on the owner's Claude subscription first (Boss TG 2960); OpenRouter is the fallback.
-  const cli = webSearch ? null : claudeCliModel(spec)
+  const route = routeFor(spec)
+  const { webSearch } = parseModelSpec(spec)
+  const model = route.kind === 'openrouter' ? (webSearch ? parseModelSpec(spec).model : route.model) : route.model
+  // Not an OpenRouter model: the owner's Claude subscription or the provider's own endpoint, as the agents run them.
   let subscriptionError = ''
-  if (cli) {
-    const r = await askOnSubscription(cli, system, prompt, PER_MODEL_TIMEOUT_MS)
+  if (route.kind !== 'openrouter') {
+    const r = route.kind === 'claude'
+      ? await askOnSubscription(route.model, system, prompt, PER_MODEL_TIMEOUT_MS)
+      : await askOnProvider(route, system, prompt, PER_MODEL_TIMEOUT_MS)
     if (r.ok && r.text.trim()) return { model: spec, ok: true, text: r.text, tokensIn: r.tokensIn, tokensOut: r.tokensOut }
     subscriptionError = r.ok ? 'empty answer' : r.error
+    if (!route.fallback) return { model: spec, ok: false, error: subscriptionError }
     logger.warn({ model: spec, reason: subscriptionError }, '[debate] the Claude subscription did not answer, falling back to OpenRouter')
+    if (!key) return { model: spec, ok: false, error: `Claude subscription: ${subscriptionError}; no OpenRouter key to fall back to` }
   }
-  if (!key) return { model: spec, ok: false, error: `Claude subscription: ${subscriptionError || 'not used'}; no OpenRouter key to fall back to` }
+  if (!key) return { model: spec, ok: false, error: 'no OpenRouter key in the vault' }
+  const orModel = route.kind === 'openrouter' ? model : spec
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS)
   try {
     const body: Record<string, unknown> = {
-      model,
+      model: orModel,
       messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
       reasoning: { effort: 'low' },
     }
