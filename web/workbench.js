@@ -9005,6 +9005,52 @@
     })
   }
 
+  /**
+   * After "Megnyitom es atnezem": the server records the review only when the draft PDF
+   * is finished, which can take far longer than a couple of seconds. Poll until the
+   * outline reports it (every 2 s, at most 90 s) and also re-read on every return to
+   * the tab, so the confirmation box never stays grey while the review is already saved.
+   */
+  var reviewWatch = null
+  function watchReview() {
+    if (reviewWatch) reviewWatch.stop()
+    var id = WB.selectedId
+    var tries = 0
+    var timer = null
+    var stop = function () {
+      if (timer) clearTimeout(timer)
+      timer = null
+      if (typeof window.removeEventListener === 'function') {
+        window.removeEventListener('focus', check)
+        document.removeEventListener('visibilitychange', check)
+      }
+      if (reviewWatch && reviewWatch.stop === stop) reviewWatch = null
+    }
+    var check = function () {
+      if (WB.selectedId !== id) { stop(); return }
+      var url = '/api/workbench/items/' + encodeURIComponent(id) + '/outline'
+      api('GET', url).then(function (r) {
+        if (WB.selectedId !== id) { stop(); return }
+        if (r.ok && WB.detail) {
+          WB.detail.outline = r.data.outline
+          render()
+          if (r.data.outline && r.data.outline.reviewed) stop()
+        }
+      })
+    }
+    var tick = function () {
+      tries++
+      check()
+      if (tries < 45) timer = setTimeout(tick, 2000); else stop()
+    }
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('focus', check)
+      document.addEventListener('visibilitychange', check)
+    }
+    reviewWatch = { stop: stop }
+    timer = setTimeout(tick, 1500)
+  }
+
   function finalizeDocument() {
     var id = WB.selectedId
     var o = WB.detail && WB.detail.outline
@@ -9223,11 +9269,7 @@
     } else if (a === 'outline-review') {
       // A link maga nyitja meg a PDF-et uj lapon; a szerver akkor rogziti az
       // atnezest, ha elkeszult, es a tartalom ugyanaz. Utana onnan olvassuk vissza.
-      setTimeout(refreshOutline, 1500)
-      setTimeout(refreshOutline, 5000)
-      if (typeof window.addEventListener === 'function') {
-        window.addEventListener('focus', function once() { window.removeEventListener('focus', once); refreshOutline() })
-      }
+      watchReview()
     } else if (a === 'outline-accept') {
       var o = WB.detail && WB.detail.outline
       WB.docAccept = act.checked && o ? o.content_hash : null
