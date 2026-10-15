@@ -352,7 +352,7 @@ describe('a felulet: nyelvi valtozatok', () => {
   })
 
   async function open(outline: Record<string, unknown>, item = SRC) {
-    const h = workbenchHarness({ confirm: true, storage: { 'marveen.workbench.dpCheck': '1' } })
+    const h = workbenchHarness({ confirm: true })
     h.respond((url) => {
       if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
       if (url.includes('/outline/variants')) return { status: 201, body: { ok: true, existing: false, item: { id: 'w2', title: 'Beadvány (DE)' }, outline } }
@@ -389,7 +389,7 @@ describe('a felulet: nyelvi valtozatok', () => {
     expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(false)
   })
 
-  it('a valtozatnal: elavult fejezet frissites-gombja az egesz valtozatot forditja, visszaforditas az eredeti mellett, szoszedet felvetele', async () => {
+  it('a valtozat lapjan nincs fejezetenkenti fordito/visszafordito/szoszedet sav (az Ellenorzo nezet megszunt, Boss TG 3431)', async () => {
     const h = await open(base({
       variant: {
         source_item_id: 'w1', source_title: 'Beadvány', lang: 'de', new_in_source: [],
@@ -398,25 +398,8 @@ describe('a felulet: nyelvi valtozatok', () => {
       backchecks: [{ section_id: 's1', text: 'Visszafordított szöveg.', stale: true, created_at: 1, source_title: '1. Kérelem', source_text: 'Eredeti szöveg.' }],
     }), VAR)
     const html = h.html()
-    expect(html).toContain('workbench.doclang.variant_title')
-    expect(html).toContain('workbench.doclang.state.stale')
-    expect(html).toContain('data-wb-act="outline-lang-translate" data-wb-sec="s1"')
-    expect(html).toContain('data-wb-act="outline-lang-translate-all"')
-    expect(html).toContain('Visszafordított szöveg.')
-    expect(html).toContain('Eredeti szöveg.')
-    expect(html).toContain('workbench.doclang.back_stale')
-    h.click({ 'data-wb-act': 'outline-lang-translate', 'data-wb-sec': 's1' })
-    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/items/w2/outline/translate') && c.init?.method === 'POST')).toBe(true))
-    expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(false)
-    h.click({ 'data-wb-act': 'outline-lang-back-del', 'data-wb-sec': 's1' })
-    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/backchecks/s1') && c.init?.method === 'DELETE')).toBe(true))
-    h.inputs['wbGlossTerm'] = { value: ' keresetlevél ', focus() {} }
-    h.inputs['wbGlossTr'] = { value: 'Klage', focus() {} }
-    h.inputs['wbGlossLang'] = { value: 'de', focus() {} }
-    h.click({ 'data-wb-act': 'outline-lang-term-add' })
-    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/glossary') && c.init?.method === 'POST')).toBe(true))
-    const g = h.fetchCalls.find((c) => c.url.includes('/outline/glossary'))
-    expect(JSON.parse(String(g?.init?.body))).toEqual({ term: 'keresetlevél', translation: 'Klage', lang: 'de' })
+    expect(html).not.toContain('data-wb-act="outline-lang-translate" data-wb-sec="s1"')
+    expect(html).not.toContain('Visszafordított szöveg.')
   })
 
   const VARIANT_DE = {

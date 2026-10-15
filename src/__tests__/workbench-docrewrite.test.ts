@@ -154,7 +154,7 @@ describe('a felulet: atirasi gombok es javaslat', () => {
   })
 
   async function open(rw: unknown) {
-    const h = workbenchHarness({ confirm: true, storage: { 'marveen.workbench.dpCheck': '1' } })
+    const h = workbenchHarness({ confirm: true })
     h.respond((url) => {
       if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
       if (url.includes('/rewrite')) return { status: 200, body: { ok: true, outline: outline(null) } }
@@ -170,19 +170,11 @@ describe('a felulet: atirasi gombok es javaslat', () => {
     return h
   }
 
-  it('szoveges bekezdesnel ket gomb, tablazatnal nincs; a gomb az agentnek szol a chatben', async () => {
+  it('nincs "Egyszerubben / Hivatalosabban" gomb a lapon (az Ellenorzo nezet megszunt, Boss TG 3431)', async () => {
     const h = await open(null)
     const html = h.html()
-    expect(html).toContain('data-wb-act="outline-rewrite-ask" data-wb-style="simpler" data-wb-block="b1"')
-    expect(html).toContain('data-wb-act="outline-rewrite-ask" data-wb-style="formal" data-wb-block="b1"')
-    // a table has no rewrite ask (the page itself carries data-wb-block / data-wb-sec on the table's own elements)
-    expect(html).not.toContain('data-wb-act="outline-rewrite-ask" data-wb-style="simpler" data-wb-block="b2"')
-    expect(html).not.toContain('data-wb-act="outline-rewrite-ask" data-wb-style="formal" data-wb-block="b2"')
-    h.click({ 'data-wb-act': 'outline-rewrite-ask', 'data-wb-style': 'formal', 'data-wb-block': 'b1', 'data-wb-sec': 's1' })
-    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(true))
-    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/agent/message'))
-    expect(String(call?.init?.body)).toContain('workbench.outline.rewrite_ask.formal')
-    expect(h.toasts.some((x) => x.includes('workbench.outline.rewrite_asked'))).toBe(true)
+    expect(html).not.toContain('data-wb-act="outline-rewrite-ask" data-wb-style="simpler" data-wb-block="b1"')
+    expect(html).not.toContain('data-wb-act="outline-rewrite-ask" data-wb-style="formal" data-wb-block="b1"')
   })
 
   it('a javaslat az eredeti alatt, a kieso allitasokkal; elfogadas es elvetes', async () => {

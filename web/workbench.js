@@ -12846,16 +12846,8 @@
   function dpIsVariant() { return !!(WB.detail && WB.detail.outline && WB.detail.outline.variant) }
 
   function dpGutterHtml(bid, sid, idx, count, ro) {
-    if (ro) return '<div class="wb-dp-gutter"></div>'
-    if (dpIsVariant()) return ''
-    // #534 (Boss TG 8849): no "+" on the page -- a new paragraph is Enter, a list / signature come from the toolbar.
-    // The move / delete handle belongs to the check view only; plain writing has no gutter at all.
-    if (!bid || !dpCheckView()) return ''
-    return '<div class="wb-dp-gutter" contenteditable="false">'
-      + '<button type="button" class="wb-dp-gbtn wb-dp-handle" draggable="true" data-wb-act="dp-handle" data-wb-block="' + escA(bid) + '" data-wb-sec="' + escA(sid) + '"'
-      + ' title="' + escA(t('workbench.dp.handle')) + '" aria-label="' + escA(t('workbench.dp.handle')) + '" aria-haspopup="menu">&#8942;&#8942;</button>'
-      + dpMenuHtml('handle', bid, sid, idx, count)
-      + '</div>'
+    // The document page has no move / delete handle (Boss TG 3431: the check view is gone for good); a read-only page keeps its empty gutter.
+    return ro ? '<div class="wb-dp-gutter"></div>' : ''
   }
 
   /** A table block's text: `<a | b lines>\n#w=<10..100>&a=<l|c|r>` (the server's tableBlockParts). */
@@ -13043,17 +13035,7 @@
 
   /** Boss TG 3073: the page is a plain document by default; status chips, the delete cross and the
    *  translation / back-translation panels belong to the "check view", switched on by a button. */
-  function dpCheckView() {
-    if (WB.dpCheck === undefined) {
-      // Off unless the user switched it on (Boss TG 3425): the work item is the letter itself, character for character what the PDF
-      // prints; the chapter status, the translation bars, the source lines and the asks are tools, shown only on request.
-      WB.dpCheck = readPref('marveen.workbench.dpCheck', '') === '1'
-    }
-    return !!WB.dpCheck
-  }
-
   function dpSectionHtml(o, sec, si, ro) {
-    var chk = dpCheckView()
     var blocks = sec.blocks || []
     var nw = WB.docNew && WB.docNew.sec === sec.id ? WB.docNew : null
     var rows = ''
@@ -13095,13 +13077,7 @@
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
         + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + dpPfmtAttrs(b.pfmt).cls + (b.kind === 'list' && dpIsNumbered(b.text) ? ' wb-dp-numbered' : ''), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(b.align).attr + dpPfmtAttrs(b.pfmt).attr,
           dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlockRich(b))
-        // The check view keeps what the old per-chapter list gave: the missing-data marks and the "simpler / more formal" asks.
-        + (chk && b.missing && b.missing.length ? '<p class="wb-dp-extra" contenteditable="false">' + b.missing.map(function (m) { return '<mark class="wb-outline-missing">' + esc(m) + '</mark>' }).join(' ') + '</p>' : '')
-        + (chk && b.claims && b.claims.length ? '<ul class="wb-outline-claims wb-dp-extra" contenteditable="false">' + b.claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
         + (b.rewrite ? '<div class="wb-dp-extra" contenteditable="false">' + rewriteHtml(b, ro) + '</div>' : '')
-        + (chk && !ro && REWRITABLE[b.kind] ? '<p class="wb-dp-extra wb-outline-tools" contenteditable="false">'
-          + '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="simpler" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_simpler_hint')) + '">' + esc(t('workbench.outline.rewrite_simpler')) + '</button> '
-          + '<button type="button" class="wb-linklike" data-wb-act="outline-rewrite-ask" data-wb-style="formal" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.outline.rewrite_formal_hint')) + '">' + esc(t('workbench.outline.rewrite_formal')) + '</button></p>' : '')
         + '</div>'
     })
     if (nw && nw.pos >= blocks.length) rows += dpGhostHtml(sec.id, blocks.length, nw.kind, blocks.length, ro)
@@ -13114,14 +13090,8 @@
       + (untitled ? '<span hidden contenteditable="false" data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '" data-wb-untitled="1">' + esc(sec.title) + '</span>' : '')
       + (untitled ? '' : '<div class="wb-dp-sechead">')
       + (untitled ? '' : dpEditHtml('wb-dp-title' + dpAlignAttrs(sec.align).cls, 'wbDpS_' + sec.id, 'data-wb-dp="sec" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(sec.align).attr, dpDraft('s:' + sec.id, sec.title), t('workbench.dp.title_ph'), t('workbench.dp.title_label'), ro, WB.docDrafts['s:' + sec.id] != null ? null : (sec.rich || null)))
-      + (untitled ? '' : '<span class="wb-dp-secbar" contenteditable="false">'
-      + (sec.problems ? ' <span class="wb-doc-low">&#9888; ' + esc(t('workbench.outline.problems', { n: sec.problems })) + '</span>' : '')
-      + (ro || !chk ? '' : ' <button type="button" class="wb-dp-secdel" data-wb-act="outline-sec-del" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.sec_del')) + '" aria-label="' + escA(t('workbench.dp.sec_del')) + '">&#10005;</button>')
-      + '</span>')
       + (untitled ? '' : '</div>')
-      + '<div class="wb-dp-secextra" contenteditable="false">' + (chk ? langSectionHtml(o, sec, ro) : '') + '</div>'
       + rows
-      + '<div class="wb-dp-secextra" contenteditable="false">' + (chk ? backcheckHtml(o, sec, ro) : '') + '</div>'
       + '</section>'
   }
 
@@ -13155,15 +13125,11 @@
     if (!items.length) {
       return '<nav class="wb-dp-outline" aria-label="' + escA(t('workbench.dp.outline_title')) + '"><h4>' + esc(t('workbench.dp.outline_title')) + '</h4><p class="wb-hint wb-dp-ol-empty">' + esc(t('workbench.dp.outline_empty')) + '</p></nav>'
     }
-    var chk = dpCheckView()
     var rows = items.map(function (it) {
       var sec = it.sec
       var isSec = !it.blk
-      var status = !isSec || !chk ? '' : ro ? '<span class="wb-pill">' + esc(t('workbench.outline.status.' + sec.status)) + '</span>'
-        : '<button type="button" class="wb-pill wb-outline-status wb-outline-status-' + escA(sec.status) + '" data-wb-act="outline-sec-status" data-wb-sec="' + escA(sec.id) + '" data-wb-status="' + escA(SECTION_NEXT[sec.status] || 'todo') + '"'
-          + ' title="' + escA(t('workbench.outline.status_title')) + '">' + esc(t('workbench.outline.status.' + sec.status)) + '</button>'
       return '<li class="wb-dp-ol-row wb-dp-ol-l' + it.level + '"><button type="button" class="wb-linklike wb-dp-ol-go" data-wb-act="dp-outline-go" data-wb-sec="' + escA(sec.id) + '"' + (isSec ? '' : ' data-wb-block="' + escA(it.blk.id) + '"') + ' title="' + escA(t('workbench.dp.outline_go')) + '">' + esc(it.text) + '</button>'
-        + status + (isSec && sec.problems ? ' <span class="wb-doc-low" title="' + escA(t('workbench.outline.problems', { n: sec.problems })) + '">&#9888; ' + sec.problems + '</span>' : '') + '</li>'
+        + (isSec && sec.problems ? ' <span class="wb-doc-low" title="' + escA(t('workbench.outline.problems', { n: sec.problems })) + '">&#9888; ' + sec.problems + '</span>' : '') + '</li>'
     }).join('')
     return '<nav class="wb-dp-outline" aria-label="' + escA(t('workbench.dp.outline_title')) + '"><h4>' + esc(t('workbench.dp.outline_title')) + '</h4><ol>' + rows + '</ol></nav>'
   }
@@ -13182,7 +13148,7 @@
     var outlineHtml = dpOutlineHtml(secs, ro)
     return '<div class="wb-dp-wrap' + (outlineHtml ? ' has-outline' : '') + '">' + (ro ? '' : dpToolbarHtml()) + outlineHtml + '<div class="wb-dp-page"' + (ro ? '' : ' contenteditable="true" spellcheck="true"') + ' role="group" aria-label="' + escA(t('workbench.dp.page_label')) + '">' + body + '</div>'
       + (ro ? '' : '<p class="wb-dp-foot"><span class="wb-hint">' + esc(t('workbench.dp.hint')) + '</span> '
-        + '<button type="button" class="btn-secondary btn-compact' + (dpCheckView() ? ' is-on' : '') + '" data-wb-act="dp-check-toggle" aria-pressed="' + (dpCheckView() ? 'true' : 'false') + '" title="' + escA(t('workbench.dp.check_title')) + '">' + esc(t('workbench.dp.check_view')) + '</button></p>')
+        + '</p>')
       + '</div>'
   }
 
@@ -19013,11 +18979,6 @@
       WB.dpPagesError = ''
       dpPagesPaint()
       if (WB.dpPagesOn) dpPagesLoad()
-    }
-    else if (a === 'dp-check-toggle') {
-      WB.dpCheck = !dpCheckView()
-      try { localStorage.setItem('marveen.workbench.dpCheck', WB.dpCheck ? '1' : '0') } catch (er) { /* a convenience only */ }
-      render()
     }
   })
 

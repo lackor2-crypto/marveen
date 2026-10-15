@@ -8,8 +8,9 @@ describe('manual and simple view draw the same document page (Boss TG 3245)', ()
   it('the manual view no longer forces the check view on', () => {
     expect(src).not.toContain('dpForceCheck')
   })
-  it('the check view is off unless the user switched it on: the work item is the letter, nothing else', () => {
-    expect(src).toContain("readPref('marveen.workbench.dpCheck', '') === '1'")
-    expect(src).toContain("(chk && b.claims && b.claims.length")
+  it('there is no check view at all: no switch, no preference, no extra marks on the work item (Boss TG 3431)', () => {
+    expect(src).not.toContain('dpCheckView')
+    expect(src).not.toContain('dp-check-toggle')
+    expect(src).not.toContain('marveen.workbench.dpCheck')
   })
 })
