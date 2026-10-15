@@ -2157,3 +2157,5 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-pagebreak > span { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 90%; padding: 0 6px; background: transparent; color: #5b6470; font-size: .74rem; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wb-dp-pagebreak.is-inside > span { font-style: italic; }
 .wb-dp-tb.is-busy { opacity: .6; cursor: progress; }
+.wb-db-nokey ol { margin: 6px 0 0 18px; padding: 0; }
+.wb-db-nokey li { margin: 2px 0; }
