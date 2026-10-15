@@ -27,6 +27,7 @@ import { projectFileTarget, safeFileName } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { resolveLifePath } from './life-explorer.js'
 import { listMounts } from './life-mounts.js'
+import { ensureItemTodoFile, isTodoFileName } from './workbench-item-todos.js'
 
 export const CONTEXT_PREFIX_HU = 'Kontextus'
 export const CONTEXT_PREFIX_EN = 'Context'
@@ -136,7 +137,7 @@ function inventoryLines(project: ProjectRow, dirAbs: string, ownName: string, ow
     entries.sort((a, b) => a.name.localeCompare(b.name))
     for (const e of entries) {
       if (lines.length >= INVENTORY_MAX) return
-      if (e.name.startsWith('.') || e.name === 'marveen-item.json' || e.name === ownName) continue
+      if (e.name.startsWith('.') || e.name === 'marveen-item.json' || e.name === ownName || isTodoFileName(e.name)) continue
       if (e.isDirectory()) { if (depth < 2) walk(join(abs, e.name), `${prefix}${e.name}/`, depth + 1); continue }
       if (e.isFile()) lines.push(`- ${prefix}${e.name}`)
     }
@@ -274,7 +275,7 @@ function followItemJsonNames(item: WorkItemRow, oldStem: string): number {
  * item back on its last real file (or none), and clear the pointer from the versions that carry it. Idempotent; no file moves.
  */
 export function healContextAsSource(item: WorkItemRow): WorkItemRow {
-  const isCtx = (p: string | null | undefined): boolean => !!p && isContextFileName(basename(p))
+  const isCtx = (p: string | null | undefined): boolean => !!p && (isContextFileName(basename(p)) || isTodoFileName(basename(p)))
   const db = getDb()
   const versions = listWorkItemVersions(item.id)
   const dirty = versions.filter((v) => isCtx(v.source_path))
@@ -301,6 +302,8 @@ export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { 
   }
   const r = ensureItemContext(item, project)
   if (r.rel) refreshInventory(item, project, r.rel)
+  // The to-do file lives beside the context file (Boss TG 3462); a failure there never stops the context pass.
+  try { ensureItemTodoFile(item, project) } catch (err: any) { logger.warn({ item: item.id, err: String(err?.message || err) }, '[item-context] to-do file skipped') }
   return { created: r.created, renamed: r.renamed, json }
 }
 
