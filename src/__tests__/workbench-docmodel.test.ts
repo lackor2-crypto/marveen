@@ -266,6 +266,10 @@ describe('a felulet: vazlat, forrasok, megerosites', () => {
     expect(html).not.toContain('workbench.outline.status.in_progress')
     expect(html).not.toContain('wb-outline-missing')
     expect(html).not.toContain('wb-outline-claim-verified')
-    expect(html).not.toContain('data-wb-act="outline-claim-confirm"')
+    // #611 (Boss TG 3438): the finalize box itself lists the open points and carries the confirm button of the owner's own statement.
+    const fin = html.slice(html.indexOf('wb-outline-final'))
+    expect(fin).toContain('workbench.outline.check.owner_statements')
+    expect(fin).toContain('data-wb-act="outline-claim-confirm" data-wb-claim="c2"')
+    expect(fin).not.toContain('data-wb-claim="c1"')
   })
 })

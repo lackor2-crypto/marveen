@@ -8414,6 +8414,23 @@
       + '<ul>' + open.concat(acked).map(function (i) { return consistencyIssueHtml(i, ro) }).join('') + '</ul>'
   }
 
+  /** Boss TG 3438 (#611): a grey finalize button must show WHICH points are open, right in the finalize box -- the
+   *  failed checks with their details, and the owner's own unconfirmed statements with the confirm button. */
+  function outlineOpenPointsHtml(o, ro) {
+    var check = o && o.check
+    if (!check || check.ready) return ''
+    var own = []
+    ;((o && o.sections) || []).forEach(function (sec) {
+      ;(sec.blocks || []).forEach(function (b) { (b.claims || []).forEach(function (c) { if (c.strength === 'owner_unconfirmed') own.push(c) }) })
+    })
+    // The owner's statements are listed below with their confirm buttons: no second plain list of the same texts.
+    var open = { ready: false, items: (check.items || []).filter(function (i) { return !i.ok }).map(function (i) {
+      return i.key === 'owner_statements' ? { key: i.key, ok: false, count: i.count, total: i.total, detail: [] } : i
+    }) }
+    return outlineCheckHtml(open, o, ro)
+      + (own.length ? '<ul class="wb-outline-claims">' + own.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
+  }
+
   function outlineCheckHtml(check, o, ro) {
     if (!check) return ''
     return '<div class="wb-outline-check"><h4>' + esc(t('workbench.outline.check_title')) + '</h4><ul>'
@@ -8824,6 +8841,7 @@
       fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>'
         + '<p class="wb-hint">' + esc(t(ready ? 'workbench.outline.finalize_steps' : 'workbench.outline.finalize_blocked')) + '</p>'
         + '<p class="wb-outline-next" role="status"><strong>' + esc(t('workbench.outline.next_label')) + '</strong> ' + esc(t(nextKey)) + '</p>'
+        + (ready ? '' : outlineOpenPointsHtml(o, ro))
         + '<p>' + reviewBtn + (reviewed ? ' <span class="wb-ok">✓ ' + esc(t('workbench.outline.reviewed')) + '</span>' : '') + '</p>'
         + '<p><label class="wb-outline-accept"><input type="checkbox" data-wb-act="outline-accept"' + (ready && reviewed ? '' : ' disabled title="' + nextTip + '"') + (accepted ? ' checked' : '') + '> '
         + esc(t('workbench.outline.accept')) + '</label></p>'
