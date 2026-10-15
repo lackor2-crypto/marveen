@@ -9107,12 +9107,12 @@
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbLifeFilePick'
     overlay.innerHTML = '<div class="modal-content" style="max-width:600px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t(opts && opts.fileLink ? 'workbench.filelink.pick_title' : opts && opts.attach ? 'workbench.attach.pick_title' : opts && opts.place ? 'workbench.pd.places_pick_title' : folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(opts && opts.fileLink ? 'workbench.filelink.pick_help' : opts && opts.attach ? 'workbench.attach.pick_help' : opts && opts.place ? 'workbench.pd.places_pick_help' : folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
+      + '<h3 style="margin:0 0 4px">' + esc(t(opts && opts.lifeMove ? 'workbench.lifemove.pick_title' : opts && opts.fileLink ? 'workbench.filelink.pick_title' : opts && opts.attach ? 'workbench.attach.pick_title' : opts && opts.place ? 'workbench.pd.places_pick_title' : folderMode ? 'workbench.sent.pick_title' : 'workbench.annex.link_title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t(opts && opts.lifeMove ? 'workbench.lifemove.pick_help' : opts && opts.fileLink ? 'workbench.filelink.pick_help' : opts && opts.attach ? 'workbench.attach.pick_help' : opts && opts.place ? 'workbench.pd.places_pick_help' : folderMode ? 'workbench.sent.pick_help' : 'workbench.annex.link_help')) + '</p>'
       + '<p style="margin:0 0 6px;font-size:13px"><b>' + esc(t('workbench.annex.link_here')) + '</b> <span id="wbLifeFilePickHere"></span></p>'
       + '<div id="wbLifeFilePickList" class="wb-lifepick-list"></div>'
       + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeFilePickClose">' + esc(t('workbench.annex.link_cancel')) + '</button>'
-      + (folderMode ? ' <button type="button" class="btn-primary" id="wbLifeFilePickHereBtn" disabled>' + esc(t(opts && opts.attach ? 'workbench.attach.pick_here' : opts && opts.place ? 'workbench.pd.places_pick_here' : 'workbench.sent.pick_here')) + '</button>' : '') + '</div>'
+      + (folderMode ? ' <button type="button" class="btn-primary" id="wbLifeFilePickHereBtn" disabled>' + esc(t(opts && opts.lifeMove ? 'workbench.lifemove.pick_here' : opts && opts.attach ? 'workbench.attach.pick_here' : opts && opts.place ? 'workbench.pd.places_pick_here' : 'workbench.sent.pick_here')) + '</button>' : '') + '</div>'
       + '</div>'
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbLifeFilePickList')
@@ -13398,6 +13398,80 @@
   function tpAvailable() {
     return !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
   }
+  // ---- #618: move the item's finished files into the Life tree (list, owner approves, then move) --------------
+  function lifeMoveBtnHtml() {
+    var it = WB.detail && WB.detail.item
+    if (!it || !it.folder) return ''
+    return '<button type="button" class="btn-secondary btn-compact" data-wb-act="life-move"' + (archived() ? ' disabled' : '') + ' title="' + escA(t('workbench.lifemove.hint')) + '">' + esc(t('workbench.lifemove.btn')) + '</button>'
+  }
+  function lifeMoveOpen() {
+    var id = WB.selectedId
+    if (!id || archived() || document.getElementById('wbLifeMove')) return
+    var overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'
+    overlay.id = 'wbLifeMove'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:760px;padding:18px">'
+      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.lifemove.title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.lifemove.help')) + '</p>'
+      + '<div id="wbLifeMoveList" class="wb-lifemove-list"><p class="wb-muted">' + esc(t('workbench.lifemove.loading')) + '</p></div>'
+      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeMoveClose">' + esc(t('workbench.lifemove.cancel')) + '</button> '
+      + '<button type="button" class="btn-primary" id="wbLifeMoveGo" disabled>' + esc(t('workbench.lifemove.go')) + '</button></div>'
+      + '</div>'
+    document.body.appendChild(overlay)
+    var list = overlay.querySelector('#wbLifeMoveList')
+    var go = overlay.querySelector('#wbLifeMoveGo')
+    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    overlay.querySelector('#wbLifeMoveClose').addEventListener('click', close)
+    var files = []
+    var target = {}
+    var refreshGo = function () { go.disabled = !Object.keys(target).some(function (k) { return target[k] }) }
+    var draw = function () {
+      list.innerHTML = ''
+      if (!files.length) { list.innerHTML = '<p class="wb-muted">' + esc(t('workbench.lifemove.empty')) + '</p>'; return }
+      files.forEach(function (f, i) {
+        var row = document.createElement('div')
+        row.className = 'wb-lifemove-row'
+        row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border,#ddd);flex-wrap:wrap'
+        var nm = document.createElement('span')
+        nm.style.cssText = 'flex:1 1 220px;min-width:0;word-break:break-word'
+        nm.textContent = '📄 ' + (f.folder ? f.folder + ' / ' : '') + f.name
+        var to = document.createElement('span')
+        to.className = 'wb-muted'
+        to.style.cssText = 'flex:1 1 200px;min-width:0;word-break:break-word'
+        to.textContent = target[f.rel] ? '→ ' + target[f.rel] : t('workbench.lifemove.no_target')
+        var b = document.createElement('button')
+        b.type = 'button'
+        b.className = 'btn-secondary btn-compact'
+        b.textContent = t('workbench.lifemove.choose')
+        b.addEventListener('click', function () {
+          pickLifeFile(function (rel) { target[f.rel] = rel; to.textContent = '→ ' + rel; refreshGo() }, { folder: true, lifeMove: true })
+        })
+        row.appendChild(nm); row.appendChild(to); row.appendChild(b)
+        list.appendChild(row)
+      })
+    }
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move').then(function (r) {
+      if (!overlay.parentNode) return
+      if (!r.ok) { list.innerHTML = ''; var p = document.createElement('p'); p.className = 'wb-error'; p.textContent = r.message || t('workbench.lifemove.failed'); list.appendChild(p); return }
+      files = (r.data && r.data.files) || []
+      draw()
+    })
+    go.addEventListener('click', function () {
+      var moves = files.filter(function (f) { return target[f.rel] }).map(function (f) { return { rel: f.rel, target: target[f.rel] } })
+      if (!moves.length) return
+      go.disabled = true
+      api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move', { moves: moves }).then(function (r) {
+        if (!r.ok) { go.disabled = false; window.showToast(r.message || t('workbench.lifemove.failed')); return }
+        var res = (r.data && r.data.results) || []
+        var okN = res.filter(function (x) { return x.ok }).length
+        var bad = res.filter(function (x) { return !x.ok })
+        close()
+        window.showToast(t('workbench.lifemove.done', { n: okN }) + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : ''))
+        if (WB.selectedId === id) loadDetail(id); else render()
+      })
+    })
+  }
+
   function tpToggleHtml() {
     if (!tpAvailable()) return ''
     var tp = tpState()
@@ -14467,6 +14541,7 @@
         : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</button> ')
       // (Finalize is in the frame's top bar, where every other kind has it: finalizeTopHtml.)
       + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o) + ' ' + tpToggleHtml())
+      + ' ' + lifeMoveBtnHtml()
       + '</p>'
     var finalPanel = o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : ''
     // Boss TG 2754: a drafted document has no file yet, so the Preview tab shows the draft page itself (read only).
@@ -17734,6 +17809,7 @@
       if (twS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }
       render()
     }
+    else if (a === 'life-move') lifeMoveOpen()
     else if (a === 'tp-toggle') {
       var tpS = tpState(); tpS.on = !tpS.on; writePref('wb.tp.on', tpS.on ? '1' : '')
       if (tpS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }

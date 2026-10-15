@@ -36,6 +36,7 @@
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { isContextFileName, kickItemContextSweep } from '../../workbench-item-context.js'
 import { isTodoFileName } from '../../workbench-item-todos.js'
+import { lifeMoveCandidates, moveItemFilesToLife } from '../../workbench-life-move.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
@@ -630,6 +631,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   file_not_loose: {
     hu: 'Ez a fájl már nincs a listán (átnevezték, áthelyezték vagy törölték). Frissítsd az oldalt.',
     en: 'This file is no longer on the list (renamed, moved or deleted). Refresh the page.',
+  },
+  life_move_no_folder: {
+    hu: 'Ennek a munkadarabnak még nincs mappája, így nincs mit az Életfába költöztetni.',
+    en: 'This work item has no folder yet, so there is nothing to move into the Life tree.',
+  },
+  life_move_bad_input: {
+    hu: 'Nincs kijelölt fájl és célmappa. Válassz legalább egy sorhoz célmappát.',
+    en: 'No file and target folder selected. Choose a target folder for at least one row.',
   },
   folder_gone: {
     hu: 'A kiválasztott mappa már nincs meg (átnevezték vagy törölték). Válassz újra mappát.',
@@ -4158,6 +4167,25 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return failDetail(res, r.code === 'move_failed' ? 500 : 400, code, lang, r.message || null)
     }
     json(res, { ok: true, moved: r.moved, reason: r.reason ?? null, folder: r.folder, item: getWorkItem(item.id), work_folders: listWorkFolders(owner as NonNullable<typeof owner>), items: listWorkItems(item.project_id) })
+    return true
+  }
+  // #618: the owner's "move to the Life tree" list (GET) and the approved move (POST {moves:[{rel,target}]}).
+  if (segs.length === 2 && segs[1] === 'life-move' && (method === 'GET' || method === 'POST')) {
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (method === 'GET') {
+      const c = lifeMoveCandidates(owner, item)
+      if (!c.ok) return fail(res, 404, 'life_move_no_folder', lang)
+      json(res, { ok: true, files: c.files, folder_rel: c.folder_rel })
+      return true
+    }
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const r = moveItemFilesToLife(owner, item, body['moves'], lang)
+    if (!r.ok) return fail(res, r.code === 'no_folder' ? 404 : 400, r.code === 'no_folder' ? 'life_move_no_folder' : 'life_move_bad_input', lang)
+    json(res, { ok: true, results: r.results, assets: assetsOut(item.id) })
     return true
   }
   if (segs.length === 2 && segs[1] === 'tidy' && method === 'POST') {
