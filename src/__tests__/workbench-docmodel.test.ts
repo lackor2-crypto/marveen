@@ -237,8 +237,8 @@ describe('forrasrendszer', () => {
 })
 
 describe('a felulet: vazlat, forrasok, megerosites', () => {
-  it('fejezet allapottal es hianyokkal, allitas ikonnal, tulajdonosi megerosito gomb; a gomb a confirm vegpontot hivja', async () => {
-    const h = workbenchHarness({ confirm: true, storage: { 'marveen.workbench.dpOutline': '1', 'marveen.workbench.dpCheck': '1' } })
+  it('a lap tiszta: nincs allapotjelzo, hianyjelolo, allitas-sor, megerosito gomb (az Ellenorzo nezet megszunt, Boss TG 3431)', async () => {
+    const h = workbenchHarness({ confirm: true, storage: { 'marveen.workbench.dpOutline': '1' } })
     const ITEM = { id: 'w1', title: 'Beadvany', type: 'document', status: 'draft', current_version_id: 'v1', folder: 'Beadvany', source_path: null }
     const claim = (id: string, strength: string, kind: string, verdict: string) => ({ id, text: 'Állítás ' + id, strength, sources: [{ kind, verdict, path: 'L/a.pdf', page: 2, quote: 'q', said: 'mondtam', said_at: 1, confirmed_at: null }] })
     const OUTLINE = {
@@ -263,15 +263,9 @@ describe('a felulet: vazlat, forrasok, megerosites', () => {
     await vi.waitFor(() => expect(h.html()).toContain('wb-outline'))
     const html = h.html()
     expect(html).toContain('2. Tényállás')
-    expect(html).toContain('workbench.outline.status.in_progress')
-    expect(html).toContain('<mark class="wb-outline-missing">⚠ Hiányzó adat: a kézbesítés dátuma</mark>')
-    expect(html).toContain('wb-outline-claim-verified')
-    expect(html).toContain('workbench.outline.strength.owner_unconfirmed')
-    expect(html).toContain('data-wb-act="outline-claim-confirm" data-wb-claim="c2"')
-    expect(html).not.toContain('data-wb-claim="c1"')
-    expect(html).toContain('workbench.outline.check.owner_statements')
-    expect(html).toContain('workbench.outline.not_ready')
-    h.click({ 'data-wb-act': 'outline-claim-confirm', 'data-wb-claim': 'c2' })
-    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/claims/c2/confirm'))).toBe(true))
+    expect(html).not.toContain('workbench.outline.status.in_progress')
+    expect(html).not.toContain('wb-outline-missing')
+    expect(html).not.toContain('wb-outline-claim-verified')
+    expect(html).not.toContain('data-wb-act="outline-claim-confirm"')
   })
 })

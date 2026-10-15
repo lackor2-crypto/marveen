@@ -8485,8 +8485,6 @@ window._i18n.hu = {
   "workbench.tw.saved": "Elmentve: {n} fejezet a(z) „{title}” változatba.",
   "workbench.tw.failed": "{n} fejezetet nem sikerült elmenteni.",
   "workbench.tw.nothing_current": "Nincs mit menteni: előbb nyomd meg a Fordítást.",
-  "workbench.dp.check_view": "Ellenőrző nézet",
-  "workbench.dp.check_title": "Az állapotjelzőket, a fejezet törlését és a fordítás-ellenőrzést mutatja vagy elrejti.",
   "workbench.dp.more": "Nyelvi változatok, szószedet",
   "workbench.dp.annex": "Mellékletek ({n})",
   "workbench.sh.doc.draft": "Vázlat",

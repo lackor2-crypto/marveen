@@ -8411,8 +8411,6 @@ window._i18n.en = {
   "workbench.tw.saved": "Saved: {n} section(s) into the \"{title}\" version.",
   "workbench.tw.failed": "{n} section(s) could not be saved.",
   "workbench.tw.nothing_current": "Nothing to save: press Translate first.",
-  "workbench.dp.check_view": "Check view",
-  "workbench.dp.check_title": "Shows or hides the status chips, the section delete and the translation checks.",
   "workbench.dp.more": "Language versions, glossary",
   "workbench.dp.annex": "Attachments ({n})",
   "workbench.sh.doc.draft": "Draft",

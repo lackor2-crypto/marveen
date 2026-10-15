@@ -354,17 +354,18 @@ describe('the draft page wiring', () => {
 
   it('#534: a language version page has no gutter "+" and no "new chapter" button', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
-    expect(js).toContain('function dpIsVariant()')
     const g = js.slice(js.indexOf('function dpGutterHtml'), js.indexOf('function dpGutterHtml') + 400)
-    expect(g).toContain('dpIsVariant()')
+    expect(g).not.toContain('wb-dp-plus')
+    expect(g).not.toContain('dp-handle')
   })
 
-  it('#534: no "+" gutter button on any page; the move / delete handle only in the check view; list and signature are on the toolbar', () => {
+  it('#534: no "+" gutter button on any page; no move / delete handle (the check view is gone); list and signature are on the toolbar', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
     const g = js.slice(js.indexOf('function dpGutterHtml'), js.indexOf('function dpGutterHtml') + 900)
     expect(g).not.toContain('wb-dp-plus')
     expect(g).not.toContain("dpMenuHtml('add'")
-    expect(g).toContain('!dpCheckView()')
+    expect(g).not.toContain('dp-handle')
+    expect(js).not.toContain('dpCheckView')
     expect(js).toContain("btn('sign', t('workbench.dp.ins_sign')")
     expect(js).toContain("if (f === 'sign')")
     expect(js).toContain("['list', '&#8226;&#8801;', 'fmt_list']")
