@@ -16136,6 +16136,8 @@
     out += dbModelInput('wbDbJudge', t('workbench.db.judge_label'), s.judge, true) + '<p class="wb-muted wb-db-modedesc">' + esc(t('workbench.db.judge_help')) + '</p>'
     out += '<div id="wbDbWarn">' + dbWarnInner(s) + '</div>'
     out += '<p class="wb-db-est" id="wbDbEst" role="status">' + dbEstInner(s) + '</p>'
+    // The first round has no session yet, so the session view's "running" line is not on screen: say it here too.
+    if (s.busy) out += '<p class="wb-db-busy" role="status">' + esc(t('workbench.db.running', { n: 1 })) + '</p>'
     out += '<div class="wb-actions"><button type="button" class="btn-primary" data-wb-act="db-start"' + (s.busy || s.reading ? ' disabled' : '') + '>' + esc(t('workbench.db.start')) + '</button></div>'
     return out
   }
