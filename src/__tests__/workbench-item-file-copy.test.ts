@@ -77,6 +77,14 @@ describe('#492 moveLooseFiles never takes a file away from its work item', () =>
     expect(existsSync(join(abs(x.target), 'laza.txt'))).toBe(true)
   })
 
+  it('Boss TG 3001: with allowItem the owner moves an unregistered file out of the item folder', () => {
+    const x = setup()
+    const r = moveLooseFiles(proj(), [x.itemFile], x.target, { allowItem: true })
+    expect(r).toEqual({ ok: true, moved: ['kep.png'], skipped: [] })
+    expect(existsSync(join(abs(x.itemFolder), 'kep.png'))).toBe(false)
+    expect(existsSync(join(abs(x.target), 'kep.png'))).toBe(true)
+  })
+
   it('a loose file can still be moved INTO a work item\'s folder (next to it)', () => {
     const x = setup()
     expect(moveLooseFiles(proj(), [x.looseFile], x.itemFolder)).toEqual({ ok: true, moved: ['laza.txt'], skipped: [] })

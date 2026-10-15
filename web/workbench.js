@@ -1518,7 +1518,7 @@
     var wf = WB.workFolders || { box: null, folders: [] }
     if (archived() || !wf.box) return ''
     var label = t(copy ? 'workbench.files.copy_label' : 'workbench.files.move_label')
-    var hint = !copy && which !== '*' && isItemFile(which) && !itemOfFile(which) ? ' title="' + escA(t('workbench.file.copy_only', { name: baseOf(which) })) + '"' : ''
+    var hint = ''
     return '<select class="wb-item-move" ' + (copy ? 'data-wb-copy-files' : 'data-wb-move-files') + '="' + escA(which) + '" aria-label="' + escA(label) + '"' + hint
       + (WB.fileBusy ? ' disabled' : '') + '>' + folderOptionsHtml().replace(esc(t('workbench.move.label')), esc(label)) + '</select>'
   }
@@ -1558,14 +1558,12 @@
     // A work item's file dropped back onto its own folder is not a copy: the move call says "already there".
     var to = folder === '\u0000box' ? (WB.workFolders && WB.workFolders.box) : folder
     var own = rels.filter(function (r) { return isItemFile(r) && fileFolderOf(r) !== to })
-    var rest = rels.filter(function (r) { return own.indexOf(r) < 0 })
     if (own.length) {
-      var ask = (own.length === 1 ? t('workbench.file.copy_only', { name: baseOf(own[0]) }) : t('workbench.file.copy_only_many', { n: own.length }))
-        + '\n\n' + t('workbench.file.copy_only_ask', { folder: folder === '\u0000box' ? t('workbench.folder.pick_default') : baseOf(folder) })
-        + (rest.length ? '\n' + t('workbench.file.copy_only_rest', { n: rest.length }) : '')
+      var ask = (own.length === 1 ? t('workbench.file.move_item_ask', { name: baseOf(own[0]) }) : t('workbench.file.move_item_ask_many', { n: own.length }))
+        + '\n\n' + t('workbench.file.move_item_to', { folder: folder === '\u0000box' ? t('workbench.folder.pick_default') : baseOf(folder) })
       if (!window.confirm(ask)) { WB.ctx = null; render(); return }
     }
-    runFiles(rest, own, folder)
+    runFiles(rels, [], folder, true)
   }
 
   /** #492: copy ticked files (or one) into a folder of the box; the originals stay where they are. */
@@ -1578,7 +1576,7 @@
   }
 
   /** Copies `copyRels`, then moves `moveRels` into `folder`; one toast says what happened to each. */
-  function runFiles(moveRels, copyRels, folder) {
+  function runFiles(moveRels, copyRels, folder, allowItem) {
     var pid = WB.projectId
     var notes = []
     WB.fileBusy = true
@@ -1586,7 +1584,7 @@
     render()
     var first = copyRels.length ? filesCall('copy', pid, copyRels, folder, notes) : Promise.resolve()
     first.then(function () {
-      return moveRels.length && WB.projectId === pid ? filesCall('move', pid, moveRels, folder, notes) : null
+      return moveRels.length && WB.projectId === pid ? filesCall('move', pid, moveRels, folder, notes, allowItem) : null
     }).then(function () {
       WB.fileBusy = false
       if (WB.projectId !== pid) return
@@ -1597,8 +1595,10 @@
   }
 
   /** One files-move / files-copy call: takes over the fresh lists and pushes its sentence onto `notes`. */
-  function filesCall(kind, pid, rels, folder, notes) {
-    return api('POST', '/api/workbench/files-' + kind, { project_id: pid, rels: rels, folder: folder }).then(function (r) {
+  function filesCall(kind, pid, rels, folder, notes, allowItem) {
+    var body = { project_id: pid, rels: rels, folder: folder }
+    if (allowItem && kind === 'move') body.allow_item = true
+    return api('POST', '/api/workbench/files-' + kind, body).then(function (r) {
       if (WB.projectId !== pid) return
       if (!r.ok) { notes.push(r.message); return }
       var d = r.data || {}
@@ -1711,7 +1711,9 @@
         }).join('')
         : '<button type="button" role="menuitem" data-wb-act="file-to-item" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.to_item')) + '</button>')
       // ONE folder list (Boss TG 2514: the second one looked like a duplicate): a work item's own file is copied (it stays with its item), any other file is moved.
-      + (!many && isLinkedFile(rel) ? '' : moveFilesSelectHtml(many ? '*' : rel, !many && isItemFile(rel) && !itemOfFile(rel)))
+      // Boss TG 3001: a file lying in a work item's folder (its attachments) can be moved too, not only copied: the move asks first.
+      + (!many && isLinkedFile(rel) ? '' : moveFilesSelectHtml(many ? '*' : rel)
+        + (!many && isItemFile(rel) && !itemOfFile(rel) ? moveFilesSelectHtml(rel, true) : ''))
       + (many || isLinkedFile(rel) ? '' : '<button type="button" role="menuitem" data-wb-act="file-rename" data-wb-rel="' + escA(rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.file.rename')) + '</button>')
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="file-delete" data-wb-rel="' + escA(many ? '*' : rel) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t(many ? 'workbench.file.delete_many' : 'workbench.file.delete')) + '</button>'
       + '</div>'

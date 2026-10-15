@@ -872,9 +872,10 @@ function itemsUsingFolder(project: ProjectRow, dirRel: string, skipIds: string[]
  * The target may be a folder that already holds a (flattened) work item: the files simply sit alongside it,
  * which is the whole point of seeing what belongs together in one folder.
  * A file lying in a work item's OWN folder is skipped as `item_file` (#492, Boss TG 7948): it belongs to the
- * item and is never taken away from it; copyLooseFiles makes an independent copy instead.
+ * item and is never taken away from it; copyLooseFiles makes an independent copy instead. The owner's explicit
+ * `allowItem` (Boss TG 3001, the attachments) lets the files the registry does not name move out as well.
  */
-export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown): MoveFilesResult {
+export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown, opts: { allowItem?: boolean } = {}): MoveFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
   if (!want.length) return { ok: false, code: 'no_files' }
   const c = workFolderTarget(project, folder)
@@ -894,7 +895,9 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     if (from === undefined) { skipped.push({ name, reason: 'not_loose' }); continue }
     if (from === c.folder) { skipped.push({ name, reason: 'same_place' }); continue }
     // #492: a file in a work item's own folder belongs to that item: it is never taken away, only copied.
-    if (itemFiles.has(rel)) { skipped.push({ name, reason: 'item_file' }); continue }
+    // Boss TG 3001: the owner may explicitly move a file out of an item's folder (its attachments, `allowItem`);
+    // a file the registry names (the item's picture, a deck slide) still stays with its item.
+    if (itemFiles.has(rel) && (!opts.allowItem || inUse.has(rel))) { skipped.push({ name, reason: 'item_file' }); continue }
     const src = resolveLifePath(rel)
     const newRel = `${target.dirRel}/${name}`
     const dst = join(target.dirAbs, name)

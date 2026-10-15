@@ -46,13 +46,13 @@ const pick = (h: H, attr: string, which: string, value: string) => {
 }
 const calls = (h: H, kind: 'copy' | 'move') => h.fetchCalls.filter((c) => c.init?.method === 'POST' && c.url.includes('/api/workbench/files-' + kind))
 
-describe('#492 a work item file in the Workbench list: copy only', () => {
-  it('the file menu has ONE folder list (Boss TG 2514): copy for a work item file, move for any other', async () => {
+describe('#492 a work item file in the Workbench list: move asks first (Boss TG 3001), copy always possible', () => {
+  it('the file menu offers move AND copy for a work item file, only move for any other', async () => {
     const { h } = await open()
     ctx(h, ITEM_FILE)
     let menu = h.html().slice(h.html().indexOf('wb-ctx-menu'))
     expect(menu).toContain('data-wb-copy-files="' + ITEM_FILE + '"')
-    expect(menu).not.toContain('data-wb-move-files="' + ITEM_FILE + '"')
+    expect(menu).toContain('data-wb-move-files="' + ITEM_FILE + '"')
     expect(menu).toContain('workbench.files.copy_label')
     ctx(h, LOOSE)
     menu = h.html().slice(h.html().indexOf('wb-ctx-menu'))
@@ -60,16 +60,15 @@ describe('#492 a work item file in the Workbench list: copy only', () => {
     expect(menu).not.toContain('data-wb-copy-files="' + LOOSE + '"')
   })
 
-  it('"Move" on it tells the owner it can only be copied; OK copies it, nothing is moved', async () => {
+  it('"Move" on it asks first; OK moves it with allow_item, nothing is copied', async () => {
     const { h, asked } = await open(true)
     ctx(h, ITEM_FILE)
     pick(h, 'data-wb-move-files', ITEM_FILE, TARGET)
-    await vi.waitFor(() => expect(calls(h, 'copy').length).toBe(1))
-    expect(asked[0]).toContain('workbench.file.copy_only')
-    expect(asked[0]).toContain('workbench.file.copy_only_ask')
-    expect(JSON.parse(String(calls(h, 'copy')[0]!.init!.body))).toEqual({ project_id: 'p1', rels: [ITEM_FILE], folder: TARGET })
-    expect(calls(h, 'move')).toEqual([])
-    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.files.copied'))
+    await vi.waitFor(() => expect(calls(h, 'move').length).toBe(1))
+    expect(asked[0]).toContain('workbench.file.move_item_ask')
+    expect(asked[0]).toContain('workbench.file.move_item_to')
+    expect(JSON.parse(String(calls(h, 'move')[0]!.init!.body))).toEqual({ project_id: 'p1', rels: [ITEM_FILE], folder: TARGET, allow_item: true })
+    expect(calls(h, 'copy')).toEqual([])
   })
 
   it('Cancel on that question sends nothing', async () => {
@@ -90,7 +89,7 @@ describe('#492 a work item file in the Workbench list: copy only', () => {
     expect(calls(h, 'copy')).toEqual([])
   })
 
-  it('ticked together: the item\'s file is copied, the loose one moved, after one question', async () => {
+  it('ticked together: both are moved in one call after one question', async () => {
     const { h, asked } = await open(true)
     h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': ITEM_FILE })
     h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': LOOSE })
@@ -98,9 +97,9 @@ describe('#492 a work item file in the Workbench list: copy only', () => {
     pick(h, 'data-wb-move-files', '*', TARGET)
     await vi.waitFor(() => expect(calls(h, 'move').length).toBe(1))
     expect(asked).toHaveLength(1)
-    expect(asked[0]).toContain('workbench.file.copy_only_rest')
-    expect(JSON.parse(String(calls(h, 'copy')[0]!.init!.body)).rels).toEqual([ITEM_FILE])
-    expect(JSON.parse(String(calls(h, 'move')[0]!.init!.body)).rels).toEqual([LOOSE])
+    expect(asked[0]).toContain('workbench.file.move_item_ask')
+    expect(calls(h, 'copy')).toEqual([])
+    expect(JSON.parse(String(calls(h, 'move')[0]!.init!.body)).rels.sort()).toEqual([ITEM_FILE, LOOSE].sort())
   })
 
   it('"Copy to folder..." copies without a question (any file)', async () => {
@@ -126,16 +125,16 @@ describe('#492 a work item file in the Workbench list: copy only', () => {
     expect(calls(h, 'copy')).toEqual([])
   })
 
-  it('dragging the item\'s file onto a folder row asks and copies it', async () => {
+  it('dragging the item\'s file onto a folder row asks and moves it', async () => {
     const { h, asked } = await open(true)
     const row = { getAttribute: (a: string) => (a === 'data-wb-drag-file' || a === 'data-wb-ctx-file' ? ITEM_FILE : null) }
     const dt = { setData() {}, effectAllowed: '', dropEffect: '' }
     h.fire('dragstart', { target: { closest: (s: string) => (s === '[data-wb-drag-file]' ? row : null) }, dataTransfer: dt })
     const zone = { getAttribute: (a: string) => (a === 'data-wb-drop-folder' ? TARGET : null) }
     h.fire('drop', { target: { closest: (s: string) => (s === '[data-wb-drop-folder]' ? zone : null) }, dataTransfer: dt, preventDefault() {} })
-    await vi.waitFor(() => expect(calls(h, 'copy').length).toBe(1))
-    expect(asked[0]).toContain('workbench.file.copy_only')
-    expect(calls(h, 'move')).toEqual([])
+    await vi.waitFor(() => expect(calls(h, 'move').length).toBe(1))
+    expect(asked[0]).toContain('workbench.file.move_item_ask')
+    expect(calls(h, 'copy')).toEqual([])
   })
 })
 
