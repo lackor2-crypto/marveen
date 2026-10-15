@@ -5236,6 +5236,19 @@
   }
   window._wbDictCompose = dictCompose
 
+  /** After a message is sent the field is empty, but a dictation session still holds the text it started from
+   *  (d.before/d.after) and the words it heard (d.finals). The browser delivers the last words after stop(), and
+   *  onend writes before + finals back, so the sent text came back into the cleared field (Boss TG 3608).
+   *  Forget it: only words heard AFTER the send may land in the field. */
+  function dictForgetSent(targetId) {
+    var d = WB.dictLast
+    if (!d || d.target !== targetId) return
+    d.before = ''
+    d.after = ''
+    d.finals = []
+    d.interim = ''
+  }
+
   function dictApply(d, parts) {
     var c = dictCompose(d, parts)
     dictSetValue(d.target, c.value, c.caret)
@@ -5296,6 +5309,7 @@
       }
     }
     WB.dict = d
+    WB.dictLast = d
     try { rec.start() } catch (e) {
       WB.dict = null
       window.showToast(t('workbench.voice.err_other', { code: (e && e.message) || '' }))
@@ -10926,6 +10940,7 @@
     // elkuldhetok, ahogy a szokasos chatekben.
     var attached = WB.selectedId ? (WB.chatAttached[WB.selectedId] || []) : []
     if (!text && !attached.length) return
+    dictForgetSent('wbChatInput')
     // The owner's own new message must be visible, wherever he had scrolled.
     WB.chatForceBottom = true
     if (attached.length) {
