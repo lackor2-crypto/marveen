@@ -780,6 +780,8 @@ function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: strin
       db.prepare('UPDATE work_item_versions SET source_path = ? WHERE work_item_id = ? AND source_path = ?').run(newRel, id, oldRel)
       db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE work_item_id = ? AND asset_path = ?').run(newRel, id, oldRel)
       db.prepare('UPDATE work_item_assets SET path = ? WHERE work_item_id = ? AND path = ?').run(newRel, id, oldRel)
+      // A finalised version keeps its PDF and attachments in metadata_json (`pdf_path`, `files[].path`): same quoted swap.
+      db.prepare('UPDATE work_item_versions SET metadata_json = replace(metadata_json, ?, ?) WHERE work_item_id = ? AND instr(metadata_json, ?) > 0').run(oldQ, newQ, id, oldQ)
       for (const { name } of draftTables) {
         db.prepare(`UPDATE ${name} SET doc = replace(doc, ?, ?) WHERE work_item_id = ? AND instr(doc, ?) > 0`).run(oldQ, newQ, id, oldQ)
         const steps = name.replace(/_drafts$/, '_steps')
@@ -895,9 +897,9 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     if (from === undefined) { skipped.push({ name, reason: 'not_loose' }); continue }
     if (from === c.folder) { skipped.push({ name, reason: 'same_place' }); continue }
     // #492: a file in a work item's own folder belongs to that item: it is never taken away, only copied.
-    // Boss TG 3001: the owner may explicitly move a file out of an item's folder (its attachments, `allowItem`);
-    // a file the registry names (the item's picture, a deck slide) still stays with its item.
-    if (itemFiles.has(rel) && (!opts.allowItem || inUse.has(rel))) { skipped.push({ name, reason: 'item_file' }); continue }
+    // Boss TG 3001/3016: the owner may explicitly move a file out of an item's folder (`allowItem`); a file the
+    // registry names (a material, a finalised version's attachment) moves too, its references follow below.
+    if (itemFiles.has(rel) && !opts.allowItem) { skipped.push({ name, reason: 'item_file' }); continue }
     const src = resolveLifePath(rel)
     const newRel = `${target.dirRel}/${name}`
     const dst = join(target.dirAbs, name)

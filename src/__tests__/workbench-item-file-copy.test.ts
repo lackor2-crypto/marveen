@@ -85,6 +85,17 @@ describe('#492 moveLooseFiles never takes a file away from its work item', () =>
     expect(existsSync(join(abs(x.target), 'kep.png'))).toBe(true)
   })
 
+  it('Boss TG 3016: a file the item names as a material moves too, and the material row follows it', () => {
+    const x = setup()
+    getDb().prepare('INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)')
+      .run('as1', x.itemId, x.itemFile, 'kep.png', 'image', 'h', 6, 1)
+    expect(moveLooseFiles(proj(), [x.itemFile], x.target)).toEqual({ ok: true, moved: [], skipped: [{ name: 'kep.png', reason: 'item_file' }] })
+    const r = moveLooseFiles(proj(), [x.itemFile], x.target, { allowItem: true })
+    expect(r).toEqual({ ok: true, moved: ['kep.png'], skipped: [] })
+    const row = getDb().prepare('SELECT path FROM work_item_assets WHERE id = ?').get('as1') as { path: string }
+    expect(row.path).toBe(x.itemFile.replace(`/${x.itemFolder}/kep.png`, `/${x.target}/kep.png`))
+  })
+
   it('a loose file can still be moved INTO a work item\'s folder (next to it)', () => {
     const x = setup()
     expect(moveLooseFiles(proj(), [x.looseFile], x.itemFolder)).toEqual({ ok: true, moved: ['laza.txt'], skipped: [] })
