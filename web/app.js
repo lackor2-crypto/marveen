@@ -33195,7 +33195,8 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
   // the translate control on the right, so they move to the LEFT of the "A levél
   // tartalma" title; only the compact translate group stays on the right.
   const actionsLeft = document.getElementById('emailReaderActionsLeft')
-  if (actionsLeft) actionsLeft.innerHTML = `
+  const isDraftBox = emailMailboxRole(mailbox) === 'drafts'
+  if (actionsLeft) actionsLeft.innerHTML = (isDraftBox ? `<button class="btn-primary btn-compact" id="emailDraftEditBtn">${escapeHtml(t('email.btn.draft_edit'))}</button>` : '') + `
     <button class="btn-secondary btn-compact" id="emailReplyBtn">${escapeHtml(t('email.btn.reply'))}</button>
     <button class="btn-secondary btn-compact" id="emailForwardBtn">${escapeHtml(t('email.btn.forward'))}</button>
     <button class="btn-secondary btn-compact" id="emailArchiveBtn">${escapeHtml(t('email.btn.archive'))}</button>
@@ -33259,6 +33260,8 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
     saveEmailUiState()
     if (removeEmailRowsLocally([{ id, mailbox }])) loadEmailEnvelopes()
   })
+  const draftEditBtn = document.getElementById('emailDraftEditBtn')
+  if (draftEditBtn) draftEditBtn.addEventListener('click', () => emailShowComposeFromDraft(id, envelope, mailbox, msg))
   const replyBtn = document.getElementById('emailReplyBtn')
   if (replyBtn) replyBtn.addEventListener('click', () => emailShowCompose('reply', id, envelope, mailbox))
   const forwardBtn = document.getElementById('emailForwardBtn')
@@ -33682,6 +33685,9 @@ function emailShowComposeNew() {
   })
   // #389: egy korabbi Intezo-kuldes csatolmanyai ne maradjanak itt.
   _emailComposeLife = null
+  _emailComposeDraft = null
+  _emailComposeFiles = []
+  emailRenderComposeFiles()
   const att = document.getElementById('emailComposeNewAttach')
   if (att) { att.hidden = true; att.innerHTML = '' }
   const from = document.getElementById('emailComposeNewFrom')
@@ -33698,6 +33704,63 @@ document.getElementById('emailComposeNewBtn')?.addEventListener('click', emailSh
  */
 let _emailComposeLife = null
 
+// #635 (Boss TG 2981): files picked on this computer, and the draft being edited with the attachments it still has.
+let _emailComposeFiles = []
+let _emailComposeDraft = null
+const EMAIL_ATTACH_LIMIT_BYTES = 25 * 1024 * 1024
+
+function emailRenderComposeFiles() {
+  const list = document.getElementById('emailComposeNewFilesList')
+  if (list) {
+    list.innerHTML = _emailComposeFiles.map((f, i) => '<div>📄 ' + escapeHtml(f.name) + ' <span style="opacity:.7">(' + escapeHtml(emailFmtSize(f.size)) + ')</span> '
+      + '<button type="button" class="btn-secondary btn-compact" data-email-file-del="' + i + '" aria-label="' + escapeAttr(t('email.compose_attach_remove')) + '">×</button></div>').join('')
+    list.querySelectorAll('[data-email-file-del]').forEach((b) => b.addEventListener('click', () => {
+      _emailComposeFiles.splice(Number(b.getAttribute('data-email-file-del')), 1)
+      emailRenderComposeFiles()
+    }))
+  }
+  const box = document.getElementById('emailComposeNewDraftAtt')
+  if (box) {
+    const atts = _emailComposeDraft ? _emailComposeDraft.atts : []
+    box.hidden = !atts.length
+    box.innerHTML = atts.length ? '<div style="font-weight:600;margin-bottom:4px">' + escapeHtml(t('email.compose_draft_atts')) + '</div>'
+      + atts.map((a, i) => '<label style="display:block"><input type="checkbox" data-email-draft-att="' + i + '"' + (a.keep ? ' checked' : '') + '> 📎 '
+        + escapeHtml(a.filename) + ' <span style="opacity:.7">(' + escapeHtml(emailFmtSize(a.size)) + ')</span></label>').join('') : ''
+    box.querySelectorAll('[data-email-draft-att]').forEach((c) => c.addEventListener('change', () => {
+      _emailComposeDraft.atts[Number(c.getAttribute('data-email-draft-att'))].keep = c.checked
+    }))
+  }
+}
+
+document.getElementById('emailComposeNewAttachBtn')?.addEventListener('click', () => document.getElementById('emailComposeNewFiles')?.click())
+document.getElementById('emailComposeNewFiles')?.addEventListener('change', (e) => {
+  for (const f of Array.from(e.target.files || [])) _emailComposeFiles.push(f)
+  e.target.value = ''
+  emailRenderComposeFiles()
+})
+
+function emailReadFileBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''))
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(file)
+  })
+}
+
+/** Open a message of the Drafts mailbox for editing: recipient, subject, text and its attachments, then send. */
+function emailShowComposeFromDraft(id, envelope, mailbox, msg) {
+  emailShowComposeNew()
+  const set = (el, v) => { const n = document.getElementById(el); if (n) { n.readOnly = false; n.value = v || '' } }
+  set('emailComposeNewTo', (envelope?.to || []).map((a) => a.email).filter(Boolean).join(', '))
+  set('emailComposeNewSubject', envelope?.subject || '')
+  set('emailComposeNewText', msg?.text || '')
+  _emailComposeDraft = {
+    mailbox, id,
+    atts: (Array.isArray(msg?.attachments) ? msg.attachments : []).map((a) => ({ id: a.id, filename: a.filename, size: a.size, keep: true })),
+  }
+  emailRenderComposeFiles()
+}
 /**
  * Uj level a kijelolt fajlokkal csatolmanykent. SOHA nem kuld: csak megnyitja
  * az ablakot kitoltve, a Kuldes gombot a felhasznalo nyomja meg.
@@ -33751,25 +33814,41 @@ document.getElementById('emailComposeNewSendBtn')?.addEventListener('click', asy
   const text = document.getElementById('emailComposeNewText')?.value.trim()
   if (!to) { showToast(t('email.compose_missing_recipient')); return }
   const life = _emailComposeLife
+  const draft = _emailComposeDraft
+  const keepIds = draft ? draft.atts.filter((a) => a.keep).map((a) => a.id) : []
   // Csatolmannyal a szoveg lehet ures (egy fenykep elkuldesehez nem kell level).
-  if (!text && !life) { showToast(t('email.compose_empty_text')); return }
+  if (!text && !life && !_emailComposeFiles.length && !keepIds.length) { showToast(t('email.compose_empty_text')); return }
+  const pickedBytes = _emailComposeFiles.reduce((n, f) => n + f.size, 0)
+  if (pickedBytes > EMAIL_ATTACH_LIMIT_BYTES) { showToast(t('email.compose_attach_too_big')); return }
   const account = life ? life.account : emailAccount
   if (!account) { showToast(t('intezo.send_email_no_account')); return }
   const sendBtn = document.getElementById('emailComposeNewSendBtn')
   sendBtn.disabled = true
   sendBtn.textContent = t('email.sending')
   try {
+    const uploads = []
+    for (const f of _emailComposeFiles) uploads.push({ name: f.name, data_base64: await emailReadFileBase64(f) })
     const res = await fetch('/api/email/compose', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(Object.assign({ account, to, cc, subject, text: text || '' },
-        life ? { lifeAttachments: life.rels, lang: window._lang || 'hu' } : {})),
+        life ? { lifeAttachments: life.rels, lang: window._lang || 'hu' } : {},
+        uploads.length ? { uploads } : {},
+        draft ? { draft: { mailbox: draft.mailbox, id: draft.id, keep: keepIds, remove: true } } : {})),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) { showToast(data.message || data.error || t('email.send_error')); return }
     showToast(t('email.new_message_sent_toast'))
     _emailComposeLife = null
+    _emailComposeFiles = []
+    _emailComposeDraft = null
     closeModal(document.getElementById('emailComposeNewOverlay'))
-    if (emailMailbox === emailSentMailbox()) loadEmailEnvelopes()
+    if (draft) {
+      clearEmailReaderPane()
+      emailActiveId = null
+      emailActiveMailbox = null
+      saveEmailUiState()
+      loadEmailEnvelopes()
+    } else if (emailMailbox === emailSentMailbox()) loadEmailEnvelopes()
   } finally {
     sendBtn.disabled = false
     sendBtn.textContent = t('email.btn.send')
