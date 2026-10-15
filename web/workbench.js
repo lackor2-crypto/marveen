@@ -16,6 +16,17 @@
   'use strict'
 
   var FR_ZOOM_DEFAULT = 90
+  // The chosen zoom survives F5 and switching work items (Boss, TG 3450).
+  function frZoomLoad() {
+    try {
+      var v = Number(window.localStorage && window.localStorage.getItem('marveen.workbench.frZoom'))
+      if (v >= 30 && v <= 100) return v
+    } catch (_e) { /* no storage: default */ }
+    return FR_ZOOM_DEFAULT
+  }
+  function frZoomSave(v) {
+    try { if (window.localStorage) window.localStorage.setItem('marveen.workbench.frZoom', String(v)) } catch (_e) { /* only valid now */ }
+  }
   var WB = {
     open: false,
     // VIDEOMUNKA (#406, 19. pont): FFmpeg-allapot es a mostani video vagas-urlapja.
@@ -115,7 +126,7 @@
     frMenu: null,
     frChat: readPref('wb.fr.chat', '1') === '1',
     frLive: false, // Elo nezet (#462): csak a kesz kep, kijelolo-pontok nelkul
-    frZoom: FR_ZOOM_DEFAULT,
+    frZoom: frZoomLoad(),
     canvasSnap: readPref('wb.canvas.snap', '1') === '1',
     canvasGrid: readPref('wb.canvas.grid', '0') === '1',
     // A verziolista kinyitott "apro modositasok" csoportjai (K-2.4), a csoport
@@ -1285,7 +1296,7 @@
     WB.selectedId = id
     // Clicking a work piece shows it: the debate panel steps aside (its state stays for the next opening).
     WB.dbOpen = false
-    WB.frZoom = FR_ZOOM_DEFAULT
+    WB.frZoom = frZoomLoad()
     WB.panel = 'editor'
     // Mas munkadarab: a felig nyitott resz-szerkesztes nem szivaroghat at.
     WB.partEdit = null
@@ -4749,7 +4760,7 @@
       if (!r.ok) { render(); window.showToast(r.message); return }
       WB.formOpen = false
       WB.selectedId = r.data.item.id
-      WB.frZoom = FR_ZOOM_DEFAULT
+      WB.frZoom = frZoomLoad()
       WB.panel = 'editor'
       WB.detail = { item: r.data.item, versions: r.data.versions, project: WB.project }
       window.showToast(t('workbench.table.created', { name: r.data.name || '' }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
@@ -17025,7 +17036,7 @@
       if (!r.ok) { render(); window.showToast(r.message); return }
       WB.formOpen = false
       WB.selectedId = r.data.item.id
-      WB.frZoom = FR_ZOOM_DEFAULT
+      WB.frZoom = frZoomLoad()
       WB.detail = { item: r.data.item, versions: r.data.versions, project: WB.project }
       window.showToast(t('workbench.new.created', { title: r.data.item.title }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
       load(WB.projectId)
@@ -18463,8 +18474,9 @@
     if (!e.target || e.target.id !== 'wbFrZoom') return
     var v = Number(e.target.value) || 100
     WB.frZoom = v
-    var sc = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-scroll') : null
-    if (sc && sc.style && typeof sc.style.setProperty === 'function') sc.style.setProperty('--wb-zoom', String(v / 100))
+    frZoomSave(v)
+    var scs = typeof document.querySelectorAll === 'function' ? document.querySelectorAll('.wb-fr-scroll, .wb-fr-fixed') : []
+    for (var zi = 0; zi < scs.length; zi++) scs[zi].style.setProperty('--wb-zoom', String(v / 100))
     var lbl = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-zoomval') : null
     if (lbl && 'textContent' in lbl) lbl.textContent = v + '%'
   })
