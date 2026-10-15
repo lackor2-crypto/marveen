@@ -145,6 +145,17 @@ tenni a dolgokat"). Procedure:
    by decisions, so say so instead of calling it "done".
 4. Re-measure AFTER landing: upstream keeps moving, so a count measured hours
    ago (the dashboard's `checkedAt`) is not today's.
+5. **LAST STEP, always: zero the live box.** The check writes
+   `store/upstream-sync-status.json` under the tree it runs from. From a
+   worktree that is the worktree's own `store/` (deleted with it), while the
+   dashboard box reads the LIVE store, so it keeps showing the old
+   "352 clean / 138 conflicting" even though the sync is done (owner,
+   2026-10-15: "most mar ha megcsinaltad, ne irja ki, hogy 352/138"). After
+   landing AND `scripts/deploy-live.sh`, run
+   `bash scripts/upstream-divergence-check.sh manual` once from the live
+   checkout (it only writes `store/`, no tracked file), then confirm
+   `store/upstream-sync-status.json` shows `conflictCount: 0` and
+   `cleanFileCount: 0` with a fresh `checkedAt`. Only then report "done".
 
 ## Verification
 ```bash
