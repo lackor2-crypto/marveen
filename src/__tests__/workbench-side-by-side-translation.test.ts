@@ -461,4 +461,12 @@ describe('the draft page wiring', () => {
     expect(js).toMatch(/if \(!pv \|\| pv\.fresh \|\| shownIds\.indexOf\(sec\.id\) < 0\) return/)
     expect(js).toContain('pv.fresh = false')
   })
+  it('#620: a table block of the translation page is drawn as a real table and read back as " | " lines', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain('function twTableHtml(text)')
+    expect(js).toContain('function twTableLines(el)')
+    expect(js).toContain("b.kind === 'table' ? twTableHtml(b.text)")
+    expect(js).toContain("twTableLines(el) : null")
+    expect(readFileSync(join(__dirname, '..', '..', 'web', 'workbench.css'), 'utf8')).toContain('.wb-tw-tbl th, .wb-tw-tbl td')
+  })
 })
