@@ -7,6 +7,9 @@
 //    a machine-kept list of the materials (between markers, the agent never edits that part).
 // 2. The item's own JSON files (.canvas.json, .deck.json) carry the item's name too.
 // When the item is renamed, both follow (the registry paths are rewritten, nothing is overwritten).
+// ONE context file per work item, whatever the language (Boss, Workbench chat 2026-10-15): a language version
+// (doc.createVariant) is the same case as its original and has NO context file of its own. Every read, append,
+// rewrite and sweep on a version goes to the ORIGINAL's file; nothing is ever made or written back for the version.
 //
 // Runs as a periodic pass (all creation paths, legacy items and fresh installs are covered the same way) and is
 // kicked right after a Workbench write so a new item gets its file within seconds.
@@ -17,7 +20,8 @@ import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { ol } from './owner-lang.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
-import { listWorkItems, listWorkItemVersions, type WorkItemRow } from './workbench.js'
+import { getWorkItem, listWorkItems, listWorkItemVersions, type WorkItemRow } from './workbench.js'
+import { variantOf } from './workbench-doclang.js'
 import { followDepotFolderMove, itemOutputFolder } from './workbench-assets.js'
 import { projectFileTarget, safeFileName } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
@@ -64,6 +68,23 @@ export function nameWithItemStem(title: unknown, fileName: string): string {
 }
 
 const JSON_FILE = /\.(?:canvas|deck)(?: \(\d+\))?\.json$/i
+
+/**
+ * The work item whose context file serves `item`: the item itself, or -- for a language version -- its original.
+ * A version is never itself an original (createVariant refuses it), the hop limit is only a guard against bad data.
+ */
+export function contextOwner(item: WorkItemRow): WorkItemRow {
+  let cur = item
+  for (let i = 0; i < 4; i++) {
+    const v = variantOf(cur.id)
+    if (!v) return cur
+    const src = getWorkItem(v.source_item_id)
+    if (!src) return cur
+    cur = src
+  }
+  return cur
+}
+
 
 interface CtxRow { item_id: string; rel: string; stem: string }
 const readRow = (itemId: string): CtxRow | undefined =>
@@ -163,6 +184,11 @@ export interface ItemContextOutcome { rel: string | null; created: boolean; rena
 /** Makes sure the item's context file exists in its folder and carries the item's current name. */
 export function ensureItemContext(item: WorkItemRow, project: ProjectRow): ItemContextOutcome {
   ensureTable()
+  const owner = contextOwner(item)
+  if (owner.id !== item.id) {
+    // A language version shares its original's file: never make one of its own.
+    return ensureItemContext(owner, getProject(owner.project_id) ?? project)
+  }
   const dir = itemDirRel(project, item)
   if (!dir) return { rel: null, created: false, renamed: false }
   const expected = contextFileName(item.title)
@@ -267,6 +293,12 @@ export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { 
   const before = readRow(item.id)
   const oldStem = before?.stem || ''
   const json = followItemJsonNames(item, oldStem)
+  if (contextOwner(item).id !== item.id) {
+    // A language version: no file of its own (an empty path clears any old pointer); the original's pass keeps the
+    // shared file. Only the name stem is tracked, so the version's JSON files still follow its rename.
+    saveRow(item.id, '', itemStem(item.title))
+    return { created: false, renamed: false, json }
+  }
   const r = ensureItemContext(item, project)
   if (r.rel) refreshInventory(item, project, r.rel)
   return { created: r.created, renamed: r.renamed, json }
@@ -334,8 +366,8 @@ export function isContextSection(s: unknown): s is ContextSection { return typeo
 
 export function readItemContext(item: WorkItemRow): { rel: string; text: string } | null {
   ensureTable()
-  const row = readRow(item.id)
-  if (!row) return null
+  const row = readRow(contextOwner(item).id)
+  if (!row || !row.rel) return null
   const abs = resolveLifePath(row.rel)
   if (!abs || !existsSync(abs)) return null
   try { return { rel: row.rel, text: readFileSync(abs, 'utf8') } } catch { return null }

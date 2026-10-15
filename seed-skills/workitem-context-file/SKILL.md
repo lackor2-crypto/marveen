@@ -14,11 +14,13 @@ scope: global
 2. A fájl neve MINDIG a munkadarab neve. A `.canvas.json` / `.deck.json` fájlok neve is a munkadarab nevével indul (a dátum maradhat), átnevezéskor követik.
 3. Az ágens KÉRÉS NÉLKÜL bővíti: új információ (feltöltés, elolvasott fájl, a projekt alá csatolt tudásanyag-mappa tartalma, döntés, határidő, nyitott kérdés) -> `context.append` (section: task / info / decisions / open / log). Rendetlen fájlnál `context.rewrite`. A `marveen:files` közötti Anyagok blokkot a rendszer vezeti, nem szerkeszted.
 4. Munkadarab megnyitásakor ismerd fel a feladatot a körülötte lévő fájlokból, és töltsd ki a Feladat szakaszt, ha üres.
-5. Titkot (jelszó, token) soha nem írsz bele.
+5. EGY munkadarabhoz EGY kontextus-fájl tartozik, bármilyen nyelvre fordítjuk: a nyelvi változat (`doc.createVariant`, pl. német) NEM kap sajátot, az eredeti fájlját használja (olvasás, `context.append`, `context.rewrite`, sweep). Kézzel soha ne hozz létre másik `Kontextus - ...md` fájlt a változatnak.
+6. Titkot (jelszó, token) soha nem írsz bele.
 
 ## Buktatók
 - A fájl a munkadarab MAPPÁJÁBAN él; mappa nélküli munkadarabnál a megjelenítési mappában. Ne a projekt gyökerébe tedd.
 - Átnevezéskor nincs felülírás: ha a cél név foglalt, a régi marad és a következő kör próbálja újra.
+- A változat régi, külön kontextus-fájlját a rendszer nem hozza vissza; a törlést (Kukába) a tulajdonos engedélyével te végzed, a változat nyilvántartása ettől függetlenül üres útvonalra áll.
 - Meglévő, kézzel írt `Kontextus - ...md` fájlt örökbe fogad, nem csinál másodikat.
 
 ## Ellenőrzés

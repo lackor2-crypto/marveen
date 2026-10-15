@@ -9,6 +9,9 @@ import { createProject, updateProject, getProject } from '../projects.js'
 import { getWorkItem, createWorkItemVersion } from '../workbench.js'
 import { renameWorkItem, assignWorkItemFolder } from '../workbench-assets.js'
 import { sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext } from '../workbench-item-context.js'
+import { readdirSync } from 'node:fs'
+import { addSection } from '../workbench-docmodel.js'
+import { createVariant } from '../workbench-doclang.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { TOOLS } from '../workbench-agent/tools.js'
 import { SYSTEM_PROMPT } from '../workbench-agent/context.js'
@@ -164,5 +167,54 @@ describe('the context file is never the work item file', () => {
     createWorkItemVersion(itemId, { source_path: rel })
     await sweepItemContexts()
     expect(item().source_path).toBe(real)
+  })
+})
+
+// Boss (Workbench chat 2026-10-15): ONE context file per work item, whatever the language it is translated into.
+describe('a language version has no context file of its own', () => {
+  const ctxFiles = (rel: string): string[] => readdirSync(join(dir, ...rel.split('/').slice(0, -1))).filter((n) => /^(Kontextus|Context) - .+\.md$/.test(n))
+  const makeDe = () => {
+    addSection(itemId, '1. Tenyallas')
+    const r = createVariant(item(), 'de', 'teszt')
+    if (!r.ok) throw new Error(r.detail)
+    return r.item
+  }
+  it('the sweep makes one file for the original and none for the version, even in the same folder', async () => {
+    const orig = (await (async () => { await sweepItemContexts(); return where() })())
+    const de = makeDe()
+    await sweepItemContexts()
+    await sweepItemContexts()
+    expect(ctxFiles(orig.rel)).toEqual([contextFileName('Wohngeld hianypotlas')])
+    expect(readItemContext(getWorkItem(de.id)!)!.rel).toBe(orig.rel)
+  })
+  it('append and rewrite on the version go to the original file; nothing else appears', async () => {
+    await sweepItemContexts()
+    const orig = where()
+    const de = getWorkItem(makeDe().id)!
+    expect(appendItemContext(de, getProject(pid)!, 'info', 'Fordítási megjegyzés').ok).toBe(true)
+    expect(rewriteItemContext(de, getProject(pid)!, '# Egyetlen\n\nközös jegyzet').ok).toBe(true)
+    expect(where().text).toContain('közös jegyzet')
+    expect(ctxFiles(orig.rel)).toHaveLength(1)
+  })
+  it('a version made before any original file existed still gets no file of its own', async () => {
+    const de = getWorkItem(makeDe().id)!
+    await sweepItemContexts()
+    const rel = readItemContext(item())!.rel
+    expect(ctxFiles(rel)).toEqual([contextFileName('Wohngeld hianypotlas')])
+    expect(readItemContext(de)!.rel).toBe(rel)
+  })
+  it('an old pointer of the version is cleared and the file is not written back after it is removed', async () => {
+    await sweepItemContexts()
+    const rel = where().rel
+    const de = getWorkItem(makeDe().id)!
+    const stray = `${rel.split('/').slice(0, -1).join('/')}/${contextFileName(de.title)}`
+    writeFileSync(join(dir, ...stray.split('/')), 'ures')
+    const { getDb } = await import('../db.js')
+    getDb().prepare('INSERT OR REPLACE INTO work_item_context (item_id, rel, stem) VALUES (?, ?, ?)').run(de.id, stray, 'x')
+    rmSync(join(dir, ...stray.split('/')))
+    await sweepItemContexts()
+    await sweepItemContexts()
+    expect(ctxFiles(rel)).toEqual([contextFileName('Wohngeld hianypotlas')])
+    expect((getDb().prepare('SELECT rel FROM work_item_context WHERE item_id = ?').get(de.id) as { rel: string }).rel).toBe('')
   })
 })
