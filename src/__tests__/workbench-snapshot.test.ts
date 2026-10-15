@@ -120,6 +120,76 @@ describe('rebuild from the folders', () => {
     expect(getWorkItem(id)).toBeUndefined()
   })
 
+  // One registration file per work item and one per folder (Boss 2026-10-15: a foreign marveen-item.json -- the
+  // tombstone of a deleted twin -- sat beside the living item's work, and the item had no snapshot of its own).
+  describe('two items in one folder', () => {
+    const absOf = (id: string): string => join(projDir, ...getWorkItem(id)!.folder!.split('/').filter(Boolean))
+    function twins(): { a: string; b: string; folder: string } {
+      const a = docItem('Elso')
+      const b = docItem('Masodik')
+      const folder = getWorkItem(a)!.folder!
+      getDb().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run(folder, b)
+      return { a, b, folder: absOf(a) }
+    }
+
+    it('purging one twin leaves the other twin\'s snapshot alone (it does not become a foreign tombstone)', () => {
+      const { a, b, folder } = twins()
+      sweepSnapshots({ force: true })
+      const owner = JSON.parse(readFileSync(join(folder, SNAPSHOT_FILE), 'utf8')).id as string
+      const other = owner === a ? b : a
+      // The twin that does NOT own the folder file is purged: the folder file must stay the owner's, with content.
+      tombstoneSnapshot(getWorkItem(other)!)
+      const after = JSON.parse(readFileSync(join(folder, SNAPSHOT_FILE), 'utf8'))
+      expect(after.tombstone).toBeUndefined()
+      expect(after.id).toBe(owner)
+      expect(JSON.stringify(after.tables)).toContain('Elso szoveg')
+    })
+
+    it('a foreign tombstone in the folder is replaced by the living item\'s own snapshot', () => {
+      const id = docItem()
+      const folder = absOf(id)
+      writeFileSync(join(folder, SNAPSHOT_FILE), JSON.stringify({ format: 1, tombstone: true, id: 'deadbeef', at: '2026-10-15T18:49:51.391Z' }))
+      expect(sweepSnapshots({ force: true })).toBeGreaterThan(0)
+      const snap = JSON.parse(readFileSync(join(folder, SNAPSHOT_FILE), 'utf8'))
+      expect(snap.tombstone).toBeUndefined()
+      expect(snap.id).toBe(id)
+    })
+
+    it('an item\'s OWN tombstone is still respected (never revived by a sweep)', () => {
+      const id = docItem()
+      sweepSnapshots({ force: true })
+      const item = getWorkItem(id)!
+      tombstoneSnapshot(item)
+      sweepSnapshots({ force: true })
+      expect(JSON.parse(readFileSync(join(absOf(id), SNAPSHOT_FILE), 'utf8')).tombstone).toBe(true)
+    })
+
+    it('a foreign LIVE snapshot is never overwritten: the second item goes to .marveen-items/<id>.json, both rebuild', async () => {
+      const { a, b, folder } = twins()
+      sweepSnapshots({ force: true })
+      const owner = JSON.parse(readFileSync(join(folder, SNAPSHOT_FILE), 'utf8')).id as string
+      const other = owner === a ? b : a
+      expect(existsSync(join(projDir, '.marveen-items', `${other}.json`))).toBe(true)
+      expect(JSON.parse(readFileSync(join(projDir, '.marveen-items', `${other}.json`), 'utf8')).id).toBe(other)
+      // A second sweep changes nothing (no ping-pong between the two items).
+      expect(sweepSnapshots({ force: true })).toBe(0)
+      const db = getDb()
+      for (const t of ['work_items', 'work_item_versions', 'work_item_parts', 'wb_doc_sections', 'wb_doc_blocks', 'projects']) db.exec(`DELETE FROM ${t}`)
+      const r = await restoreFromFolders()
+      expect(r.restored).toBe(2)
+    })
+
+    it('purging the twin that lives in the fallback tombstones the fallback file, not the folder file', () => {
+      const { a, b, folder } = twins()
+      sweepSnapshots({ force: true })
+      const owner = JSON.parse(readFileSync(join(folder, SNAPSHOT_FILE), 'utf8')).id as string
+      const other = owner === a ? b : a
+      tombstoneSnapshot(getWorkItem(other)!)
+      expect(JSON.parse(readFileSync(join(projDir, '.marveen-items', `${other}.json`), 'utf8')).tombstone).toBe(true)
+      expect(JSON.parse(readFileSync(join(folder, SNAPSHOT_FILE), 'utf8')).id).toBe(owner)
+    })
+  })
+
   it('an item in the trash keeps deleted_at in the snapshot and comes back as a trash item', async () => {
     const id = docItem()
     setWorkItemDeleted(id, true)

@@ -68,8 +68,18 @@ function contentTables(): { name: string; sql: string }[] {
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex')
 
-function snapshotPath(item: WorkItemRow, project: ProjectRow, mkdirFallback: boolean): string | null {
-  if (item.folder) {
+/** Whose snapshot (or tombstone) a registration file is. '' = it does not say. */
+function ownerId(snap: Snapshot): string {
+  return String(snap.id ?? snap.item?.['id'] ?? '')
+}
+
+/**
+ * One registration file per work item, and one per folder: `fallback` forces the project-level
+ * .marveen-items/<id>.json even when the item has a folder (used when another item's file already holds
+ * the folder's marveen-item.json -- two items sharing a folder must not overwrite each other's snapshot).
+ */
+function snapshotPath(item: WorkItemRow, project: ProjectRow, mkdirFallback: boolean, fallback = false): string | null {
+  if (item.folder && !fallback) {
     const t = projectFileTarget(project, item.folder)
     if (t.ok) return writeBlockReason(`${t.dirRel}/${SNAPSHOT_FILE}`) ? null : join(t.dirAbs, SNAPSHOT_FILE)
   }
@@ -145,10 +155,21 @@ export function sweepSnapshots(opts: { force?: boolean } = {}): number {
       const hash = sha(JSON.stringify(snap))
       if (written.get(item.id) === hash) continue
       if (optedOut.has(item.id)) continue // the owner deleted this item's snapshot: it is NOT written back
-      const path = snapshotPath(item, project, true)
+      let path = snapshotPath(item, project, true)
       if (!path) continue
-      const existing = existsSync(path) ? readJson(path) : null
-      if (existing?.tombstone) continue
+      let existing = existsSync(path) ? readJson(path) : null
+      // A file in the folder that names ANOTHER item is not this item's. A foreign tombstone carries no content
+      // (the item was deleted for good; a sweep refusing to write next to it left the living item without any
+      // snapshot, measured 2026-10-15) -> it is replaced below. A foreign live snapshot is never overwritten:
+      // this item goes to the project-level fallback file instead.
+      const foreign = existing !== null && ownerId(existing) !== '' && ownerId(existing) !== item.id
+      if (existing?.tombstone && !foreign) continue
+      if (existing && foreign && !existing.tombstone) {
+        path = snapshotPath(item, project, true, true)
+        if (!path) continue
+        existing = existsSync(path) ? readJson(path) : null
+        if (existing?.tombstone && ownerId(existing) === item.id) continue
+      }
       if (existing) {
         const { exportedAt: _drop, ...rest } = existing
         if (sha(JSON.stringify(rest)) === hash) { written.set(item.id, hash); continue }
@@ -194,9 +215,17 @@ export function tombstoneSnapshot(item: WorkItemRow): void {
   try {
     const project = getProject(item.project_id)
     if (!project) return
-    const path = snapshotPath(item, project, false)
-    if (!path || !existsSync(path)) return
-    atomicWrite(path, JSON.stringify({ format: SNAPSHOT_FORMAT, tombstone: true, id: item.id, at: new Date().toISOString() }))
+    // Only the item's OWN registration file becomes its tombstone. When two items share a folder, the file there
+    // may be the other one's (still living): turning it into a tombstone cost that item its snapshot, and the
+    // owner a stray foreign marveen-item.json beside the work (2026-10-15). The item's own file may sit in the
+    // folder or in the project-level fallback.
+    for (const fallback of [false, true]) {
+      const path = snapshotPath(item, project, false, fallback)
+      if (!path || !existsSync(path)) continue
+      const cur = readJson(path)
+      if (!cur || ownerId(cur) !== item.id) continue
+      atomicWrite(path, JSON.stringify({ format: SNAPSHOT_FORMAT, tombstone: true, id: item.id, at: new Date().toISOString() }))
+    }
     written.delete(item.id)
   } catch (err) {
     logger.warn({ err, item: item.id }, 'workbench-snapshot: could not write a tombstone')
