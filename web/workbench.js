@@ -1345,6 +1345,7 @@
       WB.detail = r.data
       render()
       scheduleDocPoll(id)
+      rootGuardCheck(id)
       // A rajz-fajta munkadarabnal magatol megnezzuk, van-e mar vaszon. Mas
       // fajtanal nem kerdezunk feleslegesen -- ott az elonezet mondja meg, ha
       // megis rajz all mogotte.
@@ -13398,6 +13399,57 @@
   function tpAvailable() {
     return !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
   }
+  // ---- #624: a NEW file in the root of the item's folder: "is this the triggering document?" -----------------
+  var rootGuardTimer = null
+  function rootGuardCheck(id) {
+    if (!id || archived() || document.getElementById('wbRootGuard')) return
+    if (rootGuardTimer) clearTimeout(rootGuardTimer)
+    // Re-check while the item stays open: a file copied in from the file manager arrives at any moment.
+    rootGuardTimer = setTimeout(function () { if (WB.selectedId === id) rootGuardCheck(id) }, 60000)
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/root-strays').then(function (r) {
+      if (!r.ok || WB.selectedId !== id || document.getElementById('wbRootGuard')) return
+      var files = (r.data && r.data.files) || []
+      if (files.length) rootGuardAsk(id, files)
+    })
+  }
+  function rootGuardAsk(id, files) {
+    var overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'
+    overlay.id = 'wbRootGuard'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:640px;padding:18px">'
+      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.rootguard.title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.rootguard.help')) + '</p>'
+      + '<div id="wbRootGuardList"></div></div>'
+    document.body.appendChild(overlay)
+    var list = overlay.querySelector('#wbRootGuardList')
+    var answer = function (name, keep, rowEl) {
+      rowEl.querySelectorAll('button').forEach(function (b) { b.disabled = true })
+      api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/root-strays', { decisions: [{ name: name, keep: keep }] }).then(function (r) {
+        if (!r.ok) { rowEl.querySelectorAll('button').forEach(function (b) { b.disabled = false }); window.showToast(r.message || t('workbench.rootguard.failed')); return }
+        var res = ((r.data && r.data.results) || [])[0]
+        if (res && !res.ok) { window.showToast(res.message || t('workbench.rootguard.failed')) }
+        else window.showToast(t(keep ? 'workbench.rootguard.kept' : 'workbench.rootguard.moved'))
+        if (rowEl.parentNode) rowEl.parentNode.removeChild(rowEl)
+        if (!list.children.length) { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); if (WB.selectedId === id) loadDetail(id) }
+      })
+    }
+    files.forEach(function (f) {
+      var row = document.createElement('div')
+      row.style.cssText = 'padding:8px 0;border-bottom:1px solid var(--border,#ddd)'
+      var nm = document.createElement('div')
+      nm.style.cssText = 'word-break:break-word;margin-bottom:6px'
+      nm.textContent = '📄 ' + f.name
+      var yes = document.createElement('button')
+      yes.type = 'button'; yes.className = 'btn-primary btn-compact'; yes.textContent = t('workbench.rootguard.yes')
+      yes.addEventListener('click', function () { answer(f.name, true, row) })
+      var no = document.createElement('button')
+      no.type = 'button'; no.className = 'btn-secondary btn-compact'; no.style.marginLeft = '8px'; no.textContent = t('workbench.rootguard.no')
+      no.addEventListener('click', function () { answer(f.name, false, row) })
+      row.appendChild(nm); row.appendChild(yes); row.appendChild(no)
+      list.appendChild(row)
+    })
+  }
+
   // ---- #618: move the item's finished files into the Life tree (list, owner approves, then move) --------------
   function lifeMoveBtnHtml() {
     var it = WB.detail && WB.detail.item

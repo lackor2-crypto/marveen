@@ -37,6 +37,7 @@
 import { isContextFileName, kickItemContextSweep } from '../../workbench-item-context.js'
 import { isTodoFileName } from '../../workbench-item-todos.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../../workbench-life-move.js'
+import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
@@ -4167,6 +4168,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return failDetail(res, r.code === 'move_failed' ? 500 : 400, code, lang, r.message || null)
     }
     json(res, { ok: true, moved: r.moved, reason: r.reason ?? null, folder: r.folder, item: getWorkItem(item.id), work_folders: listWorkFolders(owner as NonNullable<typeof owner>), items: listWorkItems(item.project_id) })
+    return true
+  }
+  // #624: new files in the root of the item's folder wait for the owner's yes / no (GET the questions, POST the answers).
+  if (segs.length === 2 && segs[1] === 'root-strays' && (method === 'GET' || method === 'POST')) {
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (method === 'GET') { json(res, { ok: true, files: rootStrays(owner, item) }); return true }
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const r = resolveRootStrays(owner, item, body['decisions'], lang)
+    if (!r.ok) return fail(res, r.code === 'no_folder' ? 404 : 400, r.code === 'no_folder' ? 'life_move_no_folder' : 'life_move_bad_input', lang)
+    json(res, { ok: true, results: r.results, files: rootStrays(owner, item), assets: assetsOut(item.id) })
     return true
   }
   // #618: the owner's "move to the Life tree" list (GET) and the approved move (POST {moves:[{rel,target}]}).
