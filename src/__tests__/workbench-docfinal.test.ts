@@ -472,7 +472,8 @@ describe('a felulet: piszkozat, atnezes, veglegesites', () => {
   it('piszkozat gomb es technikai nyom mindig; atnezes elott a pipa es a keszites tiltva', async () => {
     const h = await open(outline({}))
     const html = h.html()
-    expect(html).toContain('href="/api/workbench/items/w1/outline/pdf?lang=hu"')
+    // The draft PDF is the same PDF as the review button: with the check done, opening it records the review too.
+    expect(html).toContain(`data-wb-act="outline-review" href="/api/workbench/items/w1/outline/pdf?lang=hu&review=${HASH}" target="_blank" rel="noopener" title="⟦workbench.outline.draft_pdf_hint⟧"`)
     expect(html).toContain('workbench.outline.draft_pdf')
     expect(html).toContain('href="/api/workbench/items/w1/outline/trail?lang=hu"')
     expect(html).toContain('href="/api/workbench/items/w1/outline/docx?lang=hu" download')

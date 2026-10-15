@@ -8819,8 +8819,11 @@
         return '<a href="/api/life/file?rel=' + escA(encodeURIComponent(x.path || '')) + '" target="_blank" rel="noopener" title="' + escA(x.name || '') + '">'
           + esc(x.role === 'annex' ? (x.label || x.name || '') : t('workbench.outline.final_open')) + '</a>'
       }).join(' · ') + '</p>'
+    // The draft PDF button is the same PDF as "Megnyitom es atnezem": with the check done, opening it records the review too
+    // (an owner who reads the draft PDF no longer has to find a second button -- the tick stayed grey for exactly that).
+    var draftReview = !ro && o.check && o.check.ready && o.content_hash ? '&review=' + encodeURIComponent(o.content_hash) : ''
     var tools = '<p class="wb-outline-pdf-tools">'
-      + '<a class="btn-secondary btn-compact" href="' + escA(base + '/pdf' + q) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.outline.draft_pdf')) + '</a> '
+      + '<a class="btn-secondary btn-compact"' + (draftReview ? ' data-wb-act="outline-review"' : '') + ' href="' + escA(base + '/pdf' + q + draftReview) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.outline.draft_pdf')) + '</a> '
       + '<a class="btn-secondary btn-compact" href="' + escA(base + '/docx' + q) + '" download title="' + escA(t('workbench.outline.docx_hint')) + '">' + esc(t('workbench.outline.docx')) + '</a> '
       + '<a class="wb-linklike" href="' + escA(base + '/trail' + q) + '" download title="' + escA(t('workbench.outline.trail_hint')) + '">' + esc(t('workbench.outline.trail')) + '</a> '
       + '<a class="wb-linklike" href="' + escA(base + '/trail' + q + '&format=json') + '" download title="' + escA(t('workbench.outline.trail_json_hint')) + '">' + esc(t('workbench.outline.trail_json')) + '</a></p>'
