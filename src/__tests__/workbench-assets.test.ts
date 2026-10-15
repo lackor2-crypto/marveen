@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject, setProjectArchived, type ProjectRow } from '../projects.js'
 import { createWorkItem, createWorkItemVersion, getWorkItem, listWorkItems, listWorkItemVersions } from '../workbench.js'
 import {
@@ -15,6 +15,7 @@ import {
 } from '../workbench-assets.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
 import { rootStrays, resolveRootStrays } from '../workbench-root-guard.js'
+import { findOrphanJsons, trashOrphanJsons } from '../workbench-json-orphans.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
 import { buildContext } from '../workbench-agent/context.js'
@@ -148,6 +149,27 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(existsSync(join(dir, 'GPT.md'))).toBe(false)
     expect(existsSync(join(dir, 'Feltöltések', 'GPT.md'))).toBe(true)
     expect(rootStrays(cur, w)).toEqual([])
+  })
+
+  it('#625: only a drawing / deck JSON no work item uses is listed; approval trashes it, an item JSON is never a candidate', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    writeFileSync(join(dir, 'gazdatlan.canvas.json'), '{}')
+    writeFileSync(join(dir, 'regi.deck.json'), '{}')
+    writeFileSync(join(dir, 'marveen-item.json'), '{}')
+    writeFileSync(join(dir, 'hasznalt.canvas.json'), '{}')
+    const rel = (n: string) => `Projektek/Iroda/${f.folder.replace(/^\/+/, '')}/${n}`
+    getDb().prepare('INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)')
+      .run('a1', item.id, rel('hasznalt.canvas.json'), 'hasznalt.canvas.json', 'usable', 'x', 2, 1)
+    const l = findOrphanJsons()
+    expect(l.files.map((x) => x.name).sort()).toEqual(['gazdatlan.canvas.json', 'regi.deck.json'])
+    const r = trashOrphanJsons([rel('gazdatlan.canvas.json'), rel('hasznalt.canvas.json')], 'hu')
+    expect(r.map((x) => x.ok)).toEqual([true, false])
+    expect(existsSync(join(dir, 'gazdatlan.canvas.json'))).toBe(false)
+    expect(existsSync(join(dir, 'hasznalt.canvas.json'))).toBe(true)
+    expect(existsSync(join(dir, 'marveen-item.json'))).toBe(true)
   })
 
   it('K-0.9/K-0.16: az elso fajl a munkadarab nevevel keszult SAJAT mappaba kerul, NEM lesz uj munkadarab', async () => {

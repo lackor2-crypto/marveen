@@ -13399,6 +13399,68 @@
   function tpAvailable() {
     return !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
   }
+  // ---- #625: unused drawing / deck JSON files: a list, the owner approves, they go to the Trash ------------------
+  function jsonCleanBtnHtml() {
+    if (archived()) return ''
+    return '<button type="button" class="btn-secondary btn-compact" data-wb-act="json-clean" title="' + escA(t('workbench.jsonclean.hint')) + '">' + esc(t('workbench.jsonclean.btn')) + '</button>'
+  }
+  function jsonCleanOpen() {
+    if (document.getElementById('wbJsonClean')) return
+    var overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'
+    overlay.id = 'wbJsonClean'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:760px;padding:18px">'
+      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.jsonclean.title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.jsonclean.help')) + '</p>'
+      + '<div id="wbJsonCleanList"><p class="wb-muted">' + esc(t('workbench.jsonclean.loading')) + '</p></div>'
+      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbJsonCleanClose">' + esc(t('workbench.lifemove.cancel')) + '</button> '
+      + '<button type="button" class="btn-primary" id="wbJsonCleanGo" disabled>' + esc(t('workbench.jsonclean.go')) + '</button></div>'
+      + '</div>'
+    document.body.appendChild(overlay)
+    var list = overlay.querySelector('#wbJsonCleanList')
+    var go = overlay.querySelector('#wbJsonCleanGo')
+    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    overlay.querySelector('#wbJsonCleanClose').addEventListener('click', close)
+    var picked = {}
+    var refresh = function () { go.disabled = !Object.keys(picked).some(function (k) { return picked[k] }) }
+    var draw = function (files, truncated) {
+      list.innerHTML = ''
+      picked = {}
+      refresh()
+      if (!files.length) { list.innerHTML = '<p class="wb-muted">' + esc(t('workbench.jsonclean.none')) + '</p>'; return }
+      files.forEach(function (f) {
+        var lab = document.createElement('label')
+        lab.style.cssText = 'display:flex;gap:8px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--border,#ddd);word-break:break-word'
+        var cb = document.createElement('input')
+        cb.type = 'checkbox'
+        cb.addEventListener('change', function () { picked[f.rel] = cb.checked; refresh() })
+        var sp = document.createElement('span')
+        sp.textContent = f.rel
+        lab.appendChild(cb); lab.appendChild(sp)
+        list.appendChild(lab)
+      })
+      if (truncated) { var p = document.createElement('p'); p.className = 'wb-muted'; p.textContent = t('workbench.jsonclean.truncated'); list.appendChild(p) }
+    }
+    api('GET', '/api/workbench/json-orphans').then(function (r) {
+      if (!overlay.parentNode) return
+      if (!r.ok) { list.innerHTML = ''; var p = document.createElement('p'); p.className = 'wb-error'; p.textContent = r.message || t('workbench.jsonclean.failed'); list.appendChild(p); return }
+      draw((r.data && r.data.files) || [], !!(r.data && r.data.truncated))
+    })
+    go.addEventListener('click', function () {
+      var rels = Object.keys(picked).filter(function (k) { return picked[k] })
+      if (!rels.length) return
+      go.disabled = true
+      api('POST', '/api/workbench/json-orphans', { rels: rels }).then(function (r) {
+        if (!r.ok) { go.disabled = false; window.showToast(r.message || t('workbench.jsonclean.failed')); return }
+        var res = (r.data && r.data.results) || []
+        var okN = res.filter(function (x) { return x.ok }).length
+        var bad = res.filter(function (x) { return !x.ok })
+        window.showToast(t('workbench.jsonclean.done', { n: okN }) + (bad.length ? ' ' + t('workbench.jsonclean.some_failed', { n: bad.length, why: bad[0].message || '' }) : ''))
+        draw((r.data && r.data.files) || [], !!(r.data && r.data.truncated))
+      })
+    })
+  }
+
   // ---- #624: a NEW file in the root of the item's folder: "is this the triggering document?" -----------------
   var rootGuardTimer = null
   function rootGuardCheck(id) {
@@ -14593,7 +14655,7 @@
         : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</button> ')
       // (Finalize is in the frame's top bar, where every other kind has it: finalizeTopHtml.)
       + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o) + ' ' + tpToggleHtml())
-      + ' ' + lifeMoveBtnHtml()
+      + ' ' + lifeMoveBtnHtml() + ' ' + jsonCleanBtnHtml()
       + '</p>'
     var finalPanel = o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : ''
     // Boss TG 2754: a drafted document has no file yet, so the Preview tab shows the draft page itself (read only).
@@ -17867,6 +17929,7 @@
       render()
     }
     else if (a === 'life-move') lifeMoveOpen()
+    else if (a === 'json-clean') jsonCleanOpen()
     else if (a === 'tp-toggle') {
       var tpS = tpState(); tpS.on = !tpS.on; writePref('wb.tp.on', tpS.on ? '1' : '')
       if (tpS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }

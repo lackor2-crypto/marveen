@@ -38,6 +38,7 @@ import { isContextFileName, kickItemContextSweep } from '../../workbench-item-co
 import { isTodoFileName } from '../../workbench-item-todos.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../../workbench-life-move.js'
 import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
+import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
@@ -2244,6 +2245,15 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
 
   // #502 (TG 2656): a folder of the left tree opened by the owner whose content the first listing left out (a linked
   // folder such as Fejlesztés/GIT_REPOS, or one there was no time for). Read only.
+  // #625: drawing / deck JSON files no work item uses (GET the list; POST {rels} trashes the approved ones).
+  if (path === '/api/workbench/json-orphans' && (method === 'GET' || method === 'POST')) {
+    if (method === 'GET') { json(res, { ok: true, ...findOrphanJsons() }); return true }
+    if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    json(res, { ok: true, results: trashOrphanJsons(body['rels'], lang), ...findOrphanJsons() })
+    return true
+  }
   if (path === '/api/workbench/folder-level' && method === 'GET') {
     const pid = (url.searchParams.get('project') || '').trim()
     if (!pid) return fail(res, 400, 'project_required', lang)
