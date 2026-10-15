@@ -246,6 +246,18 @@ tényleg nem vonatkozik az esetre -- különben a skillt nem érte el, és azt k
 mondania, nem azt, hogy nincs szabály.
 
 
+### R11 -- Egy munkadarabhoz EGY nyilvántartó JSON tartozik: a `marveen-item.json`
+**Hiba (2026-10-15, Boss):** a Wohngeld munkadarab mappájában egy törölt munkadarab
+sírköve (`marveen-item.json`, `"tombstone":true`) árválkodott a `.canvas.json` mellett,
+és a tulajdonos nem értette, minek két json fájl.
+**Szabály:** a munkadarab mappájában a `marveen-item.json` a munkadarab SAJÁT
+nyilvántartó fájlja (a benne lévő `id` az övé). Másik munkadarab fájlját vagy
+sírkövet nem teszel mellé, és nem hozol létre kézzel extra `.json` fájlt. A
+`.canvas.json` / `.deck.json` a munkadarab TARTALMA, azt nem törlöd ezen a címen.
+Ha más `id`-jú `marveen-item.json`-t látsz a mappában, szólj a tulajdonosnak.
+Kódból: `src/workbench-snapshot.ts`.
+
+
 ## Új szabály hozzáadása (a folyamat)
 Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismerés):
 1. Írj ide egy új `### R<n> -- rövid cím` szekciót: **Hiba:** mi történt konkrétan,
