@@ -11,7 +11,7 @@ import { createWorkItem, createWorkItemVersion, getWorkItem, listWorkItems, list
 import {
   assetSupport, folderNameFromTitle, attachAsset, listWorkItemAssets, tidyWorkItemIntoFolder,
   listWorkItemAssetsSynced, renameWorkItemFolder, adoptExistingFolder, registerAsset,
-  migrateAllWorkItemFolders, projectWorkItemsFolder,
+  migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset,
 } from '../workbench-assets.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
@@ -109,6 +109,21 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(forced.status).toBe(201)
     expect(forced.body.renamed).toBe(true)
     expect(listWorkItemAssets(item.id)).toHaveLength(2)
+  })
+
+  it('Boss TG 3481: the same file (name + bytes) already in the folder is taken as it is, not copied as "name (2)"; a forced upload still copies', async () => {
+    const item = newItem()
+    const first = await callWorkbench(`/api/workbench/items/${item.id}/assets?name=chatgpt.md`, 'POST', Buffer.from('TARTALOM'))
+    expect(first.status).toBe(201)
+    // The file stands in the folder, but is not one of the item's materials (it was put there by hand).
+    expect(unlinkAsset(item.id, first.body.asset.id)).toBe(true)
+    const again = await callWorkbench(`/api/workbench/items/${item.id}/assets?name=chatgpt.md`, 'POST', Buffer.from('TARTALOM'))
+    expect(again.status).toBe(201)
+    expect(again.body.name).toBe('chatgpt.md')
+    expect(again.body.renamed).toBe(false)
+    // A different content under the same name is a different file: it is never overwritten, it gets the free name.
+    const other = await callWorkbench(`/api/workbench/items/${item.id}/assets?name=chatgpt.md`, 'POST', Buffer.from('MAS TARTALOM'))
+    expect(other.body.name).toBe('chatgpt (2).md')
   })
 
   it('futtathato fajl nem lehet anyag; ures, archivalt: kulon ertheto valasz', async () => {

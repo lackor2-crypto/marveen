@@ -43,7 +43,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, freeFileName, attachmentsFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
@@ -1481,7 +1481,22 @@ export function attachAsset(
   const f = opts.uploads ? ensureItemUploadsFolder(item, opts.lang) : ensureWorkItemFolder(item)
   if (!f.ok) return f
   const dir = opts.into === 'attachments' ? (attachmentsFolderFor(project, f.folder) ?? f.folder) : f.folder
-  const out = writeProjectFile(project, dir, name, data)
+  // The very same file (same name, same bytes) already stands in the folder -- put there by hand, so it is not one of the
+  // materials yet: it is taken as it is, not copied again as "name (2)" (Boss TG 3481). A forced upload still makes a copy.
+  let out: WriteOutcome | null = null
+  if (!opts.force) {
+    const t = projectFileTarget(project, dir)
+    const wanted = safeFileName(name)
+    if (t.ok && wanted) {
+      try {
+        const have = join(t.dirAbs, wanted)
+        if (existsSync(have) && statSync(have).isFile() && statSync(have).size === data.length && readFileSync(have).equals(data)) {
+          out = { ok: true, rel: `${t.dirRel}/${wanted}`, name: wanted, renamed: false, bytes: data.length }
+        }
+      } catch { /* unreadable: the normal write below decides */ }
+    }
+  }
+  if (!out) out = writeProjectFile(project, dir, name, data)
   if (!out.ok) return out
   const row = registerAsset(item.id, out.rel, out.name, sha, out.bytes, opts.createdBy ?? null)
   return { ok: true, asset: row, renamed: out.renamed, folder: f.folder, folderCreated: f.created }
