@@ -7171,6 +7171,7 @@ window._i18n.hu = {
   "workbench.dp.drop_annexed": "{name} a mellékletek közé került.",
   "workbench.dp.drop_empty_table": "A táblázat üres volt, ezért üres táblát tettem a lapra.",
   "workbench.dp.drop_truncated": "A fájl nagyon hosszú: az elejét építettem be, a teljes tartalom a fájlban marad.",
+  "workbench.dp.tbl_editing": "A táblázat szerkesztés alatt van: soronként egy sor, a cellákat a | jel választja el. Alább látod, milyen lesz (gépelés közben frissül). Kattints máshová, és a kész táblázat visszajön.",
   "workbench.dp.tbl_edit": "Kattints a táblázat szerkesztéséhez (soronként: cella | cella)",
   "workbench.dp.pic_move": "Fogd meg, és húzd a képet oda, ahol lenni szeretnéd: a lap bal vagy jobb felére, bármelyik bekezdés mellé. A szöveg körbefutja. (Nyilakkal is megy: balra / jobbra oldalt vált, fel / le egy bekezdéssel arrébb teszi.)",
   "workbench.dp.pagebreak_toggle": "Oldalak",

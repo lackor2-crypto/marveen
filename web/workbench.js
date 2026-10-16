@@ -13174,6 +13174,17 @@
     return !!(pic && pic.x == null && pic.width && pic.width < 100 && pic.align !== 'c')
   }
 
+  /** #649 (Boss TG 3087): a table opened for editing shows its "a | b" lines; without this the table seems to have vanished.
+   *  The grid stays visible under the lines (read-only preview of what the lines say) with a sentence on how it works. */
+  function dpTableEditAidHtml(b) {
+    var lines = String(dpDraft('b:' + b.id, dpBlockShown(b))).split('\n')
+    var body = lines.map(function (ln, r) {
+      return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
+    }).join('')
+    return '<div class="wb-dp-extra wb-dp-tbl-aid" contenteditable="false"><p class="wb-hint">' + esc(t('workbench.dp.tbl_editing')) + '</p>'
+      + '<table class="wb-dp-tbl-prev">' + body + '</table></div>'
+  }
+
   /** A block the cursor cannot stand in: a picture, or a table shown as a grid. */
   function dpIsIsland(b) {
     if (!b) return false
@@ -13253,6 +13264,7 @@
         + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + dpPfmtAttrs(b.pfmt).cls + (b.kind === 'list' && dpIsNumbered(b.text) ? ' wb-dp-numbered' : ''), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(b.align).attr + dpPfmtAttrs(b.pfmt).attr,
           dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlockRich(b))
         + (b.rewrite ? '<div class="wb-dp-extra" contenteditable="false">' + rewriteHtml(b, ro) + '</div>' : '')
+        + (b.kind === 'table' ? dpTableEditAidHtml(b) : '')
         + '</div>'
     })
     if (nw && nw.pos >= blocks.length) rows += dpGhostHtml(sec.id, blocks.length, nw.kind, blocks.length, ro)
@@ -19525,6 +19537,14 @@
   document.addEventListener('input', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
     if (e.target.closest('.wb-dp-page[contenteditable="true"]')) dpMarkDirty()
+    // #649: the grid under an open table's lines follows what is typed.
+    var tf = dpCurrent()
+    var prev = tf && tf.parentElement ? tf.parentElement.querySelector('.wb-dp-tbl-prev') : null
+    if (prev) {
+      prev.innerHTML = String(tf.innerText || '').split('\n').filter(function (ln, i, a) { return ln.trim() || i < a.length - 1 }).map(function (ln, r) {
+        return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
+      }).join('')
+    }
   })
 
   // #562 (Boss TG 8922: "klikkelek a dokumentum vegere, es ott nem tudok elkezdeni irni"): a click on the empty part of
