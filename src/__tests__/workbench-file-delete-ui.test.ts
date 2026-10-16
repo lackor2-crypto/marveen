@@ -241,6 +241,13 @@ describe('#535 selection bar for the files outside the work-item box', () => {
     expect(bar(h)).toContain('wbSelDeckName')
   })
 
+  it('no "move to folder" list while a file outside the box is ticked (the server would only skip it), Delete stays', async () => {
+    const h = await openOut()
+    h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': OUT + '/szerzodes.docx' })
+    expect(bar(h)).not.toContain('data-wb-move-files')
+    expect(bar(h)).toContain('wb-sel-delete')
+  })
+
   it('Delete selected sends exactly the ticked files of that folder', async () => {
     const h = await openOut()
     h.click({ 'data-wb-act': 'file-sel', 'data-wb-rel': OUT + '/szerzodes.docx' })
@@ -251,4 +258,3 @@ describe('#535 selection bar for the files outside the work-item box', () => {
     expect(sent.rels.sort()).toEqual([OUT + '/jegyzet.txt', OUT + '/szerzodes.docx'])
   })
 })
-
