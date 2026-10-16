@@ -22,4 +22,12 @@ describe('chat width handle', () => {
     expect(css).toMatch(/\.wb-fr-chat \{ flex-basis: var\(--wb-chat-w, 340px\); max-width: calc\(100% - 360px\); \}/)
     expect(css).toMatch(/@media \(max-width: 900px\) \{ \.wb-fr-chat \{ flex-basis: auto; max-width: none; \} \}/)
   })
+  // #595: measured in a real browser (1400x800): the manual frame's top sat 372px down, so the chat's input line
+  // (bottom of the window-high frame) was at y=1004 and only showed after a scroll. The frame is brought to the top
+  // of the window once per opened work, as the Simple view does; a phone (stacked columns) is left alone.
+  it('brings the manual split frame to the top of the window once per opened work, so the chat input is on the screen', () => {
+    expect(js).toMatch(/function revealSplitFrame\(\) \{[\s\S]*?window\.innerWidth <= 900\) return[\s\S]*?WB\.splitRevealKey === WB\.selectedId[\s\S]*?scrollIntoView\(\{ block: 'start' \}\)/)
+    expect(js).toMatch(/fitSavedChatSplit\(\)\n\s+revealSplitFrame\(\)/)
+    expect(css).toMatch(/\.wb-split \{[^}]*scroll-margin-top: 8px/)
+  })
 })
