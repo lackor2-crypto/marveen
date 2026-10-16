@@ -60,6 +60,17 @@ describe('chat-hivatkozas: csak az agentnek (nem anyag)', () => {
     expect(readFileSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Agentnek', 'minta.png'), 'utf8')).toBe('1')
   })
 
+  it('Boss TG 3481: the very same file (name + bytes) attached again is the one already there, not a "name (2)" twin', () => {
+    const item = newItem()
+    const a = attachChatReference(item, 'minta.png', Buffer.from('1'))
+    const again = attachChatReference(item, 'minta.png', Buffer.from('1'))
+    expect(a.ok && again.ok).toBe(true)
+    if (!a.ok || !again.ok) return
+    expect(again.renamed).toBe(false)
+    expect(again.rel).toBe(a.rel)
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Agentnek', 'minta (2).png'))).toBe(false)
+  })
+
   it('az "Agentnek" mappa nem jelolt a Life-fara athelyezesre', () => {
     const item = newItem()
     attachChatReference(item, 'minta.png', Buffer.from('1'))
