@@ -463,6 +463,67 @@ describe('project tree header order (#580, TG 3151)', () => {
   })
 })
 
+describe('project tree panel in three separate blocks (#583, TG 3169)', () => {
+  // The rail's Projects tab (the compact tree panel Boss looks at) opens beside an open work item.
+  async function openPanel(): Promise<string> {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { id: 'anthropic', model: 'claude-sonnet-5', available: true }, usage: { usedPct: 12, measured: true }, allowed: true, maxMessageChars: 8000 } }
+      if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: { item: { id: 'w1', title: 'Ajánlat', type: 'document', status: 'draft' }, versions: [], parts: [], part_kinds: ['text'], project: PROJECT } }
+      return { status: 200, body: itemsBody([{ id: 'w1', title: 'Ajánlat', type: 'document', status: 'draft' }]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-act': 'view-set', 'data-wb-view': 'simple' })
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-fr-body'))
+    h.click({ 'data-wb-act': 'fr-tab', 'data-wb-tab': 'projects' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-blk-top'))
+    return h.rootEl.innerHTML
+  }
+  /** The panel's three blocks as html slices, cut at their own opening tags (the markup is flat, no nested wb-blk). */
+  function blocksOf(html: string): { tree: string; top: string; foot: string; order: string[] } {
+    const sec = html.slice(html.indexOf('<section class="wb-panel wb-panel-items'))
+    const panel = sec.slice(0, sec.indexOf('</section>'))
+    const marks = ['wb-blk wb-blk-tree', 'wb-blk wb-blk-top', 'wb-blk wb-blk-foot'].map((m) => panel.indexOf('class="' + m + '"'))
+    const order = (panel.match(/class="wb-blk wb-blk-(tree|top|foot)"/g) || []).map((m) => m.replace(/.*wb-blk-|"/g, ''))
+    return {
+      tree: panel.slice(marks[0], marks[1]), top: panel.slice(marks[1], marks[2]), foot: panel.slice(marks[2]),
+      order,
+    }
+  }
+
+  it('the panel holds exactly three separate blocks: folder tree, Open/Attach/Hide buttons, trash + new work', async () => {
+    const { order } = blocksOf(await openPanel())
+    // Boss TG 3201 put the folder tree first; the button block sits below it, the trash block last.
+    expect(order).toEqual(['tree', 'top', 'foot'])
+  })
+
+  it('each block holds only its own content (nothing leaks into a neighbouring block)', async () => {
+    const { tree, top, foot } = blocksOf(await openPanel())
+    // Folder tree block: the project name on top, then the tree with Favorites and the work item.
+    expect(tree).toContain('wb-root-title')
+    expect(tree).toContain('Kovács weboldal')
+    expect(tree).toContain('wb-fav-row')
+    expect(tree).toContain('data-wb-item="w1"')
+    for (const c of ['wb-head-open', 'wb-head-attach', 'wb-hide-done', 'wb-trash', 'wb-new-btn']) expect(tree).not.toContain(c)
+    // Button block: Open, Attach folder, Hide finalized -- and no tree, trash or new-work button.
+    for (const c of ['wb-head-open', 'wb-head-attach', 'wb-hide-done']) expect(top).toContain(c)
+    for (const c of ['wb-fav-row', 'data-wb-item=', 'wb-trash', 'wb-new-btn']) expect(top).not.toContain(c)
+    // Footer block: the Trash and the New work button, nothing of the tree or the buttons above.
+    for (const c of ['wb-trash', 'wb-rescue', 'wb-new-btn']) expect(foot).toContain(c)
+    // The New work button is the last thing INSIDE the block (the block's closing tag follows it, nothing lies outside).
+    expect(foot.endsWith('</button></div>')).toBe(true)
+    expect(foot.lastIndexOf('wb-new-btn')).toBeGreaterThan(foot.lastIndexOf('wb-rescue'))
+    for (const c of ['wb-fav-row', 'data-wb-item=', 'wb-head-open', 'wb-head-attach', 'wb-hide-done']) expect(foot).not.toContain(c)
+  })
+
+  it('the blocks are drawn apart: own tinted bordered background and a gap between them', () => {
+    const css = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.css'), 'utf8')
+    expect(css).toMatch(/\.wb-panel-items \{ gap: 10px; \}/)
+    expect(css).toMatch(/\.wb-panel-items \.wb-blk \{ background:[^}]*border: 1px solid[^}]*border-radius/)
+  })
+})
+
 describe('chat head fold arrow (#578, TG 3142)', () => {
   async function openChatHead(): Promise<void> {
     h.respond((url) => {
