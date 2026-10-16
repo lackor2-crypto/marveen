@@ -52,7 +52,7 @@ export async function tryHandleDebateReports(ctx: RouteContext): Promise<boolean
     }
     const a = ctx.auth
     const by = a ? (a.kind === 'session' && a.user ? a.user : a.kind) : null
-    const r = createReportDocument(st.project, buildReport(st, l, { full: body.full === true }), by)
+    const r = createReportDocument(st.project, buildReport(st, l, { full: body.full === true }), by, { originItem: st.workItem, lang: l })
     if (!r.ok) {
       const msg: Record<string, [string, string]> = {
         project_not_found: ['A projekt nem található.', 'The project was not found.'],

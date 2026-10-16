@@ -68,6 +68,8 @@ export interface DebateRoundView {
 export interface DebateSessionState {
   id: string
   project: string | null
+  /** The work item the debate was started from (its report is filed under that item's folder); null = unknown / older debate. */
+  workItem: string | null
   /** Id of the debate mode (debate-modes.ts); debates from before the modes read as the default. */
   mode: string
   /** The name of an owner-made mode (the built-in ones are named by the page's language files). */
@@ -296,7 +298,7 @@ function loadSession(id: string, all?: LogLine[]): LoadedSession | null {
   const roundLines = lines.filter(l => l.type === 'round')
   if (!roundLines.length) return null
   const ctx = [...lines].reverse().find(l => l.type === 'context') as
-    { models?: string[]; question?: string; files?: DebateAttachment[]; project?: string; mode?: string; modeDef?: StoredMode;
+    { models?: string[]; question?: string; files?: DebateAttachment[]; project?: string; workItem?: string; mode?: string; modeDef?: StoredMode;
       strength?: string; swapRoles?: boolean; judge?: string } | undefined
   const byRound = new Map<number, DebateRoundView>()
   for (const l of roundLines) {
@@ -320,7 +322,7 @@ function loadSession(id: string, all?: LogLine[]): LoadedSession | null {
   const mode = snapshot && snapshot.id === ctx?.mode ? snapshot : resolveStateMode(ctx?.mode)
   const board = isRoleMode(mode) ? buildObjectionBoard(rounds) : []
   const state: DebateSessionState = {
-    id, project: project || null, mode: mode.id, modeName: mode.builtin ? null : (mode.name ?? null), maxRounds: mode.maxRounds ?? null,
+    id, project: project || null, workItem: typeof ctx?.workItem === 'string' && ctx.workItem ? ctx.workItem : null, mode: mode.id, modeName: mode.builtin ? null : (mode.name ?? null), maxRounds: mode.maxRounds ?? null,
     strength: effectiveStrength(mode, ctx?.strength), swapRoles: effectiveSwap(mode, ctx?.swapRoles),
     judge: typeof ctx?.judge === 'string' && ctx.judge.trim() ? ctx.judge.trim() : null,
     models,
@@ -483,6 +485,8 @@ export class DebateInputError extends Error {
 export interface RunRoundInput {
   session?: string
   project?: string | null
+  /** The work item the debate is started from (first round only). */
+  workItem?: string | null
   question?: string
   models?: string[]
   attachments?: unknown
@@ -607,7 +611,7 @@ export async function runDebateRound(input: RunRoundInput): Promise<RunRoundResu
     if (!prior) {
       const stored = mode.builtin ? null : loadStoredModes().find(m => m.id === mode.id) ?? null
       appendLine({
-        ts, session, type: 'context', models, question, files: attachments, mode: mode.id, ...(project ? { project } : {}),
+        ts, session, type: 'context', models, question, files: attachments, mode: mode.id, ...(project ? { project } : {}), ...(input.workItem ? { workItem: String(input.workItem).slice(0, 80) } : {}),
         ...(roleMode ? { strength, swapRoles: swap } : {}), ...(judge ? { judge } : {}), ...(stored ? { modeDef: stored } : {}),
       })
     }

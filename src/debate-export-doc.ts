@@ -8,7 +8,7 @@ import { getProject } from './projects.js'
 import { createWorkItem, getWorkItem, setWorkItemDeleted, type WorkItemRow } from './workbench.js'
 import { replacePage, BLOCK_TEXT_MAX } from './workbench-docmodel.js'
 import { scheduleOutlineMirror } from './workbench-docmirror.js'
-import { assignWorkItemFolder, folderNameFromTitle, makeWorkFolder } from './workbench-assets.js'
+import { assignWorkItemFolder, makeWorkFolder } from './workbench-assets.js'
 import type { DebateReport } from './debate-export.js'
 
 export type ReportDocResult =
@@ -30,13 +30,22 @@ export function splitLong(text: string, max: number = BLOCK_TEXT_MAX): string[] 
   return out
 }
 
-export function createReportDocument(projectId: string, report: DebateReport, by: string | null): ReportDocResult {
+/** The folder every debate report goes into: inside the folder of the work item the debate was started from. */
+export function reportFolderName(lang: string): string {
+  return lang === 'en' ? 'Debate report' : 'Vitáztatás jelentés'
+}
+
+export function createReportDocument(projectId: string, report: DebateReport, by: string | null, opts?: { originItem?: string | null; lang?: string }): ReportDocResult {
   const project = getProject(projectId)
   if (!project) return { ok: false, code: 'project_not_found' }
   if (project.archived_at != null) return { ok: false, code: 'project_archived' }
   const title = report.title.slice(0, 200)
-  // The item's own folder, named after it; a project whose box cannot be made still gets the document (without a folder).
-  const mf = makeWorkFolder(project, '', folderNameFromTitle(title), { own: true })
+  // Boss (TG 3623): the report never lands loose among the work items. It goes into a "Debate report" folder inside the
+  // folder of the work item the debate was started from; a debate with no known origin gets one shared "Debate report"
+  // folder of the box (never a folder of its own at the box level).
+  const origin = opts?.originItem ? getWorkItem(opts.originItem) : null
+  const originFolder = origin && origin.project_id === project.id && origin.deleted_at == null && origin.folder ? origin.folder : ''
+  const mf = makeWorkFolder(project, originFolder, reportFolderName(opts?.lang ?? 'hu'))
   const folder = mf.ok ? mf.folder : null
   const made = createWorkItem({ project_id: project.id, type: 'document', title, container_folder: folder, created_by: by })
   if (!made.ok) return { ok: false, code: 'create_failed', detail: made.code }
