@@ -6183,6 +6183,8 @@ window._i18n.hu = {
   "workbench.approval.toast.approve": "Elfogadva, a munkadarab kész.",
   "workbench.approval.toast.reject": "Visszadobva, a munkadarab újra folyamatban van.",
   "workbench.finalize.done": "Véglegesítve",
+  "workbench.finalize.done_tip": "Véglegesítve: a dokumentum le van zárva, nem szerkeszthető. Az Újranyitás gombbal lehet újra szerkeszteni.",
+  "workbench.finalize.reopen_tip": "Újranyitás: a dokumentum újra szerkeszthető lesz, és a végleges állapota megszűnik. Semmi nem törlődik, a végleges PDF megmarad.",
   "workbench.finalize.reopen": "Újranyitás",
   "workbench.finalize.button": "Véglegesítés",
   "workbench.finalize.hint": "A munkadarab lezárt lesz, a lista elrejtheti. Bármikor újranyitható; semmi nem törlődik.",
