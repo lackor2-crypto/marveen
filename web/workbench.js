@@ -8910,7 +8910,23 @@
       var notOwner = typeof WB.authMethod === 'string' && WB.authMethod !== 'session'
       var nextKey = !ready ? 'workbench.outline.next_check' : notOwner ? 'workbench.outline.next_login' : !reviewed ? 'workbench.outline.next_review' : !accepted ? 'workbench.outline.next_accept' : 'workbench.outline.next_final'
       var nextTip = escA(t(nextKey))
-      fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>'
+      // Which language is being finalized (Boss, 2026-10-16): the PDF is made of THIS work item; the other languages are their own
+      // work items (language versions) and are finalized there, only once their translation is complete.
+      var langPick = ''
+      if (o.variant) {
+        var vOk = !(o.variant.sections || []).some(function (x) { return x.state !== 'current' }) && !(o.variant.new_in_source || []).length
+        langPick = '<p class="wb-hint"><strong>' + esc(t('workbench.final.lang_title')) + '</strong> ' + esc(t('workbench.final.lang_this_variant', { lang: docLangName(o.variant.lang) })) + ' '
+          + (vOk ? '<span class="wb-ok">✓ ' + esc(t('workbench.final.lang_complete')) + '</span>' : '<span class="wb-doc-low">⚠ ' + esc(t('workbench.final.lang_incomplete')) + '</span>') + '</p>'
+      } else if ((o.variants || []).length) {
+        langPick = '<div class="wb-hint"><strong>' + esc(t('workbench.final.lang_title')) + '</strong><ul class="wb-doclang-list"><li>● ' + esc(t('workbench.final.lang_this_original')) + '</li>'
+          + o.variants.map(function (x) {
+            var done = !x.stale && !x.untranslated
+            return '<li>○ <strong>' + esc(docLangName(x.lang)) + '</strong> '
+              + (done ? '<span class="wb-ok">✓ ' + esc(t('workbench.final.lang_complete')) + '</span>' : '<span class="wb-doc-low">⚠ ' + esc(t('workbench.final.lang_incomplete')) + '</span>')
+              + ' <button type="button" class="wb-linklike" data-wb-act="outline-lang-open" data-wb-item="' + escA(x.item_id) + '">' + esc(t(done ? 'workbench.final.lang_open_final' : 'workbench.final.lang_open_translate')) + '</button></li>'
+          }).join('') + '</ul></div>'
+      }
+      fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>' + langPick
         + '<p class="wb-hint">' + esc(t(ready ? 'workbench.outline.finalize_steps' : 'workbench.outline.finalize_blocked')) + '</p>'
         + '<p class="wb-outline-next" role="status"><strong>' + esc(t('workbench.outline.next_label')) + '</strong> ' + esc(t(nextKey)) + '</p>'
         + (ready ? '' : outlineOpenPointsHtml(o, ro))

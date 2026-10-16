@@ -214,6 +214,21 @@ export function fileStem(title: string, max = 120): string {
   return (s || 'dokumentum').slice(0, max).trim()
 }
 
+/** The title cut at its first " - " (the long tail with numbers and names stays out) and at a word, at most 60 characters. */
+export function shortTitle(title: string, max = 60): string {
+  let t = fileStem(title.split(' - ')[0] || title, 10_000)
+  if (t.length > max) t = t.slice(0, max).replace(/\s+\S*$/, '')
+  return t.trim() || fileStem(title, max)
+}
+
+/**
+ * The name of a final PDF (Boss, 2026-10-16): "2026-10-16 – <short title> – DE – v5.pdf". The date first (they sort in time
+ * order), the language in the name (the Hungarian and the German one never look alike), and the number of the finalization.
+ */
+export function finalFileName(item: WorkItemRow, lang: DocLang, versionNo: number, d = new Date()): string {
+  return `${localDate(d)} – ${shortTitle(item.title)} – ${lang.toUpperCase()} – v${versionNo}.pdf`
+}
+
 export function draftFileName(item: WorkItemRow, lang: 'hu' | 'en'): string {
   return `${fileStem(item.title)} (${DRAFT_LABEL[lang]}).pdf`
 }
@@ -342,7 +357,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
     return { path: x.asset.path, name: x.asset.name }
   }
   const files: FinalFile[] = []
-  const main = save(`${fileStem(fresh.title)} – ${label}.pdf`, bundle ?? r.pdf, bundle ? 'bundle' : 'main')
+  const main = save(finalFileName(fresh, docLangFor(fresh, input.lang), listFinals(fresh.id).length + 1), bundle ?? r.pdf, bundle ? 'bundle' : 'main')
   if (typeof main === 'string') return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + main }
   files.push({ ...main, role: bundle ? 'bundle' : 'main' })
   if (!bundle) {
