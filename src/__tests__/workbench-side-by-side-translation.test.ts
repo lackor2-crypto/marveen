@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, type WorkItemRow } from '../workbench.js'
-import { addSection, addBlock, addClaim, documentOutline, listBlocks, type SourceWorld } from '../workbench-docmodel.js'
+import { addSection, addBlock, addClaim, documentOutline, listBlocks, updateBlock, type SourceWorld } from '../workbench-docmodel.js'
 import { createVariant, listVariants, variantInfo } from '../workbench-doclang.js'
 import {
   previewSectionTranslation, savedTranslationFor, saveShownTranslation, setTranslateCallerForTest, resetTranslateJobsForTest, startVariantTranslation, translateJobState, waitForTranslationForTest, usableRich, type TranslateCaller,
@@ -111,6 +111,32 @@ describe('side-by-side translation of a draft', () => {
     const out = listBlocks(saved.variant.id)
     expect(out).toHaveLength(1)
     expect([out[0]!.align ?? null, out[0]!.rich ?? null]).toEqual([null, null])
+  })
+
+  // #616 (Boss TG 3473): the whole original was justified, the translation (more paragraphs than the original) lost it.
+  it('#616: a uniformly justified original stays justified in the saved translation even when the paragraph counts differ', () => {
+    const second = addBlock(src.id, secId, { text: 'Masodik bekezdes.', author: 'owner' })
+    if (!second.ok) throw new Error('block')
+    for (const b of listBlocks(src.id)) updateBlock(src.id, b.id, { align: 'j', author: 'owner' })
+    const shown = [{ source_section: secId, title: 'Sachverhalt', blocks: [
+      { kind: 'paragraph', text: 'Eins.' }, { kind: 'paragraph', text: 'Zwei.' }, { kind: 'paragraph', text: 'Drei.' },
+    ] }]
+    const saved = saveShownTranslation(src, 'de', shown, 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    expect(listBlocks(saved.variant.id).map((b) => b.align)).toEqual(['j', 'j', 'j'])
+    // saving the same again writes nothing (translationAlreadySaved agrees with what was saved)
+    expect(saveShownTranslation(src, 'de', shown, 'owner')).toMatchObject({ ok: true, saved: 0, unchanged: 1 })
+  })
+
+  it('#616: with a different paragraph count, mixed alignments in the original are not guessed onto the translation', () => {
+    const second = addBlock(src.id, secId, { text: 'Masodik bekezdes.', align: 'c', author: 'owner' })
+    if (!second.ok) throw new Error('block')
+    const [first] = listBlocks(src.id)
+    updateBlock(src.id, first!.id, { align: 'j', author: 'owner' })
+    const shown = [{ source_section: secId, title: 'Sachverhalt', blocks: [{ kind: 'paragraph', text: 'Alles in einem.' }] }]
+    const saved = saveShownTranslation(src, 'de', shown, 'owner')
+    if (!saved.ok) throw new Error(saved.detail)
+    expect(listBlocks(saved.variant.id).map((b) => b.align ?? null)).toEqual([null])
   })
 
   it('#534 fix: the look the owner left on an edited paragraph is saved, not the one guessed from the position', () => {
