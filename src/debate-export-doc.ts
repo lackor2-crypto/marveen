@@ -4,12 +4,15 @@
 // document gets its own folder in the project's work items box, the same way a work item made from the intake does,
 // and is made by the owner's hand (the debate only fills it).
 
+import { getDb } from './db.js'
 import { getProject } from './projects.js'
+import { logger } from './logger.js'
 import { createWorkItem, getWorkItem, setWorkItemDeleted, type WorkItemRow } from './workbench.js'
 import { replacePage, BLOCK_TEXT_MAX } from './workbench-docmodel.js'
 import { scheduleOutlineMirror } from './workbench-docmirror.js'
-import { assignWorkItemFolder, makeWorkFolder } from './workbench-assets.js'
-import type { DebateReport } from './debate-export.js'
+import { assignWorkItemFolder, findWorkItemsBox, makeWorkFolder, moveWorkItemToFolder } from './workbench-assets.js'
+import { reportTitle, type DebateReport } from './debate-export.js'
+import { listDebateOrigins } from './debate-run.js'
 
 export type ReportDocResult =
   | { ok: true; item: WorkItemRow }
@@ -62,4 +65,62 @@ export function createReportDocument(projectId: string, report: DebateReport, by
   }
   scheduleOutlineMirror(made.item.id)
   return { ok: true, item: getWorkItem(made.item.id) ?? made.item }
+}
+
+function itemsTitled(projectId: string, title: string, exceptId: string): string[] {
+  const rows = getDb().prepare('SELECT id FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND title = ? AND id != ?').all(projectId, title, exceptId) as { id: string }[]
+  return rows.map(r => r.id)
+}
+
+/**
+ * Boss TG 3636: a report saved BEFORE the folder fix (#1144) still sat in a folder of its own at the box level. Each
+ * such report moves into the "Debate report" folder of the work item its debate was started from (found again from the
+ * debate log: same project, same question -> same title). Nothing is guessed: a report whose debate is not in the log,
+ * or whose origin has no folder, stays where it is. Returns how many reports moved.
+ */
+export function relocateLegacyReports(): number {
+  const db = getDb()
+  const rows = db.prepare("SELECT id, project_id, title, folder FROM work_items WHERE deleted_at IS NULL AND folder IS NOT NULL AND (title LIKE 'Vitáztatás jelentés: %' OR title LIKE 'Debate report: %')").all() as { id: string; project_id: string; title: string; folder: string }[]
+  if (!rows.length) return 0
+  const origins = listDebateOrigins()
+  let moved = 0
+  for (const row of rows) {
+    try {
+      const project = getProject(row.project_id)
+      if (!project || project.archived_at != null) continue
+      const box = findWorkItemsBox(project) ?? ''
+      const slash = row.folder.lastIndexOf('/')
+      if ((slash < 0 ? '' : row.folder.slice(0, slash)) !== box) continue
+      const base = row.folder.slice(slash + 1)
+      const legacy = ['hu', 'en'].some(l => base.startsWith(reportFolderName(l) + ' '))
+      if (!legacy) continue
+      const ids = new Set<string>()
+      for (const o of origins) {
+        if (o.project !== row.project_id || (reportTitle(o.question, 'hu') !== row.title && reportTitle(o.question, 'en') !== row.title)) continue
+        // A debate from before the origin was recorded: the work item it attached is the one whose title is a file name.
+        if (o.workItem) ids.add(o.workItem)
+        else for (const name of o.files) for (const hit of itemsTitled(row.project_id, name, row.id)) ids.add(hit)
+      }
+      if (ids.size !== 1) continue
+      const origin = getWorkItem([...ids][0])
+      if (!origin || origin.project_id !== project.id || origin.deleted_at != null || !origin.folder) continue
+      const item = getWorkItem(row.id)
+      if (!item) continue
+      const lang = row.title.startsWith('Debate report') ? 'en' : 'hu'
+      const mf = makeWorkFolder(project, origin.folder, reportFolderName(lang))
+      if (!mf.ok) continue
+      const r = moveWorkItemToFolder(item, mf.folder)
+      if (r.ok && r.moved) moved++
+    } catch (err) {
+      logger.warn({ item: row.id, err: String((err as Error)?.message || err) }, '[debate-report] legacy relocation skipped')
+    }
+  }
+  if (moved) logger.info({ moved }, '[debate-report] legacy reports moved into their work item folder')
+  return moved
+}
+
+/** Runs once shortly after start-up (the dashboard restarts on every deploy), so no report waits for the next debate. */
+export function startLegacyReportRelocation(): void {
+  if (process.env['VITEST']) return
+  setTimeout(() => { try { relocateLegacyReports() } catch { /* retried at the next start */ } }, 30_000).unref?.()
 }
