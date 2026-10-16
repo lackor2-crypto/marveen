@@ -805,7 +805,7 @@ export async function deleteGitAccount(
   return {
     ok: true, repos,
     message: (repos.length
-      ? `Levéve: ${acc} (${repos.length} repó helyi másolatával együtt). A távoli tárolókhoz nem nyúltam.`
-      : inTree.length ? `Levéve: ${acc}.` : `Levéve: ${acc}. Üres volt, nem veszett el semmi.`) + stay,
+      ? `Eltávolítva: ${acc} (${repos.length} repó helyi másolatával együtt). A távoli tárolókhoz nem nyúltam.`
+      : inTree.length ? `Eltávolítva: ${acc}.` : `Eltávolítva: ${acc}. Üres volt, nem veszett el semmi.`) + stay,
   }
 }

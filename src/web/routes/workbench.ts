@@ -655,7 +655,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'The chosen folder is gone (renamed or deleted). Choose a folder again.',
   },
   pin_bad_value: {
-    hu: 'Nem derült ki, hogy kitűzni vagy levenni kell-e a csillagot. Frissítsd az oldalt, és kattints újra a csillagra.',
+    hu: 'Nem derült ki, hogy kitűzni vagy eltávolítani kell-e a csillagot. Frissítsd az oldalt, és kattints újra a csillagra.',
     en: 'It was not clear whether to pin or unpin this item. Refresh the page and click the star again.',
   },
   bad_json: {
@@ -1711,11 +1711,11 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'This file is not in the shared materials of the project.',
   },
   asset_in_use: {
-    hu: 'Ezt a fájlt más is használja ({users}), ezért nem törlöm a mappából. Csak levenni lehet.',
+    hu: 'Ezt a fájlt más is használja ({users}), ezért nem törlöm a mappából. Csak eltávolítani lehet.',
     en: 'This file is used elsewhere too ({users}), so it is not deleted from the folder. It can only be removed from the list.',
   },
   asset_outside: {
-    hu: 'Ez a fájl nem a projekt mappájában van, ezért innen nem törölhető. Csak levenni lehet.',
+    hu: 'Ez a fájl nem a projekt mappájában van, ezért innen nem törölhető. Csak eltávolítani lehet.',
     en: 'This file is not in the folder of the project, so it cannot be deleted from here. It can only be removed from the list.',
   },
   delete_failed: {

@@ -38503,7 +38503,7 @@ async function _storagesClick(ev) {
       // irja ki; a "biztos?" csak azutan jon, hogy latod, mit veszitesz.
       // Ha van bent fel nem toltott munka, a szerver force-szal sem torol.
       var d1 = await _depoPost('/api/storages/git-delete', { account: account })
-      if (d1.ok) { _storagesSay(d1.message || 'Levéve.'); await _storagesRefresh(); return }
+      if (d1.ok) { _storagesSay(d1.message || 'Eltávolítva.'); await _storagesRefresh(); return }
       if (!d1.needsConfirm) { _storagesSay(d1.message || 'Nem sikerült.'); return }
       if (!window.confirm(d1.message)) { _storagesSay('Rendben, nem törlöm.'); return }
       var d2 = await _depoPost('/api/storages/git-delete', { account: account, force: true })

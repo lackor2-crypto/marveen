@@ -220,6 +220,7 @@
     "text\u0000🔀 OpenRouter kézi modellek"
   ],
   "web/app.js": [
+    "js\u0000Eltávolítva.",
     "js\u0000\" kizárását?\\n\\n",
     "js\u0000\" leképezést? A session maga nem sérül; a felderítés vissza is teheti, ha a workspace nyitva van.",
     "js\u0000\" style=\"color:#c0392b\">🗑 Fiók törlése</button>",
@@ -373,7 +374,6 @@
     "js\u0000Lehúzás folyamatban… nagy repóknál ez percekig tarthat.",
     "js\u0000Lejárt",
     "js\u0000Leválasztod ezt a mappát? A már letöltött fájlok a gépeden maradnak.",
-    "js\u0000Levéve.",
     "js\u0000Magukban az értékekben nem keres. Azok nem hagyják el a széfet, csak akkor kapod meg őket, amikor konkrétan megnyitod a kártyát.",
     "js\u0000Memória betöltés hiba:",
     "js\u0000Mentés",
