@@ -21,6 +21,12 @@ type Handler = (e: unknown) => void
 
 interface Harness {
   win: Record<string, any>
+  /** The fake document: a test that needs querySelector / removeEventListener assigns it here. */
+  doc: Record<string, any>
+  /** A double click: runs the REAL `dblclick` listeners. */
+  dblclick: (target: Record<string, unknown>) => void
+  /** One pointer event on the page: runs the REAL listeners currently registered for that phase. */
+  pointer: (phase: 'down' | 'move' | 'up' | 'cancel', ev: Record<string, unknown>) => void
   rootEl: { innerHTML: string }
   click: (attrs: Record<string, string>) => void
   /** Fajlvalaszto / legordulo: a VALODI `change`-figyelot szolaltatja meg.
@@ -111,6 +117,7 @@ function harness(): Harness {
   const upHandlers: Handler[] = []
   const cancelHandlers: Handler[] = []
   const keyHandlers: Handler[] = []
+  const dblHandlers: Handler[] = []
   const renders: string[] = []
   const rootEl = {
     _html: '',
@@ -134,6 +141,13 @@ function harness(): Harness {
       if (type === 'pointerup') upHandlers.push(fn)
       if (type === 'pointercancel') cancelHandlers.push(fn)
       if (type === 'keydown') keyHandlers.push(fn)
+      if (type === 'dblclick') dblHandlers.push(fn)
+    },
+    // Like the browser: a removed listener no longer hears events (the chat-width drag removes its move/up pair).
+    removeEventListener(_type: string, fn: Handler) {
+      for (const list of [clickHandlers, submitHandlers, changeHandlers, inputHandlers, downHandlers, moveHandlers, upHandlers, cancelHandlers, keyHandlers, dblHandlers]) {
+        const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1)
+      }
     },
     getElementById(id: string) {
       if (id === 'projectsRoot') return rootEl
@@ -180,6 +194,12 @@ function harness(): Harness {
 
   return {
     win,
+    doc,
+    dblclick(target) { for (const fn of dblHandlers) fn({ target, preventDefault() {} }) },
+    pointer(phase, ev) {
+      const list = phase === 'down' ? downHandlers : phase === 'move' ? moveHandlers : phase === 'up' ? upHandlers : cancelHandlers
+      for (const fn of list.slice()) fn({ preventDefault() {}, ...ev })
+    },
     rootEl,
     inputs,
     toasts,
@@ -611,6 +631,139 @@ describe('chat head fold arrow (#578, TG 3142)', () => {
     expect(chatHtml()).toContain('wb-chat-fold-box')
     h.click({ 'data-wb-act': 'chat-head-fold' })
     expect(chatHtml()).not.toContain('wb-chat-fold-box')
+  })
+})
+
+describe('chat width drag (#586, TG 3193)', () => {
+  const KEY = 'marveen.workbench.chatWidth'
+  let store: Record<string, string>
+  let vars: Record<string, string>
+  let chatW: number
+  /** The pieces the drag code looks up, as the browser would answer them. `frame`: the chat on the right of the Simple view; `split`: the manual split, chat on the left. */
+  function setupDom(layout: 'frame' | 'split', bodyW = 1200): void {
+    const chat = {
+      style: {
+        setProperty: (k: string, v: string) => { vars[k] = v },
+        removeProperty: (k: string) => { delete vars[k] },
+      },
+      getBoundingClientRect: () => ({ width: vars['--wb-chat-w'] ? parseInt(vars['--wb-chat-w'], 10) : chatW }),
+    }
+    const body = { getBoundingClientRect: () => ({ width: bodyW }) }
+    h.doc.querySelector = (sel: string) => {
+      if (sel === '.wb-fr-body, .wb-split') return body
+      if (layout === 'frame') return sel === '.wb-fr-chat' ? chat : null
+      return sel === '.wb-split' || sel === '.wb-split-chat' ? chat : null
+    }
+  }
+  const handle: Record<string, any> = { id: 'wbChatWidthSplit', closest: (sel: string) => (sel === '#wbChatWidthSplit' ? handle : null) }
+  function drag(x0: number, x1: number): string | undefined {
+    h.pointer('down', { target: handle, clientX: x0 })
+    h.pointer('move', { target: handle, clientX: (x0 + x1) / 2 })
+    h.pointer('move', { target: handle, clientX: x1 })
+    const during = vars['--wb-chat-w']
+    h.pointer('up', { target: handle, clientX: x1 })
+    return during
+  }
+  const mkStorage = () => ({ getItem: (k: string) => (k in store ? store[k] : null), setItem: (k: string, v: string) => { store[k] = v }, removeItem: (k: string) => { delete store[k] } })
+
+  beforeEach(() => {
+    store = {}; vars = {}; chatW = 340
+    h.win.localStorage = mkStorage()
+  })
+
+  it('dragging the line to the LEFT widens the chat (it sits on the right), live while dragging, and the width is saved on release', () => {
+    setupDom('frame')
+    const during = drag(800, 600)
+    expect(during).toBe('540px')
+    expect(vars['--wb-chat-w']).toBe('540px')
+    expect(store[KEY]).toBe('540')
+  })
+
+  it('dragging to the right narrows it, never below 240px', () => {
+    setupDom('frame')
+    drag(800, 850)
+    expect(vars['--wb-chat-w']).toBe('290px')
+    drag(800, 1100)
+    expect(vars['--wb-chat-w']).toBe('240px')
+    expect(store[KEY]).toBe('240')
+  })
+
+  it('never wider than the body minus 360px, so the middle area keeps its room', () => {
+    setupDom('frame', 1000)
+    drag(900, 0)
+    expect(vars['--wb-chat-w']).toBe('640px')
+  })
+
+  it('after the release the line stops following the pointer (move/up listeners are removed)', () => {
+    setupDom('frame')
+    drag(800, 700)
+    h.pointer('move', { target: handle, clientX: 100 })
+    expect(vars['--wb-chat-w']).toBe('440px')
+  })
+
+  it('a pointer-down anywhere else does nothing', () => {
+    setupDom('frame')
+    const other = { id: 'x', closest: () => null }
+    h.pointer('down', { target: other, clientX: 800 })
+    h.pointer('move', { target: other, clientX: 500 })
+    h.pointer('up', { target: other, clientX: 500 })
+    expect(vars['--wb-chat-w']).toBeUndefined()
+    expect(store[KEY]).toBeUndefined()
+  })
+
+  it('in the manual split view the chat is on the left, so dragging RIGHT widens it', () => {
+    setupDom('split')
+    drag(400, 500)
+    expect(vars['--wb-chat-w']).toBe('440px')
+  })
+
+  it('the arrow keys on the focused line move it by 24px each (Left widens the right-hand chat), saved', () => {
+    setupDom('frame')
+    h.key({ target: handle, key: 'ArrowLeft' })
+    expect(vars['--wb-chat-w']).toBe('364px')
+    h.key({ target: handle, key: 'ArrowRight' })
+    h.key({ target: handle, key: 'ArrowRight' })
+    expect(vars['--wb-chat-w']).toBe('316px')
+    expect(store[KEY]).toBe('316')
+  })
+
+  it('a double click on the line resets to the default width and forgets the saved one', () => {
+    setupDom('frame')
+    drag(800, 600)
+    expect(store[KEY]).toBe('540')
+    h.dblclick(handle)
+    expect(vars['--wb-chat-w']).toBeUndefined()
+    expect(store[KEY]).toBeUndefined()
+  })
+
+  it('still drags when localStorage is unavailable (the width lives for the session only)', () => {
+    h.win.localStorage = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('denied') }, removeItem: () => { throw new Error('denied') } }
+    setupDom('frame')
+    expect(() => drag(800, 700)).not.toThrow()
+    expect(vars['--wb-chat-w']).toBe('440px')
+  })
+
+  it('the Simple view renders the line right before the chat, with the saved width as the CSS variable (not an inline flex)', async () => {
+    store[KEY] = '520'
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { id: 'anthropic', model: 'claude-sonnet-5', available: true }, usage: { usedPct: 12, measured: true }, allowed: true, maxMessageChars: 8000 } }
+      if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: { item: { id: 'w1', title: 'Ajánlat', type: 'document', status: 'draft' }, versions: [], parts: [], part_kinds: ['text'], project: PROJECT } }
+      return { status: 200, body: itemsBody([{ id: 'w1', title: 'Ajánlat', type: 'document', status: 'draft' }]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-act': 'view-set', 'data-wb-view': 'simple' })
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-fr-body'))
+    const html = h.rootEl.innerHTML
+    const sep = html.indexOf('id="wbChatWidthSplit"')
+    const chat = html.indexOf('<aside class="wb-fr-chat"')
+    expect(sep).toBeGreaterThan(-1)
+    expect(chat).toBeGreaterThan(sep)
+    expect(html.slice(sep, chat)).toContain('aria-orientation="vertical"')
+    const tag = html.slice(chat, html.indexOf('>', chat))
+    expect(tag).toContain('--wb-chat-w:520px')
+    expect(tag).not.toContain('flex')
   })
 })
 
