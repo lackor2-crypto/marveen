@@ -17486,6 +17486,19 @@
     split.style.height = Math.max(240, Math.floor(room)) + 'px'
   }
 
+  /** #595: the manual split (chat + document) is a window-high frame, but the project header and the cards sit above
+   *  it, so on opening a work its bottom -- the chat's input line -- was below the window until the owner scrolled
+   *  (Boss TG 3255). Once per opened work the frame is brought to the top of the window, as the Simple view does
+   *  (fitFrame): input line and document are on the screen at the first look. Off on a phone (the columns stack). */
+  function revealSplitFrame() {
+    if (typeof document.querySelector !== 'function') return
+    var split = document.querySelector('.wb-split')
+    if (!split || !WB.selectedId || window.innerWidth <= 900) return
+    if (WB.splitRevealKey === WB.selectedId) return
+    WB.splitRevealKey = WB.selectedId
+    if (typeof split.scrollIntoView === 'function') split.scrollIntoView({ block: 'start' })
+  }
+
   if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) { fitFrame(); fitSavedChatSplit() } })
 
   /** The page's scroll position across a full re-render (Boss, TG 7451: pressing "Vegleges torles"
@@ -17650,6 +17663,7 @@
     restoreStripScroll(stripLeft)
     fitFrame()
     fitSavedChatSplit()
+    revealSplitFrame()
     lockFrameScroll()
     fitHead()
     // Az elso rajzolaskor a kontener meg nem biztos, hogy kapott szelesseget: kesobb ujra.

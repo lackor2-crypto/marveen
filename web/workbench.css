@@ -712,7 +712,7 @@
   .wb-split-work { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow-y: auto; }
   /* #595: the chat is a frame of its own as tall as the window, so its input line is always on the screen; the
      width is dragged on the divider (same as the Simple view). */
-  .wb-split { grid-template-columns: var(--wb-chat-w, minmax(260px, 0.75fr)) 10px minmax(360px, 2fr); gap: 0; }
+  .wb-split { grid-template-columns: var(--wb-chat-w, minmax(260px, 0.75fr)) 10px minmax(360px, 2fr); gap: 0; scroll-margin-top: 8px; }
   .wb-split-chat { position: sticky; top: 8px; height: calc(100vh - 16px); min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
   .wb-split-chat > .wb-chat { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
   .wb-split-chat > .wb-chat > * { flex-shrink: 0; }
