@@ -55,4 +55,11 @@ describe('project panel (source contract)', () => {
     expect(js).toContain("a === 'attach-folder'")
     expect(js).not.toContain("if (!h.on && !h.done) return ''")
   })
+  it('the hide switch is also drawn for a brand-new project with no work item and no folder content', () => {
+    const start = js.indexOf('function itemsPanelHtml(')
+    const empty = js.indexOf('body = emptyHintHtml()', start)
+    expect(empty).toBeGreaterThan(start)
+    const nextBranch = js.indexOf('} else {', empty)
+    expect(js.slice(empty, nextBranch)).toContain('hideSw = hideSwitchHtml()')
+  })
 })
