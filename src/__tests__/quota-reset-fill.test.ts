@@ -37,6 +37,12 @@ describe('five-hour reset on an exhausted account (#545)', () => {
     expect(fillFiveHourFromAvailability(weekly, av(), NOW).filled).toBe(false)
   })
 
+  it('does not borrow a reset more than 5 hours away even when the weekly reset is missing from the reading', () => {
+    const noWeekly = acc({ sevenDayResetsAt: null, sevenDayPct: null })
+    expect(fillFiveHourFromAvailability(noWeekly, av({ resetsAt: NOW + 3 * 86_400_000 }), NOW).filled).toBe(false)
+    expect(fillFiveHourFromAvailability(noWeekly, av({ resetsAt: NOW + 5 * 3_600_000 }), NOW).filled).toBe(true)
+  })
+
   it('an agent that is available, stopped, or has no known/late reset gets nothing invented', () => {
     for (const a of [av({ available: true, reason: 'ok', resetsAt: null }), av({ reason: 'stopped' }), av({ resetsAt: null }), av({ resetsAt: NOW - 1 }), undefined]) {
       expect(fillFiveHourFromAvailability(acc(), a, NOW).filled).toBe(false)
