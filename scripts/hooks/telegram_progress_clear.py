@@ -246,8 +246,10 @@ def main():
         except Exception:
             pass
 
-    # #600: "Dolgozom rajta" messages parked by the reply hook stay visible while the turn works; the turn ends here.
-    sweep_working(sd, os.path.join(pdir, f"{sid}.working"))
+    # #600: "Dolgozom rajta" messages parked by the reply hook stay visible while the turn works. They are swept
+    # only where the turn really ends: a Stop that is blocked (the agent is told to reply and keeps working) must
+    # leave them in the chat.
+    wpath = os.path.join(pdir, f"{sid}.working")
 
     path = os.path.join(pdir, f"{sid}.json")
     try:
@@ -258,6 +260,7 @@ def main():
     if not pend:
         # Nothing pending: either not a Telegram turn, or the reply was already
         # sent (PostToolUse cleared it). Drop any stale enforce marker and exit.
+        sweep_working(sd, wpath)
         try:
             os.remove(guard)
         except Exception:
@@ -280,7 +283,8 @@ def main():
         return
 
     # Already nudged once (or loop guard tripped) and STILL no reply -> guaranteed
-    # fallback: deliver the agent's final answer to the chat, then clear.
+    # fallback: deliver the agent's final answer to the chat, then clear. The turn ends here.
+    sweep_working(sd, wpath)
     answer = last_assistant_text(transcript)
     limit_key = limit_banner_key(answer)
     if limit_key:
