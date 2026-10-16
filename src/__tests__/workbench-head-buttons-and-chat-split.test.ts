@@ -17,6 +17,12 @@ describe('header buttons', () => {
     expect(css).toMatch(/\.wb-head-btns \{[^}]*flex-wrap: nowrap/)
     expect(css).toMatch(/\.wb-panel-items \.wb-panel-head \{ flex-wrap: nowrap/)
   })
+  it('the later three-block layout (.wb-blk-top) does not turn the group back into a wrapping one', () => {
+    const rule = css.match(/\.wb-panel-items \.wb-blk-top \.wb-head-btns \{([^}]*)\}/)
+    expect(rule).not.toBeNull()
+    expect(rule![1]).toContain('flex-wrap: nowrap')
+    expect(rule![1]).not.toContain('flex-wrap: wrap')
+  })
 })
 
 describe('chat splitter', () => {
