@@ -33,6 +33,23 @@ describe('schedule problems (#546)', () => {
   })
 })
 
+describe('a deleted schedule leaves no phantom problem (#546)', () => {
+  it('the runner never removes a health entry, so entries of schedules that no longer exist are ignored', () => {
+    const live = new Set(['sync-b'])
+    expect([...scheduleProblems(HEALTH, live).keys()]).toEqual(['sync-b'])
+    // the self-check counts and jumps to a row the list really has
+    const rows = commandTaskRows(HEALTH, live)
+    expect(rows[0]!.params).toMatchObject({ n: 1, first: 'sync-b' })
+    expect(commandTaskRows(HEALTH, new Set())).toEqual([])
+  })
+  it('the list route and the self-check both pass the existing names', () => {
+    const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'schedules.ts'), 'utf8')
+    const sh = readFileSync(join(__dirname, '..', 'web', 'system-health.ts'), 'utf8')
+    expect(route).toContain('scheduleProblems(undefined, new Set(')
+    expect(sh).toContain('commandTaskRows(undefined, existingScheduleNames())')
+  })
+})
+
 describe('schedule problem UI wiring (#546)', () => {
   const app = readFileSync(join(__dirname, '..', '..', 'web', 'app.js'), 'utf8')
   const hu = readFileSync(join(__dirname, '..', '..', 'web', 'lang', 'hu.js'), 'utf8')
@@ -40,7 +57,7 @@ describe('schedule problem UI wiring (#546)', () => {
   const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'schedules.ts'), 'utf8')
 
   it('the list API attaches the problem from the shared source', () => {
-    expect(route).toContain('scheduleProblems()')
+    expect(route).toContain('scheduleProblems(')
     expect(route).toMatch(/problem: problems\.get\(t\.name\)/)
   })
 
