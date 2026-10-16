@@ -6116,7 +6116,7 @@ window._i18n.en = {
   "workbench.finalize.hint": "The work item is closed and the list may hide it. It can be reopened any time; nothing is deleted.",
   "workbench.finalize.confirm": "Finalize \"{name}\"? The list may hide it; it can be reopened any time.",
   "workbench.approval.toast.finalize": "Finalized.",
-  "workbench.approval.toast.reopen": "Reopened; the work item is in progress again.",
+  "workbench.approval.toast.reopen": "Reopened: a new version started, the old final one is unchanged.",
   "workbench.brand.open": "Brand",
   "workbench.brand.title": "Brand Kit",
   "workbench.brand.intro": "Set the look of the project once: colours, logo, fonts and a few rules. Marvin follows it on every graphic by itself, and your brand colours show up first in the colour picker. If you set nothing, Marvin does not make up brand colours.",

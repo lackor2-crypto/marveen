@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
-import { createWorkItem, getWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem, listWorkItemVersions } from '../workbench.js'
 import { submitWorkItemForApproval, workItemApprovalState } from '../workbench-approval.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
 import type { RouteContext } from '../web/routes/types.js'
@@ -57,6 +57,25 @@ describe('#552 finalize / reopen: the server', () => {
     expect(r2.status).toBe(409)
     expect(r2.body.error).toBe('approval_not_done')
     expect(r2.body.message.length).toBeGreaterThan(10)
+  })
+
+  it('reopen starts a NEW version (Boss TG 3116); the version that was current stays untouched', async () => {
+    const w = mk('Jegyzet')
+    await call('POST', `/api/workbench/items/${w.id}/approval`, { action: 'finalize' })
+    const before = listWorkItemVersions(w.id)
+    const r = await call('POST', `/api/workbench/items/${w.id}/approval`, { action: 'reopen' })
+    expect(r.status).toBe(200)
+    const after = listWorkItemVersions(w.id)
+    expect(after.length).toBe(before.length + 1)
+    for (const v of before) expect(after.some((x) => x.id === v.id)).toBe(true)
+    const cur = after.find((x) => x.id === getWorkItem(w.id)!.current_version_id)!
+    expect(cur.prompt).toMatch(/^Újranyitva – \d{4}-\d{2}-\d{2}$/)
+    expect(Array.isArray(r.body.versions)).toBe(true)
+    expect(r.body.versions.length).toBe(after.length)
+    // A refused reopen (not finalized any more) makes no version.
+    const r2 = await call('POST', `/api/workbench/items/${w.id}/approval`, { action: 'reopen' })
+    expect(r2.status).toBe(409)
+    expect(listWorkItemVersions(w.id).length).toBe(after.length)
   })
 
   it('an agent token cannot finalize or reopen: 403 with a human sentence, status unchanged', async () => {

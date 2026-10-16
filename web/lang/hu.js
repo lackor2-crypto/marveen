@@ -6190,7 +6190,7 @@ window._i18n.hu = {
   "workbench.finalize.hint": "A munkadarab lezárt lesz, a lista elrejtheti. Bármikor újranyitható; semmi nem törlődik.",
   "workbench.finalize.confirm": "„{name}” véglegesítése? A lista elrejtheti; bármikor újranyitható.",
   "workbench.approval.toast.finalize": "Véglegesítve.",
-  "workbench.approval.toast.reopen": "Újranyitva, a munkadarab újra folyamatban van.",
+  "workbench.approval.toast.reopen": "Újranyitva: új verzió indult, a régi végleges változatlan maradt.",
   "workbench.brand.open": "Márka",
   "workbench.brand.title": "Márka-csomag (Brand Kit)",
   "workbench.brand.intro": "Itt egyszer megadod, milyen a projekt arculata: színek, logó, betűtípus és néhány szabály. A Marvin ezt minden grafikánál magától betartja, és a színválasztóban a márkaszíneid jelennek meg először. Ha nem állítasz be semmit, a Marvin nem talál ki márkaszíneket.",

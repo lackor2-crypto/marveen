@@ -4327,10 +4327,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     } else if (action === 'finalize' || action === 'reopen') {
       // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.
       if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
-      r = action === 'finalize' ? finalizeWorkItem(item.id, { by: who || 'dashboard' }) : reopenWorkItem(item.id)
+      r = action === 'finalize' ? finalizeWorkItem(item.id, { by: who || 'dashboard' }) : reopenWorkItem(item.id, { by: who || 'dashboard', lang })
     } else return fail(res, 400, 'approval_bad_action', lang)
     if (!r.ok) return fail(res, r.code === 'reason_too_long' ? 400 : 409, 'approval_' + r.code, lang)
-    json(res, { item: r.item, approval: r.approval })
+    json(res, { item: r.item, approval: r.approval, ...(action === 'reopen' ? { versions: listWorkItemVersionsView(item.id) } : {}) })
     return true
   }
 
