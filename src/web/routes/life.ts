@@ -1183,7 +1183,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const ok = be ? await lockRepoReadOnly(hely.abs) : await unlockRepoReadOnly(hely.abs)
     if (!ok) {
-      send(res, 400, { ok: false, message: be ? 'A zárat nem sikerült felrakni.' : 'A zárat nem sikerült levenni.' })
+      send(res, 400, { ok: false, message: be ? 'A zárat nem sikerült felrakni.' : 'A zárat nem sikerült eltávolítani.' })
       return true
     }
     // A dontes TULELI a kovetkezo lehuzast -- kulonben a gep a hatad mogott
@@ -1195,7 +1195,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       csakOlvasas: be,
       message: be
         ? 'Zárva: ebből a repóból feltölteni nem lehet. Olvasni és frissülni igen.'
-        : 'A zár levéve: ebbe a repóba innen feltölteni is lehet. Ez a következő lehúzás után is így marad.',
+        : 'A zár eltávolítva: ebbe a repóba innen feltölteni is lehet. Ez a következő lehúzás után is így marad.',
     })
     return true
   }
