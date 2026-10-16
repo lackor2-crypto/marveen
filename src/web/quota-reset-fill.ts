@@ -21,6 +21,8 @@ export interface FiveHourFill<T extends AccountWindows> {
 
 /** Resets of one and the same window differ by seconds between sources; two minutes is far above that. */
 const SAME_RESET_MS = 2 * 60_000
+/** A 5-hour window cannot come back later than 5 hours from now (small slack for clock skew between sources). */
+const FIVE_HOUR_MAX_MS = 5 * 3_600_000 + SAME_RESET_MS
 
 export function fillFiveHourFromAvailability<T extends AccountWindows>(
   account: T,
@@ -30,6 +32,9 @@ export function fillFiveHourFromAvailability<T extends AccountWindows>(
   const missing = account.fiveHourResetsAt == null || account.fiveHourResetsAt <= now || account.fiveHourPct == null
   if (!missing || !availability) return { account, filled: false }
   if (availability.reason !== 'quota' || availability.resetsAt == null || availability.resetsAt <= now) return { account, filled: false }
+  // A reset further away than a 5-hour window can last is the weekly one, even when the account's own weekly reset is
+  // missing from the reading (so the comparison below has nothing to match against).
+  if (availability.resetsAt - now > FIVE_HOUR_MAX_MS) return { account, filled: false }
   // The blocking window is the weekly one: the 5-hour reset is not known from here, and saying so beats guessing.
   if (account.sevenDayResetsAt != null && Math.abs(account.sevenDayResetsAt - availability.resetsAt) < SAME_RESET_MS) {
     return { account, filled: false }
