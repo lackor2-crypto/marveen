@@ -151,6 +151,8 @@ function workItemFileLines(w: CodeBridgePromptInput['workItem']): string[] {
     // next to the work item (Boss, 2026-10-16).
     out.push('A file the owner attaches in this chat is already in the work item\'s Uploads folder (Feltöltések): use it from there, and do NOT copy or move it into the work item folder itself.')
   }
+  // A file the owner marked "only for the agent" is a reference (a screenshot of what to fix, an example), not a material.
+  out.push('A file listed in the message as "Csak az Agentnek" sits in the work item\'s "Agentnek" folder: it is only a reference for you (what the owner means, what to fix). Read it from that path; it is NOT a material of the work item: never register it, copy it or move it anywhere, and do not mention it as an upload.')
   if (w.family?.length) out.push(...w.family)
   if (w.documentsHint) out.push(w.documentsHint)
   return out
