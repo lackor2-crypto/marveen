@@ -422,6 +422,47 @@ describe('PDF-nezegeto -- sajat gepbol, nem CDN-rol (kartya f7d423e7)', () => {
   })
 })
 
+describe('project tree header order (#580, TG 3151)', () => {
+  async function openTree(): Promise<string> {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { id: 'anthropic', model: 'claude-sonnet-5', available: true }, usage: { usedPct: 12, measured: true }, allowed: true, maxMessageChars: 8000 } }
+      return { status: 200, body: itemsBody([{ id: 'w1', title: 'Ajánlat', type: 'document', status: 'draft' }]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    // Wait for the loaded tree (not the "loading" state): the hide switch and the Favorites row are in it.
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-fav-row'))
+    return h.rootEl.innerHTML
+  }
+
+  it('the Open / Attach buttons and the hide-finalized switch sit side by side in one block, nothing between them', async () => {
+    const html = await openTree()
+    const top = html.slice(html.indexOf('wb-blk-top'))
+    const iBtns = top.indexOf('wb-head-btns')
+    const iOpen = top.indexOf('wb-head-open')
+    const iHide = top.indexOf('wb-hide-done')
+    expect(iBtns).toBeGreaterThan(-1)
+    expect(iOpen).toBeGreaterThan(iBtns)
+    expect(iHide).toBeGreaterThan(iOpen)
+    // The switch follows the buttons' row directly: no further button, list or panel in between.
+    const between = top.slice(top.indexOf('</span></div>', iOpen), iHide)
+    expect(between).not.toMatch(/<button|<ul|<section|<p /)
+    // ...and it is still inside the same block as the buttons (closes before the footer block).
+    expect(iHide).toBeLessThan(top.indexOf('wb-blk-foot'))
+  })
+
+  it('Favorites is the first row of the tree, right under the project name', async () => {
+    const html = await openTree()
+    const tree = html.slice(html.indexOf('wb-blk-tree'), html.indexOf('wb-blk-top'))
+    const iTitle = tree.indexOf('wb-root-title')
+    const iList = tree.indexOf('<ul class="wb-items">')
+    const iFav = tree.indexOf('wb-fav-row')
+    expect(iTitle).toBeGreaterThan(-1)
+    expect(iFav).toBeGreaterThan(iList)
+    // No other row stands before Favorites.
+    expect(tree.slice(iList, iFav).match(/<li /g)?.length).toBe(1)
+  })
+})
+
 describe('chat head fold arrow (#578, TG 3142)', () => {
   async function openChatHead(): Promise<void> {
     h.respond((url) => {
