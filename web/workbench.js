@@ -14290,12 +14290,14 @@
    *  field compares equal and is not saved again. */
   function dpFmtOf(el) {
     var runs = []
-    var same = function (p, m) { return p.b === m.b && p.i === m.i && p.u === m.u && p.s === m.s && p.f === m.f && p.z === m.z && p.c === m.c && p.h === m.h }
+    // #604: a chapter title is bold by its own look: "not bold" is a mark of its own (n), only ever set inside a title.
+    var inTitle = !!(el.getAttribute && el.getAttribute('data-wb-dp') === 'sec')
+    var same = function (p, m) { return p.b === m.b && p.i === m.i && p.u === m.u && p.s === m.s && p.f === m.f && p.z === m.z && p.c === m.c && p.h === m.h && p.n === m.n }
     var push = function (text, m) {
       if (!text) return
       var p = runs[runs.length - 1]
       if (p && same(p, m)) p.t += text
-      else runs.push({ t: text, b: m.b, i: m.i, u: m.u, s: m.s, f: m.f, z: m.z, c: m.c, h: m.h })
+      else runs.push({ t: text, b: m.b, i: m.i, u: m.u, s: m.s, f: m.f, z: m.z, c: m.c, h: m.h, n: m.n && !m.b })
     }
     var lastNl = function () { var p = runs[runs.length - 1]; return !p || /\n$/.test(p.t) }
     var walk = function (node, m) {
@@ -14304,7 +14306,7 @@
         if (n.nodeType !== 1) continue
         var tag = String(n.nodeName).toLowerCase()
         if (tag === 'br') { push('\n', m); continue }
-        var mm = { b: m.b, i: m.i, u: m.u, s: m.s, f: m.f, z: m.z, c: m.c, h: m.h }
+        var mm = { b: m.b, i: m.i, u: m.u, s: m.s, f: m.f, z: m.z, c: m.c, h: m.h, n: m.n }
         if (tag === 'b' || tag === 'strong') mm.b = true
         if (tag === 'i' || tag === 'em') mm.i = true
         if (tag === 'u') mm.u = true
@@ -14316,6 +14318,7 @@
         var st = n.style
         if (st) {
           if (st.fontWeight === 'bold' || Number(st.fontWeight) >= 600) mm.b = true
+          else if (inTitle && (st.fontWeight === 'normal' || (st.fontWeight && Number(st.fontWeight) < 600))) mm.n = true
           if (st.fontStyle === 'italic') mm.i = true
           var td = String(st.textDecorationLine || st.textDecoration || '')
           if (td.indexOf('underline') >= 0) mm.u = true
@@ -14330,7 +14333,7 @@
         walk(n, mm)
       }
     }
-    walk(el, { b: false, i: false, u: false, s: false, f: '', z: 0, c: '', h: '' })
+    walk(el, { b: false, i: false, u: false, s: false, f: '', z: 0, c: '', h: '', n: false })
     // Trailing line breaks are not content.
     while (runs.length && /\n$/.test(runs[runs.length - 1].t)) {
       var lr = runs[runs.length - 1]
@@ -14338,7 +14341,7 @@
       if (!lr.t) runs.pop()
     }
     var plain = runs.map(function (r) { return r.t }).join('').trim()
-    var fmtd = function (r) { return r.b || r.i || r.u || r.s || r.f || r.z || r.c || r.h }
+    var fmtd = function (r) { return r.b || r.i || r.u || r.s || r.n || r.f || r.z || r.c || r.h }
     if (!runs.some(fmtd)) return { rich: '', plain: plain }
     var enc = function (x) { return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') }
     var rich = runs.map(function (r) {
@@ -14348,6 +14351,7 @@
       if (r.i) o = '<i>' + o + '</i>'
       if (r.b) o = '<b>' + o + '</b>'
       var sty = []
+      if (r.n) sty.push('font-weight:normal')
       if (r.f) sty.push('font-family:' + r.f)
       if (r.z) sty.push('font-size:' + r.z + 'pt')
       if (r.c) sty.push('color:' + r.c)
@@ -20110,7 +20114,8 @@
       var host = r.commonAncestorContainer
       host = host && host.nodeType === 3 ? host.parentNode : host
       var f = host && typeof host.closest === 'function' ? host.closest('[data-wb-dp]') : null
-      if (f && f.id && /^(block|new)$/.test(f.getAttribute('data-wb-dp') || '')) { WB.dpRange = { id: f.id, range: r.cloneRange() }; WB.dpFmtLast = f.id }
+      if (f && f.id && /^sec$/.test(f.getAttribute('data-wb-dp') || '')) WB.dpRange = { id: f.id, range: r.cloneRange() } // #604: a font / size / colour picked from a list takes the focus away from a title too
+      else if (f && f.id && /^(block|new)$/.test(f.getAttribute('data-wb-dp') || '')) { WB.dpRange = { id: f.id, range: r.cloneRange() }; WB.dpFmtLast = f.id }
       else if (!r.collapsed && host && typeof host.closest === 'function' && host.closest('.wb-dp-page[contenteditable="true"]')) {
         // #562 (Boss TG 8935): a selection over SEVERAL paragraphs is one selection -- it used to be forgotten here, so a
         // font size picked from the list landed on whatever single paragraph had been selected before.

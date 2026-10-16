@@ -261,6 +261,7 @@ function richSpan(r: RichRun, draft: boolean, st: StyleCtx): string {
   if (r.i) x = `<text:span text:style-name="FmtI">${x}</text:span>`
   if (r.b) x = `<text:span text:style-name="FmtB">${x}</text:span>`
   const props: string[] = []
+  if (r.n) props.push('fo:font-weight="normal"')
   if (r.f) props.push(`fo:font-family="'${r.f}'"`)
   if (r.z) props.push(`fo:font-size="${r.z}pt"`)
   if (r.c) props.push(`fo:color="${r.c}"`)
