@@ -422,6 +422,73 @@ describe('PDF-nezegeto -- sajat gepbol, nem CDN-rol (kartya f7d423e7)', () => {
   })
 })
 
+describe('chat head fold arrow (#578, TG 3142)', () => {
+  async function openChatHead(): Promise<void> {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) {
+        return { status: 200, body: { provider: { id: 'anthropic', model: 'claude-sonnet-5', available: true }, usage: { usedPct: 12, measured: true }, allowed: true, maxMessageChars: 8000 } }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+  }
+  const chatHtml = () => h.rootEl.innerHTML.slice(h.rootEl.innerHTML.indexOf('id="wbChat"'))
+
+  it('open by default: the arrow, the setup button and the folder/account box are all shown', async () => {
+    await openChatHead()
+    const html = chatHtml()
+    expect(html).toContain('data-wb-act="chat-head-fold"')
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain('data-wb-act="chat-setup"')
+    expect(html).toContain('wb-chat-fold-box')
+  })
+
+  it('the arrow folds the setup button, folder and account rows away (the log and the input stay), and unfolds them again', async () => {
+    await openChatHead()
+    h.click({ 'data-wb-act': 'chat-head-fold' })
+    let html = chatHtml()
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('workbench.chat.head_open')
+    expect(html).not.toContain('data-wb-act="chat-setup"')
+    expect(html).not.toContain('wb-chat-fold-box')
+    expect(html).toContain('id="wbChatLog"')
+    expect(html).toContain('id="wbChatInput"')
+    h.click({ 'data-wb-act': 'chat-head-fold' })
+    html = chatHtml()
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain('workbench.chat.head_shut')
+    expect(html).toContain('data-wb-act="chat-setup"')
+    expect(html).toContain('wb-chat-fold-box')
+  })
+
+  it('the folded state is remembered in localStorage and read back on the next start', async () => {
+    const store: Record<string, string> = {}
+    h.win.localStorage = { getItem: (k: string) => (k in store ? store[k] : null), setItem: (k: string, v: string) => { store[k] = v } }
+    await openChatHead()
+    h.click({ 'data-wb-act': 'chat-head-fold' })
+    expect(store['marveen.workbench.chatHeadShut']).toBe('1')
+    h.click({ 'data-wb-act': 'chat-head-fold' })
+    expect(store['marveen.workbench.chatHeadShut']).toBe('0')
+    h.click({ 'data-wb-act': 'chat-head-fold' })
+    // A fresh page load (new harness) with the stored value starts folded.
+    h = harness()
+    h.win.localStorage = { getItem: (k: string) => (k in store ? store[k] : null), setItem: (k: string, v: string) => { store[k] = v } }
+    await openChatHead()
+    expect(chatHtml()).not.toContain('wb-chat-fold-box')
+    expect(chatHtml()).toContain('aria-expanded="false"')
+  })
+
+  it('still works when localStorage is unavailable (state lives for the session only)', async () => {
+    h.win.localStorage = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('denied') } }
+    await openChatHead()
+    expect(chatHtml()).toContain('wb-chat-fold-box')
+    h.click({ 'data-wb-act': 'chat-head-fold' })
+    expect(chatHtml()).not.toContain('wb-chat-fold-box')
+  })
+})
+
 describe('agent-chat (3. fazis)', () => {
   function sse(events: unknown[]): string {
     return events.map((e) => `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`).join('')
