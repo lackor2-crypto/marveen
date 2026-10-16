@@ -4174,3 +4174,31 @@ describe('#594: the same document page in the manual and the simple view (Boss T
     }
   })
 })
+
+describe('orphan JSON cleaner entry is global, not inside a work item (#660, Boss TG)', () => {
+  it('an open work item no longer carries the button, and the opener is exposed for the Projects page', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { id: 'anthropic', model: 'claude-sonnet-5', available: true }, usage: { usedPct: 12, measured: true }, allowed: true, maxMessageChars: 8000 } }
+      if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: { item: { id: 'w1', title: 'Ajánlat', type: 'document', status: 'draft' }, versions: [], parts: [], part_kinds: ['text'], project: PROJECT } }
+      return { status: 200, body: itemsBody([{ id: 'w1', title: 'Ajánlat', type: 'document', status: 'draft' }]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-act': 'view-set', 'data-wb-view': 'simple' })
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-fr-body'))
+    expect(h.rootEl.innerHTML).not.toContain('json-clean')
+    expect(typeof h.win.MarvinWorkbench.jsonCleanOpen).toBe('function')
+  })
+
+  it('the Projects page header has the button (also with no project at all) and wires it to the shared opener', () => {
+    const app = readFileSync(join(ROOT, 'web', 'app.js'), 'utf8')
+    const head = app.slice(app.indexOf('function _prjListHeadHtml()'), app.indexOf('function _prjWireListHead()'))
+    expect(head).toContain('data-prj-act="json-clean"')
+    expect(head).toContain("t('workbench.jsonclean.btn')")
+    // not behind the "projects exist" condition: the header is drawn for the empty list too
+    expect(head.indexOf('data-prj-act="json-clean"')).toBeGreaterThan(head.indexOf('</label>` : \'\''))
+    expect(app).toContain("else if (a === 'json-clean') window.MarvinWorkbench?.jsonCleanOpen?.()")
+    expect(SRC).not.toContain('jsonCleanBtnHtml')
+  })
+})

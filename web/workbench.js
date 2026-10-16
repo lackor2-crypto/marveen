@@ -13775,10 +13775,7 @@
     return !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
   }
   // ---- #625: unused drawing / deck JSON files: a list, the owner approves, they go to the Trash ------------------
-  function jsonCleanBtnHtml() {
-    if (archived()) return ''
-    return '<button type="button" class="btn-secondary btn-compact" data-wb-act="json-clean" title="' + escA(t('workbench.jsonclean.hint')) + '">' + esc(t('workbench.jsonclean.btn')) + '</button>'
-  }
+  // #660: the entry is global (the scan walks every project), so it lives on the Projects page (jsonCleanOpen is exposed below), not inside one work item.
   function jsonCleanOpen() {
     if (document.getElementById('wbJsonClean')) return
     var overlay = document.createElement('div')
@@ -15078,7 +15075,7 @@
         : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</button> ')
       // (Finalize is in the frame's top bar, where every other kind has it: finalizeTopHtml.)
       + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o) + ' ' + tpToggleHtml())
-      + ' ' + lifeMoveBtnHtml() + ' ' + jsonCleanBtnHtml()
+      + ' ' + lifeMoveBtnHtml()
       + '</p>'
     var finalPanel = o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : ''
     // Boss TG 2754: a drafted document has no file yet, so the Preview tab shows the draft page itself (read only).
@@ -18391,7 +18388,6 @@
       render()
     }
     else if (a === 'life-move') lifeMoveOpen()
-    else if (a === 'json-clean') jsonCleanOpen()
     else if (a === 'tp-toggle') {
       var tpS = tpState(); tpS.on = !tpS.on; writePref('wb.tp.on', tpS.on ? '1' : '')
       if (tpS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }
@@ -21236,6 +21232,7 @@
     open: openWorkbench,
     viewSettingCard: viewSettingCard,
     close: closeWorkbench,
+    jsonCleanOpen: jsonCleanOpen,
     reset: resetWorkbench,
     isOpen: function () { return WB.open },
     // #435: where the Workbench is (project, work item, panel), so an F5
