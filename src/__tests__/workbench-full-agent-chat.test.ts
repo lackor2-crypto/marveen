@@ -360,6 +360,13 @@ describe('Munkapad chat teljes erteku modban (allo, elo munkamenet)', () => {
     pool.stopAll()
   })
 
+  it('Boss 2026-10-16: a hosszu beszelgetesbol a LEGUJABB uzenetek jonnek (nem az elso N), regi->uj sorrendben', () => {
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    for (let i = 1; i <= 8; i++) addAgentMessage(session.id, i % 2 ? 'user' : 'assistant', `hosszu-${i}`)
+    const last5 = listAgentMessages(session.id, 5).map((m) => m.content)
+    expect(last5).toEqual(['hosszu-4', 'hosszu-5', 'hosszu-6', 'hosszu-7', 'hosszu-8'])
+  })
+
   it('#434: automatikus fioknal a limitbe futott fiok helyett a kovetkezo valaszol, a limit-hiba nem jut ki', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'wb-live-lim-'))
     const script = join(dir, 'fake-claude.cjs')

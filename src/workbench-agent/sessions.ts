@@ -220,8 +220,13 @@ export function listAgentMessages(sessionId: string, limit = 200): AgentMessageR
   ensureAgentTables()
   const v = String(sessionId || '').trim()
   if (!v) return []
-  return getDb().prepare('SELECT * FROM workbench_agent_messages WHERE session_id = ? ORDER BY created_at, rowid LIMIT ?')
-    .all(v, limit) as AgentMessageRow[]
+  // The NEWEST `limit` messages, oldest first. (Boss, 2026-10-16: ORDER BY ... LIMIT alone returned the OLDEST
+  // 200, so in a 216-message chat the latest ones vanished from the screen and from the model's history.)
+  return getDb().prepare(
+    `SELECT * FROM workbench_agent_messages WHERE rowid IN
+       (SELECT rowid FROM workbench_agent_messages WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?)
+     ORDER BY created_at, rowid`,
+  ).all(v, limit) as AgentMessageRow[]
 }
 
 export function startToolCall(sessionId: string, toolName: string, input: unknown): AgentToolCallRow {
