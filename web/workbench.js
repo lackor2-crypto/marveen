@@ -8464,6 +8464,9 @@
     return '<div class="wb-outline-check"><h4>' + esc(t('workbench.outline.check_title')) + '</h4><ul>'
       + check.items.map(function (i) {
         var info = i.key === 'inference_as_fact' || i.key === 'owner_written'
+        // A warning that never blocks (Boss TG 3618): shown with the warning mark, only when it applies.
+        var warn = i.key === 'signature_missing'
+        if (warn && !i.count) return ''
         if (info && !i.count) return ''
         // #534: a document without headings has no chapters to finish -- "0 / 0" would only be noise.
         if (i.key === 'sections_done' && i.ok) return ''
@@ -8474,7 +8477,7 @@
         var detail = i.key === 'consistency' ? consistencyDetailHtml(o, ro)
           : i.key === 'sections_done' ? ''
           : !i.ok && i.detail && i.detail.length ? '<ul>' + i.detail.slice(0, 8).map(function (d) { return '<li class="wb-muted">' + esc(d) + '</li>' }).join('') + '</ul>' : ''
-        return '<li class="' + (i.ok ? 'wb-ok' : 'wb-doc-low') + '">' + (i.ok ? (info ? 'ℹ ' : '✓ ') : '⚠ ') + esc(txt)
+        return '<li class="' + (i.ok && !warn ? 'wb-ok' : 'wb-doc-low') + '">' + (warn ? '⚠ ' : i.ok ? (info ? 'ℹ ' : '✓ ') : '⚠ ') + esc(txt)
           + detail
           + '</li>'
       }).join('')

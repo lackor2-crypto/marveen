@@ -32,6 +32,7 @@ import { verifyQuote, normalizeForMatch, bestFuzzyMatch } from './workbench-docr
 import { annexCheck, type FileResolver } from './workbench-docannex.js'
 import { consistencyIssues } from './workbench-doccheck.js'
 import { variantCheckItems } from './workbench-doclang.js'
+import { SIGNATURE_TERMS } from './workbench-signatures.js'
 import { isBlockAlign, parsePfmt, pfmtToStored, richMatches, richToPlain, sanitizePfmt, sanitizeRich, type ParaFmt } from './workbench-docrich.js'
 
 export const SECTION_STATUSES = ['todo', 'in_progress', 'done'] as const
@@ -971,6 +972,15 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
     const gone = pics.map((b) => imageBlockParts(b.text).path).filter((p) => { const abs = resolveLifePath(p); return !abs || !existsSync(abs) }).map((p) => p.split('/').pop() || p)
     items.push({ key: 'image_missing_file', ok: gone.length === 0, count: gone.length, total: pics.length, detail: gone })
   }
+  // HANDWRITTEN SIGNATURE (Boss TG 3618): a letter that ends in a signature block should carry the owner's
+  // signature picture. A WARNING only (ok stays true): a plain e-mailed reply needs none by law, so it never
+  // holds the finalizing back; it shows on the Gaps tab so the owner sees it before sending.
+  const hasSignatureBlock = blocks.some((b) => b.kind === 'signature')
+  const hasSignaturePicture = pics.some((b) => {
+    const name = (imageBlockParts(b.text).path.split('/').pop() || '').toLowerCase()
+    return SIGNATURE_TERMS.some((term) => name.includes(term))
+  })
+  items.push({ key: 'signature_missing', ok: true, count: hasSignatureBlock && !hasSignaturePicture ? 1 : 0 })
   // KOVETKEZETESSEG (K-1.19): nevek, ugyszam, datumok, osszegek, cimek. A tulajdonos
   // altal szandekosnak jelolt elteres nem allitja meg a veglegesitest.
   const cons = consistencyIssues(itemId)
