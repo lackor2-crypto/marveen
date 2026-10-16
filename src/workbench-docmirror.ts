@@ -17,7 +17,7 @@ import { projectFileTarget, finishedFolderFor } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
-import { documentOutline, imageBlockParts, tableBlockParts } from './workbench-docmodel.js'
+import { documentOutline, imageBlockParts, isBlankLine, tableBlockParts } from './workbench-docmodel.js'
 import { resolveLifePath } from './life-explorer.js'
 import { fileStem, renderDocx, renderPlainPdf } from './workbench-docfinal.js'
 import { APP_LANG } from './config.js'
@@ -78,7 +78,8 @@ export function outlineMarkdown(item: WorkItemRow, dir?: string): string {
         const link = (abs ? relative(dir as string, abs) : path).replace(/\\/g, '/')
         lines.push(`![${basename(path)}](<${link}>)`, '')
       } else if (b.kind === 'table') lines.push(tableBlockParts(b.text).text, '')
-      else lines.push(b.text, '')
+      // #565: an empty line is an invisible character in the model; in Markdown it is a line of its own (a no-break space).
+      else lines.push(isBlankLine(b.text) ? '&nbsp;' : b.text, '')
     }
   }
   return lines.join('\n')

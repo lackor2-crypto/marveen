@@ -379,7 +379,11 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
     if (!isPlaceholderSectionTitle(s.title)) body.push(`<text:h text:style-name="${isBlockAlign(s.align) ? `Heading_20_1_Al_${s.align}` : 'Heading_20_1'}" text:outline-level="1">${titleInner(s, o.draft, st)}</text:h>`)
     const sec: string[] = []
     for (const b of s.blocks) {
-      if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
+      if (isBlankLine(b.text) && b.kind !== 'image' && b.kind !== 'table') {
+        // #565: an empty line of the owner is an empty paragraph -- it holds its line in the PDF and in Word as on the page.
+        // Whatever kind it was stored under (a list item or a note emptied by the owner), it never prints as a bullet or a note.
+        sec.push(...paragraphs(' ', 'Body', o.draft, st, null, b.align, b.pfmt).map((p) => p.replace(/> <\/text:p>$/, '></text:p>')))
+      } else if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
       else if (b.kind === 'table') sec.push(...tableBlock(b.text, ++tables, o.draft, extraStyles))
       else if (b.kind === 'signature') sec.push(...signature(b.text, o.draft))
       else if (b.kind === 'image') sec.push(...imageBlock(b, ++pictures, o.draft, extraStyles))
@@ -388,9 +392,6 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
         const note = footnoteXml(b.text, notes + 1, o.draft)
         if (attachFootnote(sec, note)) notes++
         else sec.push(...paragraphs(b.text, 'Note', o.draft, st))
-      } else if (isBlankLine(b.text)) {
-        // #565: an empty line of the owner is an empty paragraph -- it holds its line in the PDF and in Word as on the page.
-        sec.push(...paragraphs(' ', 'Body', o.draft, st, null, b.align, b.pfmt).map((p) => p.replace(/> <\/text:p>$/, '></text:p>')))
       } else sec.push(...paragraphs(b.text, 'Body', o.draft, st, b.rich, b.align, b.pfmt))
     }
     body.push(...sec)

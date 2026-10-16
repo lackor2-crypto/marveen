@@ -14320,6 +14320,9 @@
     return out
   }
 
+  /** The kind a field holds: its own attribute, else the stored block's, else a paragraph. */
+  function dpKindOf(n, b) { return n.getAttribute('data-wb-kind') || (b && b.kind) || 'paragraph' }
+
   /** The page as {sections:[{id,title,blocks:[...]}]} plus the elements each entry came from (for the new ids). */
   function dpPageModel(rootEl) {
     var structural = false
@@ -14382,7 +14385,9 @@
         if (!text) {
           // #565 (Boss TG 8971): an empty line made with Enter is the owner's and STAYS (it used to be dropped here, so
           // everything under it slid up). The line the program only offers (data-wb-dp="new") is not saved while empty.
-          if (k !== 'block') continue
+          // Only a PARAGRAPH can be an empty line: an emptied list item / footnote / signature is not one (it would print
+          // as a stray bullet or an empty note), so it goes as before.
+          if (k !== 'block' || dpKindOf(n, b) !== 'paragraph') continue
           text = DP_BLANK
           fm = { rich: '', plain: DP_BLANK }
         }
