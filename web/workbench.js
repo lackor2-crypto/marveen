@@ -8951,20 +8951,59 @@
         }).join('') + '</ul>'
         + (d.total_bytes > 20 * 1048576 ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.too_big', { size: mailSize(d.total_bytes) })) + '</p>' : '')
     }
+    if (!ro && WB.mailAccounts === undefined) mailAccountsLoad()
+    var accs = WB.mailAccounts || []
+    var fromSel = v('from_account') || ''
+    if (!fromSel) { try { fromSel = window.localStorage.getItem('wbMailFrom') || '' } catch (e) { fromSel = '' } }
+    if (!accs.some(function (a) { return a.id === fromSel })) fromSel = accs.length === 1 ? accs[0].id : ''
+    var fromHtml = '<label>' + esc(t('workbench.mail.from')) + ' <select id="wbMailFrom">'
+      + (accs.length === 1 ? '' : '<option value="">' + esc(t(WB.mailAccounts === undefined ? 'workbench.mail.from_loading' : accs.length ? 'workbench.mail.from_choose' : 'workbench.mail.from_none')) + '</option>')
+      + accs.map(function (a) { return '<option value="' + escA(a.id) + '"' + (a.id === fromSel ? ' selected' : '') + '>' + esc(a.label) + '</option>' }).join('')
+      + '</select></label><p class="wb-hint">' + esc(t('workbench.mail.from_hint')) + '</p>'
+    var toBox = ''
+    if (d && d.from_account && !ro) {
+      toBox = '<p><button type="button" class="wb-btn" data-wb-act="mail-to-mailbox"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t('workbench.mail.to_drafts')) + '</button> <span class="wb-muted">' + esc(t('workbench.mail.to_drafts_hint', { from: d.from_addr || d.from_account })) + '</span></p>'
+    }
     var form = ro ? '' : '<form id="wbMailForm" class="wb-mail-form">'
+      + fromHtml
       + '<label>' + esc(t('workbench.mail.to')) + ' <input type="text" id="wbMailTo" maxlength="500" value="' + escA(v('to')) + '" placeholder="' + escA(t('workbench.mail.to_ph')) + '"></label>'
       + '<label>' + esc(t('workbench.mail.cc')) + ' <input type="text" id="wbMailCc" maxlength="500" value="' + escA(v('cc')) + '"></label>'
       + '<label>' + esc(t('workbench.mail.subject')) + ' <input type="text" id="wbMailSubject" maxlength="300" value="' + escA(v('subject')) + '" placeholder="' + escA(t('workbench.mail.subject_ph')) + '"></label>'
       + '<label>' + esc(t('workbench.mail.body')) + ' <textarea id="wbMailBody" rows="6" maxlength="20000" placeholder="' + escA(t('workbench.mail.body_ph')) + '">' + esc(v('body')) + '</textarea></label>'
       + '<p><button type="submit" class="wb-btn"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t(WB.mailBusy ? 'workbench.mail.making' : d ? 'workbench.mail.update' : 'workbench.mail.make')) + '</button></p></form>'
     return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
-      + '<p class="wb-hint">' + esc(t('workbench.mail.hint')) + '</p>' + status + list + form + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.mail.hint')) + '</p>' + status + list + form + toBox + '</div>'
+  }
+  /** The Iroda mail accounts (the sender choice): loaded once, then the box is drawn again. */
+  function mailAccountsLoad() {
+    WB.mailAccounts = null
+    api('GET', '/api/email/accounts').then(function (r) {
+      WB.mailAccounts = r.ok && Array.isArray(r.data) ? r.data.map(function (a) { return { id: String(a.id), label: String(a.label || a.id) } }) : []
+      if (WB.open) render()
+    })
+  }
+  function mailToMailbox() {
+    var id = WB.selectedId
+    if (!id || archived() || WB.mailBusy) return
+    WB.mailBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/mail-draft/mailbox', {}).then(function (r) {
+      WB.mailBusy = false
+      if (r.ok && r.data) {
+        if (WB.selectedId === id && WB.detail && r.data.outline) WB.detail.outline = r.data.outline
+        window.showToast(t('workbench.mail.drafts_done', { mailbox: r.data.mailbox || '' }))
+      } else window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+      render()
+    })
   }
   function mailDraftSave() {
     var id = WB.selectedId
     if (!id || archived() || WB.mailBusy) return
     var gv = function (el) { var x = document.getElementById(el); return x ? String(x.value) : '' }
-    var payload = { to: gv('wbMailTo').trim(), cc: gv('wbMailCc').trim(), subject: gv('wbMailSubject').trim(), body: gv('wbMailBody') }
+    var from = gv('wbMailFrom')
+    if (!from && WB.mailAccounts && WB.mailAccounts.length) { window.showToast(t('workbench.mail.from_required')); return }
+    try { if (from) window.localStorage.setItem('wbMailFrom', from) } catch (e) { /* remembering the choice is optional */ }
+    var payload = { from_account: from, to: gv('wbMailTo').trim(), cc: gv('wbMailCc').trim(), subject: gv('wbMailSubject').trim(), body: gv('wbMailBody') }
     WB.mailBusy = true
     render()
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/mail-draft', payload).then(function (r) {
@@ -9396,6 +9435,8 @@
       pickLifeFile(function (folder) { outlineCall('POST', '/sent/' + encodeURIComponent(sentId) + '/file', { folder: folder }) }, { folder: true })
     } else if (a === 'outline-annex-link') {
       pickLifeFile(function (rel) { outlineCall('POST', '/annexes/link', { rel: rel }) })
+    } else if (a === 'mail-to-mailbox') {
+      mailToMailbox()
     } else if (a === 'outline-annex-origin') {
       // "Eredeti hely megnyitasa": the Explorer, at the folder the document really lives in.
       var orel = act.getAttribute('data-wb-rel') || ''
@@ -21009,7 +21050,7 @@
   // The e-mail draft form keeps what is typed while the page redraws itself (a background refresh must not eat it).
   document.addEventListener('input', function (e) {
     if (!WB.open || !e.target || !WB.selectedId) return
-    var k = { wbMailTo: 'to', wbMailCc: 'cc', wbMailSubject: 'subject', wbMailBody: 'body' }[e.target.id]
+    var k = { wbMailFrom: 'from_account', wbMailTo: 'to', wbMailCc: 'cc', wbMailSubject: 'subject', wbMailBody: 'body' }[e.target.id]
     if (!k) return
     if (!WB.mailForm || WB.mailForm.id !== WB.selectedId) WB.mailForm = { id: WB.selectedId }
     WB.mailForm[k] = e.target.value

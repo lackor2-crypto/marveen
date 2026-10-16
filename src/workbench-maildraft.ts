@@ -10,10 +10,12 @@
 // PDF in the mail is never an older one than the text on the screen. A file the owner edited or saved elsewhere (its hash
 // differs from what we wrote) is left alone; an explicit "make it" then writes a new file next to it, nothing is overwritten.
 //
-// This does NOT send anything. The owner opens the .eml and presses send in the mail program.
+// This does NOT send anything. The owner opens the .eml and presses send in the mail program, or has it put into the
+// Drafts folder of the chosen Iroda mail account (saveDraftToMailbox: still nothing is sent).
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { getDb } from './db.js'
 import { currentOwnerName, OWNER_NAME_PLACEHOLDER } from './config.js'
@@ -34,7 +36,7 @@ import type { WorkItemRow } from './workbench.js'
 // ---------------------------------------------------------------------------
 
 export interface MailAttachment { name: string; data: Buffer; type?: string }
-export interface MailInput { to: string; cc?: string; subject: string; body: string; attachments: MailAttachment[]; boundary?: string }
+export interface MailInput { from?: string; to: string; cc?: string; subject: string; body: string; attachments: MailAttachment[]; boundary?: string }
 
 const CRLF = '\r\n'
 const ASCII = /^[\x20-\x7e]*$/
@@ -95,6 +97,7 @@ export function cleanAddresses(raw: unknown): string | null {
 export function buildEml(input: MailInput): Buffer {
   const boundary = input.boundary || `----=_Marveen_${createHash('sha256').update(String(Date.now()) + input.subject).digest('hex').slice(0, 24)}`
   const head: string[] = []
+  if (input.from) head.push(`From: ${oneLine(input.from)}`)
   if (input.to) head.push(`To: ${oneLine(input.to)}`)
   if (input.cc) head.push(`Cc: ${oneLine(input.cc)}`)
   head.push(`Subject: ${encodeHeaderText(input.subject)}`)
@@ -140,6 +143,8 @@ function ensureMailDraftTable(): void {
     file_name TEXT NOT NULL,
     sha TEXT NOT NULL,
     package_key TEXT NOT NULL,
+    from_account TEXT NOT NULL DEFAULT '',
+    from_addr TEXT NOT NULL DEFAULT '',
     to_addr TEXT NOT NULL DEFAULT '',
     cc_addr TEXT NOT NULL DEFAULT '',
     subject TEXT NOT NULL,
@@ -147,15 +152,19 @@ function ensureMailDraftTable(): void {
     attachments_json TEXT NOT NULL DEFAULT '[]',
     updated_at INTEGER NOT NULL
   )`)
+  // A table made before the sender existed gets the two columns.
+  const cols = (db.prepare('PRAGMA table_info(wb_doc_maildraft)').all() as { name: string }[]).map((c) => c.name)
+  if (!cols.includes('from_account')) db.exec("ALTER TABLE wb_doc_maildraft ADD COLUMN from_account TEXT NOT NULL DEFAULT ''")
+  if (!cols.includes('from_addr')) db.exec("ALTER TABLE wb_doc_maildraft ADD COLUMN from_addr TEXT NOT NULL DEFAULT ''")
   tablesDb = db
 }
 
 const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex')
 
-interface Row { file_name: string; sha: string; package_key: string; to_addr: string; cc_addr: string; subject: string; body: string; attachments_json: string; updated_at: number }
+interface Row { from_account: string; from_addr: string; file_name: string; sha: string; package_key: string; to_addr: string; cc_addr: string; subject: string; body: string; attachments_json: string; updated_at: number }
 const getRow = (itemId: string): Row | undefined => {
   ensureMailDraftTable()
-  return getDb().prepare('SELECT file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at FROM wb_doc_maildraft WHERE work_item_id = ?').get(itemId) as Row | undefined
+  return getDb().prepare('SELECT from_account, from_addr, file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at FROM wb_doc_maildraft WHERE work_item_id = ?').get(itemId) as Row | undefined
 }
 
 export interface MailDraftAttachment { name: string; bytes: number; kind: 'document' | 'annex' | 'package' }
@@ -163,6 +172,9 @@ export interface MailDraftView {
   /** Where the file lies (project-relative), and its name. */
   file: string
   file_name: string
+  /** The mail account (Iroda) the draft is for, and its address (the From line). */
+  from_account: string
+  from_addr: string
   to: string
   cc: string
   subject: string
@@ -199,20 +211,20 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
     if (existsSync(abs)) {
       let same = false
       try { same = sha(readFileSync(abs)) === row.sha } catch { /* unreadable: counts as edited */ }
-      state = !same ? 'edited' : row.package_key === packageKey(item, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
+      state = !same ? 'edited' : row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
     }
   }
   return {
     file: dir ? `${dir.dirRel}/${row.file_name}` : row.file_name, file_name: row.file_name,
-    to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: row.body,
+    from_account: row.from_account, from_addr: row.from_addr, to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: row.body,
     attachments, total_bytes: attachments.reduce((n, a) => n + a.bytes, 0), updated_at: row.updated_at, state,
   }
 }
 
 /** What the attachments are made from: the document, its annexes (name, size, time) and the mode, plus the mail's own text. */
-function packageKey(item: WorkItemRow, to: string, cc: string, subject: string, body: string): string {
+function packageKey(item: WorkItemRow, from: string, to: string, cc: string, subject: string, body: string): string {
   const mode = docSettings(item.id).annex_mode
-  return sha(Buffer.from([contentHash(item), mode, to, cc, subject, body].join('\n'), 'utf-8'))
+  return sha(Buffer.from([contentHash(item), mode, from, to, cc, subject, body].join('\n'), 'utf-8'))
 }
 
 export type CollectResult =
@@ -271,7 +283,7 @@ export type MailDraftOutcome =
   | { ok: true; draft: MailDraftView; written: boolean; new_file: boolean }
   | { ok: false; code: 'bad_input' | 'outline_empty' | 'no_folder' | 'write_failed' | string; detail: string | null; label?: string }
 
-export interface MailDraftInput { to?: unknown; cc?: unknown; subject?: unknown; body?: unknown }
+export interface MailDraftInput { from_account?: unknown; from_addr?: unknown; to?: unknown; cc?: unknown; subject?: unknown; body?: unknown }
 
 const TEXT_MAX = 20_000
 const SUBJECT_MAX = 300
@@ -284,6 +296,8 @@ const SUBJECT_MAX = 300
 export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui: 'hu' | 'en'): Promise<MailDraftOutcome> {
   if (!hasDocModel(item.id)) return { ok: false, code: 'outline_empty', detail: null }
   const prev = getRow(item.id)
+  const fromAccount = input.from_account === undefined ? (prev?.from_account ?? '') : String(input.from_account).trim()
+  const fromAddr = input.from_account === undefined ? (prev?.from_addr ?? '') : (cleanAddresses(input.from_addr) || '')
   const to = input.to === undefined ? (prev?.to_addr ?? '') : cleanAddresses(input.to)
   const cc = input.cc === undefined ? (prev?.cc_addr ?? '') : cleanAddresses(input.cc)
   if (to === null || cc === null) return { ok: false, code: 'bad_input', detail: 'address' }
@@ -300,7 +314,7 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   const made = await collectAttachments(item, ui)
   if (!made.ok) return made
 
-  const eml = buildEml({ to, cc, subject, body, attachments: made.files })
+  const eml = buildEml({ from: fromAddr, to, cc, subject, body, attachments: made.files })
   let name = prev?.file_name || `${ol('Levélpiszkozat', 'E-mail draft')} - ${fileStem(item.title)}.eml`
   let newFile = false
   const exists = existsSync(join(dir.dirAbs, name))
@@ -318,12 +332,12 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   }
   const attachments: MailDraftAttachment[] = made.files.map((f) => ({ name: f.name, bytes: f.data.length, kind: f.kind }))
   ensureMailDraftTable()
-  getDb().prepare(`INSERT INTO wb_doc_maildraft (work_item_id, file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(work_item_id) DO UPDATE SET file_name = excluded.file_name, sha = excluded.sha, package_key = excluded.package_key,
+  getDb().prepare(`INSERT INTO wb_doc_maildraft (work_item_id, from_account, from_addr, file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(work_item_id) DO UPDATE SET from_account = excluded.from_account, from_addr = excluded.from_addr, file_name = excluded.file_name, sha = excluded.sha, package_key = excluded.package_key,
       to_addr = excluded.to_addr, cc_addr = excluded.cc_addr, subject = excluded.subject, body = excluded.body,
       attachments_json = excluded.attachments_json, updated_at = excluded.updated_at`)
-    .run(item.id, name, sha(eml), packageKey(item, to, cc, subject, body), to, cc, subject, body, JSON.stringify(attachments), Date.now())
+    .run(item.id, fromAccount, fromAddr, name, sha(eml), packageKey(item, fromAccount, to, cc, subject, body), to, cc, subject, body, JSON.stringify(attachments), Date.now())
   const draft = mailDraftView(item)
   return draft ? { ok: true, draft, written: true, new_file: newFile } : { ok: false, code: 'write_failed', detail: null }
 }
@@ -337,7 +351,7 @@ export async function refreshMailDraft(item: WorkItemRow, ui: 'hu' | 'en'): Prom
   try {
     const row = getRow(item.id)
     if (!row) return
-    if (packageKey(item, row.to_addr, row.cc_addr, row.subject, row.body) === row.package_key) return
+    if (packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) === row.package_key) return
     const dir = folderOf(item)
     if (!dir) return
     const abs = join(dir.dirAbs, row.file_name)
@@ -357,4 +371,46 @@ export function mailDraftFileBytes(item: WorkItemRow): number {
   const row = getRow(item.id)
   const dir = row ? folderOf(item) : null
   try { return row && dir ? statSync(join(dir.dirAbs, row.file_name)).size : 0 } catch { return 0 }
+}
+
+// ---------------------------------------------------------------------------
+// Into the Drafts folder of the chosen mail account (nothing is sent)
+// ---------------------------------------------------------------------------
+
+export interface MailboxDraftPort {
+  save(account: string, msg: { to: string; cc: string; subject: string; body: string; files: string[] }): Promise<{ ok: boolean; mailbox?: string; detail?: string }>
+}
+let mailboxPort: MailboxDraftPort | null = null
+/** The e-mail routes register how a message is saved into an account's Drafts folder (this module does not know the mail client). */
+export function registerMailboxDraftPort(p: MailboxDraftPort): void { mailboxPort = p }
+
+export type MailboxSaveOutcome =
+  | { ok: true; mailbox: string; account: string }
+  | { ok: false; code: 'no_draft' | 'no_account' | 'no_port' | 'save_failed' | string; detail: string | null; label?: string }
+
+/**
+ * Puts the stored draft (with its PDFs, made now) into the Drafts folder of the account chosen as the sender. It is saved as a
+ * draft, never sent: the owner opens it in the mail program of that account and presses Send there.
+ */
+export async function saveDraftToMailbox(item: WorkItemRow, ui: 'hu' | 'en'): Promise<MailboxSaveOutcome> {
+  const row = getRow(item.id)
+  if (!row) return { ok: false, code: 'no_draft', detail: null }
+  if (!row.from_account) return { ok: false, code: 'no_account', detail: null }
+  if (!mailboxPort) return { ok: false, code: 'no_port', detail: null }
+  const made = await collectAttachments(item, ui)
+  if (!made.ok) return made
+  const work = mkdtempSync(join(tmpdir(), 'marveen-maildraft-'))
+  try {
+    const files: string[] = []
+    for (const f of made.files) {
+      const dir = mkdtempSync(join(work, 'a-'))
+      const abs = join(dir, f.name)
+      writeFileSync(abs, f.data)
+      files.push(abs)
+    }
+    const r = await mailboxPort.save(row.from_account, { to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: row.body, files })
+    return r.ok ? { ok: true, mailbox: r.mailbox || '', account: row.from_account } : { ok: false, code: 'save_failed', detail: r.detail || null }
+  } finally {
+    try { rmSync(work, { recursive: true, force: true }) } catch { /* temp files only */ }
+  }
 }

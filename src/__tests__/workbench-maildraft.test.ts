@@ -188,6 +188,21 @@ describe('the e-mail draft of a work item', () => {
     expect(r.draft.body.length).toBeGreaterThan(20)
   })
 
+  it('the chosen sender account is stored, written as the From line, and kept by a later save that leaves it out', async () => {
+    write('Text eins')
+    const r = await saveMailDraft(item(), { from_account: 'work', from_addr: 'me@example.com', to: 'amt@stadt.de' }, 'hu')
+    if (!r.ok) throw new Error('save')
+    expect(r.draft).toMatchObject({ from_account: 'work', from_addr: 'me@example.com' })
+    const mail = await simpleParser(readFileSync(emlPath(r.draft.file_name)))
+    expect(mail.from?.value[0]?.address).toBe('me@example.com')
+    const again = await saveMailDraft(item(), { subject: 'Neu' }, 'hu')
+    if (!again.ok) throw new Error('save2')
+    expect(again.draft.from_account).toBe('work')
+    const cleared = await saveMailDraft(item(), { from_account: '' }, 'hu')
+    if (!cleared.ok) throw new Error('save3')
+    expect(cleared.draft).toMatchObject({ from_account: '', from_addr: '' })
+  })
+
   it('a bad address is refused with nothing written', async () => {
     write('Text eins')
     const r = await saveMailDraft(item(), { to: 'nem cim' }, 'hu')
