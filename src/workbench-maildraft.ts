@@ -223,6 +223,22 @@ function packageFail(e: PackageError & { ok: false }): { ok: false; code: string
   return { ok: false, code: e.code, detail: e.detail, label: 'label' in e ? e.label : undefined }
 }
 
+const NAME_MAX = 120
+
+/**
+ * An annex attachment's file name stem: "<label> – <title>". When it is too long it is cut at a word, and an opened bracket
+ * is dropped with it, so a name never ends in the middle of a word ("(Éva Bako") the recipient would see.
+ */
+export function annexFileStem(label: string, title: string): string {
+  const all = fileStem(`${label} – ${title}`, 10_000)
+  if (all.length <= NAME_MAX) return all
+  let cut = all.slice(0, NAME_MAX)
+  if (all[NAME_MAX] !== ' ') cut = cut.slice(0, Math.max(cut.lastIndexOf(' '), label.length))
+  const open = cut.lastIndexOf('(')
+  if (open > cut.lastIndexOf(')') && open > label.length) cut = cut.slice(0, open)
+  return cut.replace(/[\s,;.–-]+$/u, '')
+}
+
 /** The PDFs that go with the mail, made now from the document as it is. */
 export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Promise<CollectResult> {
   const lang = docLangFor(item, ui)
@@ -246,7 +262,7 @@ export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Pr
     if (!f) return { ok: false, code: 'annex_missing', detail: a.path, label: a.label }
     const c = await annexContentPdf(f.abs, f.name)
     if (!c.ok) return { ok: false, code: c.code === 'annex_convert_failed' && c.convert ? c.convert : c.code, detail: c.detail, label: a.label }
-    files.push({ name: `${fileStem(`${a.label} – ${a.title}`)}.pdf`, data: c.pdf, kind: 'annex' })
+    files.push({ name: `${annexFileStem(a.label, a.title)}.pdf`, data: c.pdf, kind: 'annex' })
   }
   return { ok: true, files }
 }

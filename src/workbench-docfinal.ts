@@ -209,9 +209,9 @@ export function finalizationState(item: WorkItemRow): { content_hash: string; re
  * fajliro a perjel elotti reszt eldobna) kotojelre, es rovidre vagva, hogy a
  * ".pdf" vegzodes sose essen le a nevhossz-korlatnal.
  */
-export function fileStem(title: string): string {
+export function fileStem(title: string, max = 120): string {
   const s = title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').replace(/\s+/g, ' ').trim().replace(/^[.\s-]+|[.\s]+$/g, '')
-  return (s || 'dokumentum').slice(0, 120).trim()
+  return (s || 'dokumentum').slice(0, max).trim()
 }
 
 export function draftFileName(item: WorkItemRow, lang: 'hu' | 'en'): string {

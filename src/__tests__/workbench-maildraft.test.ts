@@ -13,7 +13,7 @@ import { addAnnex, setDocSettings } from '../workbench-docannex.js'
 import { resolverFor } from '../workbench-docfinal.js'
 import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
-import { buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, saveMailDraft } from '../workbench-maildraft.js'
+import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, saveMailDraft } from '../workbench-maildraft.js'
 
 /** A fake LibreOffice: the PDF it writes carries a checksum of the source, so any change of the text shows in the bytes. */
 const FAKE_SOFFICE = `#!/bin/sh
@@ -264,5 +264,23 @@ describe('the e-mail draft of a work item', () => {
     await mirrorOutlineToFile(itemId)
     expect(readFileSync(emlPath(first.draft.file_name)).equals(body)).toBe(true)
     expect(mailDraftView(item())).toBeNull()
+  })
+})
+
+describe('annexFileStem', () => {
+  it('keeps a short name whole', () => {
+    expect(annexFileStem('Anlage K1', 'Lohnabrechnung Juli 2026 (Minijob, Korpás László)')).toBe('Anlage K1 – Lohnabrechnung Juli 2026 (Minijob, Korpás László)')
+  })
+  it('cuts a long name at a word and drops the opened bracket, never mid-word', () => {
+    const n = annexFileStem('Anlage K11', 'Bescheid des ungarischen Rentenversicherungsträgers über die Einstellung der Rente zum 01.09.2026 (Éva Bakos)')
+    expect(n).toBe('Anlage K11 – Bescheid des ungarischen Rentenversicherungsträgers über die Einstellung der Rente zum 01.09.2026')
+    expect(n.length).toBeLessThanOrEqual(120)
+  })
+  it('keeps a closed bracket that fits', () => {
+    const t = 'x'.repeat(10) + ' (' + 'y'.repeat(20) + ') ' + 'word '.repeat(30)
+    const n = annexFileStem('K1', t)
+    expect(n).toContain('(' + 'y'.repeat(20) + ')')
+    expect(n.length).toBeLessThanOrEqual(120)
+    expect(n.endsWith('word')).toBe(true)
   })
 })
