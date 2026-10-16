@@ -2541,6 +2541,9 @@
       body = '<div class="info-box depo-bad">' + esc(WB.error) + '</div>'
     } else if (!WB.items.length && !projectFolderHasContent()) {
       body = emptyHintHtml()
+      // The switch belongs to EVERY project, also a brand-new empty one; nothing to hide there yet, and no state left over from the previous project.
+      WB.hideSwitch = { on: !!WB.hideDone, hidden: 0, done: 0 }
+      hideSw = hideSwitchHtml()
     } else {
       var rows = folderTreeRows()
       // #502: no work item yet, but the project folder holds folders or files (a linked Git repo, the default folders):
