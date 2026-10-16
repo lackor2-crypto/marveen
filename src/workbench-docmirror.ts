@@ -91,30 +91,8 @@ export function outlineMarkdown(item: WorkItemRow, dir?: string): string {
  * never the .docx by accident. Same rules as the Word mirror: the outline stays the source, a PDF the owner replaced
  * or edited is never overwritten, and a failure (no converter) is silent: the Word copy still stands.
  */
-async function mirrorPdfTwin(item: WorkItemRow, project: ProjectRow, folderRel: string, outlineSha: string): Promise<void> {
-  try {
-    // Boss TG 3021 (A): the PDF lies in the item's "Elkészített iratok" folder, not next to the Word copy.
-    const sub = finishedFolderFor(project, folderRel)
-    const tt = sub ? projectFileTarget(project, sub) : null
-    if (!tt || !tt.ok) return
-    const t = tt
-    ensurePdfMirrorTable()
-    const db = getDb()
-    const row = db.prepare('SELECT file_name, sha, outline_sha FROM wb_doc_mirror_pdf WHERE work_item_id = ?').get(item.id) as { file_name: string; sha: string; outline_sha: string } | undefined
-    const name = `${fileStem(item.title)}.pdf`
-    const abs = join(t.dirAbs, name)
-    const there = existsSync(abs)
-    if (row && row.file_name === name && row.outline_sha === outlineSha && there && sha(readFileSync(abs)) === row.sha) return
-    if (there && (!row || row.file_name !== name || sha(readFileSync(abs)) !== row.sha)) return
-    if (writeBlockReason(`${t.dirRel}/${name}`)) return
-    const r = await renderPlainPdf(item, APP_LANG === 'en' ? 'en' : 'hu')
-    if (!r.ok) return
-    writeFileSync(abs, r.pdf)
-    db.prepare(`INSERT INTO wb_doc_mirror_pdf (work_item_id, file_name, sha, outline_sha, updated_at) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(work_item_id) DO UPDATE SET file_name = excluded.file_name, sha = excluded.sha, outline_sha = excluded.outline_sha, updated_at = excluded.updated_at`)
-      .run(item.id, name, sha(r.pdf), outlineSha, Date.now())
-  } catch { /* best effort: the Word copy stands */ }
-}
+// Boss, 2026-10-16: no PDF twin of the Word copy any more. The finished-documents folder holds ONLY finalized PDFs (an identical
+// "twin" there was a duplicate nobody could tell from the final); the mail draft makes its own PDF.
 
 async function mirrorOutlineToFileCore(itemId: string): Promise<MirrorResult> {
   const item = getWorkItem(itemId)
@@ -133,7 +111,6 @@ async function mirrorOutlineToFileCore(itemId: string): Promise<MirrorResult> {
   const outlineSha = sha(Buffer.from(outlineSource(item), 'utf-8'))
   const existing = row ? join(t.dirAbs, row.file_name) : null
   if (row && existing && existsSync(existing) && row.outline_sha === outlineSha && sha(readFileSync(existing)) === row.sha) {
-    if (row.file_name.endsWith('.docx')) await mirrorPdfTwin(item, project, folder.folder, outlineSha)
     return { ok: true, file: `${t.dirRel}/${row.file_name}`, format: row.file_name.endsWith('.md') ? 'md' : 'docx', written: false }
   }
 
@@ -163,7 +140,6 @@ async function mirrorOutlineToFileCore(itemId: string): Promise<MirrorResult> {
   db.prepare(`INSERT INTO wb_doc_mirror (work_item_id, file_name, sha, outline_sha, updated_at) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(work_item_id) DO UPDATE SET file_name = excluded.file_name, sha = excluded.sha, outline_sha = excluded.outline_sha, updated_at = excluded.updated_at`)
     .run(item.id, name, sha(data), outlineSha, Date.now())
-  if (format === 'docx') await mirrorPdfTwin(item, project, folder.folder, outlineSha)
   return { ok: true, file: `${t.dirRel}/${name}`, format, written: true }
 }
 

@@ -13,7 +13,7 @@ import { createWorkItem, getWorkItem, listWorkItemVersions } from '../workbench.
 import { addSection, addBlock, addClaim, documentOutline, type SourceWorld } from '../workbench-docmodel.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
 import { buildFodt, renderOutlineDocx, renderOutlinePdf, toRenderOutline, DOCX_FILTER, PDF_FILTER_FINAL } from '../workbench-docrender.js'
-import { contentHash, docxFileName, fileStem } from '../workbench-docfinal.js'
+import { contentHash, docxFileName, fileStem, finalFileName, shortTitle } from '../workbench-docfinal.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -212,7 +212,7 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     // A PDF a munkadarab mappajaba kerult, PDF/A beallitassal, es az anyagok kozott van.
     const abs = join(depot, fin.body.file)
     expect(existsSync(abs)).toBe(true)
-    expect(fin.body.file).toContain('Válaszbeadvány – Végleges – ')
+    expect(fin.body.file).toMatch(/ – Válaszbeadvány – HU – v1\.pdf$/)
     expect(readFileSync(abs, 'utf-8')).toContain('"SelectPdfVersion":{"type":"long","value":"2"}')
     expect(PDF_FILTER_FINAL).toContain('SelectPdfVersion')
     expect(fin.body.assets.some((a: { path: string }) => a.path === fin.body.file)).toBe(true)
@@ -523,5 +523,14 @@ describe('a felulet: piszkozat, atnezes, veglegesites', () => {
     const html = h.html()
     expect(html).toContain('workbench.outline.final_stale')
     expect(html).toContain('href="/api/life/file?rel=P%2FB%2Fx.pdf"')
+  })
+})
+
+describe('final file name (Boss, 2026-10-16)', () => {
+  it('date first, short title, language and the number of the finalization', () => {
+    const t = 'Válasz a Wohngeldbehörde 2026-09-24-i hiánypótlási felhívására - Wohngeldnummer 511000-25398636 - Korpás László'
+    expect(shortTitle(t)).toBe('Válasz a Wohngeldbehörde 2026-09-24-i hiánypótlási')
+    const name = finalFileName({ title: t } as never, 'de', 5, new Date(2026, 9, 16))
+    expect(name).toBe('2026-10-16 – Válasz a Wohngeldbehörde 2026-09-24-i hiánypótlási – DE – v5.pdf')
   })
 })
