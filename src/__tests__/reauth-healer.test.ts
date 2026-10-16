@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideReauthAction, NO_REAUTH_STATE, overrideStaleStatusLine, isQuotaHeld, isMainWorking, type ReauthHealerState } from '../web/reauth-healer.js'
+import { decideReauthAction, NO_REAUTH_STATE, overrideStaleStatusLine, isQuotaHeld, isMainWorking, escalationHold, type ReauthHealerState } from '../web/reauth-healer.js'
 
 const T = { threshold: 3, cooldownMs: 30 * 60 * 1000 }
 const base = (over: Partial<Parameters<typeof decideReauthAction>[0]> = {}) => ({
@@ -233,5 +233,28 @@ describe('isMainWorking (#654): a live, working main agent never gets a dead-tok
     expect(isMainWorking({ ...ok, reason: 'stopped' as never }, now)).toBe(false)
     expect(isMainWorking({ ...ok, measuredAt: now - 11 * 60_000 }, now)).toBe(false)
     expect(isMainWorking(undefined, now)).toBe(false)
+  })
+})
+
+describe('escalationHold (#654): which gate holds a dead-token escalation back', () => {
+  const now = 1_000_000_000_000
+  const ok = { available: true, reason: 'ok' as const, resetsAt: null, measuredAt: now - 60_000 }
+  const quota = { available: false, reason: 'quota' as const, resetsAt: now + 3_600_000, measuredAt: now - 60_000 }
+  it('holds a working main agent (stale quota "Not logged in" in the pane)', () => {
+    expect(escalationHold(true, ok, now)).toBe('main-working')
+  })
+  it('does NOT hold a working sub-agent: its behaviour is unchanged', () => {
+    expect(escalationHold(false, ok, now)).toBeNull()
+  })
+  it('holds a quota-exhausted agent, main or sub, as before', () => {
+    expect(escalationHold(true, quota, now)).toBe('quota')
+    expect(escalationHold(false, quota, now)).toBe('quota')
+  })
+  it('lets the alert out when the measurement is missing or stale (cannot prove the agent works)', () => {
+    expect(escalationHold(true, undefined, now)).toBeNull()
+    expect(escalationHold(true, { ...ok, measuredAt: now - 11 * 60_000 }, now)).toBeNull()
+  })
+  it('lets the alert out for a main agent that is unavailable for another reason (e.g. signed out)', () => {
+    expect(escalationHold(true, { ...ok, available: false, reason: 'stopped' as never }, now)).toBeNull()
   })
 })
