@@ -7097,6 +7097,7 @@ window._i18n.en = {
   "workbench.dp.drop_annexed": "{name} is now one of the annexes.",
   "workbench.dp.drop_empty_table": "The spreadsheet was empty, so I put a blank table on the page.",
   "workbench.dp.drop_truncated": "The file is very long: I built in its beginning, the whole content stays in the file.",
+  "workbench.dp.tbl_editing": "The table is being edited: one line per row, cells separated by |. Below you see how it will look (it updates as you type). Click elsewhere and the finished table comes back.",
   "workbench.dp.tbl_edit": "Click to edit the table (one row per line: cell | cell)",
   "workbench.dp.pic_move": "Grab the picture and drop it where you want it: on the left or right half of the sheet, beside any paragraph. The text runs round it. (The arrow keys work too: left / right change the side, up / down move it by one paragraph.)",
   "workbench.dp.tbl_free_move": "Grab it and drag the table where you want it: the left or right half of the page, beside any paragraph. The text runs round it. The \"Free, over the text\" button puts it over the text. (The arrow keys work too.)",

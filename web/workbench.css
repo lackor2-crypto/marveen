@@ -1866,6 +1866,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 
 /* #508: a built-in table shows as a grid on the page; a click opens it for editing. */
 .wb-dp-tbl { cursor: text; overflow-x: auto; }
+.wb-dp-tbl-aid { margin: 4px 0 8px; }
+.wb-dp-tbl-prev { border-collapse: collapse; font-size: .95em; }
+.wb-dp-tbl-prev th, .wb-dp-tbl-prev td { border: 1px solid var(--border, #d0d4dc); padding: 4px 8px; text-align: left; vertical-align: top; }
+.wb-dp-tbl-prev th { background: var(--bg-muted, #f3f4f7); font-weight: 600; }
 .wb-dp-tbl table { border-collapse: collapse; width: 100%; font-size: .95em; }
 .wb-dp-tbl th, .wb-dp-tbl td { border: 1px solid var(--border, #d0d4dc); padding: 4px 8px; text-align: left; vertical-align: top; }
 .wb-dp-tbl th { background: var(--bg-muted, #f3f4f7); font-weight: 600; }
