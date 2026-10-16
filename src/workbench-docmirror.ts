@@ -19,7 +19,7 @@ import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
 import { documentOutline, imageBlockParts, isBlankLine, tableBlockParts } from './workbench-docmodel.js'
 import { resolveLifePath } from './life-explorer.js'
-import { fileStem, renderDocx, renderPlainPdf } from './workbench-docfinal.js'
+import { fileStem, renderDocx } from './workbench-docfinal.js'
 import { APP_LANG } from './config.js'
 import { refreshMailDraft } from './workbench-maildraft.js'
 
@@ -31,16 +31,6 @@ export type MirrorResult =
 
 function ensureMirrorTable(): void {
   getDb().exec(`CREATE TABLE IF NOT EXISTS wb_doc_mirror (
-    work_item_id TEXT PRIMARY KEY,
-    file_name TEXT NOT NULL,
-    sha TEXT NOT NULL,
-    outline_sha TEXT NOT NULL DEFAULT '',
-    updated_at INTEGER NOT NULL
-  )`)
-}
-
-function ensurePdfMirrorTable(): void {
-  getDb().exec(`CREATE TABLE IF NOT EXISTS wb_doc_mirror_pdf (
     work_item_id TEXT PRIMARY KEY,
     file_name TEXT NOT NULL,
     sha TEXT NOT NULL,
@@ -86,11 +76,6 @@ export function outlineMarkdown(item: WorkItemRow, dir?: string): string {
   return lines.join('\n')
 }
 
-/**
- * #636 (Boss TG 3596): the Word copy gets a PDF twin in the same folder, made right away, so what the owner sends is
- * never the .docx by accident. Same rules as the Word mirror: the outline stays the source, a PDF the owner replaced
- * or edited is never overwritten, and a failure (no converter) is silent: the Word copy still stands.
- */
 // Boss, 2026-10-16: no PDF twin of the Word copy any more. The finished-documents folder holds ONLY finalized PDFs (an identical
 // "twin" there was a duplicate nobody could tell from the final); the mail draft makes its own PDF.
 
@@ -144,7 +129,7 @@ async function mirrorOutlineToFileCore(itemId: string): Promise<MirrorResult> {
 }
 
 /**
- * The Word copy and its PDF twin, then (when the item has an e-mail draft made by Marveen) the draft's attachments:
+ * The Word copy (no PDF twin: #636 was withdrawn by Boss, see above), then (when the item has an e-mail draft made by Marveen) the draft's attachments:
  * the mail never carries an older PDF than the text. Every change of the document or of an annex comes through here.
  */
 export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult> {
