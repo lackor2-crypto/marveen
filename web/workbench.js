@@ -10318,7 +10318,8 @@
   function flushChatQueue() {
     if (WB.chatStreaming) return
     var st = chatState()
-    var q = st.turns.filter(function (x) { return x.role === 'user' && x.queued })
+    // A line whose hand-over to the running turn is still in flight is not sent a second time.
+    var q = st.turns.filter(function (x) { return x.role === 'user' && x.queued && !x.injecting })
     if (!q.length) return
     for (var i = 0; i < q.length; i++) q[i].queued = false
     startChatTurn(q.map(function (x) { return x.text }).join('\n\n'))
@@ -11057,16 +11058,39 @@
       // Valasz kozben irt uzenet (Boss, 2026-09-28: "amig fut a valasz, addig
       // masik uzenetet nem tudok beirni?"): nem dobjuk el es nem hibazunk --
       // sorba all, es a futo valasz utan magatol elmegy.
-      st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true, queued: true })
+      var pending = { role: 'user', text: text, tools: [], notices: [], error: null, done: true, queued: true }
+      st.turns.push(pending)
       WB.chatDraft = ''
       if (el && typeof el.value === 'string') el.value = ''
       renderChat()
+      // Boss, 2026-10-16: "ne varakozzon, kuldje el" -- the message goes to the running model right away. It
+      // stays queued (above) only if the server cannot take it into the running turn (code bridge, or it just ended).
+      injectChatMessage(pending)
       return
     }
     st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true })
     WB.chatDraft = ''
     if (el && typeof el.value === 'string') el.value = ''
     startChatTurn(text)
+  }
+
+  /** A futo valaszba beszurt uzenet: a szerver a modell futo munkamenetebe irja. Ha elfogadta (`injected`), a sor
+   *  mar nem var; minden mas esetben (busy, hiba, megszakadt kapcsolat) sorban marad es a fordulo utan elmegy. */
+  function injectChatMessage(pending) {
+    var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, message: pending.text, account: WB.chatAccount || 'auto', side: chatSideValue(), inject_only: true }
+    var url = '/api/workbench/agent/message?lang=' + encodeURIComponent(window._lang || 'hu')
+    pending.injecting = true
+    var settle = function (taken) {
+      pending.injecting = false
+      // The turn list may have been replaced meanwhile: only a still-queued line of this chat is released.
+      if (taken && pending.queued) { pending.queued = false; renderChat() }
+      // Not taken: it waits as before; if the running turn ended meanwhile, it goes now.
+      else if (!taken) flushChatQueue()
+    }
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(body) })
+      .then(function (res) { return res.ok && res.text ? res.text() : '' })
+      .then(function (txt) { settle(String(txt).indexOf('event: injected') >= 0) })
+      .catch(function () { settle(false) })
   }
 
   /** A megallitott valasz folytatasa (K-0.8): sajat uzenet, a beiro mezo tartalmat nem erinti. */

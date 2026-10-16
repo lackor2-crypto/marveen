@@ -143,6 +143,27 @@ describe('LiveSessionPool -- one standing process per conversation', () => {
     expect(h.ids()['p1::']).toEqual({ sessionId: 'sid-1', configDir: '/cfg/a', cwd: '/proj' })
   })
 
+  it('inject() writes a mid-turn message into the SAME running process; the one result ends the turn', async () => {
+    // Like the real CLI (measured 2026-10-16): the mid-turn message joins the running turn, one result comes.
+    const h = harness(() => (c, m) => {
+      if (c.received.length === 1) { setImmediate(() => c.out({ type: 'system', subtype: 'init', session_id: 'sid-i', model: 'claude-test' })); return }
+      setImmediate(() => {
+        c.out({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: `both:${c.received.length}` } } })
+        c.out({ type: 'result', subtype: 'success', result: 'x', session_id: 'sid-i' })
+      })
+    })
+    expect(h.pool.inject('p1::', 'nobody home')).toBe(false)
+    const run = collect(h.pool.turn(spec(), () => 'first', 'hu'))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(h.pool.inject('p1::', 'second, mid-turn')).toBe(true)
+    const ev = await run
+    expect(h.spawned).toHaveLength(1)
+    expect(JSON.parse(h.spawned[0].received[1]).message.content).toBe('second, mid-turn')
+    expect(ev).toEqual([{ type: 'text', text: 'both:2' }, { type: 'done', model: 'claude-test', via: null }])
+    // the turn is over: nothing is listening any more, so a late message is NOT swallowed silently
+    expect(h.pool.inject('p1::', 'too late')).toBe(false)
+  })
+
   it('after the process is gone the next turn RESUMES the saved session without re-sending history', async () => {
     const h = harness(() => echoScript('sid-9'))
     h.setIds({ 'p1::': { sessionId: 'sid-9', configDir: '/cfg/a', cwd: '/proj' } })
