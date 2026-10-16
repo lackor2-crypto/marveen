@@ -10,7 +10,7 @@ const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf
 describe('a list name never runs out (#551)', () => {
   it('every depth indent is capped relative to the list width', () => {
     for (let n = 1; n <= 8; n++) {
-      expect(css).toMatch(new RegExp('\\.wb-depth-' + n + ' \\{ margin-left: min\\(' + 18 * n + 'px, ' + 4 * n + '%\\); \\}'))
+      expect(css).toMatch(new RegExp('\\.wb-depth-' + n + ' \\{ --wb-d: ' + n + '; margin-left: min\\(' + 12 * n + 'px, ' + 4 * n + '%\\); \\}'))
     }
   })
 

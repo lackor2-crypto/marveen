@@ -119,14 +119,27 @@
    celpont (min. 36px), a munkadarab-gomb kitolti a maradekot. */
 .wb-item-row { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
 @media (max-width: 700px) { .wb-item-row { flex-wrap: wrap; } }
-.wb-depth-1 { margin-left: min(18px, 4%); }
-.wb-depth-2 { margin-left: min(36px, 8%); }
-.wb-depth-3 { margin-left: min(54px, 12%); }
-.wb-depth-4 { margin-left: min(72px, 16%); }
-.wb-depth-5 { margin-left: min(90px, 20%); }
-.wb-depth-6 { margin-left: min(108px, 24%); }
-.wb-depth-7 { margin-left: min(126px, 28%); }
-.wb-depth-8 { margin-left: min(144px, 32%); }
+/* #657: the nesting depth is unambiguous -- a fixed 12px step per level (not a percentage that shrinks in a narrow panel)
+ * plus Explorer-style guide lines: one vertical line per ancestor level and a short elbow into the row itself. */
+.wb-depth-1 { --wb-d: 1; margin-left: min(12px, 4%); }
+.wb-depth-2 { --wb-d: 2; margin-left: min(24px, 8%); }
+.wb-depth-3 { --wb-d: 3; margin-left: min(36px, 12%); }
+.wb-depth-4 { --wb-d: 4; margin-left: min(48px, 16%); }
+.wb-depth-5 { --wb-d: 5; margin-left: min(60px, 20%); }
+.wb-depth-6 { --wb-d: 6; margin-left: min(72px, 24%); }
+.wb-depth-7 { --wb-d: 7; margin-left: min(84px, 28%); }
+.wb-depth-8 { --wb-d: 8; margin-left: min(96px, 32%); }
+/* In a very narrow list the % cap wins over the 12px step; the guide lines then run a little wider than the indent, still readable. */
+[class*="wb-depth-"] { position: relative; }
+[class*="wb-depth-"]::before {
+  content: ''; position: absolute; top: -2px; bottom: 0; right: 100%; width: calc(var(--wb-d, 0) * 12px); pointer-events: none;
+  background: repeating-linear-gradient(to right, transparent 0 5px, var(--wb-guide, rgba(128, 128, 128, .55)) 5px 6px, transparent 6px 12px);
+}
+[class*="wb-depth-"]::after {
+  content: ''; position: absolute; top: 50%; right: 100%; width: 7px; height: 1px; margin-right: 0; pointer-events: none;
+  background: var(--wb-guide, rgba(128, 128, 128, .55));
+}
+.wb-fr-panel [class*="wb-depth-"]::before, .wb-fr-panel [class*="wb-depth-"]::after { content: none; }
 .wb-folder-row { list-style: none; margin-top: 2px; margin-bottom: 0; }
 .wb-folder-toggle { background: none; border: 0; padding: 4px 2px; font: inherit; font-weight: 600; cursor: pointer; text-align: left; color: inherit; }
 .wb-folder-del { background: none; border: 0; padding: 2px 4px; cursor: pointer; opacity: .55; }
