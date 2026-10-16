@@ -8459,6 +8459,20 @@
     return outlineCheckHtml({ ready: false, items: (check.items || []).filter(function (i) { return !i.ok }) }, o, ro)
   }
 
+  /** #568: the chapter status has no control on the document page, so the finalize box carries one: each chapter the
+   *  owner (or the agent) left 'in progress' gets a "done" and a "to do" button right where the block is named. */
+  function sectionsInProgressHtml(o, ro) {
+    if (ro) return ''
+    var rows = ((o && o.sections) || []).filter(function (s) { return s.status === 'in_progress' && !s.untitled })
+    if (!rows.length) return ''
+    return '<ul>' + rows.slice(0, 8).map(function (s) {
+      var attrs = ' data-wb-act="outline-sec-status" data-wb-sec="' + escA(s.id) + '" data-wb-status='
+      return '<li class="wb-muted">' + esc(s.title) + ' '
+        + '<button type="button" class="wb-btn"' + attrs + '"done">' + esc(t('workbench.outline.mark_done')) + '</button> '
+        + '<button type="button" class="wb-linklike"' + attrs + '"todo">' + esc(t('workbench.outline.mark_todo')) + '</button></li>'
+    }).join('') + '</ul>'
+  }
+
   function outlineCheckHtml(check, o, ro) {
     if (!check) return ''
     return '<div class="wb-outline-check"><h4>' + esc(t('workbench.outline.check_title')) + '</h4><ul>'
@@ -8472,10 +8486,10 @@
         if (i.key === 'sections_done' && i.ok) return ''
         var key = i.key === 'consistency' && i.ok ? (i.total ? 'consistency_acked' : 'consistency_ok') : i.key
         var txt = i.key === 'sections_done'
-          ? t('workbench.outline.check.sections_in_progress', { names: (i.detail || []).slice(0, 8).join(', ') })
+          ? (i.detail && i.detail.length ? t('workbench.outline.check.sections_in_progress', { names: i.detail.slice(0, 8).join(', ') }) : t('workbench.outline.check.sections_empty'))
           : t('workbench.outline.check.' + key, { n: i.count, total: i.total === undefined ? '' : i.total })
         var detail = i.key === 'consistency' ? consistencyDetailHtml(o, ro)
-          : i.key === 'sections_done' ? ''
+          : i.key === 'sections_done' ? sectionsInProgressHtml(o, ro)
           : !i.ok && i.detail && i.detail.length ? '<ul>' + i.detail.slice(0, 8).map(function (d) { return '<li class="wb-muted">' + esc(d) + '</li>' }).join('') + '</ul>' : ''
         return '<li class="' + (i.ok && !warn ? 'wb-ok' : 'wb-doc-low') + '">' + (warn ? '⚠ ' : i.ok ? (info ? 'ℹ ' : '✓ ') : '⚠ ') + esc(txt)
           + detail
