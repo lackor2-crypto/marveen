@@ -30,4 +30,9 @@ describe('chat width handle', () => {
     expect(js).toMatch(/fitSavedChatSplit\(\)\n\s+revealSplitFrame\(\)/)
     expect(css).toMatch(/\.wb-split \{[^}]*scroll-margin-top: 8px/)
   })
+  // #595: the `.wb-split` grid is `align-items: start`, so the divider was a 48px stub at the top of the frame (browser
+  // run, 1400x800: divider height 48 of 784). It must stretch over the whole frame, as the Simple view's handle does.
+  it('stretches the manual split divider over the whole frame height (not a 48px stub at the top)', () => {
+    expect(css).toMatch(/@media \(min-width: 901px\) \{[\s\S]*?\.wb-split-divider \{ align-self: stretch; \}/)
+  })
 })
