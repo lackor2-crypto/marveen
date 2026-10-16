@@ -48485,6 +48485,7 @@ function _prjListHeadHtml() {
         </div>
         <div class="prj-head-actions">
           ${_prj.all.length ? `<label class="prj-toggle"><input type="checkbox" id="prjShowArchived"${_prj.showArchived ? ' checked' : ''}> ${escapeHtml(t('projects.show_archived'))}</label>` : ''}
+          <button type="button" class="btn-secondary" data-prj-act="json-clean" title="${escapeAttr(t('workbench.jsonclean.hint'))}">${escapeHtml(t('workbench.jsonclean.btn'))}</button>
           <button type="button" class="btn-primary" data-prj-act="new">${escapeHtml(t('projects.new_btn'))}</button>
         </div>
       </div>
@@ -51187,6 +51188,7 @@ document.addEventListener('click', (e) => {
   // Az uj-fajl ablakbol inditott atlepes (Intezo, mappa megadasa) elott az ablak bezarul.
   if ((a === 'files' || a === 'open-intezo' || a === 'edit') && act.closest('#prjFileOverlay')) closeModal(_prjOverlay('prjFileOverlay'))
   if (a === 'new') _prjOpenForm('create')
+  else if (a === 'json-clean') window.MarvinWorkbench?.jsonCleanOpen?.()
   else if (a === 'new-menu') _prjToggleNewMenu()
   else if (a === 'new-card') _prjNewCard()
   else if (a === 'new-idea') _prjNewIdea()
