@@ -1547,6 +1547,23 @@ export function ensureItemUploadsFolder(item: WorkItemRow, lang?: string): Folde
 }
 
 /**
+ * The very same file (same name, same bytes) already stands in `dir`: it is taken as it is instead of being copied as
+ * "name (2)" (Boss TG 3481). A different content under the same name is not a match (null: the caller writes it under a free name).
+ */
+function sameFileInFolder(project: ProjectRow, dir: string, name: string, data: Buffer): WriteOutcome | null {
+  const t = projectFileTarget(project, dir)
+  const wanted = safeFileName(name)
+  if (!t.ok || !wanted) return null
+  try {
+    const have = join(t.dirAbs, wanted)
+    if (existsSync(have) && statSync(have).isFile() && statSync(have).size === data.length && readFileSync(have).equals(data)) {
+      return { ok: true, rel: `${t.dirRel}/${wanted}`, name: wanted, renamed: false, bytes: data.length }
+    }
+  } catch { /* unreadable: the normal write decides */ }
+  return null
+}
+
+/**
  * Egy fajl csatolasa egy MEGLEVO munkadarabhoz: a munkadarab mappajaba kerul,
  * es bekerul az anyagai koze. Ugyanaz a tartalom masodszorra csak `force`-szal
  * (K-0.18) -- a felulet ilyenkor megkerdezi a felhasznalot.
@@ -1577,23 +1594,11 @@ export function attachAsset(
       : (uploadsFolderFor(project, f.folder) ?? f.folder)
   // The very same file (same name, same bytes) already stands in the folder -- put there by hand, so it is not one of the
   // materials yet: it is taken as it is, not copied again as "name (2)" (Boss TG 3481). A forced upload still makes a copy.
-  let out: WriteOutcome | null = null
-  if (!opts.force) {
-    const t = projectFileTarget(project, dir)
-    const wanted = safeFileName(name)
-    if (t.ok && wanted) {
-      try {
-        const have = join(t.dirAbs, wanted)
-        if (existsSync(have) && statSync(have).isFile() && statSync(have).size === data.length && readFileSync(have).equals(data)) {
-          out = { ok: true, rel: `${t.dirRel}/${wanted}`, name: wanted, renamed: false, bytes: data.length }
-        }
-      } catch { /* unreadable: the normal write below decides */ }
-    }
-  }
-  if (!out) out = writeProjectFile(project, dir, name, data)
-  if (!out.ok) return out
-  const row = registerAsset(item.id, out.rel, out.name, sha, out.bytes, opts.createdBy ?? null)
-  return { ok: true, asset: row, renamed: out.renamed, folder: f.folder, folderCreated: f.created }
+  const out: WriteOutcome | null = opts.force ? null : sameFileInFolder(project, dir, name, data)
+  const written = out ?? writeProjectFile(project, dir, name, data)
+  if (!written.ok) return written
+  const row = registerAsset(item.id, written.rel, written.name, sha, written.bytes, opts.createdBy ?? null)
+  return { ok: true, asset: row, renamed: written.renamed, folder: f.folder, folderCreated: f.created }
 }
 
 export type ChatRefOutcome =
@@ -1612,7 +1617,8 @@ export function attachChatReference(item: WorkItemRow, name: string, data: Buffe
   const f = ensureWorkItemFolder(item)
   if (!f.ok) return f
   const dir = agentRefsFolderFor(project, f.folder, opts.lang) ?? f.folder
-  const out = writeProjectFile(project, dir, name, data)
+  // The same file attached to the chat again is the one already there, not a "name (2)" twin (Boss TG 3481).
+  const out = sameFileInFolder(project, dir, name, data) ?? writeProjectFile(project, dir, name, data)
   if (!out.ok) return out
   return { ok: true, rel: out.rel, name: out.name, renamed: out.renamed }
 }
