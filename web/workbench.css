@@ -732,6 +732,9 @@
   .wb-split-chat > .wb-chat > .wb-chat-log { flex: 1 1 0; min-height: 60px; max-height: none; }
   .wb-split-chat > .wb-chat > .wb-chat-tools { flex: 0 1 28%; min-height: 48px; max-height: none; }
   .wb-split-work { margin-left: 4px; }
+  /* The grid is `align-items: start`, which left the handle a 48px stub at the top of the frame; it runs the whole
+     height of the frame and the grip sits in the middle, as in the Simple view. */
+  .wb-split-divider { align-self: stretch; }
 }
 .wb-grid-aside { grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr); }
 .wb-split-pick { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
