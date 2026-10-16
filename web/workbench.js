@@ -8872,7 +8872,61 @@
         + esc(t(WB.docFinalizing ? 'workbench.outline.finalizing' : 'workbench.outline.finalize')) + '</button></p>'
         + '</div>'
     }
-    return '<div class="wb-outline-pdf">' + tools + finalLine + sentBoxHtml(o, f, ro) + courtBoxHtml(ro) + fin + '</div>'
+    return '<div class="wb-outline-pdf">' + tools + mailDraftBoxHtml(o, ro) + finalLine + sentBoxHtml(o, f, ro) + courtBoxHtml(ro) + fin + '</div>'
+  }
+
+  /**
+   * E-MAIL DRAFT (.eml) of the document: the document and every annex as PDF attachments, made by Marveen and refreshed by
+   * itself when the text or an annex changes -- so the PDF in the mail is never an older one. Nothing is sent: the .eml
+   * opens in the mail program as a message still to be sent.
+   */
+  function mailSize(n) {
+    return n >= 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' kB'
+  }
+  function mailDraftBoxHtml(o, ro) {
+    if (ro && !o.mail_draft) return ''
+    if (!o.sections || !o.sections.length) return ''
+    var d = o.mail_draft
+    var fm = WB.mailForm && WB.mailForm.id === WB.selectedId ? WB.mailForm : null
+    var v = function (k) { return fm && fm[k] !== undefined ? fm[k] : (d ? d[k] : '') }
+    var status = ''
+    var list = ''
+    if (d) {
+      var warn = d.state !== 'current'
+      status = '<p class="' + (warn ? 'wb-doc-low' : 'wb-ok') + '" role="status">' + (warn ? '⚠ ' : '✓ ') + esc(t('workbench.mail.state.' + d.state)) + '</p>'
+      list = '<p><a href="/api/life/file?rel=' + escA(encodeURIComponent(d.file)) + '" download title="' + escA(d.file_name) + '">✉ ' + esc(d.file_name) + '</a> '
+        + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.file) + '">' + esc(t('workbench.mail.open_folder')) + '</button></p>'
+        + '<p class="wb-hint">' + esc(t('workbench.mail.attached', { n: d.attachments.length, size: mailSize(d.total_bytes) })) + '</p>'
+        + '<ul class="wb-sent-list">' + d.attachments.map(function (a) {
+          return '<li class="wb-sent-row">📎 ' + esc(a.name) + ' <span class="wb-muted">PDF · ' + esc(mailSize(a.bytes)) + '</span></li>'
+        }).join('') + '</ul>'
+        + (d.total_bytes > 20 * 1048576 ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.too_big', { size: mailSize(d.total_bytes) })) + '</p>' : '')
+    }
+    var form = ro ? '' : '<form id="wbMailForm" class="wb-mail-form">'
+      + '<label>' + esc(t('workbench.mail.to')) + ' <input type="text" id="wbMailTo" maxlength="500" value="' + escA(v('to')) + '" placeholder="' + escA(t('workbench.mail.to_ph')) + '"></label>'
+      + '<label>' + esc(t('workbench.mail.cc')) + ' <input type="text" id="wbMailCc" maxlength="500" value="' + escA(v('cc')) + '"></label>'
+      + '<label>' + esc(t('workbench.mail.subject')) + ' <input type="text" id="wbMailSubject" maxlength="300" value="' + escA(v('subject')) + '" placeholder="' + escA(t('workbench.mail.subject_ph')) + '"></label>'
+      + '<label>' + esc(t('workbench.mail.body')) + ' <textarea id="wbMailBody" rows="6" maxlength="20000" placeholder="' + escA(t('workbench.mail.body_ph')) + '">' + esc(v('body')) + '</textarea></label>'
+      + '<p><button type="submit" class="wb-btn"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t(WB.mailBusy ? 'workbench.mail.making' : d ? 'workbench.mail.update' : 'workbench.mail.make')) + '</button></p></form>'
+    return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.mail.hint')) + '</p>' + status + list + form + '</div>'
+  }
+  function mailDraftSave() {
+    var id = WB.selectedId
+    if (!id || archived() || WB.mailBusy) return
+    var gv = function (el) { var x = document.getElementById(el); return x ? String(x.value) : '' }
+    var payload = { to: gv('wbMailTo').trim(), cc: gv('wbMailCc').trim(), subject: gv('wbMailSubject').trim(), body: gv('wbMailBody') }
+    WB.mailBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/mail-draft', payload).then(function (r) {
+      WB.mailBusy = false
+      if (WB.selectedId === id && WB.detail && r.ok && r.data && r.data.outline) {
+        WB.detail.outline = r.data.outline
+        WB.mailForm = null
+        window.showToast(t(r.data.new_file ? 'workbench.mail.done_new' : 'workbench.mail.done'))
+      } else if (!r.ok) window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+      render()
+    })
   }
 
   /**
@@ -20750,6 +20804,15 @@
     api('PATCH', '/api/workbench/project-docs/' + encodeURIComponent(pdId), { project: pid, role: e.target.value }).then(function (r) { if (WB.projectId === pid) pdApply(r) })
   })
 
+  // The e-mail draft form keeps what is typed while the page redraws itself (a background refresh must not eat it).
+  document.addEventListener('input', function (e) {
+    if (!WB.open || !e.target || !WB.selectedId) return
+    var k = { wbMailTo: 'to', wbMailCc: 'cc', wbMailSubject: 'subject', wbMailBody: 'body' }[e.target.id]
+    if (!k) return
+    if (!WB.mailForm || WB.mailForm.id !== WB.selectedId) WB.mailForm = { id: WB.selectedId }
+    WB.mailForm[k] = e.target.value
+  })
+
   document.addEventListener('submit', function (e) {
     if (!WB.open) return
     if (e.target && e.target.id === 'wbSentForm') {
@@ -20758,6 +20821,7 @@
       outlineCall('POST', '/sent', { date: gv('wbSentDate'), time: gv('wbSentTime'), recipient: gv('wbSentRecipient'), method: gv('wbSentMethod'), reference: gv('wbSentRef') })
       return
     }
+    if (e.target && e.target.id === 'wbMailForm') { e.preventDefault(); mailDraftSave(); return }
     if (e.target && e.target.id === 'wbNewForm') { e.preventDefault(); create() }
     if (e.target && e.target.id === 'wbTextEditForm') { e.preventDefault(); saveTextEdit() }
     if (e.target && e.target.id === 'wbSendForm') { e.preventDefault(); sendRequest() }

@@ -1,0 +1,344 @@
+// E-MAIL DRAFT OF A DOCUMENT (Boss TG, 2026-10-16): "attach the German PDF to the draft as a PDF -- and it must be
+// built into Marveen, so a fresh install does it too".
+//
+// A document work item can have ONE e-mail draft: an .eml file (X-Unsent: 1, so Outlook / Thunderbird / Apple Mail open it
+// as a message still to be sent) lying in the item's own folder. Its attachments are made by Marveen, never by hand:
+//   - the document itself as a PDF (the plain twin, no watermark -- what the Word copy says right now);
+//   - every annex as its own PDF, named "<label> – <title>.pdf" (annex mode "separate"), or ONE PDF with the annex covers
+//     (annex mode "combined").
+// The draft is a MIRROR like the Word copy: whenever the document or an annex changes, the attachments are rebuilt, so the
+// PDF in the mail is never an older one than the text on the screen. A file the owner edited or saved elsewhere (its hash
+// differs from what we wrote) is left alone; an explicit "make it" then writes a new file next to it, nothing is overwritten.
+//
+// This does NOT send anything. The owner opens the .eml and presses send in the mail program.
+
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { getDb } from './db.js'
+import { currentOwnerName, OWNER_NAME_PLACEHOLDER } from './config.js'
+import { getProject } from './projects.js'
+import { freeFileName, projectFileTarget } from './project-files.js'
+import { writeBlockReason } from './git-guard.js'
+import { ol } from './owner-lang.js'
+import { ensureWorkItemFolder } from './workbench-assets.js'
+import { annexPdfs, annexContentPdf, mergePdfs, type PackageError } from './workbench-docpackage.js'
+import { docSettings, listAnnexes } from './workbench-docannex.js'
+import { contentHash, docLangFor, fileStem, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
+import { hasDocModel } from './workbench-docmodel.js'
+import type { DocLang } from './workbench-docrender.js'
+import type { WorkItemRow } from './workbench.js'
+
+// ---------------------------------------------------------------------------
+// The message: pure, no I/O
+// ---------------------------------------------------------------------------
+
+export interface MailAttachment { name: string; data: Buffer; type?: string }
+export interface MailInput { to: string; cc?: string; subject: string; body: string; attachments: MailAttachment[]; boundary?: string }
+
+const CRLF = '\r\n'
+const ASCII = /^[\x20-\x7e]*$/
+
+/** One-line header text: no line breaks, ever (a header injection stops here). */
+const oneLine = (s: string): string => s.replace(/[\r\n\u0085\u2028\u2029]+/g, ' ').trim()
+
+/** An RFC 2047 encoded word (UTF-8, base64), cut on character boundaries so each word stays under the 75 character limit. */
+export function encodeHeaderText(raw: string): string {
+  const s = oneLine(raw)
+  if (ASCII.test(s)) return s
+  const words: string[] = []
+  let cur = ''
+  for (const ch of s) {
+    if (Buffer.byteLength(cur + ch, 'utf-8') > 42) { words.push(cur); cur = '' }
+    cur += ch
+  }
+  if (cur) words.push(cur)
+  return words.map((w) => `=?utf-8?B?${Buffer.from(w, 'utf-8').toString('base64')}?=`).join(CRLF + ' ')
+}
+
+/** Base64 in 76 character lines. */
+function base64Lines(b: Buffer): string {
+  const all = b.toString('base64')
+  const out: string[] = []
+  for (let i = 0; i < all.length; i += 76) out.push(all.slice(i, i + 76))
+  return out.join(CRLF)
+}
+
+/** RFC 5987 percent-encoding of one character run (parentheses, quotes and the like are encoded too). */
+const pct = (s: string): string => encodeURIComponent(s).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase())
+
+/** `filename` parameter lines: plain quoted for ASCII, RFC 2231 continuations (UTF-8) otherwise. */
+export function fileNameParam(name: string): string {
+  const n = oneLine(name).replace(/["\\]/g, '_')
+  if (ASCII.test(n)) return ` filename="${n}"`
+  const chunks: string[] = []
+  let cur = ''
+  for (const ch of n) {
+    if (cur && pct(cur + ch).length > 54) { chunks.push(cur); cur = '' }
+    cur += ch
+  }
+  if (cur) chunks.push(cur)
+  return chunks.map((c, i) => ` filename*${i}*=${i === 0 ? "utf-8''" : ''}${pct(c)}`).join(';' + CRLF) + ''
+}
+
+/** An address list (comma / semicolon / space separated) cleaned to "a@x.y, b@x.y", or null when one entry is not an address. */
+export function cleanAddresses(raw: unknown): string | null {
+  const s = typeof raw === 'string' ? raw.trim() : ''
+  if (!s) return ''
+  const parts = s.split(/[,;\s]+/).filter(Boolean)
+  const ok = /^[^\s@<>(),;:"[\]\\]+@[^\s@<>(),;:"[\]\\]+\.[^\s@<>(),;:"[\]\\]+$/
+  if (!parts.length || parts.some((p) => !ok.test(p))) return null
+  return parts.join(', ')
+}
+
+/** The whole .eml (RFC 5322 / MIME), CRLF line ends. `X-Unsent: 1` makes the mail program open it as a draft. */
+export function buildEml(input: MailInput): Buffer {
+  const boundary = input.boundary || `----=_Marveen_${createHash('sha256').update(String(Date.now()) + input.subject).digest('hex').slice(0, 24)}`
+  const head: string[] = []
+  if (input.to) head.push(`To: ${oneLine(input.to)}`)
+  if (input.cc) head.push(`Cc: ${oneLine(input.cc)}`)
+  head.push(`Subject: ${encodeHeaderText(input.subject)}`)
+  head.push('X-Unsent: 1', 'MIME-Version: 1.0')
+  head.push(`Content-Type: multipart/mixed; boundary="${boundary}"`)
+  const text = input.body.replace(/\r\n|\r|\n/g, CRLF)
+  const parts: string[] = [
+    `--${boundary}${CRLF}Content-Type: text/plain; charset="utf-8"${CRLF}Content-Transfer-Encoding: base64${CRLF}${CRLF}${base64Lines(Buffer.from(text, 'utf-8'))}`,
+  ]
+  for (const a of input.attachments) {
+    parts.push(
+      `--${boundary}${CRLF}Content-Type: ${a.type || 'application/pdf'}${CRLF}Content-Transfer-Encoding: base64${CRLF}Content-Disposition: attachment;${CRLF}${fileNameParam(a.name)}${CRLF}${CRLF}${base64Lines(a.data)}`,
+    )
+  }
+  return Buffer.from(head.join(CRLF) + CRLF + CRLF + parts.join(CRLF) + CRLF + `--${boundary}--` + CRLF, 'utf-8')
+}
+
+// ---------------------------------------------------------------------------
+// The default text, in the document's own language
+// ---------------------------------------------------------------------------
+
+const DEFAULT_BODY: Record<DocLang, (title: string, annexes: number, who: string) => string> = {
+  de: (title, n, who) => `Sehr geehrte Damen und Herren,\n\nanbei übersende ich Ihnen das Schreiben „${title}“${n ? ` mit ${n} Anlage${n === 1 ? '' : 'n'}` : ''} als PDF-Datei${n ? 'en' : ''} im Anhang.\n\nMit freundlichen Grüßen${who ? '\n' + who : ''}`,
+  en: (title, n, who) => `Dear Sir or Madam,\n\nplease find attached the letter "${title}"${n ? ` with ${n} annex${n === 1 ? '' : 'es'}` : ''} as PDF file${n ? 's' : ''}.\n\nKind regards${who ? '\n' + who : ''}`,
+  hu: (title, n, who) => `Tisztelt Címzett!\n\nCsatolva küldöm a(z) „${title}” című levelet${n ? ` és ${n} mellékletét` : ''} PDF-fájlként.\n\nÜdvözlettel${who ? '\n' + who : ''}`,
+}
+
+export function defaultMailBody(item: WorkItemRow, lang: DocLang, annexCount: number): string {
+  const who = currentOwnerName()
+  return (DEFAULT_BODY[lang] || DEFAULT_BODY.en)(item.title, annexCount, who && who !== OWNER_NAME_PLACEHOLDER ? who : '')
+}
+
+// ---------------------------------------------------------------------------
+// The stored draft
+// ---------------------------------------------------------------------------
+
+let tablesDb: unknown = null
+function ensureMailDraftTable(): void {
+  const db = getDb()
+  if (tablesDb === db) return
+  db.exec(`CREATE TABLE IF NOT EXISTS wb_doc_maildraft (
+    work_item_id TEXT PRIMARY KEY,
+    file_name TEXT NOT NULL,
+    sha TEXT NOT NULL,
+    package_key TEXT NOT NULL,
+    to_addr TEXT NOT NULL DEFAULT '',
+    cc_addr TEXT NOT NULL DEFAULT '',
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    attachments_json TEXT NOT NULL DEFAULT '[]',
+    updated_at INTEGER NOT NULL
+  )`)
+  tablesDb = db
+}
+
+const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex')
+
+interface Row { file_name: string; sha: string; package_key: string; to_addr: string; cc_addr: string; subject: string; body: string; attachments_json: string; updated_at: number }
+const getRow = (itemId: string): Row | undefined => {
+  ensureMailDraftTable()
+  return getDb().prepare('SELECT file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at FROM wb_doc_maildraft WHERE work_item_id = ?').get(itemId) as Row | undefined
+}
+
+export interface MailDraftAttachment { name: string; bytes: number; kind: 'document' | 'annex' | 'package' }
+export interface MailDraftView {
+  /** Where the file lies (project-relative), and its name. */
+  file: string
+  file_name: string
+  to: string
+  cc: string
+  subject: string
+  body: string
+  attachments: MailDraftAttachment[]
+  total_bytes: number
+  updated_at: number
+  /** ok: the file is the one we wrote and it matches the document; the rest says what the owner must do. */
+  state: 'current' | 'outdated' | 'edited' | 'missing'
+}
+
+/** Mail servers refuse messages above roughly this size (a base64 attachment is a third bigger than the file). */
+export const MAIL_SOFT_LIMIT_BYTES = 20 * 1024 * 1024
+
+function folderOf(item: WorkItemRow): { dirAbs: string; dirRel: string } | null {
+  const project = getProject(item.project_id)
+  if (!project) return null
+  const folder = ensureWorkItemFolder(item)
+  if (!folder.ok) return null
+  const t = projectFileTarget(project, folder.folder)
+  return t.ok ? { dirAbs: t.dirAbs, dirRel: t.dirRel } : null
+}
+
+/** The draft as the page shows it, measured now (cheap: one row and one stat; nothing is rendered). Null when there is none. */
+export function mailDraftView(item: WorkItemRow): MailDraftView | null {
+  const row = getRow(item.id)
+  if (!row) return null
+  const dir = folderOf(item)
+  let attachments: MailDraftAttachment[] = []
+  try { attachments = JSON.parse(row.attachments_json) as MailDraftAttachment[] } catch { /* a bad row shows no list */ }
+  let state: MailDraftView['state'] = 'missing'
+  if (dir) {
+    const abs = join(dir.dirAbs, row.file_name)
+    if (existsSync(abs)) {
+      let same = false
+      try { same = sha(readFileSync(abs)) === row.sha } catch { /* unreadable: counts as edited */ }
+      state = !same ? 'edited' : row.package_key === packageKey(item, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
+    }
+  }
+  return {
+    file: dir ? `${dir.dirRel}/${row.file_name}` : row.file_name, file_name: row.file_name,
+    to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: row.body,
+    attachments, total_bytes: attachments.reduce((n, a) => n + a.bytes, 0), updated_at: row.updated_at, state,
+  }
+}
+
+/** What the attachments are made from: the document, its annexes (name, size, time) and the mode, plus the mail's own text. */
+function packageKey(item: WorkItemRow, to: string, cc: string, subject: string, body: string): string {
+  const mode = docSettings(item.id).annex_mode
+  return sha(Buffer.from([contentHash(item), mode, to, cc, subject, body].join('\n'), 'utf-8'))
+}
+
+export type CollectResult =
+  | { ok: true; files: (MailAttachment & { kind: MailDraftAttachment['kind'] })[] }
+  | { ok: false; code: string; detail: string | null; label?: string }
+
+function packageFail(e: PackageError & { ok: false }): { ok: false; code: string; detail: string | null; label?: string } {
+  return { ok: false, code: e.code, detail: e.detail, label: 'label' in e ? e.label : undefined }
+}
+
+/** The PDFs that go with the mail, made now from the document as it is. */
+export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Promise<CollectResult> {
+  const lang = docLangFor(item, ui)
+  const main = await renderPlainPdf(item, ui)
+  if (!main.ok) return { ok: false, code: main.code, detail: main.detail }
+  const stem = fileStem(item.title)
+  const resolve = resolverFor(item)
+  const annexes = listAnnexes(item.id, resolve)
+  if (!annexes.length) return { ok: true, files: [{ name: `${stem}.pdf`, data: main.pdf, kind: 'document' }] }
+  if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
+  if (docSettings(item.id).annex_mode === 'combined') {
+    const ax = await annexPdfs(item.id, resolve, { lang: lang === 'hu' ? 'hu' : 'en' })
+    if (!ax.ok) return packageFail(ax)
+    const all = await mergePdfs([main.pdf, ...ax.annexes.map((a) => a.pdf)])
+    if (!all.ok) return packageFail(all)
+    return { ok: true, files: [{ name: `${stem}.pdf`, data: all.pdf, kind: 'package' }] }
+  }
+  const files: (MailAttachment & { kind: MailDraftAttachment['kind'] })[] = [{ name: `${stem}.pdf`, data: main.pdf, kind: 'document' }]
+  for (const a of annexes) {
+    const f = resolve(a.path)
+    if (!f) return { ok: false, code: 'annex_missing', detail: a.path, label: a.label }
+    const c = await annexContentPdf(f.abs, f.name)
+    if (!c.ok) return { ok: false, code: c.code === 'annex_convert_failed' && c.convert ? c.convert : c.code, detail: c.detail, label: a.label }
+    files.push({ name: `${fileStem(`${a.label} – ${a.title}`)}.pdf`, data: c.pdf, kind: 'annex' })
+  }
+  return { ok: true, files }
+}
+
+export type MailDraftOutcome =
+  | { ok: true; draft: MailDraftView; written: boolean; new_file: boolean }
+  | { ok: false; code: 'bad_input' | 'outline_empty' | 'no_folder' | 'write_failed' | string; detail: string | null; label?: string }
+
+export interface MailDraftInput { to?: unknown; cc?: unknown; subject?: unknown; body?: unknown }
+
+const TEXT_MAX = 20_000
+const SUBJECT_MAX = 300
+
+/**
+ * Make (or remake) the draft. The owner's explicit action: whatever the page shows is what is written. Fields left out keep
+ * the stored value; with no stored value the subject is the document's title and the body a short default text in the
+ * document's own language. A file the owner changed is not overwritten: the new one gets a free name next to it.
+ */
+export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui: 'hu' | 'en'): Promise<MailDraftOutcome> {
+  if (!hasDocModel(item.id)) return { ok: false, code: 'outline_empty', detail: null }
+  const prev = getRow(item.id)
+  const to = input.to === undefined ? (prev?.to_addr ?? '') : cleanAddresses(input.to)
+  const cc = input.cc === undefined ? (prev?.cc_addr ?? '') : cleanAddresses(input.cc)
+  if (to === null || cc === null) return { ok: false, code: 'bad_input', detail: 'address' }
+  const lang = docLangFor(item, ui)
+  const subjectRaw = input.subject === undefined ? (prev?.subject ?? '') : String(input.subject)
+  const subject = oneLine(subjectRaw) || item.title
+  if (subject.length > SUBJECT_MAX) return { ok: false, code: 'bad_input', detail: 'subject' }
+  const bodyRaw = input.body === undefined ? (prev?.body ?? '') : String(input.body)
+  if (bodyRaw.length > TEXT_MAX) return { ok: false, code: 'bad_input', detail: 'body' }
+  const body = bodyRaw.trim() ? bodyRaw : defaultMailBody(item, lang, listAnnexes(item.id).length)
+
+  const dir = folderOf(item)
+  if (!dir) return { ok: false, code: 'no_folder', detail: null }
+  const made = await collectAttachments(item, ui)
+  if (!made.ok) return made
+
+  const eml = buildEml({ to, cc, subject, body, attachments: made.files })
+  let name = prev?.file_name || `${ol('Levélpiszkozat', 'E-mail draft')} - ${fileStem(item.title)}.eml`
+  let newFile = false
+  const exists = existsSync(join(dir.dirAbs, name))
+  if (exists) {
+    let mine = false
+    try { mine = !!prev && sha(readFileSync(join(dir.dirAbs, name))) === prev.sha } catch { /* unreadable: not ours to overwrite */ }
+    if (!mine) { name = freeFileName(dir.dirAbs, name); newFile = true }
+  } else if (!prev) newFile = true
+  const blocked = writeBlockReason(`${dir.dirRel}/${name}`)
+  if (blocked) return { ok: false, code: 'write_failed', detail: blocked }
+  try {
+    writeFileSync(join(dir.dirAbs, name), eml)
+  } catch (e) {
+    return { ok: false, code: 'write_failed', detail: e instanceof Error ? e.message : String(e) }
+  }
+  const attachments: MailDraftAttachment[] = made.files.map((f) => ({ name: f.name, bytes: f.data.length, kind: f.kind }))
+  ensureMailDraftTable()
+  getDb().prepare(`INSERT INTO wb_doc_maildraft (work_item_id, file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(work_item_id) DO UPDATE SET file_name = excluded.file_name, sha = excluded.sha, package_key = excluded.package_key,
+      to_addr = excluded.to_addr, cc_addr = excluded.cc_addr, subject = excluded.subject, body = excluded.body,
+      attachments_json = excluded.attachments_json, updated_at = excluded.updated_at`)
+    .run(item.id, name, sha(eml), packageKey(item, to, cc, subject, body), to, cc, subject, body, JSON.stringify(attachments), Date.now())
+  const draft = mailDraftView(item)
+  return draft ? { ok: true, draft, written: true, new_file: newFile } : { ok: false, code: 'write_failed', detail: null }
+}
+
+/**
+ * The automatic part, called after every refresh of the Word / PDF twin: when the item has a draft that we wrote, nobody
+ * touched, and the document (or an annex) has changed since, the attachments are made again -- the mail never carries an
+ * older PDF than the text. Best effort and silent: a failure leaves the old file, and the page says "outdated".
+ */
+export async function refreshMailDraft(item: WorkItemRow, ui: 'hu' | 'en'): Promise<void> {
+  try {
+    const row = getRow(item.id)
+    if (!row) return
+    if (packageKey(item, row.to_addr, row.cc_addr, row.subject, row.body) === row.package_key) return
+    const dir = folderOf(item)
+    if (!dir) return
+    const abs = join(dir.dirAbs, row.file_name)
+    if (!existsSync(abs) || sha(readFileSync(abs)) !== row.sha) return
+    await saveMailDraft(item, {}, ui)
+  } catch { /* the stored draft stands */ }
+}
+
+/** Stop tracking (the file itself stays where it is). */
+export function forgetMailDraft(itemId: string): boolean {
+  ensureMailDraftTable()
+  return getDb().prepare('DELETE FROM wb_doc_maildraft WHERE work_item_id = ?').run(itemId).changes > 0
+}
+
+/** Size of the file now, for the tests and the page (0 when it is not there). */
+export function mailDraftFileBytes(item: WorkItemRow): number {
+  const row = getRow(item.id)
+  const dir = row ? folderOf(item) : null
+  try { return row && dir ? statSync(join(dir.dirAbs, row.file_name)).size : 0 } catch { return 0 }
+}

@@ -299,6 +299,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
+    name: 'doc.mailDraft',
+    description: 'Make (or remake) the e-mail DRAFT of this document: an .eml file in the work item folder that opens in the owner\'s mail program as a message still to be sent, with the document as a PDF attachment and every annex as its own PDF (annex mode "combined": one PDF). The attachments are made by Marveen from the document as it is NOW and are refreshed automatically whenever the text or an annex changes -- never attach a PDF to a draft by hand, never write an .eml with file.write. to / cc: addresses (optional, several separated by comma); subject (default: the document title); body (default: a short text in the document\'s own language -- better write one, in the language of the recipient). Nothing is sent: the owner opens the .eml and presses send. Tell the owner the file name and what is attached (the answer lists the attachments).',
+    input: 'id (optional); to (optional); cc (optional); subject (optional); body (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
     name: 'doc.check',
     description: 'The check before finalizing (every section done, no missing data, no unverified reference, every quote machine-verified, every owner statement confirmed by the owner, no claim without a verified source, annexes in step, and the consistency check: the same name, case number, address written differently, a table total that does not add up, a date that does not exist or breaks the order of a dated table, a date or amount in a claim that differs from its quoted source). Says what is still open, and whether a final PDF exists and is still current. Fix a consistency mismatch in the text when it is a mistake; only the owner can mark one as intentional. You can NOT confirm owner statements and you can NOT finalize -- only the owner can, with a click in the Workbench (the draft PDF is also the owner\'s button).',
     input: 'id (optional)',
