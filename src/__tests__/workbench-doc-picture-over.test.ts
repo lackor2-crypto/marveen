@@ -33,6 +33,27 @@ describe('the PDF / Word source', () => {
     expect(x).not.toContain('ImageFree1')
     expect(x).not.toContain('ImgWrap1')
   })
+  it('the frame lies inside the paragraph it lies over, so no line of its own pushes the text (measured: 1.15 pt per picture)', () => {
+    const x = fodt([
+      { kind: 'paragraph', text: 'Aláírás:' },
+      { kind: 'image', text: 'k.png#w=30&a=l&x=60&y=0&o=1', img: PNG },
+      { kind: 'paragraph', text: 'Kelt' },
+    ])
+    expect(x).not.toContain('<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="ImgOver1"')
+    expect(x).toMatch(/<text:p text:style-name="Body"><draw:frame draw:style-name="ImgOver1"[^>]*text:anchor-type="paragraph"[\s\S]*<\/draw:frame>Kelt<\/text:p>/)
+    expect(x.indexOf('Aláírás:')).toBeLessThan(x.indexOf('ImgOver1" draw:name'))
+  })
+  it('a run of pictures all lie over the same next paragraph; one at the end of the chapter keeps its own anchor', () => {
+    const run = fodt([
+      { kind: 'image', text: 'a.png#w=30&a=l&x=10&y=0&o=1', img: PNG },
+      { kind: 'image', text: 'b.png#w=30&a=l&x=50&y=0&o=1', img: PNG },
+      { kind: 'paragraph', text: 'Kelt' },
+    ])
+    expect(run).not.toContain('<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="ImgOver')
+    expect(run).toMatch(/<text:p text:style-name="Body"><draw:frame draw:style-name="ImgOver1"[\s\S]*<draw:frame draw:style-name="ImgOver2"[\s\S]*Kelt<\/text:p>/)
+    const last = fodt([{ kind: 'paragraph', text: 'Kelt' }, { kind: 'image', text: 'k.png#w=30&a=l&x=60&y=0&o=1', img: PNG }])
+    expect(last).toContain('<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="ImgOver1"')
+  })
   it('the old free place keeps its flow rendering', () => {
     const x = fodt([{ kind: 'image', text: 'k.png#w=30&a=l&x=35&y=20', img: PNG }])
     expect(x).toContain('ImageFree1')
