@@ -11,7 +11,7 @@ import { createWorkItem, createWorkItemVersion, getWorkItem, listWorkItems, list
 import {
   assetSupport, folderNameFromTitle, attachAsset, listWorkItemAssets, tidyWorkItemIntoFolder,
   listWorkItemAssetsSynced, renameWorkItemFolder, adoptExistingFolder, registerAsset,
-  migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders,
+  migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders, listWorkFolders,
 } from '../workbench-assets.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
 import { rootStrays, resolveRootStrays } from '../workbench-root-guard.js'
@@ -176,6 +176,20 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     if (!f.ok) throw new Error('mappa')
     const dir = join(projDir(), f.folder)
     for (const n of ['Elkészített iratok', 'Feltöltések', 'Mellékletek']) expect(existsSync(join(dir, n))).toBe(true)
+  })
+
+  it('Boss TG 3043: a material registered from the Life tree shows in Uploads as a link, with no copy on the disk', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    mkdirSync(join(depot, 'Család', 'Hatosag'), { recursive: true })
+    writeFileSync(join(depot, 'Család', 'Hatosag', 'kerelem.pdf'), '%PDF-k')
+    getDb().prepare(`INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES ('lnk1', ?, ?, ?, 'readable', 'x', 6, 1)`)
+      .run(item.id, 'Család/Hatosag/kerelem.pdf', 'Kerelem (aláírt).pdf')
+    const cur = getProject(pid) as ProjectRow
+    const rows = (listWorkFolders(cur).files[`${f.folder}/Feltöltések`] || []).filter((x) => x.annex)
+    expect(rows.map((x) => [x.name, x.rel])).toEqual([['Kerelem (aláírt).pdf', 'Család/Hatosag/kerelem.pdf']])
+    expect(existsSync(join(depot, f.folder, 'Feltöltések', 'Kerelem (aláírt).pdf'))).toBe(false)
   })
 
   it('#625: only a drawing / deck JSON no work item uses is listed; approval trashes it, an item JSON is never a candidate', () => {

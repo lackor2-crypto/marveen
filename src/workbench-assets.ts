@@ -487,6 +487,33 @@ function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<s
   }
 }
 
+/**
+ * Boss TG 3043: a registered material that lives in the Life tree (outside the item's own folder) stands in the item's
+ * Uploads folder as a link, so the owner sees it there without a second copy on the disk. Flagged `annex` like the
+ * annex links: the page offers no delete / rename / move on it (a delete would hit the real Life-tree file).
+ */
+function linkedAssetRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): void {
+  let rows: { folder: string; path: string; name: string }[] = []
+  try {
+    rows = getDb().prepare(`SELECT w.folder AS folder, a.path AS path, a.name AS name FROM work_item_assets a JOIN work_items w ON w.id = a.work_item_id
+      WHERE w.project_id = ? AND w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != '' AND a.removed_at IS NULL ORDER BY a.created_at`).all(project.id) as typeof rows
+  } catch { return }
+  const have = new Set(folders)
+  for (const r of rows) {
+    const rel = String(r.path ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
+    if (!rel || rel.includes(`/${r.folder}/`) || rel.startsWith(`${r.folder}/`)) continue
+    const key = ['Felt\u00f6lt\u00e9sek', 'Uploads'].map((n) => `${r.folder}/${n}`).find((k) => have.has(k))
+    if (!key) continue
+    const name = r.name || rel.slice(rel.lastIndexOf('/') + 1)
+    if ((files[key] || []).some((f) => f.name === name || f.rel === rel)) continue
+    const abs = resolveLifePath(rel)
+    if (!abs) continue
+    let size = 0
+    try { const st = statSync(abs); if (!st.isFile()) continue; size = st.size } catch { continue }
+    ;(files[key] = files[key] || []).push({ name, size, rel, linked: true, annex: true })
+  }
+}
+
 /** `outside: false`: only the box (the file actions that check a path against the box need no more). */
 export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] } {
   const box = findWorkItemsBox(project)
@@ -535,6 +562,7 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
   }
   walk(t.dirAbs, box, 1)
   linkedAnnexRows(project, out, files)
+  linkedAssetRows(project, out, files)
   return { box, folders: out, truncated, files, outside, root_name: rootName, own_folders: out.filter((f) => ownFolders.has(f)) }
 }
 
