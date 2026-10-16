@@ -1681,7 +1681,7 @@
     if (f.annex) {
       return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '">'
         + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.annexlink.hint', { path: f.rel })) + '">'
-        + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked">\ud83d\udd17</span> ' + esc(f.name) + '</span>'
+        + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' + esc(f.name) + '</span>'
         + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
     }
     return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
