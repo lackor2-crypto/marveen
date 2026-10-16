@@ -795,15 +795,18 @@ export function confirmOwnerClaim(itemId: string, claimId: string, by: string | 
   return { ok: true, claim: claimView(c.id) as ClaimView }
 }
 
-/** A meg fuggo (a feldolgozas alatt allo irat miatt meg nem ellenorzott) irat-forrasok ujraellenorzese. */
+/** A meg fuggo (a feldolgozas alatt allo irat miatt meg nem ellenorzott) irat-forrasok ujraellenorzese.
+ *  Also a source that was "not found" only because its file was missing from the project folder (e.g. after a restore)
+ *  is checked again, so it turns green by itself once the file is back (Boss, 2026-10-16). */
 export function recheckPendingSources(itemId: string, world: SourceWorld): number {
   ensureDocModelTables()
   const rows = getDb().prepare(`SELECT s.* FROM wb_doc_sources s JOIN wb_doc_claims c ON c.id = s.claim_id
-    WHERE c.work_item_id = ? AND s.kind = 'document' AND s.verdict = 'pending'`).all(itemId) as SourceRow[]
+    WHERE c.work_item_id = ? AND s.kind = 'document'
+      AND (s.verdict = 'pending' OR (s.verdict = 'not_found' AND s.detail = 'the file is not in the project folder'))`).all(itemId) as SourceRow[]
   let changed = 0
   for (const s of rows) {
     const r = checkDocumentSource(world, s.path || '', s.page || 0, s.quote || '')
-    if (r.verdict !== 'pending') {
+    if (r.verdict !== 'pending' && !(s.verdict === 'not_found' && r.verdict === 'not_found' && r.detail === s.detail)) {
       getDb().prepare('UPDATE wb_doc_sources SET verdict = ?, detail = ?, checked_at = ? WHERE id = ?').run(r.verdict, r.detail, now(), s.id)
       changed++
     }
