@@ -8921,7 +8921,10 @@
         + esc(t(WB.docFinalizing ? 'workbench.outline.finalizing' : 'workbench.outline.finalize')) + '</button></p>'
         + '</div>'
     }
-    return '<div class="wb-outline-pdf">' + tools + mailDraftBoxHtml(o, ro) + finalLine + sentBoxHtml(o, f, ro) + courtBoxHtml(ro) + fin + '</div>'
+    // The order of the work: the final PDF first, then the e-mail draft that carries it, then the record of the sending.
+    var finalCurrent = !!(f && !f.stale)
+    var mailBox = finalCurrent || (o.mail_draft && !ro) ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
+    return '<div class="wb-outline-pdf">' + tools + finalLine + courtBoxHtml(ro) + fin + mailBox + sentBoxHtml(o, f, ro) + '</div>'
   }
 
   /**
@@ -8932,7 +8935,7 @@
   function mailSize(n) {
     return n >= 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' kB'
   }
-  function mailDraftBoxHtml(o, ro) {
+  function mailDraftBoxHtml(o, ro, finalCurrent) {
     if (ro && !o.mail_draft) return ''
     if (!o.sections || !o.sections.length) return ''
     var d = o.mail_draft
@@ -8972,7 +8975,7 @@
       + '<label>' + esc(t('workbench.mail.body')) + ' <textarea id="wbMailBody" rows="6" maxlength="20000" placeholder="' + escA(t('workbench.mail.body_ph')) + '">' + esc(v('body')) + '</textarea></label>'
       + '<p><button type="submit" class="wb-btn"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t(WB.mailBusy ? 'workbench.mail.making' : d ? 'workbench.mail.update' : 'workbench.mail.make')) + '</button></p></form>'
     return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
-      + '<p class="wb-hint">' + esc(t('workbench.mail.hint')) + '</p>' + status + list + form + toBox + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.mail.hint')) + '</p>' + (finalCurrent ? '' : '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>') + status + list + form + toBox + '</div>'
   }
   /** The Iroda mail accounts (the sender choice): loaded once, then the box is drawn again. */
   function mailAccountsLoad() {

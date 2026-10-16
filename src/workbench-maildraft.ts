@@ -26,7 +26,7 @@ import { ol } from './owner-lang.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
 import { annexPdfs, annexContentPdf, mergePdfs, type PackageError } from './workbench-docpackage.js'
 import { docSettings, listAnnexes } from './workbench-docannex.js'
-import { contentHash, docLangFor, fileStem, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
+import { contentHash, docLangFor, fileStem, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
 import { hasDocModel } from './workbench-docmodel.js'
 import type { DocLang } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
@@ -222,9 +222,15 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
 }
 
 /** What the attachments are made from: the document, its annexes (name, size, time) and the mode, plus the mail's own text. */
+/** The current final version (the PDFs of it are what the mail carries), '' when there is none or the text changed since. */
+function currentFinalId(item: WorkItemRow): string {
+  const f = finalState(item)
+  return f && !f.stale ? f.version_id : ''
+}
+
 function packageKey(item: WorkItemRow, from: string, to: string, cc: string, subject: string, body: string): string {
   const mode = docSettings(item.id).annex_mode
-  return sha(Buffer.from([contentHash(item), mode, from, to, cc, subject, body].join('\n'), 'utf-8'))
+  return sha(Buffer.from([contentHash(item), mode, currentFinalId(item), from, to, cc, subject, body].join('\n'), 'utf-8'))
 }
 
 export type CollectResult =
@@ -251,8 +257,30 @@ export function annexFileStem(label: string, title: string): string {
   return cut.replace(/[\s,;.–-]+$/u, '')
 }
 
+/**
+ * Once the document is finalized (and unchanged since), the mail carries the FINAL PDFs exactly as they were made: the
+ * submission and its annexes (or the one combined file). Null when there is no current final or a file is gone: the PDFs are
+ * then made from the document as it is now.
+ */
+function collectFinalFiles(item: WorkItemRow): (MailAttachment & { kind: MailDraftAttachment['kind'] })[] | null {
+  const f = finalState(item)
+  if (!f || f.stale) return null
+  const resolve = resolverFor(item)
+  const list = f.files && f.files.length ? f.files : [{ path: f.pdf_path, name: f.pdf_name, role: 'main' as const }]
+  if (!resolve) return null
+  const out: (MailAttachment & { kind: MailDraftAttachment['kind'] })[] = []
+  for (const x of list) {
+    const r = resolve(x.path)
+    if (!r) return null
+    try { out.push({ name: x.name, data: readFileSync(r.abs), kind: x.role === 'annex' ? 'annex' : x.role === 'bundle' ? 'package' : 'document' }) } catch { return null }
+  }
+  return out
+}
+
 /** The PDFs that go with the mail, made now from the document as it is. */
 export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Promise<CollectResult> {
+  const finals = collectFinalFiles(item)
+  if (finals) return { ok: true, files: finals }
   const lang = docLangFor(item, ui)
   const main = await renderPlainPdf(item, ui)
   if (!main.ok) return { ok: false, code: main.code, detail: main.detail }
