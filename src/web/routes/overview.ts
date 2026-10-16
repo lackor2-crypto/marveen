@@ -30,6 +30,7 @@ import { readUpstreamSyncStatus, readUpstreamSplitFiles } from '../upstream-sync
 import { readUpstreamChanges } from '../upstream-changes-io.js'
 import { measureState, startMeasure, remeasureStaleSnapshotOnce } from '../upstream-measure-runner.js'
 import { exactTmuxTarget } from '../tmux-target.js'
+import { detectReauthNeeded } from '../reauth-detect.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
 import { KEY_SERVICE_CATALOG } from '../key-service-dependents.js'
@@ -164,6 +165,23 @@ function usageScrapeSessions(accountId: string): string[] {
     if (live.length) return live
   } catch { /* nincs tmux vagy nincs session -- lasd lent */ }
   return [MAIN_CHANNELS_SESSION]
+}
+
+/**
+ * Is the account's own session signed out right now ("Not logged in")? A signed-out session has no rate-limit
+ * data: its status line keeps drawing the last numbers it saw (Boss 2026-10-16: the card said 5h 0% / 7d 100%
+ * while the pane said "Not logged in", and the agent itself reported ~90%). Those numbers must not be shown as a
+ * measurement. Best effort: any tmux failure -> false (absence of evidence is not evidence of a logout).
+ */
+export function accountSessionLoggedOut(accountId: string): boolean {
+  for (const session of usageScrapeSessions(accountId)) {
+    try {
+      const pane = execFileSync('/usr/bin/tmux', ['capture-pane', '-t', exactTmuxTarget(session), '-p'], { timeout: 3000 }).toString()
+      const st = detectReauthNeeded(pane)
+      if (st.needsReauth && st.source === 'status-line') return true
+    } catch { /* pane unavailable, try the next one */ }
+  }
+  return false
 }
 
 function scrapeClaudeAccountUsage(accountId: string): { usedPct: number | null; model: string | null; resetsAt: number | null; stale: boolean; capturedAt?: number | null } {
@@ -689,6 +707,8 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     // oldalt, holott a panelen ott allt a friss savja. Mostantol ugyanaz a ket
     // forras all mogotte, mint a tobbi fiok mogott.
     const mainLive = liveRow(MAIN_AGENT_ID)
+    // A signed-out session has no measurement: the numbers its status line still draws are history (see accountSessionLoggedOut).
+    const mainLoggedOut = !mainLive && accountSessionLoggedOut(MAIN_AGENT_ID)
     const mainSnapFresh = rlSnapshot ? !isStale(rlSnapshot.measuredAt, Date.now()) : false
     const mainScrape = (!mainLive && (measureNow || !mainSnapFresh || rlSnapshot?.fiveHour?.usedPct == null))
       ? scrapeClaudeAccountUsage(MAIN_AGENT_ID) : null
@@ -712,10 +732,10 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // pillanatkepbol/panelbol; a SZAZALEKOK viszont az elo merestol jonnek,
         // ha van.
         model: mainLiveScrape?.model ?? rlSnapshot?.model ?? null,
-        fiveHourPct: mainLive?.fiveHour?.usedPct ?? (mainLiveScrape ? mainLiveScrape.usedPct : (rlSnapshot?.fiveHour?.usedPct ?? null)),
-        sevenDayPct: mainLive?.sevenDay?.usedPct ?? (rlSnapshot?.sevenDay?.usedPct ?? null),
-        fiveHourResetsAt: mainLive?.fiveHour?.resetsAt ?? (mainLiveScrape ? mainLiveScrape.resetsAt : (rlSnapshot?.fiveHour?.resetsAt ?? null)),
-        sevenDayResetsAt: mainLive?.sevenDay?.resetsAt ?? (rlSnapshot?.sevenDay?.resetsAt ?? null),
+        fiveHourPct: mainLoggedOut ? null : (mainLive?.fiveHour?.usedPct ?? (mainLiveScrape ? mainLiveScrape.usedPct : (rlSnapshot?.fiveHour?.usedPct ?? null))),
+        sevenDayPct: mainLoggedOut ? null : (mainLive?.sevenDay?.usedPct ?? (rlSnapshot?.sevenDay?.usedPct ?? null)),
+        fiveHourResetsAt: mainLoggedOut ? null : (mainLive?.fiveHour?.resetsAt ?? (mainLiveScrape ? mainLiveScrape.resetsAt : (rlSnapshot?.fiveHour?.resetsAt ?? null))),
+        sevenDayResetsAt: mainLoggedOut ? null : (mainLive?.sevenDay?.resetsAt ?? (rlSnapshot?.sevenDay?.resetsAt ?? null)),
         // The other rows mark a stale reading with a "~"; this one used to
         // present an hours-old snapshot as a fresh number.
         //
@@ -723,8 +743,9 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // kepernyo-frissiteskor ujrairja a fajlt, de a SZAZALEKOKAT csak akkor,
         // amikor a Claude jelentette oket -- egy sokat rajzolo, de keveset
         // dolgozo agens igy a vegtelensegig frissnek mutatott egy regi merest.
-        stale: mainLive ? false : (mainLiveScrape ? false : (rlSnapshot ? !mainSnapFresh : false)),
-        measuredAt: mainLive ? mainLive.measuredAt : (mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null)),
+        stale: mainLoggedOut ? false : mainLive ? false : (mainLiveScrape ? false : (rlSnapshot ? !mainSnapFresh : false)),
+        measuredAt: mainLoggedOut ? null : mainLive ? mainLive.measuredAt : (mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null)),
+        loggedOut: mainLoggedOut,
       },
       ...readClaudePlans().map(plan => {
         // Boss 2026-08-10 ("nem igaz, hogy nem lehet lekerni, ha a fiok

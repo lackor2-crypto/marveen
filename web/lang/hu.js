@@ -4658,6 +4658,7 @@ window._i18n.hu = {
   'overview.ratelimit.resets':       'visszaáll: {time}',
   'overview.ratelimit.resets_now':   'bármelyik pillanatban',
   'overview.ratelimit.reset_done':   'visszaállt (új adat az ügynök következő munkájakor)',
+  'overview.ratelimit.logged_out':   'Nincs bejelentkezve, ezért a keret most nem mérhető. A korábbi százalék elavult, nem mutatjuk. Teendő: jelentkezz be újra (Fiókok oldal).',
   'overview.ratelimit.in_days_hours':'{d} nap {h} óra múlva',
   'overview.ratelimit.in_days':      '{d} nap múlva',
   'overview.ratelimit.in_hours_mins':'{h} óra {m} perc múlva',
