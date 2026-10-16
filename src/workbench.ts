@@ -23,7 +23,10 @@
  * oket -- kulon migracios lepes nem kell.
  */
 import { randomUUID } from 'node:crypto'
+import { basename as basenamePath } from 'node:path'
 import { getDb } from './db.js'
+import { isContextFileName } from './workbench-item-context.js'
+import { isTodoFileName } from './workbench-item-todos.js'
 
 /** Munkadarab-fajtak. A spec 3. szakasza a bal panelen Dokumentum / Kep /
  *  Grafika / Video kategoriakat sorol; a `note` a szoveges jegyzet, ami AI
@@ -197,6 +200,17 @@ export function isWorkItemStatus(v: unknown): v is WorkItemStatus {
   return typeof v === 'string' && (WORK_ITEM_STATUSES as readonly string[]).includes(v)
 }
 
+/**
+ * The item's context file ("Kontextus - ....md", the case notes) and its to-do file are never the item's FILE (Boss TG
+ * 3241/3242: the chat attached the notes and the tree showed them as the open document). One guard in the data layer, so
+ * every way of setting a file -- HTTP, agent tool, restore, import -- is covered, not just one route.
+ */
+export function isNotesFilePath(p: unknown): boolean {
+  if (typeof p !== 'string') return false
+  const name = basenamePath(p.trim())
+  return !!name && (isContextFileName(name) || isTodoFileName(name))
+}
+
 /** A cim felso hatara: egy sor, nem egy dokumentum. */
 export const TITLE_MAX = 200
 
@@ -215,7 +229,7 @@ export interface CreateWorkItemInput {
 
 export type CreateWorkItemResult =
   | { ok: true; item: WorkItemRow; version: WorkItemVersionRow }
-  | { ok: false; code: 'title_required' | 'title_too_long' | 'bad_type' | 'bad_status' }
+  | { ok: false; code: 'title_required' | 'title_too_long' | 'bad_type' | 'bad_status' | 'context_not_attachable' }
 
 function newWorkItemId(): string {
   const db = getDb()
@@ -241,6 +255,7 @@ export function createWorkItem(input: CreateWorkItemInput): CreateWorkItemResult
   const type: WorkItemType = rawType
   const rawStatus = input.status === undefined || input.status === null || input.status === '' ? 'draft' : input.status
   if (!isWorkItemStatus(rawStatus)) return { ok: false, code: 'bad_status' }
+  if (isNotesFilePath(input.source_path)) return { ok: false, code: 'context_not_attachable' }
   const status: WorkItemStatus = rawStatus
   const container = typeof input.container_folder === 'string' ? input.container_folder.trim() : ''
 
@@ -773,7 +788,7 @@ export interface CreateWorkItemVersionInput {
   metadata_json?: unknown
 }
 
-export type VersionErrorCode = 'item_not_found' | 'version_not_found' | 'version_mismatch' | 'version_last'
+export type VersionErrorCode = 'item_not_found' | 'version_not_found' | 'version_mismatch' | 'version_last' | 'context_not_attachable'
 
 export type CreateWorkItemVersionResult =
   | { ok: true; item: WorkItemRow; version: WorkItemVersionRow }
@@ -826,6 +841,7 @@ export function createWorkItemVersion(workItemId: string, input: CreateWorkItemV
   ensureWorkbenchTables()
   const item = getWorkItem(workItemId)
   if (!item) return { ok: false, code: 'item_not_found' }
+  if (isNotesFilePath(input.source_path)) return { ok: false, code: 'context_not_attachable' }
   const sourcePath = input.source_path === undefined
     ? item.source_path
     : (String(input.source_path ?? '').trim() || null)

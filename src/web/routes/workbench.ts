@@ -34,8 +34,7 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
-import { isContextFileName, kickItemContextSweep } from '../../workbench-item-context.js'
-import { isTodoFileName } from '../../workbench-item-todos.js'
+import { kickItemContextSweep } from '../../workbench-item-context.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../../workbench-life-move.js'
 import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
@@ -84,7 +83,7 @@ import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../.
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../../workbench-redact.js'
 import { realpathSync, readFileSync } from 'node:fs'
-import { basename as basenamePath, dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
+import { dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview, listBoardWorkItems } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName, isPresentationFile } from '../../workbench-upload.js'
@@ -4355,14 +4354,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     // The item's own context file (the case notes, #590 follow-up) is never the item's FILE: the chat agent once attached it,
     // and the tree then showed the notes as the open document.
-    if (typeof body['source_path'] === 'string' && (isContextFileName(basenamePath(body['source_path'].trim())) || isTodoFileName(basenamePath(body['source_path'].trim())))) return fail(res, 400, 'context_not_attachable', lang)
     const r = createWorkItemVersion(item.id, {
       prompt: body['prompt'],
       // A `source_path` csak akkor valtozik, ha a hivo KIMONDJA -- kulonben marad.
       ...('source_path' in body ? { source_path: body['source_path'] } : {}),
       created_by: actor(ctx),
     })
-    if (!r.ok) return fail(res, 404, r.code, lang)
+    if (!r.ok) return fail(res, r.code === 'context_not_attachable' ? 400 : 404, r.code, lang)
     json(res, { ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id) }, 201)
     return true
   }

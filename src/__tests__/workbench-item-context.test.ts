@@ -4,12 +4,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
-import { getWorkItem, createWorkItemVersion } from '../workbench.js'
+import { getWorkItem, createWorkItemVersion, createWorkItem } from '../workbench.js'
 import { renameWorkItem, assignWorkItemFolder } from '../workbench-assets.js'
 import { sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext } from '../workbench-item-context.js'
 import { readdirSync } from 'node:fs'
+import { todoFileName } from '../workbench-item-todos.js'
 import { addSection } from '../workbench-docmodel.js'
 import { createVariant } from '../workbench-doclang.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -136,6 +137,14 @@ describe('the agent is bound to keep the file', () => {
 })
 
 // #590 follow-up (Boss TG 3241): the context file is the item's notes, never the item's FILE.
+// Data the old code left behind: the API refuses the context file now, so the test writes the stale pointer by hand.
+function legacyPointAt(rel: string): void {
+  const v = createWorkItemVersion(itemId, {})
+  if (!v.ok) throw new Error('version')
+  const db = getDb()
+  db.prepare('UPDATE work_item_versions SET source_path = ? WHERE id = ?').run(rel, v.version.id)
+  db.prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(rel, itemId)
+}
 describe('the context file is never the work item file', () => {
   it('attaching it as the item file is refused with a human sentence', async () => {
     await sweepItemContexts()
@@ -148,8 +157,8 @@ describe('the context file is never the work item file', () => {
   it('an item the chat already pointed at its context file is put back by the sweep (and its versions cleaned)', async () => {
     await sweepItemContexts()
     const rel = where().rel
-    createWorkItemVersion(itemId, { source_path: rel })
-    createWorkItemVersion(itemId, { source_path: rel })
+    legacyPointAt(rel)
+    legacyPointAt(rel)
     expect(item().source_path).toBe(rel)
     await sweepItemContexts()
     expect(item().source_path).toBeNull()
@@ -164,7 +173,7 @@ describe('the context file is never the work item file', () => {
     const rel = where().rel
     const real = rel.replace(/[^/]+$/, 'kerelem.docx')
     createWorkItemVersion(itemId, { source_path: real })
-    createWorkItemVersion(itemId, { source_path: rel })
+    legacyPointAt(rel)
     await sweepItemContexts()
     expect(item().source_path).toBe(real)
   })
@@ -216,5 +225,34 @@ describe('a language version has no context file of its own', () => {
     await sweepItemContexts()
     expect(ctxFiles(rel)).toEqual([contextFileName('Wohngeld hianypotlas')])
     expect((getDb().prepare('SELECT rel FROM work_item_context WHERE item_id = ?').get(de.id) as { rel: string }).rel).toBe('')
+  })
+})
+
+// #593: the guard lives in the data layer, so no way of setting a file (new item, new version, direct call) can attach the notes.
+describe('the context file is refused by the data layer, not only by one route', () => {
+  it('createWorkItemVersion refuses the context file and the to-do file, and changes nothing', async () => {
+    await sweepItemContexts()
+    const rel = where().rel
+    const r = createWorkItemVersion(itemId, { source_path: rel })
+    expect(r).toEqual({ ok: false, code: 'context_not_attachable' })
+    const todo = rel.replace(/[^/]+$/, todoFileName('Wohngeld hianypotlas'))
+    expect(createWorkItemVersion(itemId, { source_path: todo })).toEqual({ ok: false, code: 'context_not_attachable' })
+    expect(item().source_path).toBeNull()
+  })
+  it('creating an item straight onto a context file is refused (HTTP and direct)', async () => {
+    await sweepItemContexts()
+    const rel = where().rel
+    const direct = createWorkItem({ project_id: pid, type: 'document', title: 'Masik', source_path: rel })
+    expect(direct).toEqual({ ok: false, code: 'context_not_attachable' })
+    const viaHttp = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'document', title: 'Harmadik', source_path: rel })
+    expect(viaHttp.status).toBe(400)
+    expect(viaHttp.body.error).toBe('context_not_attachable')
+  })
+  it('a real file is still attachable', async () => {
+    await sweepItemContexts()
+    const real = where().rel.replace(/[^/]+$/, 'kerelem.docx')
+    const r = createWorkItemVersion(itemId, { source_path: real })
+    expect(r.ok).toBe(true)
+    expect(item().source_path).toBe(real)
   })
 })
