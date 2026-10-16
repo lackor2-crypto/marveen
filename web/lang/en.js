@@ -4583,6 +4583,7 @@ window._i18n.en = {
   'overview.ratelimit.resets':       'resets: {time}',
   'overview.ratelimit.resets_now':   'any moment now',
   'overview.ratelimit.reset_done':   'reset (new figure on the next agent run)',
+  'overview.ratelimit.logged_out':   'Signed out, so the quota cannot be measured right now. The earlier percentage is out of date and is not shown. To do: sign in again (Accounts page).',
   'overview.ratelimit.in_days_hours':'in {d}d {h}h',
   'overview.ratelimit.in_days':      'in {d}d',
   'overview.ratelimit.in_hours_mins':'in {h}h {m}m',

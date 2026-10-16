@@ -19513,7 +19513,7 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
   // Whether to show the box at all is a question about DATA; which rows to draw
   // is a question about CONFIGURED ACCOUNTS. Conflating the two is what made an
   // account disappear from the list the moment its numbers went missing.
-  const anyAccountData = accounts.some(a => a.fiveHourPct !== null || a.sevenDayPct !== null)
+  const anyAccountData = accounts.some(a => a.loggedOut || a.fiveHourPct !== null || a.sevenDayPct !== null)
   if (!hasRateLimit && !openrouterCredits && !anyAccountData) { box.hidden = true; return }
   box.hidden = false
 
@@ -19626,7 +19626,10 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
       : t('overview.ratelimit.measured_hours', { h: Math.round(mins / 60) })
     return ` <span class="overview-ratelimit-age">${escapeHtml(txt)}</span>`
   }
-  const accountBlock = (acc) => `<div class="overview-ratelimit-acct">
+  const accountBlock = (acc) => acc.loggedOut ? `<div class="overview-ratelimit-acct">
+      <div class="overview-ratelimit-acct-head">${escapeHtml(acc.label)}${acc.model ? ' · ' + escapeHtml(acc.model) : ''}</div>
+      <div class="overview-ratelimit-row"><div class="overview-ratelimit-row-head"><span class="overview-ratelimit-nodata">${escapeHtml(t('overview.ratelimit.logged_out'))}</span></div></div>
+    </div>` : `<div class="overview-ratelimit-acct">
       <div class="overview-ratelimit-acct-head">${escapeHtml(acc.label)}${acc.model ? ' · ' + escapeHtml(acc.model) : ''}${measuredAgo(acc)}</div>
       ${windowBar('overview.ratelimit.five_hour', acc.fiveHourPct, acc.fiveHourResetsAt, acc.stale)}
       ${windowBar('overview.ratelimit.seven_day', acc.sevenDayPct, acc.sevenDayResetsAt, acc.stale)}

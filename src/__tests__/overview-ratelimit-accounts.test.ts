@@ -104,7 +104,7 @@ describe('usage-limit widget: server payload', () => {
     // MERES kora marad -- elo leolvasasnal a mostani, kulonben a pillanatkepe.
     // 2026-08-30 (masodik kor): elso helyen az ELO fiok-lekerdezes kora all --
     // az az egyetlen szam, ami tetlen agens mellett is a MOSTANI allapot.
-    expect(OVERVIEW).toContain('measuredAt: mainLive ? mainLive.measuredAt : (mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null))')
+    expect(OVERVIEW).toContain('measuredAt: mainLoggedOut ? null : mainLive ? mainLive.measuredAt : (mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null))')
   })
 
   it('a bongeszo-frissites elo merest ker, a hattér-ketyego nem', () => {
