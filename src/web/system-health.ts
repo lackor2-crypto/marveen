@@ -80,7 +80,7 @@ import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
-import { COMMAND_HEALTH_FILE, scheduleProblems } from './command-task-problems.js'
+import { COMMAND_HEALTH_FILE, scheduleProblems, existingScheduleNames } from './command-task-problems.js'
 import { integrationStates } from './setup-wizard-values.js'
 import type { SetupItemState } from './setup-wizard-registry.js'
 import { depotRoot, DEPOT_BACKUPS } from '../depot.js'
@@ -1067,9 +1067,10 @@ export function gitPullRows(
 export function commandTaskRows(
   health: Record<string, { lastStatus?: string; fails?: number; lastRun?: number }> | null =
     olvasJson<Record<string, { lastStatus?: string; fails?: number; lastRun?: number }>>(join(STORE_DIR, COMMAND_HEALTH_FILE)),
+  existing: ReadonlySet<string> | null = null,
 ): HealthRow[] {
-  // #546: the same source the Schedules list marks its rows from.
-  const bukott = [...scheduleProblems(health).keys()]
+  // #546: the same source the Schedules list marks its rows from -- a deleted schedule's leftover entry is no problem.
+  const bukott = [...scheduleProblems(health, existing).keys()]
   const nevek = bukott.map(tisztaNev).filter(Boolean)
   if (nevek.length === 0) return []
   // `first` is the RAW task name of the first faulty schedule: the row's click jumps to it (the display name is sanitised).
@@ -2370,7 +2371,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...gitPullRows(now),
     ...raktarRows(),
     ...driveSyncRows(now, undefined, undefined, depotIrhato()),
-    ...commandTaskRows(),
+    ...commandTaskRows(undefined, existingScheduleNames()),
     ...mcpAuthRows(now),
     ...googleLiveRows(now),
     ...googleDuplicateRows(),
