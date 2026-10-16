@@ -547,6 +547,7 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
         }
         return { status: 201, body: { ok: true, asset: { id: 'a9' }, assets: ASSETS } }
       }
+      if (url.includes('/chat-refs') && init && init.method === 'POST') return { status: 201, body: { ok: true, rel: 'Munkadarabok/Iro/Agentnek/Screenshot (2538).png', name: 'Screenshot (2538).png', renamed: false } }
       if (url.includes('/tidy')) return { status: 200, body: { ok: true, folder: 'Marvin Workbench terv', moved: [{ from: 'x', to: 'y' }], skipped: [] } }
       if (url.includes('/api/workbench/agent/message')) return { status: 200, body: 'event: done\ndata: {"type":"done"}\n\n' }
       if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
@@ -588,6 +589,7 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     h.click({ 'data-wb-item': 'w1' })
     await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
     h.change('wbChatAssetUpload', [file('logo.png', 'image/png'), file('level.pdf')])
+    h.click({ 'data-wb-act': 'chat-ask-upload' })
     await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.assets.done'))
     const p = posts(h)
     expect(p.filter((u) => u.includes('/items/w1/assets'))).toHaveLength(2)
@@ -602,6 +604,7 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     h.click({ 'data-wb-item': 'w1' })
     await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
     h.change('wbChatAssetUpload', [file('Screenshot (2526).png', 'image/png')])
+    h.click({ 'data-wb-act': 'chat-ask-upload' })
     await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.assets.done'))
     const chatPosts = posts(h).filter((u) => u.includes('/items/w1/assets'))
     expect(chatPosts).toHaveLength(1)
@@ -619,6 +622,7 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     h.click({ 'data-wb-item': 'w1' })
     await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
     h.change('wbChatAssetUpload', [file('Passbild.png', 'image/png'), file('20260922_181305.jpg', 'image/jpeg')])
+    h.click({ 'data-wb-act': 'chat-ask-upload' })
     // Feltoltes kozben a chatben latszik az allapot.
     expect(h.html()).toContain('workbench.chat.attached_uploading')
     await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.assets.done'))
@@ -645,6 +649,7 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     h.click({ 'data-wb-item': 'w1' })
     await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
     h.change('wbChatAssetUpload', [file('egy.pdf'), file('ketto.pdf')])
+    h.click({ 'data-wb-act': 'chat-ask-upload' })
     await vi.waitFor(() => expect(h.html()).toContain('📎 ketto.pdf'))
     h.click({ 'data-wb-act': 'chat-attached-drop', 'data-wb-attached': '0' })
     expect(h.html()).not.toContain('📎 egy.pdf')
@@ -657,6 +662,45 @@ describe('a felulet: Anyagok doboz es a chat 📎 gombja', () => {
     expect(message.startsWith('nezd meg\n\n')).toBe(true)
     expect(message).toContain('ketto.pdf')
     expect(message).not.toContain('egy.pdf')
+  })
+
+  // Boss, 2026-10-16: the 📎 must ask where the file goes -- a reference for the agent must not land in Uploads.
+  it('a 📎 elobb megkerdezi, hova menjen a fajl, es addig semmit nem tolt fel', async () => {
+    const h = setup()
+    await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
+    h.change('wbChatAssetUpload', [file('Screenshot (2538).png', 'image/png')])
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="chat-ask-ref"'))
+    expect(h.html()).toContain('data-wb-act="chat-ask-upload"')
+    expect(h.html()).toContain('Screenshot (2538).png')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(posts(h).some((u) => u.includes('/assets') || u.includes('/chat-refs'))).toBe(false)
+    // Cancel: nothing is stored, the question goes away.
+    h.click({ 'data-wb-act': 'chat-ask-cancel' })
+    await vi.waitFor(() => expect(h.html()).not.toContain('chat-ask-ref'))
+    expect(posts(h).some((u) => u.includes('/assets') || u.includes('/chat-refs'))).toBe(false)
+  })
+
+  it('"csak az Agentnek": a chat-refs vegpontra megy (nem az anyagok koze), az uzenet az utat adja', async () => {
+    const h = setup()
+    await vi.waitFor(() => expect(h.html()).toContain('wb-items'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wbChatAssetUpload'))
+    h.change('wbChatAssetUpload', [file('Screenshot (2538).png', 'image/png')])
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="chat-ask-ref"'))
+    h.click({ 'data-wb-act': 'chat-ask-ref' })
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.chat.ref_done'))
+    expect(posts(h).filter((u) => u.includes('/items/w1/chat-refs'))).toHaveLength(1)
+    expect(posts(h).some((u) => u.includes('/items/w1/assets'))).toBe(false)
+    expect(h.html()).toContain('workbench.chat.ref_hint')
+    expect(h.html()).not.toContain('data-wb-act="assets-show"')
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/api/workbench/agent/message'))).toBe(true))
+    const call = h.fetchCalls.find((c) => c.url.includes('/api/workbench/agent/message'))
+    const message = JSON.parse(String(call?.init?.body)).message as string
+    expect(message).toContain('workbench.chat.ref_line')
+    expect(message).not.toContain('workbench.chat.attached_line')
   })
 
   it('csatolt fajl nelkul ures uzenet nem megy el', async () => {

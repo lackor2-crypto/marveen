@@ -2632,11 +2632,15 @@
     for (var i = 0; fileList && i < fileList.length; i++) if (fileList[i]) files.push(fileList[i])
     if (!files.length || WB.upload || !WB.projectId) return Promise.resolve()
     if (archived()) { window.showToast(t('workbench.archived_hint')); return Promise.resolve() }
-    var intoItem = (target === 'item' || target === 'assets' || target === 'frassets' || target === 'chat') && WB.selectedId ? WB.selectedId : null
-    var assetsOnly = target === 'assets' || target === 'frassets' || target === 'chat'
-    // The editor's Uploads panel and the chat's attach button / drop keep their files in the Uploads folder of the work
+    // The chat's attach button, drop and paste ask first where the file goes (Boss, 2026-10-16: it must not land in
+    // the Uploads folder when it is only meant as a reference for the agent).
+    if (target === 'chat') { if (WB.selectedId) chatAttachAsk(files); return Promise.resolve() }
+    var intoItem = (target === 'item' || target === 'assets' || target === 'frassets' || target === 'chatup' || target === 'chatref') && WB.selectedId ? WB.selectedId : null
+    var assetsOnly = target === 'assets' || target === 'frassets' || target === 'chatup'
+    var refOnly = target === 'chatref'
+    // The editor's Uploads panel and the chat's "upload" choice keep their files in the Uploads folder of the work
     // item, not loose in the item's own folder (Boss, TG 2872; chat attachments: Boss, 2026-10-16).
-    var upFolder = target === 'frassets' || target === 'chat' ? '&uploads=1' : ''
+    var upFolder = target === 'frassets' || target === 'chatup' ? '&uploads=1' : ''
     var projectId = WB.projectId
     var lang = encodeURIComponent(window._lang || 'hu')
     WB.upload = { done: 0, total: files.length, item: intoItem }
@@ -2645,14 +2649,17 @@
     var errors = []
     var skipped = 0
     var toAssets = 0
+    var toRefs = 0
     var chain = Promise.resolve()
     files.forEach(function (f) {
       chain = chain.then(function () {
         var name = encodeURIComponent(f.name || 'fajl')
         var type = encodeURIComponent(f.type || '')
         var url
-        var asAsset = intoItem && (assetsOnly || !isImageFile(f))
-        if (asAsset) {
+        var asAsset = intoItem && !refOnly && (assetsOnly || !isImageFile(f))
+        if (refOnly) {
+          url = '/api/workbench/items/' + encodeURIComponent(intoItem) + '/chat-refs?name=' + name + '&lang=' + lang
+        } else if (asAsset) {
           url = '/api/workbench/items/' + encodeURIComponent(intoItem) + '/assets?name=' + name + upFolder + '&lang=' + lang
         } else if (intoItem) {
           url = '/api/workbench/items/' + encodeURIComponent(intoItem)
@@ -2675,6 +2682,10 @@
           if (WB.upload) WB.upload.done++
           if (!r.ok) errors.push((f.name ? f.name + ': ' : '') + r.message)
           else if (r.skipped) skipped++
+          else if (refOnly) {
+            toRefs++
+            attachedList(intoItem).push({ name: (r.data && r.data.name) || f.name || '', ref: true, rel: (r.data && r.data.rel) || '' })
+          }
           else if (asAsset) {
             toAssets++
             attachedList(intoItem).push({ name: (r.data && r.data.name) || f.name || '' })
@@ -2692,7 +2703,7 @@
       if (ok) {
         window.showToast(!intoItem
           ? t('workbench.upload.done_new', { n: ok })
-          : (toAssets === ok
+          : (refOnly ? t('workbench.chat.ref_done', { n: ok }) : toAssets === ok
             ? t('workbench.assets.done', { n: ok })
             : t('workbench.upload.done_item', { n: ok })))
       }
@@ -9444,6 +9455,39 @@
       + '<input type="file" id="wbChatAssetUpload" class="wb-file-input" multiple>'
   }
 
+  /** The chooser the chat's attach button, drop and paste open (Boss, 2026-10-16): the file is either a REFERENCE for
+   *  the agent only ("this is what I mean, fix it like this": goes to the item's "Agentnek" folder, not a material),
+   *  or an upload into the work item (Uploads folder + materials). Nothing is stored before the owner picks. It sits
+   *  right above the message box, so it works the same in the split view and on a phone. */
+  function chatAttachAsk(files) {
+    var id = WB.selectedId
+    if (!id || !files || !files.length) return
+    var pending = WB.chatAsk && WB.chatAsk.item === id ? WB.chatAsk.files : []
+    WB.chatAsk = { item: id, files: pending.concat(files) }
+    renderChat()
+  }
+
+  function chatAskHtml() {
+    var id = WB.selectedId
+    if (!id || !WB.chatAsk || WB.chatAsk.item !== id || !WB.chatAsk.files.length) return ''
+    return '<div class="wb-attached wb-chat-ask" role="group" aria-label="' + escA(t('workbench.chat.ask.title')) + '">'
+      + '<p style="margin:0 0 4px"><strong>' + esc(t('workbench.chat.ask.title')) + '</strong> '
+      + WB.chatAsk.files.map(function (f) { return esc((f && f.name) || '') }).join(', ') + '</p>'
+      + '<button type="button" class="btn-primary btn-compact" data-wb-act="chat-ask-ref" title="' + escA(t('workbench.chat.ask.ref_hint')) + '">' + esc(t('workbench.chat.ask.ref')) + '</button> '
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-act="chat-ask-upload" title="' + escA(t('workbench.chat.ask.upload_hint')) + '">' + esc(t('workbench.chat.ask.upload')) + '</button> '
+      + '<button type="button" class="btn-secondary btn-compact" data-wb-act="chat-ask-cancel">' + esc(t('workbench.chat.ask.cancel')) + '</button>'
+      + '<p class="wb-hint" style="margin:4px 0 0">' + esc(t('workbench.chat.ask.ref_hint')) + '<br>' + esc(t('workbench.chat.ask.upload_hint')) + '</p>'
+      + '</div>'
+  }
+
+  function chatAskAnswer(choice) {
+    var ask = WB.chatAsk
+    WB.chatAsk = null
+    if (!ask || ask.item !== WB.selectedId) { renderChat(); return }
+    if (choice === 'chatref' || choice === 'chatup') uploadFiles(ask.files, choice)
+    else renderChat()
+  }
+
   /** A munkadarabhoz most csatolt, meg el nem kuldott fajlok listaja. */
   function attachedList(itemId) {
     if (!WB.chatAttached[itemId]) WB.chatAttached[itemId] = []
@@ -9460,17 +9504,18 @@
     var up = WB.upload && WB.upload.item === id ? WB.upload : null
     if (!list.length && !up) return ''
     var chips = list.map(function (a, i) {
-      return '<span class="wb-attached-chip">📎 ' + esc(a.name)
+      return '<span class="wb-attached-chip">📎 ' + esc(a.name) + (a.ref ? ' <span class="wb-muted">(' + esc(t('workbench.chat.ref_tag')) + ')</span>' : '')
         + ' <button type="button" class="wb-linklike" data-wb-act="chat-attached-drop" data-wb-attached="' + i + '"'
         + ' title="' + escA(t('workbench.chat.attached_drop_title')) + '" aria-label="' + escA(t('workbench.chat.attached_drop_title')) + '">×</button></span>'
     }).join('')
     return '<div class="wb-attached" role="status">'
       + (up ? '<span class="wb-attached-chip wb-muted">' + esc(t('workbench.chat.attached_uploading', { done: up.done, total: up.total })) + '</span>' : '')
       + chips
-      + (list.length
+      + (list.some(function (a) { return !a.ref })
         ? '<p class="wb-hint">' + esc(t('workbench.chat.attached_hint')) + ' '
           + '<button type="button" class="wb-linklike" data-wb-act="assets-show">' + esc(t('workbench.chat.attached_show')) + '</button></p>'
         : '')
+      + (list.some(function (a) { return a.ref }) ? '<p class="wb-hint">' + esc(t('workbench.chat.ref_hint')) + '</p>' : '')
       + '</div>'
   }
 
@@ -9478,10 +9523,18 @@
    *  lenne, csak a darabszam megy (a nevek az agens kontextusaban amugy is ott vannak). */
   function withAttachedLine(text, list, max) {
     if (!list || !list.length) return text
-    var sep = text ? '\n\n' : ''
-    var line = t('workbench.chat.attached_line', { names: list.map(function (a) { return a.name }).join(', ') })
-    if (max && (text + sep + line).length > max) line = t('workbench.chat.attached_line_count', { n: list.length })
-    return text + sep + line
+    var uploaded = list.filter(function (a) { return !a.ref })
+    var refs = list.filter(function (a) { return a.ref })
+    var out = text
+    // The reference line always keeps its paths: without them the agent cannot find the file.
+    if (refs.length) out += (out ? '\n\n' : '') + t('workbench.chat.ref_line', { names: refs.map(function (a) { return a.rel || a.name }).join('; ') })
+    if (uploaded.length) {
+      var sep = out ? '\n\n' : ''
+      var line = t('workbench.chat.attached_line', { names: uploaded.map(function (a) { return a.name }).join(', ') })
+      if (max && (out + sep + line).length > max) line = t('workbench.chat.attached_line_count', { n: uploaded.length })
+      out += sep + line
+    }
+    return out
   }
 
   /** "Megmutatom": az Anyagok doboz a kepernyon (telefonon a Kontextus fulon). */
@@ -10832,6 +10885,7 @@
       + '<div class="wb-chat-log" id="wbChatLog"' + chatPaneStyle('log') + '>' + chatLogHtml() + '</div>'
       + chatToolsHtml()
       + chatActivityHtml()
+      + chatAskHtml()
       + chatAttachedHtml()
       + '<div class="wb-chat-row">'
       + '<textarea class="wb-input wb-chat-input" id="wbChatInput" rows="2" maxlength="' + max + '" placeholder="'
@@ -18490,8 +18544,11 @@
     else if (a === 'redact-close') { WB.redact = null; render() }
     else if (a === 'shared-toggle') toggleShared()
     else if (a === 'shared-link') linkShared(act.getAttribute('data-wb-path'))
+    else if (a === 'chat-ask-ref') chatAskAnswer('chatref')
+    else if (a === 'chat-ask-upload') chatAskAnswer('chatup')
+    else if (a === 'chat-ask-cancel') chatAskAnswer(null)
     else if (a === 'chat-attached-drop') {
-      // Csak az uzenetbol marad ki -- a fajl az Anyagok kozott marad.
+      // Csak az uzenetbol marad ki -- az Anyagok kozott (vagy az Agentnek mappaban) marad a fajl.
       var dropList = WB.selectedId ? WB.chatAttached[WB.selectedId] : null
       var dropAt = Number(act.getAttribute('data-wb-attached'))
       if (dropList && dropAt >= 0 && dropAt < dropList.length) { dropList.splice(dropAt, 1); renderChat() }
@@ -19388,7 +19445,7 @@
     }
     if (e.target.id === 'wbAssetUpload' || e.target.id === 'wbChatAssetUpload') {
       var att = e.target.files
-      // The chat's paperclip files into the work item's Uploads folder; the Materials box button keeps the item folder.
+      // The chat's paperclip asks first (reference for the agent / upload into the item); the Materials box button keeps the item folder.
       if (att && att.length) uploadFiles(att, e.target.id === 'wbChatAssetUpload' ? 'chat' : 'assets')
       try { e.target.value = '' } catch (_e) { /* regi bongeszo: nem baj */ }
       return
@@ -19517,7 +19574,7 @@
     e.preventDefault()
     var inChat = false
     try { inChat = !!(document.activeElement && document.activeElement.id === 'wbChatInput') } catch (_e) { inChat = false }
-    uploadFiles(files, WB.selectedId && WB.detail ? (inChat ? 'assets' : 'item') : 'new')
+    uploadFiles(files, WB.selectedId && WB.detail ? (inChat ? 'chat' : 'item') : 'new')
   })
 
   // ---- dokumentum-lap: esemenyek (#462, 4. lepes) ---------------------------------------------

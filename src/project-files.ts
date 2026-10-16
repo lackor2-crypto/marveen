@@ -467,6 +467,21 @@ export function uploadsFolderFor(p: ProjectRow, itemFolder: string | null | unde
   return r.ok ? r.sub : null
 }
 
+/** Boss, 2026-10-16: a file the owner shows the agent in the chat ONLY as a reference ("this is what I mean, fix it like
+ *  this") goes into an "Agentnek" / "For the agent" folder inside the item's own folder (made on demand). It is NOT one of
+ *  the item's materials and not a candidate for anything else. Null when it cannot be made. */
+export const AGENT_REFS_FOLDER_NAMES = { hu: 'Agentnek', en: 'For the agent' } as const
+export function agentRefsFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string): string | null {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return null
+  for (const n of [AGENT_REFS_FOLDER_NAMES.hu, AGENT_REFS_FOLDER_NAMES.en]) {
+    const have = projectFileTarget(p, `${base}/${n}`)
+    if (have.ok) return `${base}/${n}`
+  }
+  const r = makeProjectFolder(p, base, lang === 'en' ? AGENT_REFS_FOLDER_NAMES.en : AGENT_REFS_FOLDER_NAMES.hu)
+  return r.ok ? r.sub : null
+}
+
 /** Boss TG 3025: every work item folder has these three subfolders from the start (Finished documents, Uploads,
  *  Attachments), so each kind of file has its place before the first one arrives. Each one is best effort. */
 export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | null | undefined): void {

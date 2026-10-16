@@ -43,7 +43,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, uploadsFolderFor, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, uploadsFolderFor, agentRefsFolderFor, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
@@ -1594,6 +1594,27 @@ export function attachAsset(
   if (!out.ok) return out
   const row = registerAsset(item.id, out.rel, out.name, sha, out.bytes, opts.createdBy ?? null)
   return { ok: true, asset: row, renamed: out.renamed, folder: f.folder, folderCreated: f.created }
+}
+
+export type ChatRefOutcome =
+  | { ok: true; rel: string; name: string; renamed: boolean }
+  | { ok: false; code: 'asset_unsupported' | 'not_found' | 'folder_name' | 'folder_taken' | FileErrorCode; message?: string }
+
+/**
+ * Boss, 2026-10-16: a file the owner attaches in the chat ONLY for the agent ("this is what I mean"). It is written
+ * to the item's "Agentnek" folder and is NOT registered as an asset: it never shows among the materials and the
+ * Uploads folder stays clean. The agent gets its project-relative path in the message and reads it from there.
+ */
+export function attachChatReference(item: WorkItemRow, name: string, data: Buffer, opts: { lang?: string } = {}): ChatRefOutcome {
+  if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
+  const project = getProject(item.project_id)
+  if (!project) return { ok: false, code: 'not_found' }
+  const f = ensureWorkItemFolder(item)
+  if (!f.ok) return f
+  const dir = agentRefsFolderFor(project, f.folder, opts.lang) ?? f.folder
+  const out = writeProjectFile(project, dir, name, data)
+  if (!out.ok) return out
+  return { ok: true, rel: out.rel, name: out.name, renamed: out.renamed }
 }
 
 /** Egy MAR a helyen levo fajl felvetele az anyagok koze (a feltoltesbol szuletett munkadarab forrasa). */

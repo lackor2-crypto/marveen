@@ -144,7 +144,7 @@ import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, TRANSLATION_FAILED_MARKER } from '../email-translate.js'
 import {
-  makeFreshFolder, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset,
+  makeFreshFolder, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset, attachChatReference,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
@@ -4081,6 +4081,32 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       ok: true, asset: r.asset, folder: r.folder, folder_created: r.folderCreated,
       renamed: r.renamed, name: r.asset.name, assets: assetsOut(item.id),
     }, 201)
+    return true
+  }
+  // CHAT-HIVATKOZAS (Boss, 2026-10-16): a fajl CSAK az agentnek szol (pelda, "igy ertem"), nem anyag: a munkadarab
+  // "Agentnek" mappajaba kerul, nincs az Anyagok kozott, a Feltoltesek mappa tiszta marad.
+  //   POST .../chat-refs?name=...   -- egy fajl (nyers bajtok); a valasz a projekt-relativ utat adja
+  if (segs.length === 2 && segs[1] === 'chat-refs' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      throw e
+    }
+    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    const r = attachChatReference(item, url.searchParams.get('name') || '', data, { lang })
+    if (!r.ok) {
+      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
+      const status = r.code === 'write_failed' ? 500 : r.code === 'not_found' ? 404 : 400
+      return failDetail(res, status, code, lang, 'message' in r ? (r.message || null) : null)
+    }
+    json(res, { ok: true, rel: r.rel, name: r.name, renamed: r.renamed }, 201)
     return true
   }
   // IRAT OLDALANKENT (1/A, K-1.1/K-1.2): a teljes erteku ugynok (kod-hid) is
