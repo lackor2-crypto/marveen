@@ -102,12 +102,16 @@ describe('a kulcsok mind a ket nyelven megvannak', () => {
 
 describe('a kartya nem irja ki a nyers, angol jelolot', () => {
   it('a piros sav szovege kulcsbol jon, a nyers jelolo a tooltipbe megy', () => {
-    const i = APP.indexOf('class="agent-reauth-reason"')
-    expect(i).toBeGreaterThan(-1)
-    const sor = APP.slice(i, i + 400)
-    // Ez volt a hiba: `agent.reauthReason` LATHATO szovegkent, forditas nelkul.
-    expect(sor).not.toContain('escapeHtml(agent.reauthReasonKey ? t(agent.reauthReasonKey) : (agent.reauthReason')
-    expect(sor).toContain("t(agent.reauthReasonKey) : t('agents.reauth.reason')")
-    expect(sor).toContain("t('agents.reauth.raw_tip'")
+    // Two cards draw the banner: the sub-agent card (`agent.`) and the main card (`m.`).
+    const starts: number[] = []
+    for (let i = APP.indexOf('class="agent-reauth-reason"'); i !== -1; i = APP.indexOf('class="agent-reauth-reason"', i + 1)) starts.push(i)
+    expect(starts.length).toBeGreaterThan(1)
+    for (const i of starts) {
+      const sor = APP.slice(i, i + 400)
+      // Ez volt a hiba: `agent.reauthReason` LATHATO szovegkent, forditas nelkul.
+      expect(sor).not.toContain('escapeHtml(agent.reauthReasonKey ? t(agent.reauthReasonKey) : (agent.reauthReason')
+      expect(sor).toMatch(/t\((?:agent|m)\.reauthReasonKey\) : t\('agents\.reauth\.reason'\)/)
+      expect(sor).toContain("t('agents.reauth.raw_tip'")
+    }
   })
 })
