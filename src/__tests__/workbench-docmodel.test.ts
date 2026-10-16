@@ -250,7 +250,9 @@ describe('a felulet: vazlat, forrasok, megerosites', () => {
       }],
       check: { ready: false, items: [{ key: 'sections_done', ok: false, count: 0, total: 1, detail: ['2. Tényállás'] }] },
     }
+    const patched: string[] = []
     h.respond((url, init) => {
+      if (url.includes('/outline/sections/s1') && init && init.method === 'PATCH') { patched.push(String(init.body)); return { status: 200, body: { ok: true, outline: OUTLINE } } }
       if (url.includes('/outline/claims/c2/confirm') && init && init.method === 'POST') return { status: 200, body: { ok: true, outline: OUTLINE } }
       if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source' } }
       if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: ITEM, versions: [], parts: [], assets: [], outline: OUTLINE } }
@@ -270,6 +272,12 @@ describe('a felulet: vazlat, forrasok, megerosites', () => {
     // #611 (Boss TG 3438): the finalize box itself lists the open points; the owner's own statements are not among them.
     const fin = html.slice(html.indexOf('wb-outline-final'))
     expect(fin).toContain('workbench.outline.check.sections_in_progress')
+    // #568 follow-up: the document page has no chapter status control, so the finalize box must carry one -- a chapter
+    // left 'in progress' is released from the very line that names it.
+    expect(fin).toContain('data-wb-act="outline-sec-status" data-wb-sec="s1" data-wb-status="done"')
+    expect(fin).toContain('data-wb-act="outline-sec-status" data-wb-sec="s1" data-wb-status="todo"')
+    h.click({ 'data-wb-act': 'outline-sec-status', 'data-wb-sec': 's1', 'data-wb-status': 'done' })
+    await vi.waitFor(() => expect(patched).toEqual([JSON.stringify({ status: 'done' })]))
     expect(fin).not.toContain('workbench.outline.check.owner_statements')
     expect(fin).not.toContain('data-wb-claim="c1"')
   })
