@@ -64,7 +64,8 @@ import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitiv
 import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
-import { forgetMailDraft, mailDraftView, saveMailDraft } from '../../workbench-maildraft.js'
+import { forgetMailDraft, mailDraftView, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
+import { getAccounts as getMailAccounts } from './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
 import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
@@ -166,6 +167,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   sent_bad_input: { hu: 'Add meg a dátumot (naptárból) és a címzettet. Az időpont óra:perc alakban kell (például 14:30), a szövegek legfeljebb 300 karakteresek.', en: 'Give the date (from the calendar) and the recipient. The time must be hours:minutes (for example 14:30), and each text at most 300 characters.' },
   sent_too_many: { hu: 'Ennél a beadványnál már 100 elküldés van rögzítve, többet nem tudok felvenni.', en: 'This submission already has 100 sendings recorded; no more can be added.' },
   maildraft_bad_input: { hu: 'A címzett vagy a másolatot kapó nem érvényes e-mail-cím, vagy a tárgy / a szöveg túl hosszú. Több címet vesszővel válassz el.', en: 'The recipient or the copy address is not a valid e-mail address, or the subject / text is too long. Separate several addresses with a comma.' },
+  maildraft_no_draft: { hu: 'Előbb készítsd el a levélpiszkozatot (Levélpiszkozat készítése).', en: 'Make the e-mail draft first.' },
+  maildraft_no_account: { hu: 'Válaszd ki a feladót (melyik e-mail fiókból menjen a levél), és mentsd a piszkozatot.', en: 'Choose the sender (which e-mail account the message goes from), and save the draft.' },
+  maildraft_no_port: { hu: 'Az e-mail rész nem érhető el, ezért nem tudom a fiók Piszkozatok mappájába tenni.', en: 'The e-mail part is not available, so it cannot be put into the account Drafts folder.' },
+  maildraft_save_failed: { hu: 'Nem sikerült a fiók Piszkozatok mappájába tenni a levelet. A pontos ok a részletekben van.', en: 'The message could not be put into the account Drafts folder. The exact reason is in the details.' },
   maildraft_no_folder: { hu: 'A munkadarab mappája nem érhető el, ezért nem tudom elkészíteni a levélpiszkozatot. Nézd meg a projekt mappáját a Projektek oldalon.', en: 'The work item folder is not reachable, so the e-mail draft cannot be made. Check the project folder on the Projects page.' },
   maildraft_write_failed: { hu: 'Nem sikerült megírni a levélpiszkozat fájlját. A pontos ok a részletekben van.', en: 'The e-mail draft file could not be written. The exact reason is in the details.' },
   sent_not_found: { hu: 'Ez az elküldés már nincs a listán. Frissítsd az oldalt.', en: 'This sending is no longer on the list. Refresh the page.' },
@@ -3949,7 +3954,15 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // E-MAIL DRAFT: POST .../outline/mail-draft {to?, cc?, subject?, body?} makes (or remakes) the .eml with the document and its
     // annexes as PDF attachments; DELETE stops tracking it (the file stays). It is refreshed by itself when the document changes.
     if (sub === 'mail-draft' && segs.length === 3 && method === 'POST') {
-      const r = await saveMailDraft(item, { to: body['to'], cc: body['cc'], subject: body['subject'], body: body['body'] }, lang)
+      // The sender: an Iroda mail account (its id), and its address for the From line. Only a known account is accepted.
+      let sender: { from_account?: string; from_addr?: string } = {}
+      if (body['from_account'] !== undefined) {
+        const id = String(body['from_account'] ?? '').trim()
+        const acc = id ? getMailAccounts().find((a) => a.id === id) : undefined
+        if (id && !acc) return failDetail(res, 400, 'maildraft_bad_input', lang, 'from_account')
+        sender = { from_account: acc ? acc.id : '', from_addr: acc ? acc.label : '' }
+      }
+      const r = await saveMailDraft(item, { ...sender, to: body['to'], cc: body['cc'], subject: body['subject'], body: body['body'] }, lang)
       if (!r.ok) {
         if (r.code === 'outline_empty') return fail(res, 404, 'outline_empty', lang)
         if (r.code === 'bad_input') return failDetail(res, 400, 'maildraft_bad_input', lang, r.detail)
@@ -3957,6 +3970,16 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }
       json(res, { ok: true, new_file: r.new_file, outline: outlineOrEmpty(item.id) }, 201)
+      return true
+    }
+    // POST .../outline/mail-draft/mailbox puts the draft (with its PDFs) into the Drafts folder of the sender account. Nothing is sent.
+    if (sub === 'mail-draft' && segs.length === 4 && segs[3] === 'mailbox' && method === 'POST') {
+      const r = await saveDraftToMailbox(item, lang)
+      if (!r.ok) {
+        if (r.code === 'no_draft' || r.code === 'no_account' || r.code === 'no_port' || r.code === 'save_failed') return failDetail(res, r.code === 'save_failed' ? 502 : 409, 'maildraft_' + r.code, lang, r.detail)
+        return docPdfFail(res, r.code, lang, r.detail, r.label)
+      }
+      json(res, { ok: true, mailbox: r.mailbox, account: r.account, outline: outlineOrEmpty(item.id) }, 201)
       return true
     }
     if (sub === 'mail-draft' && segs.length === 3 && method === 'DELETE') {

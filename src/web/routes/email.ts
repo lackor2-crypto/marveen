@@ -26,6 +26,7 @@ import { getSecret } from '../vault.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import type { RouteContext } from './types.js'
 import { registerRecoveryMailPort } from '../password-recovery.js'
+import { registerMailboxDraftPort } from '../../workbench-maildraft.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
 // files) -- mirrors the ~/.local/share/marveen-voice/ convention (the binary
@@ -72,7 +73,7 @@ const TIMEOUT = 90_000
 // isKnownAccount, ...) needs to see it immediately, not just after a
 // restart. config.toml is a handful of lines; re-parsing it per request is
 // not a real cost.
-function getAccounts(): Array<{ id: string; label: string }> {
+export function getAccounts(): Array<{ id: string; label: string }> {
   try {
     const config = existsSync(HIMALAYA_CONFIG) ? (parseToml(readFileSync(HIMALAYA_CONFIG, 'utf8')) as any) : { accounts: {} }
     return Object.keys(config.accounts || {}).map(id => ({
@@ -186,6 +187,26 @@ registerRecoveryMailPort({
     if (!r.ok) return { ok: false, detail: himalayaErrorText(r) }
     invalidateEnvelopeCache(accountId, sent)
     return { ok: true }
+  },
+})
+
+// The workbench's document e-mail draft goes into the Drafts folder of the account chosen as the sender: --save to Drafts and no
+// --send, so nothing leaves the machine.
+registerMailboxDraftPort({
+  save: async (accountId, m) => {
+    if (!isKnownAccount(accountId)) return { ok: false, detail: 'unknown account' }
+    let drafts: string
+    try { drafts = await mailboxFor(accountId, 'drafts') } catch (e) { return { ok: false, detail: e instanceof Error ? e.message : String(e) } }
+    const args = ['-a', accountId, 'message', 'compose', '--from', accountEmail(accountId)]
+    if (m.to) args.push('-t', m.to)
+    if (m.cc) args.push('--cc', m.cc)
+    if (m.subject) args.push('-s', m.subject)
+    args.push('--body', m.body.trim() ? m.body : '\n', '--save', drafts)
+    for (const f of m.files) args.push('--attach', f)
+    const r = await himalayaOnce(args)
+    if (!r.ok) return { ok: false, detail: himalayaErrorText(r) }
+    invalidateEnvelopeCache(accountId, drafts)
+    return { ok: true, mailbox: drafts }
   },
 })
 
