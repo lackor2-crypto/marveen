@@ -597,7 +597,23 @@ describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () =>
       const id = ('task' in out ? out.task : null)!.id
       markTopicPending(id)
       await routeByTopic(id, 'hmm', 'c1', previousChatForProject('marvin', id)!, async () => 'unsure', async () => {})
-      expect(claimNextCodeTask('w', Date.now() + 16 * 60 * 1000)!.id).toBe(id)
+      const c = claimNextCodeTask('w', Date.now() + 16 * 60 * 1000)!
+      expect(c.id).toBe(id)
+      // The safe default is "continue": the previous chat, not a fresh empty one.
+      expect(c.sessionId).toBe(previousChatForProject('marvin', id)!.chatSessionId)
+      expect(c.startFresh).toBe(false)
+    })
+
+    it('#602: elakadt pending (nincs nyitott kartya) 5 perc utan az elozo chatben folytatodik', () => {
+      finishedTelegramChat()
+      const out = enqueueCodeTask({ project: 'marvin', prompt: 'Jo, csinald meg mindet', origin: 'telegram' })
+      const id = ('task' in out ? out.task : null)!.id
+      const prev = previousChatForProject('marvin', id)!
+      markTopicPending(id)
+      const c = claimNextCodeTask('w', Date.now() + 6 * 60 * 1000)!
+      expect(c.id).toBe(id)
+      expect(c.sessionId).toBe(prev.chatSessionId)
+      expect(c.startFresh).toBe(false)
     })
 
     it('#602: 6 oran tuli elozo chat nem jelolt', () => {
