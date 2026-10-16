@@ -6403,8 +6403,13 @@ function renderAgents() {
       <div class="agent-card-footer">
         <span class="agent-model-badge ${escapeHtml(mainModelClass)}">${escapeHtml(mainModelLabel)}</span>
         ${marveenProcessHtml(m)}
-        <span class="tg-status" title="${t('agents.marveen_channel_tip')}"><span class="tg-dot connected"></span>${t('agents.status.online')}</span>
+        <span class="tg-status" title="${escapeAttr(m.needsReauth ? t('agents.online_reauth_tip') : t('agents.marveen_channel_tip'))}"><span class="tg-dot ${m.needsReauth ? 'disconnected' : 'connected'}"></span>${m.needsReauth ? t('agents.status.offline') : t('agents.status.online')}</span>
       </div>
+      ${m.needsReauth ? `
+        <div class="agent-reauth-banner">
+          <span class="agent-reauth-reason" title="${escapeAttr(m.reauthReason ? t('agents.reauth.raw_tip', { raw: m.reauthReason }) : '')}">${escapeHtml(m.reauthReasonKey ? t(m.reauthReasonKey) : t('agents.reauth.reason'))}</span>
+          <button class="btn-danger btn-compact agent-login-btn" data-phase="start">${t('agents.btn.login')}</button>
+        </div>` : ''}
       <div class="agent-card-actions">
         <button class="btn-secondary btn-compact agent-conversation-btn" title="${t('agents.btn.conversation')}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -6423,6 +6428,9 @@ function renderAgents() {
     })
     mCard.querySelector('.agent-conversation-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openConversationModal(mainAgentId(), t('agents.marveen_boss'))
+    })
+    mCard.querySelectorAll('.agent-login-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#accounts' })
     })
     mCard.addEventListener('click', () => openMarveenDetail())
     wireContextControls(mCard, mainAgentId())

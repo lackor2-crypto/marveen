@@ -246,7 +246,7 @@ function reauthFromDisk(name: string, state: ReauthState, authMode: string | nul
   return state
 }
 
-function reconcileReauthWithDisk(name: string, state: ReauthState, authMode: string | null): ReauthState {
+export function reconcileReauthWithDisk(name: string, state: ReauthState, authMode: string | null): ReauthState {
   if (!state.needsReauth) return reauthFromDisk(name, state, authMode)
   if (state.source !== 'status-line') return state
   // A config-konyvtar a TERVBOL jon, nem az agens sajat mezojebol.

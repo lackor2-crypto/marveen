@@ -17,6 +17,10 @@ import { readMainAgentRuntime } from '../main-agent-runtime.js'
 import { readConfiguredMainModel } from '../main-agent-model.js'
 import { readContextReadingFromProjectDir } from '../active-model.js'
 import { resolveAgentConfigDirForRead } from '../claude-plans.js'
+import { detectReauthNeeded } from '../reauth-detect.js'
+import { reconcileReauthWithDisk } from './agents.js'
+import { exactTmuxTarget } from '../tmux-target.js'
+import { execFileSync } from 'node:child_process'
 import { mainAgentModelNow } from '../main-agent-model.js'
 import { knownModelCostPerM } from '../model-suggest.js'
 import { readAutoRestartConfig } from '../auto-restart-store.js'
@@ -59,6 +63,24 @@ export function buildMarveenIdentityCore(
     agentId: mainAgentId,
     autoRestartId: mainAgentId,
     role: 'main',
+  }
+}
+
+/**
+ * Does the main agent's own session need a /login? Same rule as a sub-agent card (live pane + the credentials file
+ * of the config dir it really runs on). Boss 2026-10-16: the main card kept saying "online" while the pane read
+ * "Not logged in" and the credentials file held an expired token. Capture failure -> no badge (no evidence).
+ */
+function mainAgentReauth() {
+  let pane: string | null = null
+  try {
+    pane = execFileSync('/usr/bin/tmux', ['capture-pane', '-t', exactTmuxTarget(MAIN_CHANNELS_SESSION), '-p'], { timeout: 3000 }).toString()
+  } catch { /* session not found -> detectReauthNeeded(null) = no pane evidence */ }
+  const st = reconcileReauthWithDisk(MAIN_AGENT_ID, detectReauthNeeded(pane), null)
+  return {
+    needsReauth: st.needsReauth,
+    reauthReason: st.needsReauth ? (st.reason ?? null) : null,
+    reauthReasonKey: st.needsReauth ? (st.reasonKey ?? null) : null,
   }
 }
 
@@ -111,6 +133,7 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
       // null = nem Claude-bejelentkezessel dolgozik (mas szolgaltato vagy
       // sajat API-kulcs), tehat nincs mit kijelentkeztetni.
       claudeAccount: claudeLoginForAgent(MAIN_AGENT_ID),
+      ...mainAgentReauth(),
       tmuxSession: MAIN_CHANNELS_SESSION,
       // Boss 2026-08-24 ("probalom ujrainditani a marvint de nem sikerult"):
       // this field was the literal `true`. It said "running" while the session
