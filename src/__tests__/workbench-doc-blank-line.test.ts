@@ -29,9 +29,24 @@ describe('an empty line stays (#565)', () => {
     expect(body).not.toContain(BLANK_LINE)
   })
 
+  it('an empty list item or note never prints as a bullet or a note (#565)', () => {
+    const o = { sections: [{ title: 'Új fejezet', status: 'draft', blocks: [
+      { kind: 'paragraph', text: 'Első' },
+      { kind: 'list', text: '- pont' },
+      { kind: 'list', text: BLANK_LINE },
+      { kind: 'footnote', text: BLANK_LINE },
+      { kind: 'paragraph', text: 'Aláírás:' },
+    ] }] } as unknown as RenderOutline
+    const x = buildFodt(o, { title: 'T', author: null, draft: true, lang: 'hu' })
+    const body = x.slice(x.indexOf('<office:text'))
+    expect(body.match(/<text:list-item>/g)?.length).toBe(1)
+    expect(body).not.toContain('<text:note ')
+    expect(body).toMatch(/pont<\/text:p><\/text:list-item><\/text:list>\s*<text:p text:style-name="Body"><\/text:p>\s*<text:p text:style-name="Body"><\/text:p>\s*<text:p text:style-name="Body">Aláírás:/)
+  })
+
   it('the page saves an empty line of the owner and still skips the line the program only offers', () => {
     const src = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
-    expect(src).toMatch(/if \(k !== 'block'\) continue\s*\n\s*text = DP_BLANK/)
+    expect(src).toMatch(/if \(k !== 'block' \|\| dpKindOf\(n, b\) !== 'paragraph'\) continue\s*\n\s*text = DP_BLANK/)
     expect(src).toMatch(/dpIsBlank\(b\.text\) \? '' : b\.text/)
   })
 
