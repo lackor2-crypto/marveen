@@ -235,6 +235,23 @@ process.stdin.on('data', (d) => {
 })
 `
 
+// Holds the first message until a second one arrives, then answers both in ONE turn (what the real CLI does).
+const FAKE_SLOW_CLI = `
+let buf = '', n = 0
+process.stdin.on('data', (d) => {
+  buf += d
+  let i
+  while ((i = buf.indexOf('\\n')) >= 0) {
+    const line = buf.slice(0, i); buf = buf.slice(i + 1)
+    JSON.parse(line); n++
+    const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
+    if (n === 1) { w({ type: 'system', subtype: 'init', session_id: 'sess-slow', model: 'fake-model' }); continue }
+    w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'egyutt valaszolt [MINDEN_KESZ]' } } })
+    w({ type: 'result', subtype: 'success', result: 'x', session_id: 'sess-slow' })
+  }
+})
+`
+
 // Boss, 2026-09-29: "ne mutassa nekem itt hogy kesz ha meg nincs keszen", es
 // "ha dolgozik akkor is kellene vennie az uj utasitasokat, csak varakozoba
 // kellene tennie". Valos eset: a chat 14,5 perc utan "kesz"-nek mutatta a meg
@@ -308,6 +325,38 @@ describe('Munkapad chat teljes erteku modban (allo, elo munkamenet)', () => {
       ['Read', 'ok', JSON.stringify({ detail: '/p/terv.md' })],
     ])
     expect((await get(`/api/workbench/agent/session?workItem=${workItemId}`)).toolCalls).toHaveLength(2)
+    pool.stopAll()
+  })
+
+  it('Boss 2026-10-16: a foglalt ugynoknek kuldott uzenet AZONNAL a futo munkamenetbe megy (nem sorba all), a user sor mentodik', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wb-live-inj-'))
+    const script = join(dir, 'fake-claude.cjs')
+    writeFileSync(script, FAKE_SLOW_CLI)
+    const pool = new LiveSessionPool({
+      spawn: (s) => spawn(s.bin, s.args, { cwd: s.cwd, env: s.env, stdio: ['pipe', 'pipe', 'pipe'] }),
+      now: () => Date.now(),
+      loadIds: () => ({}),
+      saveIds: () => {},
+    })
+    setWorkbenchLivePoolForTest(pool)
+    setWorkbenchLiveResolverForTest((key) => ({ key, bin: process.execPath, configDir: '/cfg', cwd: dir, env: process.env, baseArgs: [script] }))
+    const session = openSessionForWorkItem(projectId, workItemId, 'hu')
+    const key = turnKey(projectId, workItemId)
+    const first = post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'elso' })
+    for (let i = 0; i < 100 && !isTurnRunning(key); i++) await new Promise((r) => setTimeout(r, 20))
+    await new Promise((r) => setTimeout(r, 150)) // the process is up and the turn is waiting
+    const inj = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'meg ez is', inject_only: true })
+    expect(inj.raw).toContain('event: injected')
+    expect(inj.raw).not.toContain('"code":"busy"')
+    const a = await first
+    expect(a.raw).toContain('egyutt valaszolt')
+    expect(listAgentMessages(session.id).map((m) => [m.role, m.content]).slice(-3)).toEqual([
+      ['user', 'elso'], ['user', 'meg ez is'], ['assistant', expect.stringContaining('egyutt valaszolt')],
+    ])
+    // nothing runs any more: an inject-only request must not start a turn of its own
+    const late = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'kesobb', inject_only: true })
+    expect(late.raw).toContain('"code":"busy"')
+    expect(isTurnRunning(key)).toBe(false)
     pool.stopAll()
   })
 

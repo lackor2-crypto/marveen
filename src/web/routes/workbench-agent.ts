@@ -989,7 +989,20 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
 
     try {
       const chatSession = openSessionForWorkItem(project.id, workItemId ?? projectSessionKey(project.id), lang)
-      if (bridgeStillWorking(chatSession.id)) {
+      const injectText = input.message.trim()
+      if (livePool && injectText && !bridgeStillWorking(chatSession.id) && isTurnRunning(key)
+        && livePool.inject(key, `${injectText}\n\n${completionInstruction()}`)) {
+        // Boss, 2026-10-16: a message written while the agent works goes to the
+        // model right away (the running turn takes it in); it is not queued.
+        addAgentMessage(chatSession.id, 'user', injectText)
+        send('session', { type: 'session', sessionId: chatSession.id })
+        send('injected', { type: 'injected' })
+      } else if (body.inject_only === true) {
+        // The page asked only to hand the message to a running turn; nothing runs
+        // that can take it (code bridge, or the turn just ended): it queues as before,
+        // and never starts a second turn from this request.
+        send('error', { type: 'error', code: 'busy', message: msg('busy', lang) })
+      } else if (bridgeStillWorking(chatSession.id)) {
         // Az elozo uzenet kod-hid feladata meg dolgozik: az uj uzenet nem
         // indit masodik vegrehajtot (es nem is utasitjuk el) -- a felulet a
         // `busy`-bol sorba allitja, es a feladat vegen magatol elkuldi.

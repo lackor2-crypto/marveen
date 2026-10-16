@@ -219,6 +219,23 @@ export class LiveSessionPool {
     return true
   }
 
+  /**
+   * Menet kozbeni uzenet (Boss, 2026-10-16: "ne varakozzon, kuldje el"): a
+   * futo fordulo stdin-jere irjuk. A CLI a menet kozben erkezo uzenetet
+   * ugyanabba a fordulóba fuzi (merve: egyetlen `result` sor jon), ezert a
+   * kimeneti oldalon semmi nem valtozik. false = nincs aktiv fordulo ehhez a
+   * kulcshoz (a hivo sorba allitja, mint eddig).
+   */
+  inject(key: string, text: string): boolean {
+    const l = this.sessions.get(key)
+    if (!l || l.dead || !l.onLine) return false
+    try {
+      l.child.stdin?.write(JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n')
+    } catch { return false }
+    l.lastUsed = this.deps.now()
+    return true
+  }
+
   stopAll(): void { for (const l of [...this.sessions.values()]) this.kill(l) }
 
   private kill(l: Live): void {

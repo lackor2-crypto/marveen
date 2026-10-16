@@ -2588,7 +2588,10 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     return events.map((e) => `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`).join('')
   }
   const STATUS = { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
-  const posted = (path: string) => h.fetchCalls.filter((c) => c.url.indexOf(path) >= 0)
+  // A request that only hands a message to a running turn (inject_only) is not a turn of its own.
+  const isInject = (c: { init?: { body?: unknown } }): boolean => { try { return JSON.parse(String(c.init?.body)).inject_only === true } catch { return false } }
+  const posted = (path: string) => h.fetchCalls.filter((c) => c.url.indexOf(path) >= 0 && !isInject(c))
+  const injectPosts = () => h.fetchCalls.filter((c) => c.url.indexOf('/api/workbench/agent/message') >= 0 && isInject(c))
 
   beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }) })
   afterEach(() => { vi.useRealTimers() })
@@ -2762,6 +2765,31 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     expect(calls).toHaveLength(1)
     expect(JSON.parse(String(calls[0].init?.body)).message).toBe('és még ezt is')
     expect(h.rootEl.innerHTML).not.toContain('workbench.chat.queued')
+  })
+
+  it('Boss 2026-10-16: valasz kozben irt uzenet AZONNAL a futo modellnek megy; ha a szerver elfogadta, nem all sorba es nem megy el ketszer', async () => {
+    let running = true
+    h.respond((url, init) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        const inj = (() => { try { return JSON.parse(String(init?.body)).inject_only === true } catch { return false } })()
+        if (inj) return { status: 200, body: sse([{ type: 'session', sessionId: 's1' }, { type: 'injected' }]) }
+        return { status: 200, body: sse([{ type: 'text', text: 'Nem kellett volna.' }, { type: 'done', model: 'm' }]) }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.resumed_running'))
+    h.inputs.wbChatInput = { value: 'ezt rögtön', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(injectPosts()).toHaveLength(1))
+    expect(JSON.parse(String(injectPosts()[0].init?.body)).message).toBe('ezt rögtön')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).not.toContain('workbench.chat.queued'))
+    expect(h.rootEl.innerHTML).toContain('ezt rögtön')
+    running = false
+    await vi.advanceTimersByTimeAsync(3100)
+    expect(posted('/api/workbench/agent/message')).toHaveLength(0)
   })
 
   it('"mar fut egy valasz" nem piros hiba: az uzenet sorba all, megvarja a futot, es ujra elmegy', async () => {
