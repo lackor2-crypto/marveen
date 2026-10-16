@@ -56,8 +56,7 @@ describe('the project tree shows how deep a row is nested (#657)', () => {
 
   it('CSS: a fixed step per level, a guide line per ancestor level and an elbow; the other panel is left alone', () => {
     const css = readFileSync(new URL('../../web/workbench.css', import.meta.url), 'utf8')
-    for (let d = 1; d <= 8; d++) expect(css).toContain('.wb-depth-' + d + ' { --wb-d: ' + d + '; }')
-    expect(css).toMatch(/\[class\*="wb-depth-"\] \{ margin-left: calc\(var\(--wb-d, 0\) \* 12px\)/)
+    for (let d = 1; d <= 8; d++) expect(css).toContain('.wb-depth-' + d + ' { --wb-d: ' + d + '; margin-left: min(' + 12 * d + 'px, ' + 4 * d + '%); }')
     expect(css).toMatch(/\[class\*="wb-depth-"\]::before \{[^}]*repeating-linear-gradient/)
     expect(css).toMatch(/\[class\*="wb-depth-"\]::after \{[^}]*height: 1px/)
     expect(css).toContain('.wb-fr-panel [class*="wb-depth-"]::before')
