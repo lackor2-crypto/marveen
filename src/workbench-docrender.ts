@@ -340,6 +340,32 @@ function tableBlock(text: string, n: number, draft: boolean, extraStyles: string
   return [`<text:p text:style-name="FrameAnchor"><draw:frame draw:style-name="TblFrame${n}" draw:name="TableFrame ${n}" text:anchor-type="paragraph" svg:width="${wCm!.toFixed(2)}cm" draw:z-index="1"><draw:text-box fo:min-height="0.3cm">${table}</draw:text-box></draw:frame></text:p>`]
 }
 
+/** #566: a picture lying OVER the text, as the anchor paragraph `imageBlock` writes it (one frame, nothing else in it). */
+const OVER_ANCHOR_RE = /^<text:p text:style-name="FrameAnchor">(<draw:frame draw:style-name="ImgOver\d+"[\s\S]*<\/draw:frame>)<\/text:p>$/
+/** The opening tag of the first paragraph of a chunk (a paragraph, a heading, or the first item of a list) -- not an empty `<text:p .../>`. */
+const FIRST_PARA_OPEN_RE = /^(?:<text:list[^>]*>(?:<text:list-item>)?)?<text:[ph] [^>]*[^/]>/
+
+/**
+ * #566 (measured 2026-10-16 on the PDF: a free signature pushed every line below it down by 1.15 pt): the picture's own
+ * anchor paragraph is a line, however small its font, so a picture that "takes no room" still moved the text. The frame is
+ * anchored at the paragraph it lies over -- the next one, which is also what the editor measures x / y from -- by putting
+ * it INSIDE that paragraph's opening. Only when there is no such paragraph (the picture ends the chapter, or a table
+ * follows) does the picture keep its own anchor paragraph. Walks backwards so a run of pictures all land in the same one.
+ */
+function anchorOverPictures(sec: string[]): string[] {
+  const out = sec.slice()
+  for (let i = out.length - 2; i >= 0; i--) {
+    const m = OVER_ANCHOR_RE.exec(out[i] as string)
+    if (!m) continue
+    const next = out[i + 1] as string
+    const open = FIRST_PARA_OPEN_RE.exec(next)
+    if (!open) continue
+    out[i + 1] = open[0] + (m[1] as string) + next.slice(open[0].length)
+    out.splice(i, 1)
+  }
+  return out
+}
+
 /** Valodi labjegyzet az elozo blokk utolso bekezdesenek vegen (a lap aljan jelenik meg). */
 function footnoteXml(text: string, n: number, draft: boolean): string {
   const clean = text.replace(/^\s*(?:[¹²³⁴⁵⁶⁷⁸⁹⁰]+|\(?\d+\)|\d+[.)]|\*)\s*/, '').trim()
@@ -394,7 +420,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
         else sec.push(...paragraphs(b.text, 'Note', o.draft, st))
       } else sec.push(...paragraphs(b.text, 'Body', o.draft, st, b.rich, b.align, b.pfmt))
     }
-    body.push(...sec)
+    body.push(...anchorOverPictures(sec))
   }
   if (outline.annexes && outline.annexes.length) {
     body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(outline.annexTitle || 'Mellékletek')}</text:h>`)
