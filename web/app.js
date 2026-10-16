@@ -6430,7 +6430,7 @@ function renderAgents() {
       e.stopPropagation(); openConversationModal(mainAgentId(), t('agents.marveen_boss'))
     })
     mCard.querySelectorAll('.agent-login-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#accounts' })
+      btn.addEventListener('click', (e) => { e.stopPropagation(); startMainAgentLogin() })
     })
     mCard.addEventListener('click', () => openMarveenDetail())
     wireContextControls(mCard, mainAgentId())
@@ -20789,6 +20789,25 @@ function _findMcpConnRow(names) {
     if (keys.includes(_mcpNameKey(el.dataset.mcpServer))) return el
   }
   return null
+}
+
+/**
+ * The main agent card's red login button. It used to only jump to the Accounts
+ * page, where Boss (2026-10-16) pressed the Google "sign in again" button next
+ * to it, so the Claude login was never started. Now the card starts the
+ * main agent's own Claude login itself, on the page that shows the flow.
+ */
+async function startMainAgentLogin() {
+  switchPage('accounts')
+  try { await loadAccountsPage() } catch { /* the wait loop below reports it */ }
+  let btn = null
+  for (let i = 0; i < 25 && !btn; i++) {
+    btn = document.querySelector('.acc-claude-relogin[data-default="1"]')
+    if (!btn) await new Promise(r => setTimeout(r, 200))
+  }
+  if (!btn) { showToast(t('agents.login.row_not_found'), 9000, true); return }
+  btn.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  btn.click()
 }
 
 /**

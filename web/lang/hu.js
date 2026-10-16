@@ -1885,6 +1885,7 @@ window._i18n.hu = {
   'agents.reauth.m_first_run_browser':  'Böngészős bejelentkezési képernyőn ragadt (első indítás) — itt a gép magától nem tud továbblépni.',
   'agents.reauth.m_invalid_credentials':'A szolgáltatás visszautasította a hitelesítést (401) — jelentkezz be újra.',
   'agents.reauth.m_needs_login':        'A Claude Code bejelentkezést kér (/login).',
+  'agents.login.row_not_found':      'Nem találom a Marvin Claude-bejelentkezés sorát a Fiókok oldalon. Keresd az "Alapértelmezett" sort.',
   'agents.reauth.m_not_logged_in':      'Ez a fiók nincs bejelentkezve.',
   'agents.reauth.m_api_401':            'A hívások 401-es hibát kapnak — a hitelesítés nem érvényes.',
   'agents.reauth.m_oauth_expired':      'A bejelentkezési token lejárt.',

@@ -16,4 +16,12 @@ describe('main agent card reports a needed login', () => {
     expect(app).toContain("m.needsReauth ? 'disconnected' : 'connected'")
     expect(app).toContain('${m.needsReauth ? `')
   })
+  // Boss 2026-10-16: the red button only jumped to the Accounts page, where the
+  // Google "sign in again" button was pressed instead; the Claude login never started.
+  it('the red card button starts the main agent Claude login itself', () => {
+    const app = read('web/app.js')
+    expect(app).toContain('startMainAgentLogin()')
+    expect(app).toContain(`.acc-claude-relogin[data-default="1"]`)
+    expect(app).not.toContain("btn.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#accounts' })")
+  })
 })
