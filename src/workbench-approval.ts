@@ -23,7 +23,7 @@ import { getDb, createApproval, createAgentMessage, getApproval, resolveApproval
 import type { Approval } from './db.js'
 import { MAIN_AGENT_ID } from './config.js'
 import { getProject } from './projects.js'
-import { ensureWorkbenchTables, getWorkItem } from './workbench.js'
+import { ensureWorkbenchTables, getWorkItem, createWorkItemVersion } from './workbench.js'
 import type { WorkItemRow, WorkItemStatus } from './workbench.js'
 import { logger } from './logger.js'
 
@@ -183,11 +183,23 @@ export function finalizeWorkItem(itemId: string, opts: { by: string }): Approval
 }
 
 /** #552: reopen a finalized work item (done -> in_progress). Nothing is removed; versions and files stay. */
-export function reopenWorkItem(itemId: string): ApprovalActionResult {
+export function reopenWorkItem(itemId: string, opts: { by?: string | null; lang?: 'hu' | 'en' } = {}): ApprovalActionResult {
   const item = getWorkItem(itemId)
   if (!item) throw new Error('work item not found')
   if (item.status !== 'done') return { ok: false, code: 'not_done' }
-  return { ok: true, item: setStatus(itemId, 'in_progress'), approval: workItemApprovalState(itemId) }
+  setStatus(itemId, 'in_progress')
+  // Boss TG 3116: reopening starts a NEW version on top of the finalized one (the old final version and its PDF stay
+  // untouched), so the edits that follow land there and the next finalize is the next version, not an overwrite.
+  const d = new Date()
+  const p2 = (n: number): string => String(n).padStart(2, '0')
+  const label = `${opts.lang === 'en' ? 'Reopened' : 'Újranyitva'} – ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
+  try {
+    const v = createWorkItemVersion(itemId, { prompt: label, created_by: opts.by ?? null })
+    if (!v.ok) logger.warn({ itemId, code: v.code }, 'workbench: reopened, but the new version could not be created')
+  } catch (err) {
+    logger.warn({ err, itemId }, 'workbench: reopened, but the new version could not be created')
+  }
+  return { ok: true, item: getWorkItem(itemId)!, approval: workItemApprovalState(itemId) }
 }
 
 /**

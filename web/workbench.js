@@ -11551,6 +11551,7 @@
       if (!r.ok) { window.showToast(r.message); render(); return }
       if (r.data && r.data.item) WB.detail.item = r.data.item
       WB.detail.approval = (r.data && r.data.approval) || null
+      if (r.data && r.data.versions) WB.detail.versions = r.data.versions
       window.showToast(t('workbench.approval.toast.' + action))
       render()
       load(WB.projectId)
