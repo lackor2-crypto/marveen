@@ -2364,17 +2364,20 @@
     // #535: the files of the project OUTSIDE the work-item box (the project folder itself, a linked Git repo, a folder
     // opened later) have a tick box too. Knowing only the box, the tick was thrown away on the next render and the
     // bar never came up for them.
+    var inBox = Object.assign({}, have)
     var outFiles = mergedOutside(WB.workFolders).files || {}
     Object.keys(outFiles).forEach(function (k) { (outFiles[k] || []).forEach(function (f) { if (!have[f.rel]) have[f.rel] = f }) })
     var imgs = []
     var other = 0
+    var outside = 0
     Object.keys(WB.fileSel || {}).forEach(function (rel) {
       var f = have[rel]
       if (!f) { delete WB.fileSel[rel]; return }
+      if (!inBox[rel]) outside++
       if (isImageFile({ name: f.name })) imgs.push(f); else other++
     })
     imgs.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) || (a.rel < b.rel ? -1 : 1) })
-    return { imgs: imgs, other: other, total: imgs.length + other }
+    return { imgs: imgs, other: other, outside: outside, total: imgs.length + other }
   }
 
   /** The bar above the list while files are ticked (#529, Boss TG 8582): move them, delete them, or clear the ticks.
@@ -2398,7 +2401,8 @@
     }
     return '<div class="wb-sel-bar" role="group" aria-label="' + escA(t('workbench.sel.count', { n: sel.total })) + '">'
       + '<span class="wb-sel-count">' + esc(t('workbench.sel.count', { n: sel.total })) + '</span>'
-      + moveFilesSelectHtml('*')
+      // The server moves only files of the work-item box (the rest answers 'not_loose'): no list that cannot work.
+      + (sel.outside ? '' : moveFilesSelectHtml('*'))
       + deck
       + '<button type="button" class="btn-danger wb-sel-delete" data-wb-act="file-delete" data-wb-rel="*"' + busy + '>' + esc(t('workbench.sel.delete', { n: sel.total })) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="sel-clear">' + esc(t('workbench.sel.clear')) + '</button>'
