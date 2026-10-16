@@ -39,7 +39,24 @@ describe('chat splitter', () => {
   it('the lower strip keeps the dragged height and the upper one flexes (fixed-frame Simple view, TG 3148)', () => {
     expect(js).toContain("tools.style.flex = '0 0 auto'")
     expect(js).toContain("log.style.flex = '1 1 auto'")
-    expect(js).toContain('A fixed-height frame squeezes the upper strip')
+    expect(js).toContain('In a fixed-height frame (Simple view) the upper strip is squeezed')
+  })
+  // Measured in a real browser (Simple + Classic view, 1400x900 and 1100x700): the line moves inside the room the two
+  // strips share, so dragging never pushes the lower strip (or the input row under it) out of the chat frame.
+  it('the line moves inside the shared room: the measured sum is kept and neither strip can vanish', () => {
+    const i = js.indexOf('function moveChatSplit(')
+    const body = js.slice(i, i + 420)
+    expect(body).toContain('var total = startLog + startTools')
+    expect(body).toContain('Math.min(total - CHAT_SPLIT_MIN.tools, startLog + dy)')
+    expect(body).toContain('applyChatSplit(lh, total - lh, save)')
+  })
+  it('the remembered sizes are fitted again after a redraw and a window resize, without overwriting the stored ones', () => {
+    const fit = js.slice(js.indexOf('function fitSavedChatSplit()'), js.indexOf('function fitSavedChatSplit()') + 400)
+    expect(fit).toContain('fitChatSplit(WB.chatSplit.log, WB.chatSplit.tools)')
+    expect(fit).not.toContain('WB.chatSplit =')
+    expect(js).toContain("el.innerHTML = chatInnerHtml()\n    fitSavedChatSplit()")
+    expect(js).toContain('fitFrame()\n    fitSavedChatSplit()')
+    expect(js).toContain('if (WB.open) { fitFrame(); fitSavedChatSplit() }')
   })
   it('the hint is in both languages', () => {
     expect(hu).toContain('"workbench.chat.split_hint"')

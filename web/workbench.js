@@ -10702,23 +10702,39 @@
     return '<div class="wb-chat-split" id="wbChatSplit" role="separator" aria-orientation="horizontal" tabindex="0"'
       + ' title="' + escA(t('workbench.chat.split_hint')) + '" aria-label="' + escA(t('workbench.chat.split_hint')) + '"><span></span></div>'
   }
-  function applyChatSplit(logH, toolsH, save) {
+  // Puts the two heights on the strips. In a fixed-height frame (Simple view) the upper strip is squeezed when the two
+  // do not fit: the lower strip gives the missing room back, so nothing is pushed out of the frame. Returns the sizes used.
+  function fitChatSplit(logH, toolsH) {
     var log = document.getElementById('wbChatLog')
     var tools = document.getElementById('wbChatTools')
-    if (!log || !tools) return
+    if (!log || !tools) return null
     function put() {
       log.style.height = logH + 'px'; log.style.maxHeight = 'none'; log.style.minHeight = CHAT_SPLIT_MIN.log + 'px'; log.style.flex = '1 1 auto'
       tools.style.height = toolsH + 'px'; tools.style.maxHeight = 'none'; tools.style.minHeight = CHAT_SPLIT_MIN.tools + 'px'; tools.style.flex = '0 0 auto'
     }
     put()
-    // A fixed-height frame squeezes the upper strip: give the missing room back from the lower one.
     var real = log.getBoundingClientRect().height
-    if (real < CHAT_SPLIT_MIN.log - 0.5) { toolsH = Math.max(CHAT_SPLIT_MIN.tools, toolsH - (CHAT_SPLIT_MIN.log - real)); put() }
-    WB.chatSplit = { log: logH, tools: toolsH }
+    if (real < logH - 0.5) { toolsH = Math.max(CHAT_SPLIT_MIN.tools, toolsH - (logH - real)); put() }
+    return { log: logH, tools: toolsH }
+  }
+  function applyChatSplit(logH, toolsH, save) {
+    var used = fitChatSplit(logH, toolsH)
+    if (!used) return
+    WB.chatSplit = used
     if (save) { try { window.localStorage && window.localStorage.setItem(CHAT_SPLIT_KEY, JSON.stringify(WB.chatSplit)) } catch (_e) { /* only this session */ } }
   }
+  // The line moves inside the room the two strips share (their measured sum stays the same): it cannot be dragged so far
+  // that a strip disappears or the lower one grows out of the frame.
   function moveChatSplit(startLog, startTools, dy, save) {
-    applyChatSplit(Math.max(CHAT_SPLIT_MIN.log, startLog + dy), Math.max(CHAT_SPLIT_MIN.tools, startTools - dy), save)
+    var total = startLog + startTools
+    var lh = Math.max(CHAT_SPLIT_MIN.log, Math.min(total - CHAT_SPLIT_MIN.tools, startLog + dy))
+    applyChatSplit(lh, total - lh, save)
+  }
+  // After a redraw or a window resize: the remembered sizes are fitted to the room the frame has now (the stored
+  // numbers stay as they are, so a bigger window gets them back).
+  function fitSavedChatSplit() {
+    if (!WB.chatSplit) return
+    try { fitChatSplit(WB.chatSplit.log, WB.chatSplit.tools) } catch (_e) { /* no layout (stand-in DOM): nothing to fit */ }
   }
   document.addEventListener('pointerdown', function (e) {
     var h = e.target && e.target.closest ? e.target.closest('#wbChatSplit') : null
@@ -10931,6 +10947,7 @@
     try { focused = !!(document.activeElement && document.activeElement.id === 'wbChatInput') } catch (_e) { focused = false }
     var scrollSnap = chatScrollSnapshot()
     el.innerHTML = chatInnerHtml()
+    fitSavedChatSplit()
     restoreChatScroll(scrollSnap)
     if (focused) {
       var input = document.getElementById('wbChatInput')
@@ -17360,7 +17377,7 @@
     split.style.height = Math.max(240, Math.floor(room)) + 'px'
   }
 
-  if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) fitFrame() })
+  if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) { fitFrame(); fitSavedChatSplit() } })
 
   /** The page's scroll position across a full re-render (Boss, TG 7451: pressing "Vegleges torles"
    *  threw the scrollbar to the top). Replacing the whole root briefly collapses the page, and the
@@ -17523,6 +17540,7 @@
     restoreChatScroll(chatScroll)
     restoreStripScroll(stripLeft)
     fitFrame()
+    fitSavedChatSplit()
     lockFrameScroll()
     fitHead()
     // Az elso rajzolaskor a kontener meg nem biztos, hogy kapott szelesseget: kesobb ujra.
