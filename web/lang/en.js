@@ -7432,6 +7432,8 @@ window._i18n.en = {
   "workbench.chat.approval_id": "(approval {id} -- you can decide on the Approvals page)",
   "workbench.chat.setup": "Set up",
   "workbench.chat.account_label": "Account:",
+  "workbench.chat.account_hint_auto": "On Automatic, when the VS Code code bridge answers, a question you write while it works waits in line for the previous one.",
+  "workbench.chat.account_hint_fixed": "With a specific account Marveen's own session answers and takes new questions at once.",
   "workbench.chat.side_label": "Windows or WSL side work:",
   "workbench.chat.side_off": "Automatic (the folder's location decides)",
   "workbench.chat.side_windows": "Windows",

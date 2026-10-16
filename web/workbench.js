@@ -10743,6 +10743,7 @@
     return '<div class="wb-chat-account-row">'
       + '<label class="wb-chat-account-label" for="wbChatAccount">' + esc(t('workbench.chat.account_label')) + '</label>'
       + '<select class="wb-input wb-chat-account" id="wbChatAccount" data-wb-act="chat-account">' + opts.join('') + '</select>'
+      + '<div class="wb-muted wb-chat-account-hint">' + esc(t(cur === 'auto' ? 'workbench.chat.account_hint_auto' : 'workbench.chat.account_hint_fixed')) + '</div>'
       + '</div>'
   }
 
