@@ -1,14 +1,18 @@
 // #618 (Boss TG 3536, 3542): "move this work item's finished files into the Life tree". The owner sees a LIST (which
 // file would go where), approves it, and only then do the files move. The work item keeps reaching each file: moveLife
 // follows the item's file references (followMovedItemFileRefs), so what stays behind is a link, not a copy.
-// Nothing here picks a target for the owner: a row without a target is not moved.
+// #661: the list may carry a SUGGESTED target per file (the inbox sorter's rules: whose, which area, which case), but it
+// is only a suggestion: nothing moves until the owner approves the list, and a row without a target is not moved.
 
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ProjectRow } from './projects.js'
 import type { WorkItemRow } from './workbench.js'
 import { projectFileTarget } from './project-files.js'
-import { moveLife, toLifeRel } from './life-explorer.js'
+import { moveLife, toLifeRel, resolveLifePath } from './life-explorer.js'
+import { analyzeInboxItem, buildLearnedIndex, prefetchItem, sniffType } from './life-inbox-analyze.js'
+import { credentialRisk } from './life-inbox.js'
+import { loadLifeConfig } from './life-tree.js'
 import { isContextFileName } from './workbench-item-context.js'
 import { isTodoFileName } from './workbench-item-todos.js'
 
@@ -23,6 +27,46 @@ export interface LifeMoveCandidate {
   name: string
   /** The subfolder name the file sits in; '' = the item's folder itself. */
   folder: string
+}
+
+export interface LifeMoveSuggestion {
+  /** Life-tree relative target folder; '' = the sorter has no (existing) folder for this file. */
+  suggested_target: string
+  /** Human location of the suggestion (what the owner reads). */
+  suggested_display: string
+  /** true = owner and kind were recognised with enough certainty to pre-fill; false = shown as a hint only. */
+  suggested_confident: boolean
+}
+
+const MAX_SUGGESTED = 60
+const SUGGEST_BUDGET_MS = 20000
+
+/**
+ * One suggestion per candidate file, from the same rules the inbox sorter uses (owner by name/content, kind by
+ * words). Only an EXISTING folder is ever suggested (nothing is created here), a file that looks like a credential
+ * gets none, and the work stops at a time budget so a big folder never holds the dialog up. Never throws: a file
+ * that cannot be read simply has no suggestion (a fresh install with an empty Life tree has none at all).
+ */
+export async function suggestLifeTargets(files: LifeMoveCandidate[], lang: string): Promise<Map<string, LifeMoveSuggestion>> {
+  const out = new Map<string, LifeMoveSuggestion>()
+  let config
+  let index
+  try { config = loadLifeConfig(); index = buildLearnedIndex(config) } catch { return out }
+  if (!config.persons.length) return out
+  const until = Date.now() + SUGGEST_BUDGET_MS
+  for (const f of files.slice(0, MAX_SUGGESTED)) {
+    if (Date.now() > until) break
+    try {
+      const abs = resolveLifePath(f.rel)
+      if (!abs) continue
+      const item = { name: f.name, rel: f.rel, isDir: false, size: 0, sizeHuman: '', mtime: '', credentialWarning: credentialRisk(f.name, lang) }
+      const pre = item.credentialWarning ? undefined : await prefetchItem(sniffType(abs), abs)
+      const s = analyzeInboxItem(item, config, index, lang, pre, abs)
+      if (!s.targetRel || !s.targetExists) continue
+      out.set(f.rel, { suggested_target: s.targetRel, suggested_display: s.targetDisplay, suggested_confident: !s.needsReview })
+    } catch { /* no suggestion for this file */ }
+  }
+  return out
 }
 
 export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {

@@ -1175,9 +1175,11 @@ const REVIEW_THRESHOLD = 0.55
 
 export function analyzeInboxItem(
   item: InboxItem, config: LifeConfig, index: LearnedIndex, lang: string = APP_LANG, pre?: Prefetched,
+  /** The file lives somewhere other than the INBOX (the work item's folder, #661): read it from here. */
+  absPath?: string,
 ): InboxSuggestion {
   const dir = inboxDir(lang) || ''
-  const abs = join(dir, item.name)
+  const abs = absPath || join(dir, item.name)
   const ext = extname(item.name)
   const notes: string[] = []
   const options = personOptions(config)

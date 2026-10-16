@@ -35,7 +35,7 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { kickItemContextSweep } from '../../workbench-item-context.js'
-import { lifeMoveCandidates, moveItemFilesToLife } from '../../workbench-life-move.js'
+import { lifeMoveCandidates, moveItemFilesToLife, suggestLifeTargets } from '../../workbench-life-move.js'
 import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
 import { createHash } from 'node:crypto'
@@ -4283,7 +4283,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (method === 'GET') {
       const c = lifeMoveCandidates(owner, item)
       if (!c.ok) return fail(res, 404, 'life_move_no_folder', lang)
-      json(res, { ok: true, files: c.files, folder_rel: c.folder_rel })
+      const sug = await suggestLifeTargets(c.files, lang)
+      json(res, { ok: true, files: c.files.map((f) => ({ ...f, ...(sug.get(f.rel) || {}) })), folder_rel: c.folder_rel })
       return true
     }
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
