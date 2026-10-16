@@ -703,7 +703,7 @@ window._i18n.hu = {
   'drive.blocked_retry_confirm': 'A teljes listát ürítem, tehát a következő szinkron MINDEGYIK fájlnak újra nekifut. Ha a Google közben nem gondolta meg magát, ugyanezek kerülnek vissza a listára. Mehet?',
   'drive.blocked_working': 'Dolgozom…',
   'drive.blocked_retry_done': 'Kész — a következő szinkron újra megpróbálja.',
-  'drive.blocked_retry_failed': 'Nem sikerült levenni a listáról:',
+  'drive.blocked_retry_failed': 'Nem sikerült eltávolítani a listáról:',
   'drive.blocked_load_failed': 'A listát nem sikerült lekérdezni:',
 
   // --- Raktar: mennyi hely van a fiokon, MOST ---
@@ -5065,7 +5065,7 @@ window._i18n.hu = {
   'cb.card.compact_confirm': 'Tömörítsem a(z) „{p}" beszélgetését? A Claude összefoglalja az eddigieket, a beszélgetés megmarad.',
   'cb.card.compact_queued': 'Tömörítés sorba állítva — a végrehajtó egy percen belül elindítja.',
   'cb.card.clear':          'Törlés',
-  'cb.card.clear_help':     'Kiüríti a beszélgetést, mint bármelyik másik ügynök-kártyán: a /clear parancsot küldi, a Claude ÚJ, üres beszélgetést nyit ebben a mappában. A mostani napló a lemezen megmarad, de a munka innentől tiszta lappal megy tovább. A mappa a kód-hídon marad — levenni a Levétel gombbal lehet.',
+  'cb.card.clear_help':     'Kiüríti a beszélgetést, mint bármelyik másik ügynök-kártyán: a /clear parancsot küldi, a Claude ÚJ, üres beszélgetést nyit ebben a mappában. A mostani napló a lemezen megmarad, de a munka innentől tiszta lappal megy tovább. A mappa a kód-hídon marad — eltávolítani az Eltávolítás gombbal lehet.',
   'cb.card.clear_confirm':  'Kiürítsem a(z) „{p}" beszélgetését? A Claude új, üres beszélgetést nyit a mappában — a mostani napló a lemezen megmarad, de a további feladatok már az újba mennek. A mappa a kód-hídon marad.',
   'cb.card.clear_queued':   'A beszélgetés kiürítése sorba állítva — a kártya egy percen belül átáll az újra.',
   'cb.card.maint_no_target': 'Nincs kijelölve beszélgetés. Jelöld ki a kártyán azt a chat fület, amelyiket tömöríteni szeretnéd, aztán nyomd meg újra.\n\nKijelölés nélkül a Marveen nem választ helyetted: a tömörítés pénzbe kerül, és nem azt a beszélgetést érintené, amelyikre gondolsz.',
@@ -5234,7 +5234,7 @@ window._i18n.hu = {
   'megadepot.open_folder': "Mappa megnyitása",
   'megadepot.gone.hint': 'Ez korábban itt volt a MEGA-n, most már nincs ezen a helyen: törölték, átnevezték vagy áthelyezték. Ha törölték, a MEGA weboldalán a Kukából visszaállítható.',
   'megadepot.gone.dismiss': 'Eltüntetés a listából',
-  'megadepot.gone.dismiss_failed': 'Nem sikerült levenni a listáról: {name}.',
+  'megadepot.gone.dismiss_failed': 'Nem sikerült eltávolítani a listáról: {name}.',
   'megadepot.empty_folder': "Ez a mappa üres -- a MEGA-n tényleg nincs benne semmi.",
   'megadepot.browse_failed': "Nem látok bele ebbe a mappába, ezért nem tudom megmondani, mi van benne. {reason}",
   'megadepot.browse_detail': "A MEGA / rclone válasza: {detail}",
