@@ -1428,6 +1428,13 @@ export function chatLaneAlive(now = Date.now()): boolean {
   return chatLaneSeenAt > 0 && now - chatLaneSeenAt <= CHAT_LANE_ALIVE_MS
 }
 
+/** #602: a timed-out topic check defaults to "continue": point the task at the previous chat's session. */
+function continueInPreviousChat(task: CodeTask, sessionId: string | undefined | null): void {
+  if (!sessionId) return
+  getDb().prepare(`UPDATE code_tasks SET target_session_id = ? WHERE id = ? AND (target_session_id IS NULL OR target_session_id = '')`).run(sessionId, task.id)
+  task.targetSessionId = sessionId
+}
+
 /** Test hook: forget the chat lane's liveness. */
 export function resetChatLaneForTest(): void {
   chatLaneSeenAt = 0
@@ -1466,11 +1473,19 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
         // The classifier never answered: fall back to the safe default (continue the open work).
         db.prepare(`UPDATE code_tasks SET topic_state = NULL WHERE id = ?`).run(task.id)
         task.topicState = null
+        // #602: with no open card the work to continue is the previous chat, not a fresh empty one.
+        if (!task.cardRef && !task.targetSessionId && !openTopicCardForProject(task.project, task.id)) {
+          continueInPreviousChat(task, previousChatForProject(task.project, task.id, now)?.chatSessionId)
+        }
       } else if (task.topicState === 'asking') {
         if (now - ((row['topic_at'] as number | null) ?? 0) < TOPIC_ASK_MAX_MS) continue
         // No answer from the owner: the safe default, continue the open work.
         db.prepare(`UPDATE code_tasks SET topic_state = NULL WHERE id = ?`).run(task.id)
         task.topicState = null
+        // #602: a question about a previous chat (hold_card = 'session:<id>') defaults to that same chat.
+        if (task.holdCard?.startsWith('session:') && !task.targetSessionId) {
+          continueInPreviousChat(task, task.holdCard.slice(8))
+        }
       } else if (task.topicState === 'held') {
         const holdCard = task.holdCard ? resolveCardRefToCard(task.holdCard) : undefined
         if (holdCard && OPEN_WORK_STATUSES.has(holdCard.status) && !holdCard.archived_at) continue
