@@ -313,7 +313,7 @@ describe('veglegesites celbirosag-profillal', () => {
     const fin = await callWorkbench(`${base}/outline/finalize`, 'POST', { accept: true, hash })
     expect(fin.status, JSON.stringify(fin.body)).toBe(200)
     const names = fin.body.final.files.map((f: { name: string }) => f.name)
-    expect(names[0]).toMatch(/^01_Klage_gegen_Muster_Endgueltig|^01_Klage_gegen_Muster_Vegleges/)
+    expect(names[0]).toMatch(/^01_\d{4}-\d{2}-\d{2}_Klage_gegen_Muster_HU_v1\.pdf$/)
     for (const n of names) expect(n).toMatch(/^[A-Za-zÄÖÜäöüß0-9_-]+\.pdf$/)
     expect(names[1]).toMatch(/^02_Anlage_K1_Mietvertrag\.pdf$/)
     const court = fin.body.court
