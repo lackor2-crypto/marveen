@@ -16,8 +16,10 @@ describe('workbench tree header compact (#580)', () => {
     expect(css).toMatch(/\.wb-panel-items \.wb-panel-head \{ align-items: flex-start; \}/)
     expect(css).toMatch(/\.wb-panel-items \.wb-head-btns \{ margin-top: -2px; \}/)
   })
-  it('the chat attach / dictate / send buttons stay in one row (TG 3155)', () => {
-    expect(css).toMatch(/\.wb-chat-btns \{ flex-wrap: nowrap;/)
+  it('the chat attach / dictate / send buttons stay in one row while they fit, and wrap instead of overflowing the panel (TG 3155, #582)', () => {
+    expect(css).toMatch(/\.wb-chat-btns \{ flex-wrap: wrap;/)
+    expect(css).not.toMatch(/\.wb-chat-btns \{ flex-wrap: nowrap;/)
+    expect(css).toMatch(/\.wb-chat-btns > \* \{ flex: 0 0 auto; white-space: nowrap; \}/)
   })
   it('the chat input row is a column in every layout (TG 3164)', () => {
     expect(css).toMatch(/\.wb-chat-row \{ flex-direction: column; align-items: stretch; \}/)
