@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decideReauthAction, NO_REAUTH_STATE, overrideStaleStatusLine, isQuotaHeld, type ReauthHealerState } from '../web/reauth-healer.js'
+import { decideReauthAction, NO_REAUTH_STATE, overrideStaleStatusLine, isQuotaHeld, isMainWorking, type ReauthHealerState } from '../web/reauth-healer.js'
 
 const T = { threshold: 3, cooldownMs: 30 * 60 * 1000 }
 const base = (over: Partial<Parameters<typeof decideReauthAction>[0]> = {}) => ({
@@ -218,5 +218,20 @@ describe('isQuotaHeld (#quota-quiet): no dead-token alert for an agent that is o
     expect(isQuotaHeld({ ...base, resetsAt: now - 1 }, now)).toBe(false)
     expect(isQuotaHeld({ ...base, measuredAt: now - 11 * 60_000 }, now)).toBe(false)
     expect(isQuotaHeld(undefined, now)).toBe(false)
+  })
+})
+
+describe('isMainWorking (#654): a live, working main agent never gets a dead-token alert or restart', () => {
+  const now = 1_000_000_000_000
+  const ok = { available: true, reason: 'ok' as const, measuredAt: now - 60_000 }
+  it('is true for a fresh available/ok measurement', () => {
+    expect(isMainWorking(ok, now)).toBe(true)
+  })
+  it('is false when unavailable, quota/stopped, stale or unknown', () => {
+    expect(isMainWorking({ ...ok, available: false }, now)).toBe(false)
+    expect(isMainWorking({ ...ok, reason: 'quota' as never }, now)).toBe(false)
+    expect(isMainWorking({ ...ok, reason: 'stopped' as never }, now)).toBe(false)
+    expect(isMainWorking({ ...ok, measuredAt: now - 11 * 60_000 }, now)).toBe(false)
+    expect(isMainWorking(undefined, now)).toBe(false)
   })
 })

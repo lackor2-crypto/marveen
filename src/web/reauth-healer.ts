@@ -312,6 +312,21 @@ export function isQuotaHeld(a: Pick<AgentAvailability, 'available' | 'reason' | 
   return a.resetsAt == null || a.resetsAt > nowMs
 }
 
+/**
+ * A live, working main agent cannot also hold a dead token: the availability watcher re-measures every minute and
+ * reads available + 'ok' only while the agent answers. The pane's "Not logged in" is then a stale quota leftover
+ * (Claude does not redraw it when the quota returns), so neither the alert nor the main restart may fire.
+ */
+export function isMainWorking(a: Pick<AgentAvailability, 'available' | 'reason' | 'measuredAt'> | undefined, nowMs: number): boolean {
+  if (!a) return false
+  if (nowMs - a.measuredAt > QUOTA_HOLD_MAX_AGE_MS) return false
+  return a.available === true && a.reason === 'ok'
+}
+
+function mainWorking(label: string): boolean {
+  try { return isMainWorking(readAvailabilityState().agents[label], Date.now()) } catch { return false }
+}
+
 function quotaHeld(label: string): boolean {
   try { return isQuotaHeld(readAvailabilityState().agents[label], Date.now()) } catch { return false }
 }
@@ -351,6 +366,10 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
   }
   if (decision.escalate) {
     logger.error({ label, session, reason: reauth.reason, quiet }, 'reauth-healer: dead OAuth token on live session -- escalating to owner')
+    if (isMain && mainWorking(label)) {
+      logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: dead-token escalation held back -- main agent is actively working (available=ok), the pane "Not logged in" is a stale quota artifact')
+      return // no alert, no token quarantine, never a main restart under a live conversation
+    }
     if (quotaHeld(label)) {
       logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: dead-token escalation held back -- the agent is out of quota (cannot work until the window resets)')
     } else routeEscalation(
