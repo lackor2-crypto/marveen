@@ -7506,6 +7506,8 @@ window._i18n.hu = {
   "workbench.chat.approval_id": "(jóváhagyás {id} -- a Jóváhagyások oldalon dönthetsz róla)",
   "workbench.chat.setup": "Beállítás",
   "workbench.chat.account_label": "Fiók:",
+  "workbench.chat.account_hint_auto": "Automatikusnál, ha a VS Code kód-híd válaszol, a válasz közben írt új kérdésed sorban vár az előzőre.",
+  "workbench.chat.account_hint_fixed": "Konkrét fióknál a Marveen saját munkamenete válaszol, és az újabb kérdéseket azonnal beveszi.",
   "workbench.chat.side_label": "Windows vagy WSL oldali munkák:",
   "workbench.chat.side_off": "Automatikus (a mappa helye dönt)",
   "workbench.chat.side_windows": "Windows",
