@@ -6109,6 +6109,8 @@ window._i18n.en = {
   "workbench.approval.toast.approve": "Approved; the work item is done.",
   "workbench.approval.toast.reject": "Sent back; the work item is in progress again.",
   "workbench.finalize.done": "Finalized",
+  "workbench.finalize.done_tip": "Finalized: the document is closed and cannot be edited. Use Reopen to edit it again.",
+  "workbench.finalize.reopen_tip": "Reopen: the document becomes editable again and loses its final state. Nothing is deleted, the final PDF stays.",
   "workbench.finalize.reopen": "Reopen",
   "workbench.finalize.button": "Finalize",
   "workbench.finalize.hint": "The work item is closed and the list may hide it. It can be reopened any time; nothing is deleted.",

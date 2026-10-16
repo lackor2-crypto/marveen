@@ -1380,6 +1380,12 @@
 
   /** Archivalt projektben nem keletkezik uj munkadarab -- a meglevok latszanak. */
   function archived() { return !!(WB.project && WB.project.archived) }
+  /** #650 (Boss TG 3100): a finalized document is closed -- it cannot be edited until "Reopen". (Other kinds keep their own rules.) */
+  function docFinalLocked() {
+    var it = WB.detail && WB.detail.item
+    return !!(it && it.type === 'document' && it.status === 'done')
+  }
+  function docLocked() { return archived() || docFinalLocked() }
 
   function typeLabel(type) { return t('workbench.type.' + type) }
   function statusLabel(status) { return t('workbench.status.' + status) }
@@ -7750,7 +7756,7 @@
     var versions = versionsSorted()
     if (versions.length < 2) return ''
     var target = undoTarget()
-    var ro = archived() || WB.versionBusy
+    var ro = docLocked() || WB.versionBusy
     return '<div class="wb-vbar">'
       + (ro || !target ? '' : '<button type="button" class="btn-secondary btn-compact" data-wb-act="version-undo"'
         + ' title="' + escA(t('workbench.cmp.undo_hint', { n: target.version_no })) + '">'
@@ -8508,7 +8514,7 @@
     var d = WB.detail
     if (!d || !d.item) return ''
     var o = d.outline
-    var ro = archived()
+    var ro = docLocked()
     if (!o) {
       if (d.item.type !== 'document' || ro) return ''
       return '<div class="wb-outline wb-outline-empty"><p class="wb-hint">' + esc(t('workbench.outline.empty_hint')) + '</p>'
@@ -11475,8 +11481,8 @@
     if (!it || archived()) return ''
     var busy = WB.approvalBusy ? ' disabled' : ''
     if (it.status === 'done') {
-      return '<span class="wb-fr-final-done" role="status">\u2713 ' + esc(t('workbench.finalize.done')) + '</span>'
-        + '<button type="button" class="' + cls + '" data-wb-act="item-reopen"' + busy + '>' + esc(t('workbench.finalize.reopen')) + '</button>'
+      return '<span class="wb-fr-final-done" role="status" title="' + escA(t('workbench.finalize.done_tip')) + '">\u2713 ' + esc(t('workbench.finalize.done')) + '</span>'
+        + '<button type="button" class="' + cls + '" data-wb-act="item-reopen"' + busy + ' title="' + escA(t('workbench.finalize.reopen_tip')) + '">' + esc(t('workbench.finalize.reopen')) + '</button>'
     }
     if (it.type === 'document' && !it.source_path) {
       // Boss TG 8765: the drafted document's own Finalize (checks + PDF) stands in the SAME place as every other kind's
@@ -11508,8 +11514,8 @@
         + '</div>'
     } else if (it.status === 'done') {
       // #552: finalized = closed; the same place for every kind of work item holds the reopen button.
-      out += '<p><strong>\u2713 ' + esc(t('workbench.finalize.done')) + '</strong> <span class="wb-muted">' + esc(t('workbench.approval.done')) + '</span></p>'
-        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-reopen"' + busy + '>' + esc(t('workbench.finalize.reopen')) + '</button>'
+      out += '<p title="' + escA(t('workbench.finalize.done_tip')) + '"><strong>\u2713 ' + esc(t('workbench.finalize.done')) + '</strong> <span class="wb-muted">' + esc(t('workbench.approval.done')) + '</span></p>'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-reopen"' + busy + ' title="' + escA(t('workbench.finalize.reopen_tip')) + '">' + esc(t('workbench.finalize.reopen')) + '</button>'
     } else {
       if (it.status === 'review') out += '<p class="wb-muted">' + esc(t('workbench.approval.closed_without_decision')) + '</p>'
       else if (a && a.status === 'rejected') {
@@ -13343,7 +13349,7 @@
     var d = WB.detail
     if (!d || !d.item) return ''
     var o = d.outline
-    var ro = !!forceRo || archived()
+    var ro = !!forceRo || docLocked()
     var secs = (o && o.sections) || []
     var body
     if (!secs.length) {
@@ -13870,7 +13876,7 @@
     var o = WB.detail && WB.detail.outline
     if (el && o) {
       twCollect() // what was typed on the page is kept across the redraw
-      el.innerHTML = twPanelInnerHtml(o, archived())
+      el.innerHTML = twPanelInnerHtml(o, docLocked())
     }
   }
   /** Translates the sections that have no current translation yet, one by one; the panel fills in as they arrive. */
@@ -14057,7 +14063,7 @@
   function docExtrasHtml() {
     var o = WB.detail && WB.detail.outline
     if (!o) return ''
-    var ro = archived()
+    var ro = docLocked()
     // Attachments get their own labelled, open place (Boss TG 8535, lackor2-bot 5733): they are not a footnote
     // of the language versions and the glossary.
     var annex = annexHtml(o, ro)
@@ -14878,7 +14884,7 @@
       var goneOwn = trashedOwnFile()
       if (goneOwn) return '<div class="wb-sh-doc-body">' + ownFileGoneHtml(goneOwn) + '</div>'
     }
-    var ro = archived()
+    var ro = docLocked()
     twCollect() // #534: any redraw (another tab, a changed original) first reads back what stands on the translation page
     var tab = WB.shDocTab
     var tabs = [['draft', 'workbench.sh.doc.draft'], ['preview', 'workbench.sh.doc.preview'], ['sources', 'workbench.sh.doc.sources'], ['gaps', 'workbench.sh.doc.gaps']]

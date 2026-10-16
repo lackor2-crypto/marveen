@@ -436,7 +436,7 @@ describe('the draft page wiring', () => {
   it('#534 fix: nothing typed on the translation page is thrown away by a redraw, a bare text node or an emptied page', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
     // a full redraw of the Draft tab reads the page first
-    expect(js).toMatch(/var ro = archived\(\)\n    twCollect\(\) \/\/ #534: any redraw/)
+    expect(js).toMatch(/var ro = docLocked\(\)\n    twCollect\(\) \/\/ #534: any redraw/)
     const col = js.slice(js.indexOf('function twCollect()'), js.indexOf('function twPanelInnerHtml(o, ro)'))
     // text standing directly in the host is a paragraph
     expect(col).toContain('host.childNodes')
