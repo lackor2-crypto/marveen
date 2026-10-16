@@ -3246,6 +3246,7 @@ window._i18n.en = {
   'agents.reauth.m_first_run_browser':			'Stuck on the browser sign-in screen (first run) — the machine cannot get past this on its own.',
   'agents.reauth.m_invalid_credentials':			'The service rejected the credentials (401) — sign in again.',
   'agents.reauth.m_needs_login':			'Claude Code is asking for a login (/login).',
+  'agents.login.row_not_found':      'Could not find the Claude sign-in row of the main agent on the Accounts page. Look for the "Default" row.',
   'agents.reauth.m_not_logged_in':			'This account is not logged in.',
   'agents.reauth.m_api_401':			'Calls are coming back 401 — the credentials are not valid.',
   'agents.reauth.m_oauth_expired':			'The login token has expired.',
