@@ -3755,3 +3755,11 @@ describe('Vitaztatas: haromoldalu mod (#597, 7. fazis)', () => {
     expect(html).toContain('<option value="hard" selected>')
   })
 })
+
+describe('chat: a queued message survives F5 (Boss TG 3052)', () => {
+  it('the queued / in-flight texts are kept in localStorage and put back after the history loads', () => {
+    expect(SRC).toContain("'marveen.wb.chatq.'")
+    expect(SRC).toMatch(/function renderChat\(\) \{\n\s+saveChatQueue\(\)/)
+    expect(SRC).toContain('restoreChatQueue(st, ')
+  })
+})

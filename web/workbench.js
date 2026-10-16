@@ -10171,6 +10171,7 @@
       // nem torolheti le a kepernyorol a sajat mondatat es a valaszt.
       attachHistoryTools(regi, r.data.messages || [], r.data.toolCalls || [])
       st.turns = regi.concat(st.turns)
+      restoreChatQueue(st, regi.filter(function (x) { return x.role === 'user' }).slice(-8).map(function (x) { return x.text }))
       // The freshly loaded history opens at its latest message.
       WB.chatForceBottom = true
       renderChat()
@@ -10803,7 +10804,44 @@
   /** CSAK a chat-sav ujrarajzolasa: streameles kozben a teljes oldal ujraepitese
    *  elvenne a fokuszt es a gorgetest. Ha a sav nincs a DOM-ban (meg nem
    *  rajzoltunk), a teljes rajzolas lep a helyebe. */
+  // Boss TG 3052: a message typed while the agent was busy waited only in this page's memory, so F5 (or the dashboard
+  // restarting) wiped it from the chat. The texts that are queued or in flight are kept per chat in localStorage and
+  // put back after the history loads, unless the server already has them as a user message.
+  function chatQueueStoreKey(key) { return 'marveen.wb.chatq.' + key }
+
+  function saveChatQueue() {
+    try {
+      var st = chatState()
+      if (!st || !st.loaded) return
+      var out = []
+      for (var i = 0; i < st.turns.length; i++) {
+        var x = st.turns[i]
+        if (x.role !== 'user' || !x.text) continue
+        var next = st.turns[i + 1]
+        if (x.queued || (next && next.role === 'agent' && !next.done && !next.watching)) out.push(x.text)
+      }
+      var k = chatQueueStoreKey(chatKey())
+      if (out.length) window.localStorage.setItem(k, JSON.stringify(out))
+      else window.localStorage.removeItem(k)
+    } catch (_e) { /* storage unavailable: the queue just stays in memory */ }
+  }
+
+  function restoreChatQueue(st, serverUserTexts) {
+    try {
+      var raw = window.localStorage.getItem(chatQueueStoreKey(chatKey()))
+      var list = raw ? JSON.parse(raw) : []
+      if (!Array.isArray(list)) return
+      for (var i = 0; i < list.length; i++) {
+        var text = String(list[i] || '')
+        if (!text || serverUserTexts.indexOf(text) >= 0) continue
+        if (st.turns.some(function (x) { return x.role === 'user' && x.text === text })) continue
+        st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true, queued: true })
+      }
+    } catch (_e) { /* nothing to restore */ }
+  }
+
   function renderChat() {
+    saveChatQueue()
     var el = typeof document.getElementById === 'function' ? document.getElementById('wbChat') : null
     if (!el || typeof el.innerHTML !== 'string') { render(); return }
     var focused = false
