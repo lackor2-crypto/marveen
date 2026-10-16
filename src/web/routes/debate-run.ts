@@ -164,11 +164,12 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/debate/run' && method === 'POST') {
-    let body: { session?: string; project?: string; question?: string; models?: string[]; attachments?: unknown; steer?: string; mode?: string; strength?: string; swapRoles?: boolean; judge?: string }
+    let body: { session?: string; project?: string; workItem?: string; question?: string; models?: string[]; attachments?: unknown; steer?: string; mode?: string; strength?: string; swapRoles?: boolean; judge?: string }
     try { body = JSON.parse((await readBody(req)).toString()) } catch { return fail(res, 400, 'bad_json', T(l, 'Hibás kérés.', 'Bad request.')) }
     const project = body.project ? getProject(String(body.project))?.id ?? null : null
     try {
-      const out = await runDebateRound({ ...body, project })
+      const workItem = project && body.workItem ? (getWorkItem(String(body.workItem))?.project_id === project ? String(body.workItem) : null) : null
+      const out = await runDebateRound({ ...body, project, workItem })
       if (!out.responses.some(r => r.ok)) {
         // The reason per model (HTTP status / the maker's own message) is what the owner needs to see, and it is the
         // only trace of a round that fails in a second: nothing is filed for it (Boss TG 2939).

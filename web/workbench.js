@@ -15960,7 +15960,7 @@
     var s = dbState()
     if (s.busy) return
     var body = s.session ? { session: s.session, steer: steer || '' } : {
-      project: WB.projectId, question: s.q, models: dbDebaterIds(s), attachments: s.files, mode: s.mode,
+      project: WB.projectId, workItem: WB.selectedId || undefined, question: s.q, models: dbDebaterIds(s), attachments: s.files, mode: s.mode,
       strength: dbIsCritic(s.mode) ? dbStrength(s) : undefined, swapRoles: dbIsCritic(s.mode) && !dbIsTriad(s.mode) ? dbSwap(s) : undefined, judge: s.judge.trim() || undefined
     }
     if (!s.session) {
