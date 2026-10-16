@@ -2047,7 +2047,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-fr-path-leaf { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wb-fr-path-sep { margin: 0 0.35em; }
 .wb-panel-items .wb-blk-top .wb-panel-head { flex-wrap: wrap; }
-.wb-panel-items .wb-blk-top .wb-head-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0; }
+/* #576: the two buttons stay side by side at ANY panel width (a narrow panel / big zoom cuts the button text with an ellipsis). */
+.wb-panel-items .wb-blk-top .wb-head-btns { display: flex; flex-wrap: nowrap; flex: 0 1 auto; min-width: 0; max-width: 100%; gap: 4px; margin-top: 0; }
+.wb-panel-items .wb-blk-top .wb-head-btns .wb-btn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wb-panel-items .wb-blk-top .wb-root-title, .wb-panel-items .wb-blk-top .wb-root-title .wb-folder-toggle { font-size: 0.95rem; font-weight: 700; }
 
 /* Chat width handle: the line between the middle area and the chat (Boss TG 3193). */
