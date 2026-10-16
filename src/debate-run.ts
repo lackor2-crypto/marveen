@@ -261,6 +261,20 @@ function readLines(): LogLine[] {
   return out
 }
 
+/**
+ * Where each logged debate was started from: question, project, the work item it recorded (debates from before that was
+ * recorded have none) and the names of its attached files. Read by the legacy report relocation.
+ */
+export function listDebateOrigins(): { question: string; project: string; workItem: string | null; files: string[] }[] {
+  const out: { question: string; project: string; workItem: string | null; files: string[] }[] = []
+  for (const l of readLines()) {
+    if (l.type !== 'context' || typeof l['question'] !== 'string' || typeof l['project'] !== 'string') continue
+    const files = Array.isArray(l['files']) ? (l['files'] as { name?: unknown }[]).map(f => f?.name).filter((n): n is string => typeof n === 'string') : []
+    out.push({ question: l['question'], project: l['project'], workItem: typeof l['workItem'] === 'string' && l['workItem'] ? l['workItem'] : null, files })
+  }
+  return out
+}
+
 function appendLine(entry: Record<string, unknown>): void {
   appendFileSync(DEBATE_LOG_PATH, JSON.stringify(entry) + '\n')
 }

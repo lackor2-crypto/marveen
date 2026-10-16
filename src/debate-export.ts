@@ -68,13 +68,18 @@ function boardParagraphs(item: BoardItem, l: ReportLang): string[] {
   return out
 }
 
+/** The title of a debate's report document; the legacy relocation (debate-export-doc.ts) rebuilds it to match old reports. */
+export function reportTitle(question: string, l: ReportLang): string {
+  const q = question.replace(/\s+/g, ' ').trim()
+  return `${tr(l, 'Vitáztatás jelentés', 'Debate report')}: ${q.length > 70 ? q.slice(0, 67).trimEnd() + '…' : q}`
+}
+
 /**
  * The report of one debate. `full` adds the whole course of it (every answer of every round) after the result:
  * long, so it is opt-in; the default is the decision trace -- question, settings, result, objection board.
  */
 export function buildReport(s: DebateSessionState, l: ReportLang, opts: { full?: boolean } = {}): DebateReport {
-  const q = s.question.replace(/\s+/g, ' ').trim()
-  const title = `${tr(l, 'Vitáztatás jelentés', 'Debate report')}: ${q.length > 70 ? q.slice(0, 67).trimEnd() + '…' : q}`
+  const title = reportTitle(s.question, l)
   const sections: ReportSection[] = []
 
   sections.push({ title: tr(l, 'Kérdés vagy feladat', 'Question or task'), paragraphs: [...paragraphsOf(s.question), ...(s.attachments.length ? [`${tr(l, 'Segédanyag', 'Material')}: ${s.attachments.map(a => a.name).join(', ')}`] : [])] })
