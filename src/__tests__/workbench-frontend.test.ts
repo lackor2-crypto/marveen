@@ -486,6 +486,29 @@ describe('chat head fold arrow (#578, TG 3142)', () => {
     expect(html).toContain('wb-chat-fold-box')
   })
 
+  it('the side, account and setup rows sit INSIDE the tinted box, the log and the input outside it (#581)', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) {
+        return { status: 200, body: { provider: { id: 'anthropic', model: 'claude-sonnet-5', available: true }, usage: { usedPct: 12, measured: true }, allowed: true, maxMessageChars: 8000, accounts: [{ agent: 'lackor3', model: 'm', status: 'online' }] } }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatAccount"'))
+    h.click({ 'data-wb-act': 'chat-setup' })
+    const html = chatHtml()
+    const open = html.indexOf('class="wb-chat-fold-box"')
+    expect(open).toBeGreaterThan(-1)
+    const log = html.indexOf('id="wbChatLog"')
+    const box = html.slice(open, log)
+    expect(box).toContain('id="wbChatSide"')
+    expect(box).toContain('id="wbChatAccount"')
+    expect(box).toContain('wb-chat-setup')
+    expect(html.slice(log)).not.toContain('id="wbChatSide"')
+    expect(html.indexOf('id="wbChatInput"')).toBeGreaterThan(log)
+  })
+
   it('the arrow folds the setup button, folder and account rows away (the log and the input stay), and unfolds them again', async () => {
     await openChatHead()
     h.click({ 'data-wb-act': 'chat-head-fold' })
