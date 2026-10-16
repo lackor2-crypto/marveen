@@ -3791,3 +3791,41 @@ describe('chat: a queued message survives F5 (Boss TG 3052)', () => {
     expect(SRC).toContain('restoreChatQueue(st, ')
   })
 })
+
+describe('#594: the same document page in the manual and the simple view (Boss TG 3245/3246)', () => {
+  const DOC = { id: 'w1', title: 'Beadvány', type: 'document', status: 'draft' }
+  const OUTLINE = {
+    item_id: 'w1', title: 'Beadvány',
+    sections: [{ id: 's1', title: 'Tényállás', blocks: [
+      { id: 'b1', kind: 'paragraph', text: 'A keresetet beadtuk.', claims: [] },
+      { id: 'b2', kind: 'paragraph', text: 'A másik fél nem válaszolt.', claims: [] },
+    ] }],
+  }
+  const route = (url: string) => {
+    if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: { item: DOC, versions: [], parts: [], part_kinds: ['text'], project: PROJECT, outline: OUTLINE } }
+    return { status: 200, body: itemsBody([DOC]) }
+  }
+  const pageOf = (html: string) => {
+    const at = html.indexOf('wb-dp-page')
+    return at < 0 ? '' : html.slice(at, html.indexOf('wb-dp-foot', at) > 0 ? html.indexOf('wb-dp-foot', at) : undefined)
+  }
+
+  it('both views draw the same page, with no per-paragraph rewrite asks in either', async () => {
+    h.respond(route)
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('A keresetet beadtuk.'))
+    const manual = h.rootEl.innerHTML
+    h.click({ 'data-wb-act': 'view-set', 'data-wb-view': 'simple' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-root-simple'))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('A másik fél nem válaszolt.'))
+    const simple = h.rootEl.innerHTML
+    expect(pageOf(manual)).toContain('A keresetet beadtuk.')
+    expect(pageOf(simple)).toBe(pageOf(manual))
+    for (const html of [manual, simple]) {
+      expect(html).not.toContain('data-wb-act="outline-rewrite-ask"')
+      expect(html).not.toContain('workbench.outline.rewrite_simpler')
+    }
+  })
+})
