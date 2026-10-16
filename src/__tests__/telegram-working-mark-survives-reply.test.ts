@@ -2,7 +2,7 @@
 // arrived mid-turn, so the owner saw no sign of work. The message now stays until the turn ends (Stop hook).
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import http from 'node:http'
@@ -58,5 +58,43 @@ describe('#600 the "working" message outlives a mid-turn reply', () => {
     await run('telegram_progress_clear.py', { session_id: SID, stop_hook_active: false })
     expect(calls.filter((c) => c.includes('deleteMessage')).length).toBe(1)
     expect(existsSync(join(dir, 'progress', `${SID}.working`))).toBe(false)
+  })
+
+  it('a reply to another chat leaves this chat\'s pending record and message alone', async () => {
+    writeFileSync(join(dir, 'progress', `${SID}.json`), JSON.stringify([{ chat_id: '42', message_id: 7 }, { chat_id: '99', message_id: 8 }]))
+    await run('telegram_progress_reply_clear.py', { tool_name: 'mcp__plugin_telegram_telegram__reply', tool_input: { chat_id: '42' }, session_id: SID })
+    expect(calls).toEqual([])
+    expect(JSON.parse(readFileSync(join(dir, 'progress', `${SID}.json`), 'utf8'))).toEqual([{ chat_id: '99', message_id: 8 }])
+    expect(JSON.parse(readFileSync(join(dir, 'progress', `${SID}.working`), 'utf8'))).toEqual([{ chat_id: '42', message_id: 7 }])
+  })
+
+  it('a Stop that is blocked (turn keeps working) does not sweep the parked message', async () => {
+    writeFileSync(join(dir, 'progress', `${SID}.json`), JSON.stringify([{ chat_id: '42', message_id: 7 }, { chat_id: '99', message_id: 8 }]))
+    await run('telegram_progress_reply_clear.py', { tool_name: 'mcp__plugin_telegram_telegram__reply', tool_input: { chat_id: '42' }, session_id: SID })
+    // chat 99 is still un-replied -> the first Stop is blocked and the agent keeps working
+    await run('telegram_progress_clear.py', { session_id: SID, stop_hook_active: false })
+    expect(calls.filter((c) => c.includes('deleteMessage'))).toEqual([])
+    expect(existsSync(join(dir, 'progress', `${SID}.working`))).toBe(true)
+  })
+
+  it('the watchdog deletes a parked message whose Stop hook never ran, but only after an hour', async () => {
+    const wpath = join(dir, 'progress', `${SID}.working`)
+    writeFileSync(wpath, JSON.stringify([{ chat_id: '42', message_id: 7 }]))
+    const watchdog = (): Promise<void> => new Promise((resolve) => {
+      const code = `import importlib.util,sys\nspec=importlib.util.spec_from_file_location('wd',sys.argv[1])\nm=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\nm.handle_dir(sys.argv[2])`
+      const p = spawn('python3', ['-I', '-c', code, join(HOOKS, 'telegram_progress_watchdog.py'), join(dir, 'progress')], {
+        env: { ...process.env, TELEGRAM_API_BASE: base },
+        stdio: ['ignore', 'ignore', 'ignore'],
+      })
+      p.on('close', () => resolve())
+    })
+    await watchdog()
+    expect(calls).toEqual([])
+    expect(existsSync(wpath)).toBe(true)
+    const old = Date.now() / 1000 - 3700
+    utimesSync(wpath, old, old)
+    await watchdog()
+    expect(calls.filter((c) => c.includes('deleteMessage')).length).toBe(1)
+    expect(existsSync(wpath)).toBe(false)
   })
 })
