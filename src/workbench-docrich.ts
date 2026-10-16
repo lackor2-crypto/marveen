@@ -35,6 +35,8 @@ export interface RichRun {
   c: string
   /** Highlight (background) colour #rrggbb, '' = none. */
   h: string
+  /** #604: explicitly NOT bold (only a chapter title needs it: its own look is bold). Never set together with `b`. */
+  n: boolean
 }
 
 /** The font families the editor offers. Anything else is dropped: the list is also what the renderer is known to map. */
@@ -73,7 +75,7 @@ function colorOf(raw: string): string {
   return ''
 }
 
-interface RunProps { f: string; z: number; c: string; h: string }
+interface RunProps { f: string; z: number; c: string; h: string; n: boolean }
 
 function styleProps(style: string): Partial<RunProps> {
   const out: Partial<RunProps> = {}
@@ -86,6 +88,7 @@ function styleProps(style: string): Partial<RunProps> {
     else if (k === 'font-size') { const z = sizeOf(v); if (z) out.z = z }
     else if (k === 'color') { const c = colorOf(v); if (c) out.c = c }
     else if (k === 'background-color' || k === 'background') { const h = colorOf(v); if (h) out.h = h }
+    else if (k === 'font-weight') out.n = /^(normal|[1-5]00)$/i.test(v)
   }
   return out
 }
@@ -113,14 +116,15 @@ export function richRuns(input: string): RichRun[] {
   const runs: RichRun[] = []
   const on = { b: 0, i: 0, u: 0, s: 0 }
   const stack: RunProps[] = []
-  let cur: RunProps = { f: '', z: 0, c: '', h: '' }
+  let cur: RunProps = { f: '', z: 0, c: '', h: '', n: false }
   let last = 0
   const push = (raw: string): void => {
     const text = decode(raw)
     if (!text) return
-    const r: RichRun = { text, b: on.b > 0, i: on.i > 0, u: on.u > 0, s: on.s > 0, f: cur.f, z: cur.z, c: cur.c, h: cur.h }
+    const bold = on.b > 0
+    const r: RichRun = { text, b: bold, i: on.i > 0, u: on.u > 0, s: on.s > 0, f: cur.f, z: cur.z, c: cur.c, h: cur.h, n: cur.n && !bold }
     const p = runs[runs.length - 1]
-    if (p && p.b === r.b && p.i === r.i && p.u === r.u && p.s === r.s && p.f === r.f && p.z === r.z && p.c === r.c && p.h === r.h) p.text += text
+    if (p && p.b === r.b && p.i === r.i && p.u === r.u && p.s === r.s && p.f === r.f && p.z === r.z && p.c === r.c && p.h === r.h && p.n === r.n) p.text += text
     else runs.push(r)
   }
   const src = String(input ?? '')
@@ -152,8 +156,9 @@ export function richToPlain(input: string): string {
 }
 
 /** The style attribute of a run's character properties ('' when it has none). Fixed order: the client writes the same. */
-export function runStyle(r: Pick<RichRun, 'f' | 'z' | 'c' | 'h'>): string {
+export function runStyle(r: Pick<RichRun, 'f' | 'z' | 'c' | 'h'> & { n?: boolean }): string {
   const parts: string[] = []
+  if (r.n) parts.push('font-weight:normal')
   if (r.f) parts.push(`font-family:${r.f}`)
   if (r.z) parts.push(`font-size:${r.z}pt`)
   if (r.c) parts.push(`color:${r.c}`)
@@ -161,7 +166,7 @@ export function runStyle(r: Pick<RichRun, 'f' | 'z' | 'c' | 'h'>): string {
   return parts.join(';')
 }
 
-const hasFormat = (r: RichRun): boolean => r.b || r.i || r.u || r.s || !!(r.f || r.z || r.c || r.h)
+const hasFormat = (r: RichRun): boolean => r.b || r.i || r.u || r.s || r.n || !!(r.f || r.z || r.c || r.h)
 
 /**
  * #558: the formatting of `source` laid over ANOTHER text (its translation), when the whole source block wears ONE
@@ -171,7 +176,7 @@ const hasFormat = (r: RichRun): boolean => r.b || r.i || r.u || r.s || !!(r.f ||
 export function richUniform(source: string | null | undefined, text: string): string {
   const runs = richRuns(String(source ?? '')).filter((r) => r.text.trim() !== '')
   if (!runs.length || !text.trim()) return ''
-  const key = (r: RichRun): string => [r.b, r.i, r.u, r.s, r.f, r.z, r.c, r.h].join('|')
+  const key = (r: RichRun): string => [r.b, r.i, r.u, r.s, r.f, r.z, r.c, r.h, r.n].join('|')
   const first = runs[0]!
   if (!hasFormat(first) || runs.some((r) => key(r) !== key(first))) return ''
   let html = encode(text).replace(/\n/g, '<br>')
