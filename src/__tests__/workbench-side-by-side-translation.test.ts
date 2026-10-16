@@ -433,6 +433,40 @@ describe('the draft page wiring', () => {
     expect(js).toContain("document.getElementById(bid ? 'wbDpB_' + bid : 'wbDpS_' + sid)")
   })
 
+  it('#591: a Heading 2 / 3 saved without a redraw shows up in the open Headings panel at once (it was drawn once and never again)', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const from = js.indexOf('function dpOutlineRefresh()')
+    const fn = js.slice(from, js.indexOf('function docPageHtml', from))
+    const oldNav = { tag: 'old' }
+    const replaced: unknown[][] = []
+    const wrap = {
+      querySelector: (sel: string) => (sel === '.wb-dp-outline' ? oldNav : null),
+      replaceChild: (n: unknown, o: unknown) => { replaced.push([n, o]) },
+    }
+    const run = (nav: boolean, outline: unknown) => {
+      replaced.length = 0
+      const WB = { detail: { outline } }
+      const doc = { createElement: () => { const b: { innerHTML: string; firstChild: unknown } = { innerHTML: '', firstChild: null }; return Object.defineProperty(b, 'innerHTML', { set(v: string) { b.firstChild = v ? { html: v } : null }, get: () => '' }) } }
+      const page = { parentNode: nav ? wrap : { querySelector: () => null } }
+      // eslint-disable-next-line no-new-func
+      new Function('WB', 'document', 'dpRoot', 'dpOutlineHtml', fn + '; dpOutlineRefresh()')(
+        WB, doc, () => page, (secs: { title: string }[]) => (secs.length ? '<nav>' + secs.map((x) => x.title).join(',') + '</nav>' : ''),
+      )
+    }
+    run(true, { sections: [{ title: 'Elso' }] })
+    expect(replaced).toEqual([[{ html: '<nav>Elso</nav>' }, oldNav]])
+    run(false, { sections: [{ title: 'Elso' }] }) // panel closed (no nav on the page): nothing to refresh
+    expect(replaced).toEqual([])
+    run(true, null) // no outline loaded: nothing to refresh
+    expect(replaced).toEqual([])
+    // the non-structural save path calls it; the structural one draws the whole page again and needs no call
+    const save = js.slice(js.indexOf('function dpPageSave()'), js.indexOf('function dpSave()'))
+    const iStruct = save.indexOf('if (model.structural)')
+    const iRefresh = save.indexOf('dpOutlineRefresh()')
+    expect(iRefresh).toBeGreaterThan(save.indexOf('render()', iStruct))
+    expect(iRefresh).toBeLessThan(save.indexOf('docStepsRefresh()'))
+  })
+
   it('#534 fix: nothing typed on the translation page is thrown away by a redraw, a bare text node or an emptied page', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
     // a full redraw of the Draft tab reads the page first

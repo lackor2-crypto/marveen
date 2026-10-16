@@ -13461,6 +13461,19 @@
     return '<nav class="wb-dp-outline" aria-label="' + escA(t('workbench.dp.outline_title')) + '"><h4>' + esc(t('workbench.dp.outline_title')) + '</h4><ol>' + rows + '</ol></nav>'
   }
 
+  /** The Headings panel follows a save that did not redraw the page (a Heading 2 / 3 paragraph does not change the chapter
+   *  structure, so the page and its caret stay): it was drawn once and never again, so the new headings never showed up. */
+  function dpOutlineRefresh() {
+    var o = WB.detail && WB.detail.outline
+    var page = dpRoot()
+    var wrap = page && page.parentNode
+    var nav = wrap && wrap.querySelector('.wb-dp-outline')
+    if (!o || !nav) return
+    var box = document.createElement('div')
+    box.innerHTML = dpOutlineHtml(o.sections || [], false)
+    if (box.firstChild) wrap.replaceChild(box.firstChild, nav)
+  }
+
   function docPageHtml(forceRo) {
     var d = WB.detail
     if (!d || !d.item) return ''
@@ -14781,6 +14794,7 @@
         render()
         return r.data.outline
       }
+      dpOutlineRefresh()
       docStepsRefresh() // no redraw here (the caret stays): the undo / redo buttons must follow the new step themselves
       dpPagesSoon() // the lines of the PDF's page breaks follow the text
       if (WB.dpDirty) dpMarkDirty()
