@@ -43,7 +43,7 @@ import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { APP_LANG, DASHBOARD_PUBLIC_URL, MAIN_AGENT_ID } from '../../config.js'
-import { executeTool } from '../../workbench-agent/execute.js'
+import { executeTool, runTool } from '../../workbench-agent/execute.js'
 import { getTool, decideTool } from '../../workbench-agent/tools.js'
 import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
@@ -65,6 +65,7 @@ import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitiv
 import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
+import { forgetMailDraft, mailDraftView, saveMailDraft } from '../../workbench-maildraft.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
 import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
@@ -165,6 +166,9 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   sent_final_stale: { hu: 'A beadvány a véglegesítés óta megváltozott, ezért nem jelölöm elküldöttnek: nem tudni, melyik változat ment el. Véglegesítsd újra, vagy állítsd vissza a végleges változatot.', en: 'The submission changed since it was finalised, so it is not marked as sent: it would not be known which version went out. Finalise it again, or restore the final version.' },
   sent_bad_input: { hu: 'Add meg a dátumot (naptárból) és a címzettet. Az időpont óra:perc alakban kell (például 14:30), a szövegek legfeljebb 300 karakteresek.', en: 'Give the date (from the calendar) and the recipient. The time must be hours:minutes (for example 14:30), and each text at most 300 characters.' },
   sent_too_many: { hu: 'Ennél a beadványnál már 100 elküldés van rögzítve, többet nem tudok felvenni.', en: 'This submission already has 100 sendings recorded; no more can be added.' },
+  maildraft_bad_input: { hu: 'A címzett vagy a másolatot kapó nem érvényes e-mail-cím, vagy a tárgy / a szöveg túl hosszú. Több címet vesszővel válassz el.', en: 'The recipient or the copy address is not a valid e-mail address, or the subject / text is too long. Separate several addresses with a comma.' },
+  maildraft_no_folder: { hu: 'A munkadarab mappája nem érhető el, ezért nem tudom elkészíteni a levélpiszkozatot. Nézd meg a projekt mappáját a Projektek oldalon.', en: 'The work item folder is not reachable, so the e-mail draft cannot be made. Check the project folder on the Projects page.' },
+  maildraft_write_failed: { hu: 'Nem sikerült megírni a levélpiszkozat fájlját. A pontos ok a részletekben van.', en: 'The e-mail draft file could not be written. The exact reason is in the details.' },
   sent_not_found: { hu: 'Ez az elküldés már nincs a listán. Frissítsd az oldalt.', en: 'This sending is no longer on the list. Refresh the page.' },
   sent_already_filed: { hu: 'Ennek az elküldésnek a hivatalos példánya már el van helyezve az Életfában.', en: 'The official copy of this sending is already filed in the Life tree.' },
   sent_folder_missing: { hu: 'Ez a mappa nincs meg az Életfában. Válassz másikat.', en: 'This folder is not in the Life tree. Choose another one.' },
@@ -1963,6 +1967,8 @@ type OutlineOut = ReturnType<typeof documentOutline> & {
   /** #530, phase 3: when, to whom and how the final was sent, and where its official copy is filed. */
   sent: ReturnType<typeof listSent>
   sent_methods: typeof SENT_METHODS
+  /** The e-mail draft (.eml) with the document and its annexes as PDF attachments, or null when there is none yet. */
+  mail_draft: ReturnType<typeof mailDraftView> | null
   check: ReturnType<typeof documentCheck>
   consistency: ReturnType<typeof consistencyIssues>
   annexes: ReturnType<typeof listAnnexes>
@@ -2009,6 +2015,7 @@ function outlineOut(itemId: string): OutlineOut | null {
     linked_searching: linkedSearching,
     sent: listSent(itemId),
     sent_methods: SENT_METHODS,
+    mail_draft: item ? mailDraftView(item) : null,
     check: documentCheck(itemId, resolve),
     consistency: consistencyIssues(itemId),
     annexes: listAnnexes(itemId, resolve),
@@ -3940,6 +3947,24 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true, rel: r.rel, outline: outlineOrEmpty(item.id) }, 201)
       return true
     }
+    // E-MAIL DRAFT: POST .../outline/mail-draft {to?, cc?, subject?, body?} makes (or remakes) the .eml with the document and its
+    // annexes as PDF attachments; DELETE stops tracking it (the file stays). It is refreshed by itself when the document changes.
+    if (sub === 'mail-draft' && segs.length === 3 && method === 'POST') {
+      const r = await saveMailDraft(item, { to: body['to'], cc: body['cc'], subject: body['subject'], body: body['body'] }, lang)
+      if (!r.ok) {
+        if (r.code === 'outline_empty') return fail(res, 404, 'outline_empty', lang)
+        if (r.code === 'bad_input') return failDetail(res, 400, 'maildraft_bad_input', lang, r.detail)
+        if (r.code === 'no_folder' || r.code === 'write_failed') return failDetail(res, r.code === 'no_folder' ? 409 : 500, 'maildraft_' + r.code, lang, r.detail)
+        return docPdfFail(res, r.code, lang, r.detail, r.label)
+      }
+      json(res, { ok: true, new_file: r.new_file, outline: outlineOrEmpty(item.id) }, 201)
+      return true
+    }
+    if (sub === 'mail-draft' && segs.length === 3 && method === 'DELETE') {
+      forgetMailDraft(item.id)
+      json(res, { ok: true, outline: outlineOrEmpty(item.id) })
+      return true
+    }
     // #530: a document of the Life tree becomes an annex WITHOUT a copy.  POST .../outline/annexes/link {rel, title?, position?}
     if (sub === 'annexes' && segs.length === 4 && segs[3] === 'link' && method === 'POST') {
       const resolve = resolverFor(item)
@@ -4005,7 +4030,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const decision = decideTool(tool, MAIN_AGENT_ID)
     if (decision.kind !== 'allow') return fail(res, 403, 'doc_tool_not_allowed', lang)
     const input = (body['input'] && typeof body['input'] === 'object' ? body['input'] : {}) as Record<string, unknown>
-    const r = executeTool(name, { ...input, id: item.id }, { projectId: item.project_id, workItemId: item.id, lang })
+    const toolCtx = { projectId: item.project_id, workItemId: item.id, lang }
+    const r = name === 'doc.mailDraft' ? await runTool(name, { ...input, id: item.id }, toolCtx) : executeTool(name, { ...input, id: item.id }, toolCtx)
     if (tool.autonomyCategory) auditWorkbench({ agent: MAIN_AGENT_ID, tool: name, op: 'doc-tool', target: item.id, cwd: item.project_id })
     json(res, r, r.ok ? 200 : 400)
     return true

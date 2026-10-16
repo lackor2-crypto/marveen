@@ -56,6 +56,7 @@ import { listFinals } from '../workbench-docfinal.js'
 import { buildPreview } from '../workbench-preview.js'
 import { saveTextSourceAsNewVersion } from '../workbench-edit.js'
 import { scheduleOutlineMirror } from '../workbench-docmirror.js'
+import { saveMailDraft } from '../workbench-maildraft.js'
 import { isLinkedDocPath, resolveLinkedDoc, sourceWorldFor } from '../workbench-docmodel-world.js'
 import { aiMayReadLinked } from '../workbench-doc-links.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
@@ -241,7 +242,7 @@ function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code
  *  valtozatlanul a `executeTool` vegzi (nincs ketszer megirva semmi), a lassukat
  *  pedig ez a fuggveny -- igy a hivonak nem kell tudnia, melyik melyik. */
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
-  if (name !== 'web.search' && name !== 'document.toPdf' && name !== 'document.redact' && name !== 'timeline.render' && name !== 'timeline.autoSubtitle' && name !== 'timeline.edit' && name !== 'deck.export' && !DEPOT_WALK_TOOLS.has(name)) return executeTool(name, input, ctx)
+  if (name !== 'web.search' && name !== 'document.toPdf' && name !== 'document.redact' && name !== 'timeline.render' && name !== 'timeline.autoSubtitle' && name !== 'timeline.edit' && name !== 'deck.export' && name !== 'doc.mailDraft' && !DEPOT_WALK_TOOLS.has(name)) return executeTool(name, input, ctx)
 
   // #406 bugkereses 8.: a lassu eszkozok is UGYANAZON a kapun mennek at, mint
   // az executeTool -- kulonben egy uj async eszkoz csendben kikerulne.
@@ -250,6 +251,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
   const archived = archivedGate(name, project)
   if (archived) return archived
   if (name === 'timeline.render') return timelineRender(project, ctx, input)
+  if (name === 'doc.mailDraft') return emailDraftTool(project, ctx, input)
   if (name === 'deck.export') return deckExport(project, ctx, input)
   if (name === 'timeline.autoSubtitle') return timelineAutoSubtitle(project, ctx, input)
   if (name === 'timeline.edit') return timelineEdit(project, ctx, input)
@@ -295,6 +297,31 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
       note: out.cached
         ? 'the PDF preview was already made earlier, it is ready'
         : 'the PDF preview has been made; the original document was not changed',
+    },
+  }
+}
+
+/** The e-mail draft of a document (an .eml with the PDF attachments made by Marveen, refreshed on every change). */
+async function emailDraftTool(project: ProjectRow, ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
+  const id = asString(input.id) || ctx.workItemId || ''
+  if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
+  const item = getWorkItem(id)
+  if (!item || item.project_id !== project.id) return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+  const r = await saveMailDraft(item, { to: input.to, cc: input.cc, subject: input.subject, body: input.body }, ctx.lang === 'en' ? 'en' : 'hu')
+  if (!r.ok) {
+    const why = r.code === 'bad_input' ? `the ${r.detail ?? 'input'} is not valid (to / cc: e-mail addresses; subject up to 300, body up to 20000 characters)`
+      : r.code === 'outline_empty' ? 'this work item has no document structure yet (write the document first)'
+      : `the e-mail draft could not be made (${r.code}${r.label ? ' ' + r.label : ''}${r.detail ? ': ' + r.detail : ''})`
+    return { ok: false, code: r.code === 'bad_input' || r.code === 'outline_empty' ? r.code : 'failed', detail: why }
+  }
+  const d = r.draft
+  return {
+    ok: true,
+    data: {
+      file: d.file, to: d.to, cc: d.cc, subject: d.subject,
+      attachments: d.attachments.map((a) => ({ name: a.name, kb: Math.round(a.bytes / 1024), kind: a.kind })),
+      new_file: r.new_file,
+      note: 'The draft is an .eml in the work item folder; the owner opens it and presses send (nothing was sent). The PDFs inside are refreshed automatically when the document or an annex changes. Tell the owner the file name and the attachment list.',
     },
   }
 }
@@ -518,9 +545,9 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
             }
           }
           case 'doc.annexes': return { ok: true, data: { annexes: listAnnexes(item.id, world.resolveFile), settings: docSettings(item.id), check: annexCheck(item.id, world.resolveFile) } }
-          case 'doc.addAnnex': { const r = addAnnex(item.id, { path: input.path, title: input.title, position: input.position }, world.resolveFile, 'workbench-agent'); return r.ok ? { ok: true, data: r } : r }
-          case 'doc.updateAnnex': { const r = updateAnnex(item.id, asString(input.annex), { title: input.title, position: input.position }); return r.ok ? { ok: true, data: r } : r }
-          case 'doc.removeAnnex': { const r = removeAnnex(item.id, asString(input.annex)); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.addAnnex': { const r = addAnnex(item.id, { path: input.path, title: input.title, position: input.position }, world.resolveFile, 'workbench-agent'); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.updateAnnex': { const r = updateAnnex(item.id, asString(input.annex), { title: input.title, position: input.position }); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.removeAnnex': { const r = removeAnnex(item.id, asString(input.annex)); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
           case 'doc.court': {
             const st = itemCourtState(item.id)
             const f = listFinals(item.id)[0]

@@ -21,6 +21,7 @@ import { documentOutline, imageBlockParts, tableBlockParts } from './workbench-d
 import { resolveLifePath } from './life-explorer.js'
 import { fileStem, renderDocx, renderPlainPdf } from './workbench-docfinal.js'
 import { APP_LANG } from './config.js'
+import { refreshMailDraft } from './workbench-maildraft.js'
 
 const DEBOUNCE_MS = 1500
 
@@ -114,7 +115,7 @@ async function mirrorPdfTwin(item: WorkItemRow, project: ProjectRow, folderRel: 
   } catch { /* best effort: the Word copy stands */ }
 }
 
-export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult> {
+async function mirrorOutlineToFileCore(itemId: string): Promise<MirrorResult> {
   const item = getWorkItem(itemId)
   if (!item) return { ok: false, code: 'no_item' }
   if (documentOutline(item.id).sections.length === 0) return { ok: false, code: 'empty' }
@@ -163,6 +164,17 @@ export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult>
     .run(item.id, name, sha(data), outlineSha, Date.now())
   if (format === 'docx') await mirrorPdfTwin(item, project, folder.folder, outlineSha)
   return { ok: true, file: `${t.dirRel}/${name}`, format, written: true }
+}
+
+/**
+ * The Word copy and its PDF twin, then (when the item has an e-mail draft made by Marveen) the draft's attachments:
+ * the mail never carries an older PDF than the text. Every change of the document or of an annex comes through here.
+ */
+export async function mirrorOutlineToFile(itemId: string): Promise<MirrorResult> {
+  const r = await mirrorOutlineToFileCore(itemId)
+  const item = getWorkItem(itemId)
+  if (item) await refreshMailDraft(item, APP_LANG === 'en' ? 'en' : 'hu')
+  return r
 }
 
 const timers = new Map<string, NodeJS.Timeout>()

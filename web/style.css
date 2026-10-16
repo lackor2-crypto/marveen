@@ -13193,6 +13193,8 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 .wb-sent-form { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-end; }
 .wb-sent-form label { display: flex; flex-direction: column; font-size: 13px; gap: 2px; min-width: 0; }
 .wb-sent-form input, .wb-sent-form select { max-width: 100%; }
+.wb-mail-form label { display: flex; flex-direction: column; font-size: 13px; gap: 2px; margin: 6px 0; min-width: 0; }
+.wb-mail-form input, .wb-mail-form textarea { width: 100%; max-width: 100%; box-sizing: border-box; font: inherit; }
 
 /* #530, phase 4: the owner's switch -- may the AI read this project document. */
 .wb-pd-ai { white-space: nowrap; margin: 0 6px; }
