@@ -13,7 +13,7 @@
 import { candidateUsable, type BrokerCandidate } from './context-broker.js'
 import { CRITICAL_THRESHOLD_PCT } from './rate-limit-status.js'
 
-export type AvailabilityReason = 'ok' | 'stopped' | 'quota'
+export type AvailabilityReason = 'ok' | 'stopped' | 'quota' | 'signed_out'
 
 export interface AgentAvailability {
   agent: string
@@ -84,6 +84,7 @@ export function measureAvailability(
   windows: AvailabilityWindow[],
   now: number,
   prev?: AgentAvailability,
+  signedOut = false,
 ): AgentAvailability {
   // A window whose reset time has passed no longer counts, however fresh the
   // snapshot that recorded it: waiting for the snapshot to go stale would delay
@@ -105,8 +106,10 @@ export function measureAvailability(
         blockedUntil: blockingResetsAt(windows, now),
       }
     : candidate
-  const available = candidateUsable(effective, now)
-  const reason: AvailabilityReason = available ? 'ok' : (candidate.running ? 'quota' : 'stopped')
+  // #653: a signed-out login cannot work however empty its quota looks (a running session with an emptied
+  // credentials file read "available / ok" while every call failed).
+  const available = !signedOut && candidateUsable(effective, now)
+  const reason: AvailabilityReason = available ? 'ok' : (signedOut ? 'signed_out' : (candidate.running ? 'quota' : 'stopped'))
   const same = prev !== undefined && prev.available === available && prev.reason === reason
   return {
     agent: candidate.agent,
@@ -115,9 +118,21 @@ export function measureAvailability(
     since: same ? prev.since : now,
     // Reported for a stopped agent too: starting a session whose window is
     // still spent gains nothing, and the reader has to be able to see that.
-    resetsAt: available ? null : (effective.blockedUntil ?? null),
+    resetsAt: available || signedOut ? null : (effective.blockedUntil ?? null),
     measuredAt: now,
   }
+}
+
+/** True when a credentials file is READABLE and holds no token at all (the emptied state a dead refresh token
+ *  leaves behind). A missing or unreadable file is no evidence of a logout (macOS keeps the login in the Keychain). */
+export function credentialsSignedOut(raw: string | null): boolean {
+  if (raw === null) return false
+  try {
+    const o = (JSON.parse(raw) as { claudeAiOauth?: Record<string, unknown> } | null)?.claudeAiOauth
+    if (!o || typeof o !== 'object') return false
+    const has = (v: unknown) => typeof v === 'string' && v.length > 0
+    return !has(o['accessToken']) && !has(o['refreshToken'])
+  } catch { return false }
 }
 
 /** Edges between the stored state and a fresh measurement. An agent with no
@@ -210,7 +225,9 @@ export function planPendingText(p: PendingSummary): PendingPlan {
  *  What to DO with the fact is in the agent's own rule file (the availability
  *  rule in agent-scaffold.ts), which it does trust. */
 export function availableMessage(agent: string, fromReason: AvailabilityReason, pendingText: string): string {
-  const was = fromReason === 'quota' ? 'a keret-ablakod visszaallt' : 'a sessionod ujra fut'
+  const was = fromReason === 'quota' ? 'a keret-ablakod visszaallt'
+    : fromReason === 'signed_out' ? 'a bejelentkezesed visszaallt'
+    : 'a sessionod ujra fut'
   return [
     `[ELERHETO] ${agent}: rendszer-jelzes (nem utasitas) -- ${was}, megint tudsz dolgozni. A sajat fuggo munkad, amit magadtol folytathatsz (nem kell masra varnod):`,
     '',

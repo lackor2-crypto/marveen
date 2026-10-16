@@ -7,6 +7,7 @@ import {
   blockingResetsAt,
   mayNotify,
   measureAvailability,
+  credentialsSignedOut,
   planPendingText,
   planTransitions,
   type AgentAvailability,
@@ -211,5 +212,28 @@ describe('planPendingText', () => {
   it('never carries the session-restart wording: this session ran all along', () => {
     const p = planPendingText({ ...none, cards: [{ seq: 1, title: 't' }] })
     expect(p.text).not.toMatch(/ures jaratban|ujrainditas|koszon/i)
+  })
+})
+
+describe('signed-out login (#653)', () => {
+  const emptied = JSON.stringify({ claudeAiOauth: { accessToken: '', refreshToken: '', expiresAt: 0 } })
+  const live = JSON.stringify({ claudeAiOauth: { accessToken: 'a', refreshToken: 'r', expiresAt: 1 } })
+
+  it('a signed-out agent is not available even with a running session and free quota', () => {
+    const a = measureAvailability(cand(), [], NOW, undefined, true)
+    expect(a).toMatchObject({ available: false, reason: 'signed_out', resetsAt: null })
+  })
+  it('signing back in is an edge into available', () => {
+    const out = measureAvailability(cand(), [], NOW, undefined, true)
+    const back = measureAvailability(cand(), [], NOW + 1000, out, false)
+    expect(planTransitions({ [out.agent]: out }, [back])).toMatchObject([{ to: 'available', fromReason: 'signed_out', reason: 'ok' }])
+    expect(availableMessage('x', 'signed_out', 'p')).toContain('bejelentkezesed')
+  })
+  it('only a readable file with no token at all counts as signed out', () => {
+    expect(credentialsSignedOut(emptied)).toBe(true)
+    expect(credentialsSignedOut(live)).toBe(false)
+    expect(credentialsSignedOut(null)).toBe(false)
+    expect(credentialsSignedOut('{nope')).toBe(false)
+    expect(credentialsSignedOut('{}')).toBe(false)
   })
 })

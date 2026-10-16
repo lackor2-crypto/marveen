@@ -12,7 +12,8 @@
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
-import { STORE_DIR } from '../config.js'
+import { MAIN_AGENT_ID, STORE_DIR } from '../config.js'
+import { mainAgentEffectiveConfigDir } from './agent-config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { createAgentMessage, getPendingMessages } from '../db.js'
 import { listBrokerCandidateNames, readBrokerCandidate } from './context-broker-store.js'
@@ -20,6 +21,7 @@ import { readRateLimitSnapshot } from './rate-limit-status-io.js'
 import { defaultPendingWorkDeps, getPendingWork } from './pending-work.js'
 import {
   availableMessage,
+  credentialsSignedOut,
   mayNotify,
   measureAvailability,
   planPendingText,
@@ -64,6 +66,14 @@ function logEdge(t: AvailabilityTransition, note: string): void {
   } catch { /* the log is a trace, not a dependency */ }
 }
 
+/** #653: the main agent's isolated login, read from its credentials file. Best effort: any failure -> not signed out. */
+function agentSignedOut(agent: string): boolean {
+  if (agent !== MAIN_AGENT_ID) return false
+  try {
+    return credentialsSignedOut(readFileSync(join(mainAgentEffectiveConfigDir(), '.credentials.json'), 'utf-8'))
+  } catch { return false }
+}
+
 /** Measure the whole fleet now (no I/O besides reading sessions and snapshots). */
 export function measureFleet(prev: Record<string, AgentAvailability>, now: number): AgentAvailability[] {
   return listBrokerCandidateNames().map((agent) => {
@@ -73,7 +83,7 @@ export function measureFleet(prev: Record<string, AgentAvailability>, now: numbe
       // #569: the weekly window is marked as such -- it blocks only when spent, not from 95%.
       snap?.sevenDay ? { usedPct: snap.sevenDay.usedPct, resetsAt: snap.sevenDay.resetsAt, weekly: true } : null,
     ].filter((w): w is NonNullable<typeof w> => !!w)
-    return measureAvailability(readBrokerCandidate(agent), windows, now, prev[agent])
+    return measureAvailability(readBrokerCandidate(agent), windows, now, prev[agent], agentSignedOut(agent))
   })
 }
 
