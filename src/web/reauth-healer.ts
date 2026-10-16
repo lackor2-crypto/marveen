@@ -323,12 +323,22 @@ export function isMainWorking(a: Pick<AgentAvailability, 'available' | 'reason' 
   return a.available === true && a.reason === 'ok'
 }
 
-function mainWorking(label: string): boolean {
-  try { return isMainWorking(readAvailabilityState().agents[label], Date.now()) } catch { return false }
+/**
+ * Why a dead-token escalation is held back right now, or null when it must go out. A working MAIN agent wins over
+ * the quota hold (it also stops the token quarantine and the main restart); sub-agents are never held for "working".
+ */
+export function escalationHold(
+  isMain: boolean,
+  a: Pick<AgentAvailability, 'available' | 'reason' | 'resetsAt' | 'measuredAt'> | undefined,
+  nowMs: number,
+): 'main-working' | 'quota' | null {
+  if (isMain && isMainWorking(a, nowMs)) return 'main-working'
+  if (isQuotaHeld(a, nowMs)) return 'quota'
+  return null
 }
 
-function quotaHeld(label: string): boolean {
-  try { return isQuotaHeld(readAvailabilityState().agents[label], Date.now()) } catch { return false }
+function escalationHoldNow(label: string, isMain: boolean): 'main-working' | 'quota' | null {
+  try { return escalationHold(isMain, readAvailabilityState().agents[label], Date.now()) } catch { return null }
 }
 
 function checkSession(label: string, session: string, isMain: boolean, quiet: boolean): void {
@@ -366,11 +376,12 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
   }
   if (decision.escalate) {
     logger.error({ label, session, reason: reauth.reason, quiet }, 'reauth-healer: dead OAuth token on live session -- escalating to owner')
-    if (isMain && mainWorking(label)) {
+    const hold = escalationHoldNow(label, isMain)
+    if (hold === 'main-working') {
       logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: dead-token escalation held back -- main agent is actively working (available=ok), the pane "Not logged in" is a stale quota artifact')
       return // no alert, no token quarantine, never a main restart under a live conversation
     }
-    if (quotaHeld(label)) {
+    if (hold === 'quota') {
       logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: dead-token escalation held back -- the agent is out of quota (cannot work until the window resets)')
     } else routeEscalation(
       { session, label, reason: reauth.reason ?? 'auth failure', consecutiveDead: decision.next.consecutiveDead },
