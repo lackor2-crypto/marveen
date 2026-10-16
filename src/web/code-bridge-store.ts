@@ -243,6 +243,9 @@ function ensureTables(): void {
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN topic_state TEXT') } catch { /* mar letezik */ }
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN hold_card TEXT') } catch { /* mar letezik */ }
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN topic_at INTEGER') } catch { /* mar letezik */ }
+  // #550 (6): the worker whose lease was reaped may still be running the ORIGINAL run; its answer is
+  // recognised by this host, even after the task went back to the queue or was claimed by another host.
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN prev_host TEXT') } catch { /* mar letezik */ }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
   // Worker presence. The bridge has exactly ONE silent failure mode: the
@@ -1828,6 +1831,13 @@ export interface CompleteOutcome {
   limit?: CodeBridgeLimit
 }
 
+function isFormerHostOf(id: string, host: string): boolean {
+  try {
+    const r = getDb().prepare(`SELECT prev_host FROM code_tasks WHERE id = ?`).get(id) as { prev_host: string | null } | undefined
+    return !!r && r.prev_host === host
+  } catch { return false }
+}
+
 /**
  * Record the worker's result.
  *
@@ -1867,11 +1877,15 @@ export function completeCodeTaskDetailed(
   // The lease was reaped and another host took the task over. The old worker's
   // answer belongs to a run nobody is waiting for; taking it would report the
   // WRONG run's output as this task's result.
+  // #550 (6): ...unless the reporting host IS the one whose lease was reaped. It never stopped working: its
+  // answer is the answer of the original run, so it closes the task (the second run's own answer then lands
+  // as 'already-final') instead of being dropped while the same work starts again.
   if (
     reportingHost &&
     existing.status === 'running' &&
     existing.host &&
-    existing.host !== reportingHost
+    existing.host !== reportingHost &&
+    !isFormerHostOf(id, reportingHost)
   ) {
     return { task: existing, outcome: 'foreign-host' }
   }
@@ -2012,6 +2026,19 @@ export function clearFinishedCodeTasks(): number {
   return info.changes ?? 0
 }
 
+/**
+ * #550 (5): the SERVER stood still (event loop blocked, process suspended or restarted), not the workers. Their
+ * heartbeats could not land, so every lease looks expired although nothing is wrong with the runs. Give every
+ * running task one fresh lease window to prove itself, instead of re-queueing work that is still going on.
+ */
+export function extendRunningCodeLeases(now = Date.now()): number {
+  ensureTables()
+  const info = getDb()
+    .prepare(`UPDATE code_tasks SET lease_expires_at = ? WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?`)
+    .run(now + LEASE_MS, now + LEASE_MS)
+  return info.changes ?? 0
+}
+
 export function reapExpiredCodeLeases(now = Date.now()): { requeued: string[]; failed: CodeTask[] } {
   ensureTables()
   const db = getDb()
@@ -2029,7 +2056,7 @@ export function reapExpiredCodeLeases(now = Date.now()): { requeued: string[]; f
       const updated = getCodeTask(task.id)
       if (updated) failed.push(updated)
     } else {
-      db.prepare(`UPDATE code_tasks SET status = 'queued', lease_expires_at = NULL, host = NULL WHERE id = ?`).run(task.id)
+      db.prepare(`UPDATE code_tasks SET status = 'queued', lease_expires_at = NULL, prev_host = host, host = NULL WHERE id = ?`).run(task.id)
       requeued.push(task.id)
     }
   }

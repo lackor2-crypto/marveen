@@ -9,16 +9,35 @@
 
 import { logger } from '../logger.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
-import { reapExpiredCodeLeases, failOrphanedCodeTasks } from './code-bridge-store.js'
+import { reapExpiredCodeLeases, extendRunningCodeLeases, failOrphanedCodeTasks } from './code-bridge-store.js'
 import { notifyCodeTaskFinished } from './code-bridge-notify.js'
 
 const TICK_MS = 60 * 1000
 
-let timer: NodeJS.Timeout | null = null
+/** A tick this much later than scheduled means the SERVER stood still (#550): the workers' heartbeats
+ *  could not land meanwhile, so the leases say nothing about the workers. */
+export const STALL_GAP_MS = 2 * TICK_MS
 
-export function codeBridgeTick(): void {
+let timer: NodeJS.Timeout | null = null
+// null = this process has not ticked yet (a restart is a stall too: the downtime is unknown).
+let lastTickAt: number | null = null
+
+/** Test seam. */
+export function resetCodeBridgeTickForTests(): void {
+  lastTickAt = null
+}
+
+export function codeBridgeTick(now = Date.now()): void {
   try {
-    const { requeued, failed } = reapExpiredCodeLeases()
+    const stalled = lastTickAt === null || now - lastTickAt > STALL_GAP_MS
+    lastTickAt = now
+    if (stalled) {
+      // Do not count the stall against the workers: every running task gets a fresh lease window; a worker
+      // that really died misses it and is re-queued one window later.
+      const extended = extendRunningCodeLeases(now)
+      if (extended) logger.warn({ extended }, 'code-bridge: the server was not ticking, running leases extended instead of re-queued')
+    }
+    const { requeued, failed } = reapExpiredCodeLeases(now)
     if (requeued.length) logger.warn({ tasks: requeued }, 'code-bridge: lease expired, task re-queued')
     for (const task of failed) {
       logger.error({ task: task.id, project: task.project }, 'code-bridge: task abandoned after max attempts')
