@@ -13784,17 +13784,20 @@
     var overlay = document.createElement('div')
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbJsonClean'
-    overlay.innerHTML = '<div class="modal-content" style="max-width:760px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.jsonclean.title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.jsonclean.help')) + '</p>'
-      + '<div id="wbJsonCleanList"><p class="wb-muted">' + esc(t('workbench.jsonclean.loading')) + '</p></div>'
-      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbJsonCleanClose">' + esc(t('workbench.lifemove.cancel')) + '</button> '
+    overlay.innerHTML = '<div class="modal-content" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column;padding:18px">'
+      + '<h3 style="margin:0 0 4px;flex:none">' + esc(t('workbench.jsonclean.title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px;flex:none">' + esc(t('workbench.jsonclean.help')) + '</p>'
+      + '<div id="wbJsonCleanList" style="flex:1 1 auto;min-height:0;overflow-y:auto"><p class="wb-muted">' + esc(t('workbench.jsonclean.loading')) + '</p></div>'
+      + '<div style="text-align:right;margin-top:10px;flex:none"><button type="button" class="btn-secondary" id="wbJsonCleanClose">' + esc(t('workbench.lifemove.cancel')) + '</button> '
       + '<button type="button" class="btn-primary" id="wbJsonCleanGo" disabled>' + esc(t('workbench.jsonclean.go')) + '</button></div>'
       + '</div>'
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbJsonCleanList')
     var go = overlay.querySelector('#wbJsonCleanGo')
-    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    var onKey = function (e) { if (e.key === 'Escape') close() }
+    var close = function () { document.removeEventListener('keydown', onKey); if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    document.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close() })
     overlay.querySelector('#wbJsonCleanClose').addEventListener('click', close)
     var picked = {}
     var refresh = function () { go.disabled = !Object.keys(picked).some(function (k) { return picked[k] }) }
@@ -13912,17 +13915,20 @@
     var overlay = document.createElement('div')
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbLifeMove'
-    overlay.innerHTML = '<div class="modal-content" style="max-width:760px;padding:18px">'
-      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.lifemove.title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px">' + esc(t('workbench.lifemove.help')) + '</p>'
-      + '<div id="wbLifeMoveList" class="wb-lifemove-list"><p class="wb-muted">' + esc(t('workbench.lifemove.loading')) + '</p></div>'
-      + '<div style="text-align:right;margin-top:10px"><button type="button" class="btn-secondary" id="wbLifeMoveClose">' + esc(t('workbench.lifemove.cancel')) + '</button> '
+    overlay.innerHTML = '<div class="modal-content" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column;padding:18px">'
+      + '<h3 style="margin:0 0 4px;flex:none">' + esc(t('workbench.lifemove.title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px;flex:none">' + esc(t('workbench.lifemove.help')) + '</p>'
+      + '<div id="wbLifeMoveList" class="wb-lifemove-list" style="flex:1 1 auto;min-height:0;overflow-y:auto"><p class="wb-muted">' + esc(t('workbench.lifemove.loading')) + '</p></div>'
+      + '<div style="text-align:right;margin-top:10px;flex:none"><button type="button" class="btn-secondary" id="wbLifeMoveClose">' + esc(t('workbench.lifemove.cancel')) + '</button> '
       + '<button type="button" class="btn-primary" id="wbLifeMoveGo" disabled>' + esc(t('workbench.lifemove.go')) + '</button></div>'
       + '</div>'
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbLifeMoveList')
     var go = overlay.querySelector('#wbLifeMoveGo')
-    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    var onKey = function (e) { if (e.key === 'Escape') close() }
+    var close = function () { document.removeEventListener('keydown', onKey); if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    document.addEventListener('keydown', onKey)
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close() })
     overlay.querySelector('#wbLifeMoveClose').addEventListener('click', close)
     var files = []
     var target = {}
@@ -13940,15 +13946,30 @@
         var to = document.createElement('span')
         to.className = 'wb-muted'
         to.style.cssText = 'flex:1 1 200px;min-width:0;word-break:break-word'
-        to.textContent = target[f.rel] ? '→ ' + target[f.rel] : t('workbench.lifemove.no_target')
+        var sugOn = !!(f.suggested_target && target[f.rel] === f.suggested_target)
+        var showTo = function () {
+          var tg = target[f.rel]
+          to.textContent = tg ? '→ ' + (tg === f.suggested_target ? (f.suggested_display || tg) + ' (' + t('workbench.lifemove.suggested') + ')' : tg) : t('workbench.lifemove.no_target')
+        }
+        showTo()
         var b = document.createElement('button')
         b.type = 'button'
         b.className = 'btn-secondary btn-compact'
         b.textContent = t('workbench.lifemove.choose')
         b.addEventListener('click', function () {
-          pickLifeFile(function (rel) { target[f.rel] = rel; to.textContent = '→ ' + rel; refreshGo() }, { folder: true, lifeMove: true })
+          pickLifeFile(function (rel) { target[f.rel] = rel; showTo(); if (accept) accept.hidden = true; refreshGo() }, { folder: true, lifeMove: true })
         })
-        row.appendChild(nm); row.appendChild(to); row.appendChild(b)
+        // A suggestion the sorter is not sure about is only a hint: one click takes it, nothing is pre-filled.
+        var accept = null
+        if (f.suggested_target && !sugOn) {
+          to.textContent = t('workbench.lifemove.hint_prefix') + ' ' + (f.suggested_display || f.suggested_target)
+          accept = document.createElement('button')
+          accept.type = 'button'
+          accept.className = 'btn-primary btn-compact'
+          accept.textContent = t('workbench.lifemove.accept')
+          accept.addEventListener('click', function () { target[f.rel] = f.suggested_target; showTo(); accept.hidden = true; refreshGo() })
+        }
+        row.appendChild(nm); row.appendChild(to); if (accept) row.appendChild(accept); row.appendChild(b)
         list.appendChild(row)
       })
     }
@@ -13956,6 +13977,9 @@
       if (!overlay.parentNode) return
       if (!r.ok) { list.innerHTML = ''; var p = document.createElement('p'); p.className = 'wb-error'; p.textContent = r.message || t('workbench.lifemove.failed'); list.appendChild(p); return }
       files = (r.data && r.data.files) || []
+      // The sorter's confident suggestions are pre-filled; the owner still approves the whole list with the button.
+      files.forEach(function (f) { if (f.suggested_target && f.suggested_confident) target[f.rel] = f.suggested_target })
+      refreshGo()
       draw()
     })
     go.addEventListener('click', function () {
