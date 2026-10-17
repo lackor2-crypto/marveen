@@ -201,3 +201,13 @@ describe('#667 the finalize panel is brought into view (it stacks below the fold
     expect(helper).toContain('scrollIntoView')
   })
 })
+
+// #678: the finalize language list is only what exists (original + saved versions), refreshed from the server on open.
+describe('finalize language list (#678, source contract)', () => {
+  const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
+  it('offers no translate-now languages and re-reads the saved versions when the panel opens', () => {
+    expect(js).not.toContain('notefinal.lang_new')
+    expect(js).toContain('function noteLangsRefresh()')
+    expect(js).toMatch(/noteFinalScrollIn\(\); noteLangsRefresh\(\)/)
+  })
+})
