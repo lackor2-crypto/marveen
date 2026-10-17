@@ -37,15 +37,15 @@ describe('debate report folder', () => {
     const r = createReportDocument(pid, report, null, { originItem: origin, lang: 'hu' })
     expect(r.ok).toBe(true)
     expect(made[0].parent).toBe('Munkadarabok/Wohngeld 2026')
-    expect(made[0].name).toBe('Vitáztatás jelentés')
+    expect(made[0].name).toBe('Vitáztatás')
     expect((made[0].opts as { own?: boolean } | undefined)?.own).toBeFalsy()
   })
   it('English installs get the English folder name', () => {
-    expect(reportFolderName('en')).toBe('Debate report')
+    expect(reportFolderName('en')).toBe('Debate')
   })
   it('an unknown origin never makes a folder of the report title at the box level', () => {
     createReportDocument(pid, report, null, { originItem: 'nope', lang: 'hu' })
     expect(made[0].parent).toBe('')
-    expect(made[0].name).toBe('Vitáztatás jelentés')
+    expect(made[0].name).toBe('Vitáztatás')
   })
 })

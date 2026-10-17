@@ -1,0 +1,78 @@
+// #676 (Boss TG 9372/9375): EVERY work item of EVERY type has five standard subfolders from the start: Finished
+// materials, Attachments, Uploads, Agent, Debate. New items get them at creation; existing ones are topped up with
+// EMPTY folders only (existing content, and the first generation of the names, are never touched).
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { initDatabase } from '../db.js'
+import { createProject, updateProject, getProject } from '../projects.js'
+import { createWorkItem, getWorkItem } from '../workbench.js'
+import { ensureWorkItemFolder, ensureAllAttachmentsFolders } from '../workbench-assets.js'
+import { callWorkbench } from './helpers/workbench-route-call.js'
+
+const FIVE = ['Elkészített anyagok', 'Mellékletek', 'Feltöltések', 'Agent', 'Vitáztatás']
+
+describe('the five standard folders of a work item', () => {
+  let depot = ''
+  let pid = ''
+  const projDir = () => join(depot, 'Projektek', 'Iroda')
+  const subs = (rel: string) => readdirSync(join(projDir(), rel), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort()
+
+  beforeEach(() => {
+    initDatabase(':memory:')
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-five-'))
+    mkdirSync(projDir(), { recursive: true })
+    process.env['MARVEEN_DEPOT'] = depot
+    const p = createProject({ name: 'Iroda fejlesztese' })
+    if (!p.ok) throw new Error('project')
+    pid = p.project.id
+    if (!updateProject(pid, { folder_path: 'Projektek/Iroda' }).ok) throw new Error('folder')
+  })
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  it('a new item of any type made from the UI route gets its folder with all five subfolders', async () => {
+    for (const type of ['document', 'note', 'video', 'image', 'graphic']) {
+      const r = await callWorkbench('/api/workbench/items', 'POST', JSON.stringify({ project_id: pid, type, title: `Munka ${type}` }), { 'content-type': 'application/json' })
+      expect(r.status, type).toBe(201)
+      const folder = getWorkItem(r.body.item.id)!.folder
+      expect(folder, type).toBeTruthy()
+      expect(subs(folder!), type).toEqual([...FIVE].sort())
+    }
+  })
+
+  it('a new table gets the five subfolders too', async () => {
+    const r = await callWorkbench('/api/workbench/items/new-table', 'POST', JSON.stringify({ project_id: pid, title: 'Költségvetés' }), { 'content-type': 'application/json' })
+    expect(r.status).toBe(201)
+    const folder = getWorkItem(r.body.item.id)!.folder
+    expect(folder).toBeTruthy()
+    expect(subs(folder!)).toEqual([...FIVE].sort())
+  })
+
+  it('an existing item folder is topped up with the missing EMPTY folders; content and the first-generation names stay', () => {
+    const w = createWorkItem({ project_id: pid, title: 'Régi munka', type: 'document' })
+    if (!w.ok) throw new Error('item')
+    const f = ensureWorkItemFolder(w.item)
+    if (!f.ok) throw new Error('folder')
+    // simulate an old folder: first-generation names and a file inside
+    rmSync(join(projDir(), f.folder, 'Agent'), { recursive: true })
+    rmSync(join(projDir(), f.folder, 'Vitáztatás'), { recursive: true })
+    mkdirSync(join(projDir(), f.folder, 'Agentnek'))
+    mkdirSync(join(projDir(), f.folder, 'Vitáztatás jelentés'))
+    writeFileSync(join(projDir(), f.folder, 'Agentnek', 'minta.png'), 'x')
+    rmSync(join(projDir(), f.folder, 'Mellékletek'), { recursive: true })
+    ensureAllAttachmentsFolders()
+    const have = subs(f.folder)
+    expect(have).toContain('Mellékletek')
+    expect(have).toContain('Agentnek')
+    expect(have).toContain('Vitáztatás jelentés')
+    expect(have).not.toContain('Agent')
+    expect(have).not.toContain('Vitáztatás')
+    expect(readFileSync(join(projDir(), f.folder, 'Agentnek', 'minta.png'), 'utf8')).toBe('x')
+    expect(existsSync(join(projDir(), f.folder, 'Elkészített anyagok'))).toBe(true)
+    expect(getProject(pid)).toBeTruthy()
+  })
+})

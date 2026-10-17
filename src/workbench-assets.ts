@@ -1684,7 +1684,7 @@ export type ChatRefOutcome =
 
 /**
  * Boss, 2026-10-16: a file the owner attaches in the chat ONLY for the agent ("this is what I mean"). It is written
- * to the item's "Agentnek" folder and is NOT registered as an asset: it never shows among the materials and the
+ * to the item's "Agent" folder and is NOT registered as an asset: it never shows among the materials and the
  * Uploads folder stays clean. The agent gets its project-relative path in the message and reads it from there.
  */
 export function attachChatReference(item: WorkItemRow, name: string, data: UploadData, opts: { lang?: string } = {}): ChatRefOutcome {

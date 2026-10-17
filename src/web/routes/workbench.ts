@@ -2219,6 +2219,13 @@ function actor(ctx: RouteContext): string | null {
   return a.kind
 }
 
+/** #676 (Boss TG 9372): a NEW work item of any type gets its own folder with the five standard subfolders right away
+ *  (Finished materials, Attachments, Uploads, Agent, Debate), not with its first file. Best effort: a folder that cannot be
+ *  made now is made with the first file instead. */
+function newItemFolders(item: WorkItemRow): void {
+  try { ensureWorkItemFolder(item) } catch { /* made with the first file instead */ }
+}
+
 export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
   if (!path.startsWith('/api/workbench/')) return false
@@ -2949,6 +2956,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = createFromTemplate(project, body['template'], { title: body['title'], lang, created_by: actor(ctx), platform: body['platform'] })
     if (!r.ok) return fail(res, r.code === 'template_not_found' ? 404 : r.code === 'template_failed' ? 500 : 400, r.code, lang)
+    newItemFolders(r.item)
     json(res, { ok: true, item: r.item, versions: [r.version], parts: r.parts, template: r.template, canvas: r.canvas ?? null }, 201)
     return true
   }
@@ -3317,6 +3325,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // TG 2752: the folder made above IS the item's own folder; without this the first file written later made a
     // second folder of the same name inside it.
     if (intakeOwn) { assignWorkItemFolder(r.item.id, intakeOwn); r.item = getWorkItem(r.item.id) ?? r.item }
+    newItemFolders(r.item)
     json(res, {
       ok: true, ask: false, kind, item: r.item, versions: [r.version], text, file: noteFile,
       message: null,
@@ -3449,6 +3458,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // #471: a deck made from an existing folder of pictures owns that folder, so renaming one renames the other.
     // A folder another item already owns stays a plain container (adoptExistingFolder refuses it).
     if (!ownFolder && body.adopt_folder === true && (containerFolder || existingFolder) && (containerFolder || existingFolder)!.includes('/')) adoptExistingFolder(r.item, project, (containerFolder || existingFolder)!)
+    newItemFolders(r.item)
     json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version], folder_existed: folderExisted, import_warnings: presentation ? presentation.warnings : [] }, 201)
     return true
   }
@@ -3510,6 +3520,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r.ok) return fail(res, 400, r.code, lang)
     // Without this the first thing written for the table later made a second folder of the same name inside it (as TG 2752).
     if (tableOwn && folder && folder !== PROJECT_ROOT_PLACE) { assignWorkItemFolder(r.item.id, folder); r.item = getWorkItem(r.item.id) ?? r.item }
+    newItemFolders(r.item)
     json(res, { ok: true, item: r.item, versions: [r.version], file: out, folder, renamed: out.renamed, name: out.name, folder_existed: folderExisted }, 201)
     return true
   }
@@ -4212,7 +4223,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
   // CHAT-HIVATKOZAS (Boss, 2026-10-16): a fajl CSAK az agentnek szol (pelda, "igy ertem"), nem anyag: a munkadarab
-  // "Agentnek" mappajaba kerul, nincs az Anyagok kozott, a Feltoltesek mappa tiszta marad.
+  // "Agent" mappajaba kerul, nincs az Anyagok kozott, a Feltoltesek mappa tiszta marad.
   //   POST .../chat-refs?name=...   -- egy fajl (nyers bajtok); a valasz a projekt-relativ utat adja
   if (segs.length === 2 && segs[1] === 'chat-refs' && method === 'POST') {
     const owner = getProject(item.project_id)

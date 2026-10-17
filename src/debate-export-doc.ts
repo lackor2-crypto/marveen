@@ -5,7 +5,8 @@
 // and is made by the owner's hand (the debate only fills it).
 
 import { getDb } from './db.js'
-import { getProject } from './projects.js'
+import { getProject, type ProjectRow } from './projects.js'
+import { debateFolderFor, DEBATE_FOLDER_NAMES } from './project-files.js'
 import { logger } from './logger.js'
 import { createWorkItem, getWorkItem, setWorkItemDeleted, type WorkItemRow } from './workbench.js'
 import { replacePage, BLOCK_TEXT_MAX } from './workbench-docmodel.js'
@@ -35,7 +36,22 @@ export function splitLong(text: string, max: number = BLOCK_TEXT_MAX): string[] 
 
 /** The folder every debate report goes into: inside the folder of the work item the debate was started from. */
 export function reportFolderName(lang: string): string {
+  return lang === 'en' ? DEBATE_FOLDER_NAMES.en : DEBATE_FOLDER_NAMES.hu
+}
+
+/** The first name of the folder (before #676): old reports sit in folders called so, and a work item folder that has one
+ *  keeps it (no second folder next to it). */
+function legacyReportFolderName(lang: string): string {
   return lang === 'en' ? 'Debate report' : 'Vitáztatás jelentés'
+}
+
+/** The name of the debate folder inside `parent`: the one that already exists there (either generation), else the current name. */
+function reportFolderIn(project: ProjectRow, parent: string, lang: string): string {
+  if (parent) {
+    const have = debateFolderFor(project, parent, lang)
+    if (have) return have.slice(parent.length + 1)
+  }
+  return reportFolderName(lang)
 }
 
 export function createReportDocument(projectId: string, report: DebateReport, by: string | null, opts?: { originItem?: string | null; lang?: string }): ReportDocResult {
@@ -54,7 +70,7 @@ export function createReportDocument(projectId: string, report: DebateReport, by
     const of = ensureWorkItemFolder(origin)
     if (of.ok) originFolder = of.folder
   }
-  const mf = makeWorkFolder(project, originFolder, reportFolderName(opts?.lang ?? 'hu'))
+  const mf = makeWorkFolder(project, originFolder, reportFolderIn(project, originFolder, opts?.lang ?? 'hu'))
   const folder = mf.ok ? mf.folder : null
   const made = createWorkItem({ project_id: project.id, type: 'document', title, container_folder: folder, created_by: by })
   if (!made.ok) return { ok: false, code: 'create_failed', detail: made.code }
@@ -98,7 +114,7 @@ export function relocateLegacyReports(): number {
       const slash = row.folder.lastIndexOf('/')
       if ((slash < 0 ? '' : row.folder.slice(0, slash)) !== box) continue
       const base = row.folder.slice(slash + 1)
-      const legacy = ['hu', 'en'].some(l => base.startsWith(reportFolderName(l) + ' '))
+      const legacy = ['hu', 'en'].some(l => base.startsWith(legacyReportFolderName(l) + ' '))
       if (!legacy) continue
       const ids = new Set<string>()
       for (const o of origins) {
@@ -113,7 +129,7 @@ export function relocateLegacyReports(): number {
       const item = getWorkItem(row.id)
       if (!item) continue
       const lang = row.title.startsWith('Debate report') ? 'en' : 'hu'
-      const mf = makeWorkFolder(project, origin.folder, reportFolderName(lang))
+      const mf = makeWorkFolder(project, origin.folder, reportFolderIn(project, origin.folder, lang))
       if (!mf.ok) continue
       const r = moveWorkItemToFolder(item, mf.folder)
       if (r.ok && r.moved) moved++

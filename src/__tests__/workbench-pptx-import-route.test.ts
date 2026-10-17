@@ -45,16 +45,18 @@ describe('pptx -> presentation work item', () => {
     expect(slides).toHaveLength(2)
     expect(slides[0]!.canvas.objects.map((o) => o.text)).toContain('Hello')
     expect(readdirSync(join(dir, 'Projektek', 'Prezi'))).toContain('bemutato.pptx')
-    // Boss TG 2516: importing makes no folder, and moving the item makes none either.
+    // #676 (Boss TG 9372, replaces TG 2516): the import makes the item's own folder (inside the box) with its five standard
+    // subfolders; moving the item afterwards makes no further folder.
     const dirsIn = () => readdirSync(join(dir, 'Projektek', 'Prezi'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
-    expect(dirsIn()).toEqual([])
+    expect(dirsIn()).toEqual(['Munkadarabok'])
     const item = getWorkItem(r.body.item.id)!
     const g = makeWorkFolder(getProject(pid)!, '', 'Csoport')
     if (!g.ok) throw new Error('group')
     const walkDirs = (d: string): string[] => readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).flatMap((e) => [join(d, e.name), ...walkDirs(join(d, e.name))])
     const before = walkDirs(join(dir, 'Projektek', 'Prezi')).length
     expect(moveWorkItemToFolder(item, g.folder)).toMatchObject({ ok: true, moved: true })
-    expect(walkDirs(join(dir, 'Projektek', 'Prezi')).length).toBe(before)
+    // #491: dropped on an empty group the item flattens into it (its own folder goes away), so the count only shrinks.
+    expect(walkDirs(join(dir, 'Projektek', 'Prezi')).length).toBeLessThanOrEqual(before)
   })
 
   it('an unreadable .pptx says so in a human sentence and makes no item', async () => {

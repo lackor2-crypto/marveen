@@ -1,5 +1,5 @@
 // Boss, 2026-10-16: a file attached in the chat ONLY for the agent ("this is what I mean, fix it like this") must not
-// land in the Uploads folder or among the materials: it goes to the work item's "Agentnek" folder, unregistered.
+// land in the Uploads folder or among the materials: it goes to the work item's "Agent" folder, unregistered.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -38,13 +38,13 @@ describe('chat-hivatkozas: csak az agentnek (nem anyag)', () => {
     return w.item
   }
 
-  it('az "Agentnek" mappaba kerul, nem a Feltoltesekbe, es nincs az anyagok kozott', () => {
+  it('az "Agent" mappaba kerul, nem a Feltoltesekbe, es nincs az anyagok kozott', () => {
     const item = newItem()
     const r = attachChatReference(item, 'Screenshot (2538).png', Buffer.from('PNG'))
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.rel).toContain('/Agentnek/')
-    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Agentnek', 'Screenshot (2538).png'))).toBe(true)
+    expect(r.rel).toContain('/Agent/')
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Agent', 'Screenshot (2538).png'))).toBe(true)
     expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Feltöltések', 'Screenshot (2538).png'))).toBe(false)
     expect(listWorkItemAssetsSynced(item.id).map((a) => a.name)).not.toContain('Screenshot (2538).png')
   })
@@ -57,7 +57,7 @@ describe('chat-hivatkozas: csak az agentnek (nem anyag)', () => {
     if (!a.ok || !b.ok) return
     expect(b.renamed).toBe(true)
     expect(b.rel.split('/').slice(0, -1)).toEqual(a.rel.split('/').slice(0, -1))
-    expect(readFileSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Agentnek', 'minta.png'), 'utf8')).toBe('1')
+    expect(readFileSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Agent', 'minta.png'), 'utf8')).toBe('1')
   })
 
   it('Boss TG 3481: the very same file (name + bytes) attached again is the one already there, not a "name (2)" twin', () => {
@@ -68,13 +68,13 @@ describe('chat-hivatkozas: csak az agentnek (nem anyag)', () => {
     if (!a.ok || !again.ok) return
     expect(again.renamed).toBe(false)
     expect(again.rel).toBe(a.rel)
-    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Agentnek', 'minta (2).png'))).toBe(false)
+    expect(existsSync(join(projDir(), 'Munkadarabok', 'Ajanlat', 'Agent', 'minta (2).png'))).toBe(false)
   })
 
-  it('az "Agentnek" mappa nem jelolt a Life-fara athelyezesre', () => {
+  it('az "Agent" mappa nem jelolt a Life-fara athelyezesre', () => {
     const item = newItem()
     attachChatReference(item, 'minta.png', Buffer.from('1'))
     const c = lifeMoveCandidates(getProject(pid)!, getWorkItem(item.id)!)
-    if (c.ok) expect(c.files.map((f) => f.folder)).not.toContain('Agentnek')
+    if (c.ok) expect(c.files.map((f) => f.folder)).not.toContain('Agent')
   })
 })

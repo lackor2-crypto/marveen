@@ -475,13 +475,15 @@ export function uploadsFolderFor(p: ProjectRow, itemFolder: string | null | unde
 }
 
 /** Boss, 2026-10-16: a file the owner shows the agent in the chat ONLY as a reference ("this is what I mean, fix it like
- *  this") goes into an "Agentnek" / "For the agent" folder inside the item's own folder (made on demand). It is NOT one of
- *  the item's materials and not a candidate for anything else. Null when it cannot be made. */
-export const AGENT_REFS_FOLDER_NAMES = { hu: 'Agentnek', en: 'For the agent' } as const
+ *  this") goes into the item's "Agent" folder (made on demand). It is NOT one of the item's materials and not a candidate
+ *  for anything else. #676 (Boss TG 9375): the name is "Agent"; the first name ("Agentnek" / "For the agent") stays
+ *  readable, so an item folder that has it keeps working (nothing is renamed or duplicated). Null when it cannot be made. */
+export const AGENT_REFS_FOLDER_NAMES = { hu: 'Agent', en: 'Agent' } as const
+export const AGENT_REFS_FOLDER_OLD_NAMES = ['Agentnek', 'For the agent'] as const
 export function agentRefsFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  for (const n of [AGENT_REFS_FOLDER_NAMES.hu, AGENT_REFS_FOLDER_NAMES.en]) {
+  for (const n of [AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES]) {
     const have = projectFileTarget(p, `${base}/${n}`)
     if (have.ok) return `${base}/${n}`
   }
@@ -489,10 +491,27 @@ export function agentRefsFolderFor(p: ProjectRow, itemFolder: string | null | un
   return r.ok ? r.sub : null
 }
 
-/** Boss TG 3025: every work item folder has these three subfolders from the start (Finished materials, Uploads,
- *  Attachments), so each kind of file has its place before the first one arrives. Each one is best effort. */
+/** #676 (Boss TG 9372/9375): the "Vitáztatás" / "Debate" subfolder of an item's own folder: the debate report of the item
+ *  goes here. The first name ("Vitáztatás jelentés" / "Debate report") stays readable and is reused when it exists. */
+export const DEBATE_FOLDER_NAMES = { hu: 'Vitáztatás', en: 'Debate' } as const
+export const DEBATE_FOLDER_OLD_NAMES = ['Vitáztatás jelentés', 'Debate report'] as const
+export function debateFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string): string | null {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return null
+  for (const n of [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]) {
+    const have = projectFileTarget(p, `${base}/${n}`)
+    if (have.ok) return `${base}/${n}`
+  }
+  const r = makeProjectFolder(p, base, lang === 'en' ? DEBATE_FOLDER_NAMES.en : ol(DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en))
+  return r.ok ? r.sub : null
+}
+
+/** Boss TG 3025, #676 (TG 9372): EVERY work item folder, of every type, has these five subfolders from the start
+ *  (Finished materials, Attachments, Uploads, Agent, Debate), so each kind of file has its place before the first one
+ *  arrives. Only EMPTY folders are made, existing ones (either name) are reused and never touched. Each one is best effort. */
 export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | null | undefined): void {
-  for (const f of [finishedFolderFor, uploadsFolderFor, attachmentsFolderFor]) {
+  for (const f of [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor]) {
     try { f(p, itemFolder) } catch { /* the folder is made on demand with its first file instead */ }
   }
 }
+
