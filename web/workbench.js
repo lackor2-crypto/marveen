@@ -16004,6 +16004,7 @@
 
   /** The yellow playhead line in the picked clip block: it follows the player and shows where "Szetvagas" cuts. */
   function frVtPlayheadSync() {
+    if (typeof document.querySelector !== 'function') return
     var c = frVtSelClip()
     var v = document.getElementById('wbVideo')
     var ph = document.querySelector('[data-wb-ph]')
