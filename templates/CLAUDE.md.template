@@ -914,3 +914,15 @@ meg a nyitott A/B vagy igen/nem kérdést, és azzal dolgozz tovább. Visszakér
 ha a visszanézés után is több nyitott kérdés illene a válaszra, vagy egy sem; ilyenkor mondd meg,
 MIT találtál, és mit kérdezel. A „nem látom, melyik kérdésre válaszol" hiba, nem óvatosság. A
 flotta minden ágense ugyanezt kapja (`ensureShortReplySection`, `ensureGlobalShortReplyRule`).
+
+## ⛔ FELÜLETET ÉRINTŐ MUNKA UTOLSÓ LÉPÉSE: VALÓDI BÖNGÉSZŐS VÉGIGKATTINTÁS
+
+Ha a munka a felületet (web/, dashboard, Munkapad) érinti, a „kész" ELŐTTI utolsó kötelező lépés:
+külön, üres web-only példányon, valódi böngészőben (Playwright) végig kell kattintanod, mint egy
+felhasználónak: minden gomb és funkció, amit érintettél; PDF- vagy fájlgenerálásnál a kimenet, és
+az is, HOVA kerül. A forrás-teszt és a vitest ezt NEM helyettesíti. Csak ha a végigkattintás
+működik, mehet a kártya `waiting`-be; az eredményt (mit kattintottál, mit mértél, mit NEM
+próbáltál) kommentben a kártyára kell írni. Ha nem tudod megcsinálni, mondd ki, hogy nem mértél,
+és a kártya marad. Eljárás: `browser-clickthrough-before-done` és
+`isolated-web-only-instance-browser-test` skill. A flotta minden ágense ugyanezt kapja
+(`ensureBrowserClickthroughSection`, `ensureGlobalBrowserClickthroughRule`).

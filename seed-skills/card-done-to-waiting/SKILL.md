@@ -39,6 +39,14 @@ planned -> in_progress -> testing -> waiting -> done
    magától jóváhagyás-kérést nyit a tulajdonosnak.
 3. **done** -- SOHA te. Azt csak a tulajdonos.
 
+## Felületet érintő munkánál: előbb a böngészős végigkattintás
+
+{{OWNER_NAME}} szabálya (2026-10-17, #672): ha a munka a felületet érinti, a
+`waiting`-be mozgatás FELTÉTELE a valódi böngészős végigkattintás (külön, üres
+web-only példányon, mint egy felhasználó; PDF/fájlgenerálásnál a kimenet és a hova
+kerül is), és az EREDMÉNYE kommentként a kártyán van. Az eljárás:
+`browser-clickthrough-before-done` skill. Végigkattintás nélkül a kártya marad.
+
 ## A waiting-be CSAK kész kártya mehet
 
 2026-10-02: egy kártya (#462) a várakozóba került, pedig csak az egyik
@@ -100,6 +108,7 @@ hogy a kártya NEM került át.
 - [ ] a kártya `testing`-ben volt a teszt alatt
 - [ ] a kártya MINDEN pontját végignézted (leírás, lépések, kommentek,
       alfeladat-kártyák), és egyik sem nyitott -- ha igen, NEM megy waiting-be
+- [ ] felületet érintő munkánál: a böngészős végigkattintás megvolt, az eredménye a kártyán van kommentben
 - [ ] landolt (PR MERGE-ELVE sor), és a kártya most `waiting`-ben áll --
       visszaolvasva
 - [ ] a záró üzenetben a kártya sorszámmal (#N) szerepel, nem belső id-vel

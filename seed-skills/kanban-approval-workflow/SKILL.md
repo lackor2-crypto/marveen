@@ -91,6 +91,8 @@ Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
 2. **Kártya -> waiting** -- CSAK ha az ÖSSZES pont kész (lépések, alfeladatok, leírás és
    kommentek teendői); ha akár egy nyitott, a kártya in_progress-ben marad. A kéréshez
    kötelező az `"all_points_done": true`, nyitott alfeladatnál a szerver 409-et ad.
+   **Felületet érintő munkánál a waiting feltétele a valódi böngészős végigkattintás** (külön, üres
+   web-only példányon), és az eredménye komment a kártyán (`browser-clickthrough-before-done` skill).
    ```bash
    curl -s -X POST "http://localhost:3420/api/kanban/<id>/move" \
      -H "Content-Type: application/json" \
@@ -165,6 +167,7 @@ lépést a fenti négyes NEM tartalmazza automatikusan.
 
 - [ ] Lefutott a hibakeresés a friss logon (0. lépés), új/váratlan hiba nélkül
 - [ ] A kész, tesztelt változás benne van egy git commitban (helyi)
+- [ ] Felületet érintő munkánál: a böngészős végigkattintás megvolt, az eredménye a kártyán van
 - [ ] A kártya "waiting" állapotban van
 - [ ] Van hozzá pending approval bejegyzés (GET /api/approvals ellenőrzi)
 - [ ] A hasonló nyitott kártyák át lettek nézve (`similar_reviewed`), és
