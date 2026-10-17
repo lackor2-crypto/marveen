@@ -349,7 +349,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   const checkIn: CheckFile[] = []
   const save = (name: string, pdf: Buffer, role: FinalFile['role'], a?: { label: string }): { path: string; name: string } | string => {
     // The Attachments folder lists the annexes themselves (linked Life-tree documents stand there as links): the finished
-    // annex PDFs (cover + content) go to Finished documents with the submission, so that folder is never doubled (Boss, 2026-10-16).
+    // annex PDFs (cover + content) go to Finished materials with the submission, so that folder is never doubled (Boss, 2026-10-16).
     const x = attachAsset(fresh, profileFileName(name, profile, index++, total), pdf, { force: true, createdBy: input.by, into: 'finished' as const })
     if (!x.ok) return x.code
     const annexId = a ? annexIdOf(fresh.id, a.label) : undefined

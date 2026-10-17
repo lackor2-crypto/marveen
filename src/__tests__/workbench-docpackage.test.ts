@@ -142,7 +142,7 @@ describe('mellekletek a PDF-ben', () => {
     expect(main).not.toContain('SZERZODES-TARTALOM')
     // The Attachments folder lists the annexes themselves (links): the finished annex PDFs stand beside the submission.
     expect(files.some((f) => /\/Mell[ée]kletek\//.test(f.path))).toBe(false)
-    expect(files.every((f) => /\/Elk[ée]sz[ií]tett iratok\//.test(f.path))).toBe(true)
+    expect(files.every((f) => /\/Elk[ée]sz[ií]tett anyagok\//.test(f.path))).toBe(true)
     const k1 = readFileSync(join(depot, files[1]!.path), 'utf-8')
     expect(k1.indexOf('K1. melléklet')).toBeLessThan(k1.indexOf('SZERZODES-TARTALOM'))
 

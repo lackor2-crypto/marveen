@@ -442,16 +442,22 @@ export function attachmentsFolderFor(p: ProjectRow, itemFolder: string | null | 
   return r.ok ? r.sub : null
 }
 
-/** Boss TG 3021 (A): the PDF twin of a document goes into a "Elkészített iratok" folder inside the item's own
+/** #664 (Boss TG 9193): the folder of an item's finished files (a PDF twin, a rendered video, an exported deck) is called
+ *  "Elkészített anyagok" / "Finished materials" -- not "iratok", it is not only documents. The old names stay readable
+ *  (an item folder not migrated yet keeps working) and are renamed on disk by migrateFinishedFolder (workbench-assets.ts). */
+export const FINISHED_FOLDER_NAMES = { hu: 'Elkészített anyagok', en: 'Finished materials' } as const
+export const FINISHED_FOLDER_OLD_NAMES = ['Elkészített iratok', 'Finished documents'] as const
+
+/** Boss TG 3021 (A): the finished files of an item go into a "Elkészített anyagok" folder inside the item's own
  *  folder (made on demand), same naming rule as the versions folder. Null when it cannot be made. */
 export function finishedFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  for (const n of ['Elkészített iratok', 'Finished documents']) {
+  for (const n of [FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES]) {
     const have = projectFileTarget(p, `${base}/${n}`)
     if (have.ok) return `${base}/${n}`
   }
-  const r = makeProjectFolder(p, base, ol('Elkészített iratok', 'Finished documents'))
+  const r = makeProjectFolder(p, base, ol(FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en))
   return r.ok ? r.sub : null
 }
 
@@ -483,7 +489,7 @@ export function agentRefsFolderFor(p: ProjectRow, itemFolder: string | null | un
   return r.ok ? r.sub : null
 }
 
-/** Boss TG 3025: every work item folder has these three subfolders from the start (Finished documents, Uploads,
+/** Boss TG 3025: every work item folder has these three subfolders from the start (Finished materials, Uploads,
  *  Attachments), so each kind of file has its place before the first one arrives. Each one is best effort. */
 export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | null | undefined): void {
   for (const f of [finishedFolderFor, uploadsFolderFor, attachmentsFolderFor]) {
