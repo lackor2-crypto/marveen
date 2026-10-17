@@ -15,4 +15,13 @@ describe('workbench list group tint', () => {
   it('the tint is styled from the variable', () => {
     expect(css).toMatch(/\.wb-grp\s*\{[^}]*var\(--wb-grp\)/)
   })
+
+  // #684 (Boss TG 9503): the background colour carries the grouping; the frames are faded.
+  it('the item folder is one blue, every folder inside has its own colour (never blue), frames are faint', () => {
+    expect(js).toContain('function grpHsl(g)')
+    expect(js).toContain('var g = path === box ? -(++topIdx) : subIdx++')
+    expect(js).toContain('var pal = [350, 28, 135, 275, 48, 168, 305, 95]')
+    expect(js).toContain('var g = outIdx++')
+    expect(css).toMatch(/\.wb-sec-box\s*\{[^}]*10%, transparent[^}]*background: transparent/)
+  })
 })
