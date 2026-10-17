@@ -358,8 +358,8 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'The text could not be read into the document page, so the note stayed as it was.',
   },
   note_final_no_variant: {
-    hu: 'Ehhez a nyelvhez még nincs mentett változat. Fordítsd le a szöveget (a Fordítás nézetben vagy a véglegesítő panelen), és próbáld újra.',
-    en: 'There is no saved version in this language yet. Translate the text (in the Translation view or on the finalize panel) and retry.',
+    hu: 'Ehhez a nyelvhez még nincs mentett változat. Fordítsd le a szöveget a Fordítás nézetben, mentsd el változatként, és próbáld újra.',
+    en: 'There is no saved version in this language yet. Translate the text in the Translation view, save it as a version, and retry.',
   },
   note_final_already_done: {
     hu: 'Ez a munkadarab már véglegesítve van. Ha újra kell, előbb nyisd újra.',

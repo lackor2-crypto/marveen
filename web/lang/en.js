@@ -6137,6 +6137,7 @@ window._i18n.en = {
   "workbench.notefinal.step_status": "The work item counts as finalized (the list may hide it), and it can be reopened any time.",
   "workbench.notefinal.lang_title": "Language:",
   "workbench.notefinal.lang_orig": "Original ({lang})",
+  "workbench.notefinal.lang_orig_plain": "Original (the note's own language)",
   "workbench.notefinal.lang_help": "The PDF is made in the note file's own language, unchanged.",
   "workbench.notefinal.lang_saved": "{lang} (saved version)",
   "workbench.notefinal.lang_help_saved": "The PDF is made from the saved version's text; nothing is translated again. It goes into Finished materials, with the language code at the end of the file name.",

@@ -11808,8 +11808,10 @@
     var langs = noteLangs()
     if (langs.variant_of) return '<p class="wb-hint"><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> ' + esc(t('workbench.notefinal.lang_is_version', { lang: trLangName(langs.variant_of.lang) })) + '</p>'
     var left = trLeftLang()
-    var opts = '<option value="orig"' + (WB.noteFinalLang ? '' : ' selected') + '>' + esc(t('workbench.notefinal.lang_orig', { lang: trLangName(left) })) + '</option>'
     var saved = langs.variants.map(function (v) { return v.lang })
+    // The "left" language is a guess from the Translation view; when it equals a saved version's language the same name would stand twice, so the original is named without a language then.
+    var origLabel = saved.indexOf(left) >= 0 ? t('workbench.notefinal.lang_orig_plain') : t('workbench.notefinal.lang_orig', { lang: trLangName(left) })
+    var opts = '<option value="orig"' + (WB.noteFinalLang ? '' : ' selected') + '>' + esc(origLabel) + '</option>'
     saved.forEach(function (c) {
       opts += '<option value="' + escA(c) + '"' + (WB.noteFinalLang === c ? ' selected' : '') + '>' + esc(t('workbench.notefinal.lang_saved', { lang: trLangName(c) })) + '</option>'
     })
