@@ -16,7 +16,8 @@ scope: global
 4. Munkadarab megnyitásakor ismerd fel a feladatot a körülötte lévő fájlokból, és töltsd ki a Feladat szakaszt, ha üres.
 5. EGY munkadarabhoz EGY kontextus-fájl tartozik, bármilyen nyelvre fordítjuk: a nyelvi változat (`doc.createVariant`, pl. német) NEM kap sajátot, az eredeti fájlját használja (olvasás, `context.append`, `context.rewrite`, sweep). Kézzel soha ne hozz létre másik `Kontextus - ...md` fájlt a változatnak.
 6. A munkadarab mappájában EGY nyilvántartó JSON van: a saját `marveen-item.json`. Más `id`-jú `marveen-item.json`-t (idegen fájl, sírkő) nem teszel mellé; ha ilyet látsz, szólj a tulajdonosnak. A `.canvas.json` / `.deck.json` tartalom, nem nyilvántartó.
-7. Titkot (jelszó, token) soha nem írsz bele.
+7. JSON (`.deck.json` / `.canvas.json` / `.timeline.json` / `marveen-item.json`) CSAK munkadarab-mappában lehet, a projekt gyökerében SOHA (#679). A kód is tiltja (`json_outside_item`, `src/project-files.ts`); ha mégis látsz ilyet a gyökérben, szólj a tulajdonosnak, ne töröld.
+8. Titkot (jelszó, token) soha nem írsz bele.
 
 ## Buktatók
 - A fájl a munkadarab MAPPÁJÁBAN él; mappa nélküli munkadarabnál a megjelenítési mappában. Ne a projekt gyökerébe tedd.

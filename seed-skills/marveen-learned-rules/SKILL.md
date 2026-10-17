@@ -270,3 +270,8 @@ Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismeré
 ## Ellenőrzés
 - Minden Marveen-adat művelet után: az érintett rekordot kérd le az API-n és
   nézd meg, hogy a kritikus mezők (id, kapcsolatok) rendben vannak-e.
+
+### R12 -- Munkadarab-JSON a projekt gyökerébe SOHA (#679)
+**Hiba (2026-10-17, Boss TG 9425/9427):** a Tőzsde projekt gyökerében ott állt egy `uj-prezentacio.deck.json`. A pptx-import a deck JSON-t a forrásfájl mappájába írta, ami a projekt gyökere volt.
+**Szabály:** `.deck.json` / `.canvas.json` / `.timeline.json` / `marveen-item.json` csak munkadarab-mappába kerülhet. A `writeProjectFile` `json_outside_item` hibával visszautasítja a gyökérbe írást, az `itemJsonFolder` és a draft-store üres célmappánál a munkadarab-dobozra esik vissza. Új írási útnál a célmappa ellenőrzése kötelező, ne a forrásfájl mappájából következtess.
+**Mérés:** a munkadarab-mappát a `marveen-item.json` jelzi (a projekt gyökerében csak `.marveen-id` van), ne a `.marveen-id` alapján szűrj.
