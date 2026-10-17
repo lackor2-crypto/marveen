@@ -184,4 +184,28 @@ describe('video timeline editor (phase 5)', () => {
     await vi.waitFor(() => expect(h.html()).toContain('Nincs telepítve a felismerő.'))
     expect(h.html()).toContain('data-wb-act="vt-autosub"')
   })
+
+  // #668: the framed (simple) video view can make the one video, shows the full clip name, and exports an mp4.
+  it('framed view: a render button, the picked clip full name, and a render that posts and shows the result', async () => {
+    const h = await open({}, { 'marveen.workbench.view': 'simple' })
+    const html = h.html()
+    expect(html).toMatch(/class="btn-primary wb-fr-tl-render" data-wb-act="vt-render"/)
+    expect(html).toContain('workbench.fr.vid.render')
+    h.click({ 'data-wb-tl': 'c1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-fr-tl-sel'))
+    expect(h.html()).toContain('workbench.fr.vid.selected')
+    h.click({ 'data-wb-act': 'vt-render' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/timeline/render') && c.init?.method === 'POST')).toBe(true))
+  })
+
+  it('export panel of a video offers the rendered mp4, not PDF/DOCX/PNG; a document keeps its formats', async () => {
+    const h = await open({}, { 'marveen.workbench.view': 'simple' })
+    h.click({ 'data-wb-act': 'export-open' })
+    await vi.waitFor(() => expect(h.html()).toContain('workbench.exp.video_hint'))
+    const html = h.html()
+    expect(html).toContain('data-wb-act="vt-render"')
+    expect(html).not.toContain('data-wb-act="export-print"')
+    expect(html).not.toContain('data-wb-act="export-doc"')
+    expect(html).not.toContain('data-wb-act="export-png"')
+  })
 })

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, readdirSync, writeFileSync } from 'node
 import { execFileSync, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -91,6 +91,21 @@ describe('video timeline: the routes', () => {
     expect(r.status).toBe(400)
     expect(r.body.error).toBe('render_empty')
     expect(r.body.message).toMatch(/nincs klip/)
+  })
+
+  // #668: a rendered video is a finished file: an item with its own folder gets it in the finished-files folder.
+  it.skipIf(!HAVE_FFMPEG)('render of an item with its own folder saves the mp4 into its finished-files folder', async () => {
+    const ff = (args: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args], { stdio: 'pipe' })
+    ff(['-f', 'lavfi', '-i', 'testsrc=duration=2:size=160x90:rate=25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(dir(), 'a.mp4')])
+    mkdirSync(join(dir(), 'Reklám'), { recursive: true })
+    const w = createWorkItem({ project_id: pid, title: 'Saját mappás', type: 'video' })
+    if (!w.ok) throw new Error('item')
+    itemId = w.item.id
+    getDb().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run('Reklám', itemId)
+    await ops([{ op: 'addClip', src: 'Projektek/teszt/a.mp4', start: 0, end: 1.5 }])
+    const r = await callWorkbench(url('/render'), 'POST')
+    expect(r.status).toBe(201)
+    expect(r.body.file.rel).toMatch(/^Projektek\/teszt\/Reklám\/Elkészített anyagok\/Saját mappás\.mp4$/)
   })
 
   it.skipIf(!HAVE_FFMPEG)('render makes a NEW mp4 next to the timeline, records it on the version, and a missing file is named', async () => {

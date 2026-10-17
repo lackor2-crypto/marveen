@@ -1616,7 +1616,7 @@
 .wb-tl-clip.wb-tl-on { border-color: #fbbf24; }
 .wb-tl-clip.wb-tl-drag { opacity: 0.85; cursor: grabbing; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
 .wb-tl-no { position: absolute; left: 4px; top: 2px; font-size: 0.66rem; opacity: 0.8; }
-.wb-tl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.wb-tl-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .wb-tl-dur { opacity: 0.85; }
 .wb-tl-h { position: absolute; top: 0; bottom: 0; width: 10px; background: rgba(255, 255, 255, 0.35); cursor: ew-resize; touch-action: none; }
 .wb-tl-clip.wb-tl-on { cursor: col-resize; }
@@ -2193,3 +2193,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-note-final-steps { margin: 4px 0 8px; padding-left: 20px; }
 .wb-note-final-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
 @media (max-width: 640px) { .wb-note-final-btns button { flex: 1 1 100%; } }
+
+/* #668: the picked clip's full name, readable under the strip; the rendered video and its download */
+.wb-fr-tl-sel { margin: 6px 0 0; font-size: 0.9rem; font-weight: 600; overflow-wrap: anywhere; }
+.wb-vt-result video { display: block; max-width: 100%; max-height: 220px; border-radius: 6px; background: #000; }
+.wb-vt-result-fr { margin-top: 8px; }
+@media (max-width: 700px) { .wb-fr-tl-render { flex: 1 1 100%; } .wb-vt-result video { max-height: 160px; } }

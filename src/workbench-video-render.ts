@@ -21,6 +21,7 @@ import { getDb } from './db.js'
 import { baseNameForNextVersion } from './workbench-edit.js'
 import { getWorkItem } from './workbench.js'
 import { itemOutputFolder } from './workbench-assets.js'
+import { finishedFolderFor } from './project-files.js'
 import { videoTool, videoTarget, videoRunTo, videoBusy, VIDEO_TRIM_TIMEOUT_MS, type VideoFail } from './workbench-video.js'
 import { ASPECT_SIZE, timelineDuration, type TimelineDoc } from './workbench-video-timeline.js'
 
@@ -245,7 +246,10 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
     // #496: the video goes to the work item (its own folder, else beside the timeline), never beside its first clip --
     // that may be the project root or another item's folder.
     const item = getWorkItem(itemId)
-    const out = videoTarget(project, (item && itemOutputFolder(project, item)) ?? '', `${stem}.mp4`)
+    const outFolder = (item && itemOutputFolder(project, item)) ?? ''
+    // #668: the rendered video is a finished file: it goes to the item's finished-files folder (same as the PDF of a deck) when the item has its own folder;
+    // a folderless item shares the work-items box, which gets no subfolder of its own.
+    const out = videoTarget(project, (item && outFolder && outFolder === String(item.folder ?? '').trim() && finishedFolderFor(project, outFolder)) || outFolder, `${stem}.mp4`)
     if (!out.ok) return out
     const args = buildRender(doc, { abs, hasAudio, assPath, out: out.abs })
     const r = await videoRunTo(ff.path, args, out.abs, RENDER_TIMEOUT_MS)
