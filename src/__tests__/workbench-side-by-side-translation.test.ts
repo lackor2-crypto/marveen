@@ -521,6 +521,44 @@ describe('the draft page wiring', () => {
     expect(js).toMatch(/if \(!pv \|\| pv\.fresh \|\| shownIds\.indexOf\(sec\.id\) < 0\) return/)
     expect(js).toContain('pv.fresh = false')
   })
+  it('#619 (run, not text): twCollect leaves an arrived retranslation alone until the page shows it, then reads the page again', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const from = js.indexOf('function twCollect()')
+    const fn = js.slice(from, js.indexOf('function twPanelInnerHtml', from))
+    const el = (attrs: Record<string, string>, text: string) => ({
+      nodeType: 1, innerText: text, textContent: text, classList: { contains: () => false },
+      getAttribute: (k: string) => (k in attrs ? attrs[k] : null),
+    })
+    // the page was drawn from the OLD preview: one chapter, one old paragraph
+    const page = {
+      childNodes: [el({ 'data-tw': 'title', 'data-tw-sec': 's1' }, 'Alter Titel'), el({ 'data-tw': 'block', 'data-tw-sec': 's1', 'data-tw-kind': 'paragraph' }, 'alter Text')],
+      getAttribute: (k: string) => (k === 'data-tw-shown' ? 'w1:de|s1' : null),
+    }
+    const collect = (src: string, tw: { lang: string; prev: Record<string, Record<string, unknown>>; note: string }) => {
+      // eslint-disable-next-line no-new-func
+      new Function('document', 'WB', 'twState', 'twKey', 't', 'dpFmtOf', 'dpPfmtOf', 'DP_ALIGNS', 'dpTableParts', 'dpTableText', 'twTableLines', src + '; twCollect()')(
+        { getElementById: () => page }, { detail: { outline: { sections: [{ id: 's1' }] } }, selectedId: 'w1' }, () => tw,
+        (id: string) => 'w1:de:' + id, (k: string) => k, () => ({}), () => ({}), [], (x: string) => ({ text: x }), (x: string) => x, () => null,
+      )
+    }
+    const arrived = () => ({ lang: 'de', note: '', prev: { 'w1:de:s1': {
+      title: 'Neuer Titel', sig: 'x', fresh: true,
+      blocks: [{ kind: 'paragraph', text: 'neuer Text' }, { kind: 'table', text: 'Absender | Empfaenger' }, { kind: 'image', text: 'bild.png' }],
+    } } })
+    // the fix: the arrived translation (table, picture and all) survives a read-back of the older page
+    const tw = arrived()
+    collect(fn, tw)
+    expect(tw.prev['w1:de:s1'].title).toBe('Neuer Titel')
+    expect((tw.prev['w1:de:s1'].blocks as { kind: string }[]).map((b) => b.kind)).toEqual(['paragraph', 'table', 'image'])
+    // once the page shows it (the draw clears the mark), what stands on the page is read back as before
+    tw.prev['w1:de:s1'].fresh = false
+    collect(fn, tw)
+    expect(tw.prev['w1:de:s1'].title).toBe('Alter Titel')
+    // without the guard the old page text wins -- the bug this test must catch
+    const bad = arrived()
+    collect(fn.replace('pv.fresh || ', ''), bad)
+    expect((bad.prev['w1:de:s1'].blocks as unknown[]).length).toBe(1)
+  })
   it('#620: a table block of the translation page is drawn as a real table and read back as " | " lines', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
     expect(js).toContain('function twTableHtml(text)')
