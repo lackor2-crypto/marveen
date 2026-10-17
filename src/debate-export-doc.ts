@@ -6,7 +6,7 @@
 
 import { getDb } from './db.js'
 import { getProject, type ProjectRow } from './projects.js'
-import { debateFolderFor, DEBATE_FOLDER_NAMES } from './project-files.js'
+import { debateFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, folderWasMade, noteFolderMade, projectFileTarget } from './project-files.js'
 import { logger } from './logger.js'
 import { createWorkItem, getWorkItem, setWorkItemDeleted, type WorkItemRow } from './workbench.js'
 import { replacePage, BLOCK_TEXT_MAX } from './workbench-docmodel.js'
@@ -70,8 +70,20 @@ export function createReportDocument(projectId: string, report: DebateReport, by
     const of = ensureWorkItemFolder(origin)
     if (of.ok) originFolder = of.folder
   }
-  const mf = makeWorkFolder(project, originFolder, reportFolderIn(project, originFolder, opts?.lang ?? 'hu'))
-  const folder = mf.ok ? mf.folder : null
+  // #681 (Boss TG 9548): the debate folder is made once; when the owner deleted it the report lands in the item's own
+  // folder (or the box) instead of the folder coming back.
+  const lang = opts?.lang ?? 'hu'
+  const box = originFolder ? '' : (findWorkItemsBox(project) ?? '')
+  const parent = originFolder || box
+  const known = [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES].map((n) => `${parent}/${n}`)
+  const gone = !!parent && known.every((r) => !projectFileTarget(project, r).ok) && known.some((r) => folderWasMade(project, r))
+  let folder: string | null = null
+  if (gone) folder = parent
+  else {
+    const mf = makeWorkFolder(project, originFolder, reportFolderIn(project, originFolder, lang))
+    folder = mf.ok ? mf.folder : null
+    if (mf.ok) noteFolderMade(project, mf.folder)
+  }
   const made = createWorkItem({ project_id: project.id, type: 'document', title, container_folder: folder, created_by: by })
   if (!made.ok) return { ok: false, code: 'create_failed', detail: made.code }
   if (folder) assignWorkItemFolder(made.item.id, folder)

@@ -77,6 +77,7 @@ describe('the five standard folders of a work item', () => {
     rmSync(join(projDir(), f.folder, 'Mellékletek'), { recursive: true })
     // an item that was never provisioned (made before the one-time marker existed)
     getDb().prepare('DELETE FROM work_item_std_folders WHERE work_item_id = ?').run(w.item.id)
+    getDb().exec('DELETE FROM auto_folders_made') // from before the made-once registry (#681)
     ensureAllAttachmentsFolders()
     const have = subs(f.folder)
     expect(have).toContain('Mellékletek')

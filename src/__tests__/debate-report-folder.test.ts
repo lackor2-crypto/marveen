@@ -8,6 +8,7 @@ vi.mock('../workbench-assets.js', () => ({
   assignWorkItemFolder: () => {},
   ensureWorkItemFolder: (i: { folder?: string | null }) => i.folder ? { ok: true, folder: i.folder, created: false } : { ok: false, code: 'not_found' },
   folderNameFromTitle: (t: string) => t,
+  findWorkItemsBox: () => null,
 }))
 vi.mock('../workbench-docmirror.js', () => ({ scheduleOutlineMirror: () => {} }))
 

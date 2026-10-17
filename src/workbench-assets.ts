@@ -43,7 +43,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { folderWasMade, noteFolderMade, noteItemStandardFoldersSeen, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -169,8 +169,8 @@ export function workItemFolder(itemId: string): string | null {
  * An existing folder of either language name is taken over (unless it is a
  * work item's own folder); otherwise it is created.
  */
-export function projectWorkItemsFolder(project: ProjectRow): SharedFolderOutcome {
-  return projectNamedFolder(project, 'workItems')
+export function projectWorkItemsFolder(project: ProjectRow, opts?: { remake?: boolean }): SharedFolderOutcome {
+  return projectNamedFolder(project, 'workItems', opts)
 }
 
 /**
@@ -227,7 +227,7 @@ export function projectMaterialsFolder(project: ProjectRow): SharedFolderOutcome
   return projectNamedFolder(project, 'moreMaterial')
 }
 
-function projectNamedFolder(project: ProjectRow, key: 'workItems' | 'moreMaterial' | 'knowledgeBase'): SharedFolderOutcome {
+function projectNamedFolder(project: ProjectRow, key: 'workItems' | 'moreMaterial' | 'knowledgeBase', opts?: { remake?: boolean }): SharedFolderOutcome {
   ensureAssetTables()
   const root = projectFileTarget(project, '')
   if (!root.ok) return root
@@ -238,11 +238,15 @@ function projectNamedFolder(project: ProjectRow, key: 'workItems' | 'moreMateria
     try { isDir = existsSync(abs) && statSync(abs).isDirectory() } catch { isDir = false }
     if (!isDir || folderIsItems(project.id, n)) continue
     const t = projectFileTarget(project, n)
-    if (t.ok) return { ok: true, folder: n, dirAbs: t.dirAbs, dirRel: t.dirRel, created: false }
+    if (t.ok) { noteFolderMade(project, n); return { ok: true, folder: n, dirAbs: t.dirAbs, dirRel: t.dirRel, created: false } }
   }
+  // #681: a box the owner deleted is not made again (it was made once, with the project).
+  // `remake`: only the owner's explicit project merge asks for it (the moved items need a home).
+  if (!opts?.remake && names.some((n) => folderWasMade(project, n))) return { ok: false, code: 'no_shared_folder' }
   const name = freeFileName(root.dirAbs, names[0] as string)
   const r = makeProjectFolder(project, '', name)
   if (!r.ok) return r
+  noteFolderMade(project, r.sub)
   const t = projectFileTarget(project, r.sub)
   if (!t.ok) return t
   return { ok: true, folder: r.sub, dirAbs: t.dirAbs, dirRel: t.dirRel, created: r.created }
@@ -581,20 +585,17 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
   const raw = String(parent ?? '').trim()
   if (!raw || findWorkItemsBox(project) === null) {
     const box = projectWorkItemsFolder(project)
-    if (!box.ok) return { ok: false, code: box.code === 'no_shared_folder' || box.code === 'not_found' ? 'no_box' : box.code, ...(box.message ? { message: box.message } : {}) }
-    parentRel = box.folder
+    // #681: the owner deleted the box -> it is not made again; a NEW item goes directly into the project folder instead.
+    if (!box.ok && box.code === 'no_shared_folder' && !raw) parentRel = ''
+    else if (!box.ok) return { ok: false, code: box.code === 'no_shared_folder' || box.code === 'not_found' ? 'no_box' : box.code, ...(box.message ? { message: box.message } : {}) }
+    else parentRel = box.folder
   } else {
     const c = workFolderTarget(project, raw)
     if (c.ok) parentRel = c.folder
     else {
-      // Boss (TG 2447): a picked parent that vanished from the disk (deleted outside Marvin) is made again, at any depth,
-      // instead of "the given subfolder cannot be used".
-      const box = findWorkItemsBox(project)
-      const clean = raw.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-      if (c.code !== 'bad_folder' || !box || !clean.startsWith(box + '/') || clean.split('/').some((x) => x === '..' || x === '.')) return c
-      const re = makeProjectFolder(project, box, clean.slice(box.length + 1))
-      if (!re.ok) return re
-      parentRel = re.sub
+      // #681 (Boss TG 9548): a picked parent that vanished from the disk was deleted by the owner and is NOT made again
+      // (this used to rebuild it at any depth, Boss TG 2447): the pick is refused as gone.
+      return c
     }
   }
   // #540: a NEW work item's own folder never lands in a folder that is already in use. A folder of the same name
@@ -1390,11 +1391,15 @@ export function ensureAllAttachmentsFolders(): { items: number } {
   let items = 0
   for (const p of listProjects({ includeArchived: true })) {
     if (!p.folder_path) continue
+    // #681: note which boxes exist now, so deleting one later is remembered.
+    for (const key of ['workItems', 'moreMaterial', 'knowledgeBase'] as const) {
+      for (const lang of ['hu', 'en'] as const) { const n = lifeName(key, lang); if (projectFileTarget(p, n).ok) noteFolderMade(p, n) }
+    }
     const rows = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(p.id) as { id: string }[]
     for (const { id } of rows) {
       const folder = workItemFolder(id)
       if (!folder) continue
-      try { const it = getWorkItem(id); if (it) provisionStandardFolders(p, it, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
+      try { const it = getWorkItem(id); if (it) provisionStandardFolders(p, it, folder); noteItemStandardFoldersSeen(p, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
     }
   }
   return { items }
@@ -1508,7 +1513,9 @@ function ensureWorkItemFolderCore(item: WorkItemRow): FolderOutcome {
   if (known) {
     const t = projectFileTarget(project, known)
     if (t.ok) return { ok: true, folder: known, created: false }
-    // A mappa eltunt / at lett nevezve: uj mappat adunk, a regi utat nem talalgatjuk.
+    // #681 (Boss TG 9548): the folder is gone (deleted or renamed by the owner). It is NEVER made again by opening,
+    // syncing or writing: the item simply has no folder to write into until the owner picks one.
+    return { ok: false, code: 'unreachable' }
   }
   // #454: the folder the owner picked in the new-item form (must still exist
   // inside the work items box); otherwise the default box.
@@ -2678,7 +2685,7 @@ export function moveProjectWorkItems(source: ProjectRow, target: ProjectRow): Pr
   let moved = 0, folders = 0, files = 0
   if (live.length) {
     ensureProjectHasFolder(target)
-    const box = projectWorkItemsFolder(target)
+    const box = projectWorkItemsFolder(target, { remake: true })
     if (!box.ok) return { ok: false, code: 'no_target_folder', moved: 0, ...(box.message ? { message: box.message } : {}) }
     // Where the item is listed, and the folder that moves with it: the top folder of the source box above that
     // place. Moving each item's own folder alone pulled it out of its group (and a new table's file out of its
@@ -2811,7 +2818,9 @@ export function moveProjectLooseFiles(source: ProjectRow, target: ProjectRow): P
   for (const name of entries) {
     const abs = join(src.dirAbs, name)
     const rel = `${srcRel}/${name}`
-    const merge = name === srcBox ? projectWorkItemsFolder(target) : name === srcMat ? projectMaterialsFolder(target) : name === srcKb ? projectNamedFolder(target, 'knowledgeBase') : name === SNAPSHOT_FALLBACK_DIR ? snapshotDirOf(root.dirAbs) : null
+    let merge = name === srcBox ? projectWorkItemsFolder(target) : name === srcMat ? projectMaterialsFolder(target) : name === srcKb ? projectNamedFolder(target, 'knowledgeBase') : name === SNAPSHOT_FALLBACK_DIR ? snapshotDirOf(root.dirAbs) : null
+    // #681: a target box the owner deleted is not made again for the merge: the source folder moves in as it is.
+    if (merge && !merge.ok && 'code' in merge && merge.code === 'no_shared_folder') merge = null
     if (merge) {
       if (!merge.ok) return { ok: false, code: 'no_target_folder', moved, ...(merge.message ? { message: merge.message } : {}) }
       let inner: string[] = []
