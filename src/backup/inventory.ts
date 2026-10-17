@@ -129,6 +129,8 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   // Claude CLI login state: device-bound, rotating refresh tokens (§3.2).
   'claude-login', /^\.cred-/, /^\.claude-oauth-token\./, 'claude-plans.json',
   // Backups must not back up backups; old ad-hoc copies.
+  // #663: transient upload staging files (a crashed upload leaves a .part; nothing worth restoring).
+  'upload-tmp',
   'backups', 'tmp', 'restore-rollback', /^\.env\.bak/, /\.bak(-|$)/, 'windows-settings-backups',
   'persistent-windows-backups', 'deleted-agents', 'windows-settings', 'window-layout-repo',
   // Caches (regenerable).
