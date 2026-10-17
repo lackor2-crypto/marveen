@@ -15,6 +15,7 @@ import { renderTimeline, _setRenderDeps } from '../workbench-video-render.js'
 import { applyTimelineOps, emptyTimeline, timelineStore } from '../workbench-video-timeline.js'
 import { exportDeck } from '../workbench-deck-export.js'
 import { savePostFile } from '../workbench-post-files.js'
+import { finishedFolderFor } from '../project-files.js'
 
 let pid = ''
 let dir = ''
@@ -135,7 +136,7 @@ describe('files made from a work item stay with it, not in the project root (#49
     expect(files(`${folder}/Verziók`)).toEqual(['klip.mp4'])
   })
 
-  it('video render: the mp4 goes into the item folder -- not beside its first clip in the root, not into Verziók', async () => {
+  it('video render: the mp4 goes into the item\'s finished-files folder (#668) -- not beside its first clip in the root, not into Verziók', async () => {
     fakeVideo()
     writeFileSync(join(root(), 'a.mp4'), 'clip')
     const { it: w, folder } = item('video', true)
@@ -143,11 +144,14 @@ describe('files made from a work item stay with it, not in the project root (#49
     expect(store.commit(w, timelineWith('Projektek/Robotok/a.mp4'), { actor: 'test' })).toMatchObject({ ok: true })
     expect(store.saveVersion(getWorkItem(w.id)!, { label: 'v1' })).toMatchObject({ ok: true })
     const doc = timelineWith('Projektek/Robotok/a.mp4')
-    expect(await renderTimeline(proj(), w.id, w.title, doc)).toMatchObject({ ok: true, file: { rel: `Projektek/Robotok/${folder}/Nevjegy.mp4` } })
+    const fin = finishedFolderFor(proj(), folder as string) as string
+    expect(fin.startsWith(`${folder}/`)).toBe(true)
+    expect(await renderTimeline(proj(), w.id, w.title, doc)).toMatchObject({ ok: true, file: { rel: `Projektek/Robotok/${fin}/Nevjegy.mp4` } })
     // A later render (the timeline JSON is in Verziók by now) still lands with the item.
     expect(store.commit(getWorkItem(w.id)!, timelineWith('Projektek/Robotok/a.mp4'), { actor: 'test', label: 'x' })).toMatchObject({ ok: true })
     expect(await renderTimeline(proj(), w.id, w.title, doc)).toMatchObject({ ok: true, file: { name: 'Nevjegy (2).mp4' } })
-    expect(files(folder as string).filter((n) => n.endsWith('.mp4'))).toEqual(['Nevjegy (2).mp4', 'Nevjegy.mp4'])
+    expect(files(fin).filter((n) => n.endsWith('.mp4'))).toEqual(['Nevjegy (2).mp4', 'Nevjegy.mp4'])
+    expect(files(folder as string).filter((n) => n.endsWith('.mp4'))).toEqual([])
     expect(files()).toEqual(['a.mp4'])
   })
 
