@@ -13575,8 +13575,36 @@
   function twTableLines(el) {
     var trs = el.querySelectorAll ? el.querySelectorAll('tr') : []
     if (!trs.length) return null
-    var cell = function (c) { return String(c.textContent || '').replace(/\u00a0/g, ' ').replace(/\s*\n\s*/g, ' ').replace(/\|/g, '/').trim() }
+    // A line break typed inside a cell (Shift+Enter) reads back as a space, so the words around it are not glued together.
+    var cell = function (c) {
+      var parts = Array.prototype.map.call(c.childNodes, function (n) { return n.nodeName === 'BR' ? ' ' : String(n.textContent || '') })
+      return parts.join('').replace(/\u00a0/g, ' ').replace(/\s*\n\s*/g, ' ').replace(/\s{2,}/g, ' ').replace(/\|/g, '/').trim()
+    }
     return Array.prototype.map.call(trs, function (tr) { return Array.prototype.map.call(tr.children, cell).join(' | ') }).join('\n')
+  }
+  /** Enter inside a cell of the translation page's table: a new row under the current one, caret in its first cell
+   *  (the "Enter in a table adds a row" of #534, which the real table of #620 would otherwise turn into a line break in the cell). */
+  function twTableRowAtCaret() {
+    var sel = window.getSelection()
+    if (!sel || !sel.rangeCount) return false
+    var r = sel.getRangeAt(0)
+    var node = r.startContainer
+    var el = node.nodeType === 1 ? node : node.parentNode
+    var tr = el && typeof el.closest === 'function' ? el.closest('tr') : null
+    if (!tr || !tr.parentNode) return false
+    var nr = document.createElement('tr')
+    for (var i = 0; i < tr.children.length; i++) {
+      var td = document.createElement('td')
+      td.appendChild(document.createElement('br'))
+      nr.appendChild(td)
+    }
+    tr.parentNode.insertBefore(nr, tr.nextSibling)
+    var rng = document.createRange()
+    rng.setStart(nr.firstChild, 0)
+    rng.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(rng)
+    return true
   }
   function twBlockHtml(b) {
     if (b.kind === 'image') {
@@ -14165,7 +14193,10 @@
     var br = document.createElement('br')
     r.insertNode(br)
     // A break at the very end shows no new line until something follows it: the second one is the caret's place (a trailing break is not content).
-    if (!br.nextSibling) el.appendChild(document.createElement('br'))
+    // (inserting at the end of a text node leaves an empty text node after the break: that is not something following it)
+    var after = br.nextSibling
+    while (after && after.nodeType === 3 && !after.nodeValue) after = after.nextSibling
+    if (!after) br.parentNode.appendChild(document.createElement('br')) // in the same cell / paragraph the break stands in
     var nr = document.createRange()
     nr.setStartAfter(br)
     nr.collapse(true)
@@ -14213,6 +14244,7 @@
       // Enter in a table / list adds a row / item inside the block; Shift+Enter is a line break in any block;
       // Enter in a plain paragraph starts a new paragraph.
       if (e.inputType === 'insertParagraph' && twExitListAtCaret(host)) return
+      if (e.inputType === 'insertParagraph' && host && host.getAttribute('data-tw-kind') === 'table' && twTableRowAtCaret()) return
       if (e.inputType === 'insertLineBreak' || multi) { if (!twLineBreakAtCaret()) twSplitAtCaret() } else twSplitAtCaret()
     }
   })
