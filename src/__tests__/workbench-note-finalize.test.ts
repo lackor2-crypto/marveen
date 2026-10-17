@@ -9,16 +9,19 @@ import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { hasTextFinalPanel, isTextSourcePath } from '../workbench-notefinal.js'
+import { textLangState } from '../workbench-notelang.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { rmTempDir } from './helpers/rm-temp-dir.js'
 
 const FAKE_SOFFICE = `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "LibreOffice 7.4.7.2 tesztpeldany"; exit 0; fi
-out=""; prev=""
+out=""; prev=""; last=""
 for a in "$@"; do
   if [ "$prev" = "--outdir" ]; then out="$a"; fi
-  prev="$a"
+  prev="$a"; last="$a"
 done
+# the test reads back what was converted (the document text), to prove WHICH text became the PDF
+if [ -n "$MARVEEN_TEST_CAPTURE" ] && [ -f "$last" ]; then cp "$last" "$MARVEEN_TEST_CAPTURE"; fi
 printf '%%PDF-1.4 teszt' > "$out/doc.pdf"
 exit 0
 `
@@ -40,7 +43,7 @@ describe('#667 text-file work item: finalize makes the PDF', () => {
     initDatabase(':memory:')
     depot = mkdtempSync(join(tmpdir(), 'marveen-notefinal-'))
     mkdirSync(join(depot, 'Projektek', 'Iroda'), { recursive: true })
-    for (const k of ['MARVEEN_DEPOT', 'MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE']) saved[k] = process.env[k]
+    for (const k of ['MARVEEN_DEPOT', 'MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE', 'MARVEEN_TEST_CAPTURE']) saved[k] = process.env[k]
     process.env['MARVEEN_DEPOT'] = depot
     process.env['MARVEEN_RENDER_CACHE'] = join(depot, 'render-cache')
     const fake = join(depot, 'fake-soffice.sh')
@@ -117,5 +120,72 @@ describe('#667 text-file work item: finalize makes the PDF', () => {
     expect(getWorkItem(id)?.status).not.toBe('done')
     const dir = readdirSync(join(depot, 'Projektek', 'Iroda'))
     expect(dir.some((n) => /\.pdf$/i.test(n))).toBe(false)
+  })
+
+  it('#671: a fresh translation is SAVED as the language version, then PDF-ed; the original file stays', async () => {
+    const id = mkNote('Projektek/Iroda/Terv.md')
+    const cap = join(depot, 'captured.fodt')
+    process.env['MARVEEN_TEST_CAPTURE'] = cap
+    const r = await approval(id, { action: 'finalize', pdf: true, lang: 'en', text: '# Plan\n\nFirst line.\n' })
+    expect(r.status).toBe(200)
+    expect(r.body.final.name).toMatch(/\(EN\)\.pdf$/)
+    expect(existsSync(join(depot, r.body.final.path))).toBe(true)
+    const converted = readFileSync(cap, 'utf-8')
+    expect(converted).toContain('First line.')
+    expect(converted).not.toContain('Első sor.')
+    expect(readFileSync(join(depot, 'Projektek', 'Iroda', 'Terv.md'), 'utf-8')).toContain('Első sor.')
+    expect(getWorkItem(id)?.status).toBe('done')
+    // the translation is no longer lost: it is a sibling work item with its own file, listed as the EN version
+    const st = textLangState({ id })
+    expect(st.variants.map((v) => v.lang)).toEqual(['en'])
+    const sib = getWorkItem(st.variants[0]!.item_id)!
+    expect(sib.type).toBe('note')
+    expect(sib.title).toMatch(/^EN/)
+    expect(readFileSync(join(depot, sib.source_path!), 'utf-8')).toContain('First line.')
+    expect(textLangState({ id: sib.id }).variant_of).toEqual({ item_id: id, lang: 'en' })
+  })
+
+  it('#671: a saved version is picked by language alone (no text sent), and the item GET lists it', async () => {
+    const id = mkNote('Projektek/Iroda/Terv.md')
+    const saved = await callWorkbench(`/api/workbench/items/${id}/text-variant`, 'POST', { lang: 'en', text: 'Saved English body.' }, undefined, { kind: 'session', user: 'teszt' })
+    expect(saved.status).toBe(201)
+    const again = await callWorkbench(`/api/workbench/items/${id}/text-variant`, 'POST', { lang: 'en', text: 'Saved English body, v2.' }, undefined, { kind: 'session', user: 'teszt' })
+    expect(again.status).toBe(200)
+    expect(again.body.existing).toBe(true)
+    expect(again.body.text_langs.variants).toHaveLength(1)
+    const get = await callWorkbench(`/api/workbench/items/${id}`, 'GET', undefined, undefined, { kind: 'session', user: 'teszt' })
+    expect(get.body.text_langs.variants.map((v: { lang: string }) => v.lang)).toEqual(['en'])
+    const cap = join(depot, 'captured.fodt')
+    process.env['MARVEEN_TEST_CAPTURE'] = cap
+    const r = await approval(id, { action: 'finalize', pdf: true, lang: 'en' })
+    expect(r.status).toBe(200)
+    expect(readFileSync(cap, 'utf-8')).toContain('Saved English body, v2.')
+    expect(r.body.final.name).toMatch(/\(EN\)\.pdf$/)
+  })
+
+  it('#671: no language -> the file in its own language is converted (no language in the name)', async () => {
+    const id = mkNote('Projektek/Iroda/Terv.md')
+    const cap = join(depot, 'captured.fodt')
+    process.env['MARVEEN_TEST_CAPTURE'] = cap
+    const r = await approval(id, { action: 'finalize', pdf: true })
+    expect(r.status).toBe(200)
+    expect(r.body.final.name).not.toMatch(/\([A-Z]{2}\)/)
+    expect(readFileSync(cap, 'utf-8')).toContain('Első sor.')
+  })
+
+  it('#671: a language with no saved version and no text, or a broken text / code, is refused with a sentence; nothing is finalized', async () => {
+    const id = mkNote('Projektek/Iroda/Terv.md')
+    const none = await approval(id, { action: 'finalize', pdf: true, lang: 'de' })
+    expect(none.status).toBe(400)
+    expect(none.body.error).toBe('note_final_no_variant')
+    expect(none.body.message.length).toBeGreaterThan(20)
+    for (const bad of [{ lang: 'en', text: '   ' }, { lang: '../x', text: 'a' }, { lang: 'english', text: 'a' }]) {
+      const r = await approval(id, { action: 'finalize', pdf: true, ...bad })
+      expect(r.status).toBe(400)
+      expect(r.body.error).toBe('note_final_bad_translation')
+      expect(r.body.message.length).toBeGreaterThan(20)
+    }
+    expect(getWorkItem(id)?.status).not.toBe('done')
+    expect(textLangState({ id }).variants).toHaveLength(0)
   })
 })

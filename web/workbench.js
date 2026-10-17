@@ -169,6 +169,7 @@
     shFinal: false,     // egyszeru nezet, dokumentum: a veglesites lepesei nyitva
     noteFinal: null,    // #667: a szoveges fajlu munkadarab (.md/.txt) veglesites-panelje nyitva: a munkadarab azonositoja
     noteFinalBusy: false,
+    noteFinalLang: '',  // #671: '' = the file's own language, else the code of the language the PDF is translated into
     liveTimer: null,
     // --- projekt-idovonal (#406, 7. pont) ---
     // `tl === null` = meg nem kerdeztuk meg; ures tomb = megkerdeztuk, es
@@ -5373,6 +5374,25 @@
   function trOtherLang() { return window._lang === 'en' ? 'hu' : 'en' }
   WB.tr = { src: readPref('wb.tr.src', 'auto'), dst: readPref('wb.tr.dst', trOtherLang()), mode: 'final', result: null, forText: null, forSrc: null, forDst: null, detected: null, busy: false, error: null }
 
+  /** #671: only a text-file item (not a version itself, not finished) can keep the translation as a language version. */
+  function canSaveTextVersion() {
+    var it = WB.detail && WB.detail.item
+    return !!(it && it.id === WB.selectedId && typeof isTextFinalItem === 'function' && isTextFinalItem(it) && !(WB.detail.text_langs && WB.detail.text_langs.variant_of))
+  }
+  function trSaveVersion() {
+    var tr = WB.tr
+    if (!canSaveTextVersion() || !trFresh() || !tr.result || tr.saving) return
+    var id = WB.selectedId
+    tr.saving = true
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/text-variant', { lang: tr.dst, text: tr.result }).then(function (r) {
+      tr.saving = false
+      if (!r.ok) { window.showToast(r.message); return }
+      if (WB.detail && WB.detail.item.id === id && r.data) WB.detail.text_langs = r.data.text_langs
+      window.showToast(t('workbench.tr.version_saved', { lang: trLangName(tr.dst) }))
+      render()
+      load(WB.projectId)
+    })
+  }
   function trCurrentText() {
     if (WB.textEdit && WB.textEdit.itemId === WB.selectedId) return WB.textEdit.value || ''
     return (WB.preview && WB.preview.text) || ''
@@ -5409,6 +5429,7 @@
     return '<span class="wb-tr-ctl">' + mbtn('final', t(edit ? 'workbench.tr.final' : 'workbench.tr.original')) + mbtn('translation', t('workbench.tr.translation'))
       + trSelectHtml('wbTrDst', 'dst', tr.dst, false)
       + (tr.mode === 'translation' ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="tr-run"' + (tr.busy ? ' disabled' : '') + '>' + esc(tr.busy ? t('workbench.tr.working') : t(trFresh() ? 'workbench.tr.again' : 'workbench.tr.run')) + '</button>' : '')
+      + (tr.mode === 'translation' && tr.result && trFresh() && canSaveTextVersion() ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="tr-save-version" title="' + escA(t('workbench.tr.save_version_hint')) + '">' + esc(t('workbench.tr.save_version')) + '</button>' : '')
       + (edit && tr.mode === 'translation' ? '<button type="button" class="btn-secondary btn-compact" data-wb-act="tr-swap" title="' + escA(t('workbench.tr.swap_hint')) + '">&#8646;</button>' : '')
       + (tr.mode === 'translation' ? (tr.result ? ttsButtonHtml(edit ? 'tr-right' : 'tr-read') : '') : (edit && trCurrentText() ? ttsButtonHtml('tr-right') : ''))
       + '</span>'
@@ -11657,6 +11678,36 @@
     return !!(it && it.source_path && /\.(md|markdown|txt)$/i.test(it.source_path) && it.status !== 'done')
   }
 
+  /** #671: the saved language versions of the open text item (the server lists them with the item). */
+  function noteLangs() {
+    return (WB.detail && WB.detail.text_langs) || { variant_of: null, variants: [] }
+  }
+  function noteVariantFor(code) {
+    var found = null
+    noteLangs().variants.forEach(function (v) { if (v.lang === code) found = v })
+    return found
+  }
+
+  /** #671: the PDF is made in the file's own language, in a language version already saved, or translated now into another one. */
+  function noteFinalLangHtml() {
+    var langs = noteLangs()
+    if (langs.variant_of) return '<p class="wb-hint"><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> ' + esc(t('workbench.notefinal.lang_is_version', { lang: trLangName(langs.variant_of.lang) })) + '</p>'
+    var left = trLeftLang()
+    var opts = '<option value="orig"' + (WB.noteFinalLang ? '' : ' selected') + '>' + esc(t('workbench.notefinal.lang_orig', { lang: trLangName(left) })) + '</option>'
+    var saved = langs.variants.map(function (v) { return v.lang })
+    saved.forEach(function (c) {
+      opts += '<option value="' + escA(c) + '"' + (WB.noteFinalLang === c ? ' selected' : '') + '>' + esc(t('workbench.notefinal.lang_saved', { lang: trLangName(c) })) + '</option>'
+    })
+    trCodes().forEach(function (c) {
+      if (c === left || saved.indexOf(c) >= 0) return
+      opts += '<option value="' + escA(c) + '"' + (WB.noteFinalLang === c ? ' selected' : '') + '>' + esc(t('workbench.notefinal.lang_new', { lang: trLangName(c) })) + '</option>'
+    })
+    var help = !WB.noteFinalLang ? 'workbench.notefinal.lang_help' : noteVariantFor(WB.noteFinalLang) ? 'workbench.notefinal.lang_help_saved' : 'workbench.notefinal.lang_help_tr'
+    return '<p class="wb-hint"><label><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> '
+      + '<select class="btn-secondary btn-compact" id="wbNoteFinalLang" data-wb-act="note-final-lang"' + (WB.noteFinalBusy ? ' disabled' : '') + '>' + opts + '</select></label></p>'
+      + '<p class="wb-hint">' + esc(t(help)) + '</p>'
+  }
+
   function noteFinalPanelHtml() {
     var it = WB.detail && WB.detail.item
     if (!it || WB.noteFinal !== it.id || !isTextFinalItem(it) || archived()) return ''
@@ -11668,7 +11719,7 @@
       + '<ol class="wb-note-final-steps"><li>' + esc(t('workbench.notefinal.step_pdf', { name: name })) + '</li>'
       + '<li>' + esc(t('workbench.notefinal.step_folder')) + '</li>'
       + '<li>' + esc(t('workbench.notefinal.step_status')) + '</li></ol>'
-      + '<p class="wb-hint"><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> ' + esc(t('workbench.notefinal.lang_single')) + '</p>'
+      + noteFinalLangHtml()
       + '<p class="wb-hint">' + esc(t('workbench.notefinal.safe')) + '</p>'
       + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="note-final-go"' + busy + '>'
       + esc(t(WB.noteFinalBusy ? 'workbench.notefinal.working' : 'workbench.notefinal.go')) + '</button> '
@@ -11683,7 +11734,27 @@
     var id = it.id
     WB.noteFinalBusy = true
     render()
-    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', { action: 'finalize', pdf: true }).then(function (r) {
+    var lang = WB.noteFinalLang
+    var text = trCurrentText()
+    var step
+    function post(extra) {
+      var body = { action: 'finalize', pdf: true }
+      if (extra) { body.lang = extra.lang; if (extra.text != null) body.text = extra.text }
+      return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', body)
+    }
+    if (!lang) step = post(null)
+    else if (trFresh() && WB.tr.dst === lang && WB.tr.result) step = post({ lang: lang, text: WB.tr.result })
+    else if (noteVariantFor(lang)) step = post({ lang: lang })
+    else {
+      // No saved version and no fresh translation into this language: make it now (the same translator the Translation view uses);
+      // the server saves it as a language version and makes the PDF of it.
+      step = api('POST', '/api/workbench/translate', { text: text, source_lang: WB.tr.src, target_lang: lang }).then(function (tr) {
+        if (!tr.ok) return tr
+        if (tr.data && tr.data.source_lang && tr.data.source_lang !== 'unknown') WB.tr.detected = tr.data.source_lang
+        return post({ lang: lang, text: (tr.data && tr.data.translation) || '' })
+      })
+    }
+    step.then(function (r) {
       WB.noteFinalBusy = false
       if (!r.ok) { window.showToast(r.message); render(); return }
       WB.noteFinal = null
@@ -18331,6 +18402,8 @@
       render()
       return
     }
+    var nfLang = e.target.closest('[data-wb-act="note-final-lang"]')
+    if (nfLang) { WB.noteFinalLang = nfLang.value === 'orig' ? '' : nfLang.value; render(); return }
     var sideSel = e.target.closest('[data-wb-act="chat-side"]')
     if (sideSel) { WB.chatSide = sideSel.value; return }
     var sel = e.target.closest('[data-wb-act="chat-account"]')
@@ -18608,8 +18681,9 @@
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
     // #667: a text-file item opens its finalize panel (what happens, then one clear button) instead of the browser confirm.
-    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && isTextFinalItem(WB.detail.item)) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; render() } else approvalAction('finalize') }
+    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && isTextFinalItem(WB.detail.item)) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() ? WB.tr.dst : ''; render() } else approvalAction('finalize') }
     else if (a === 'note-final-go') noteFinalGo()
+    else if (a === 'tr-save-version') trSaveVersion()
     else if (a === 'note-final-close') { WB.noteFinal = null; render() }
     else if (a === 'item-reopen') approvalAction('reopen')
     else if (a === 'approval-submit') approvalAction('submit')
