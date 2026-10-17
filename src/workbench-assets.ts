@@ -45,6 +45,7 @@ import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
 import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, uploadsFolderFor, agentRefsFolderFor, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
+import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
 /** #479: the create form's "directly in the project folder" place (not a group of the work items box). Stored in container_folder. */
@@ -1584,14 +1585,14 @@ export function ensureItemUploadsFolder(item: WorkItemRow, lang?: string): Folde
  * The very same file (same name, same bytes) already stands in `dir`: it is taken as it is instead of being copied as
  * "name (2)" (Boss TG 3481). A different content under the same name is not a match (null: the caller writes it under a free name).
  */
-function sameFileInFolder(project: ProjectRow, dir: string, name: string, data: Buffer): WriteOutcome | null {
+function sameFileInFolder(project: ProjectRow, dir: string, name: string, data: UploadData): WriteOutcome | null {
   const t = projectFileTarget(project, dir)
   const wanted = safeFileName(name)
   if (!t.ok || !wanted) return null
   try {
     const have = join(t.dirAbs, wanted)
-    if (existsSync(have) && statSync(have).isFile() && statSync(have).size === data.length && readFileSync(have).equals(data)) {
-      return { ok: true, rel: `${t.dirRel}/${wanted}`, name: wanted, renamed: false, bytes: data.length }
+    if (existsSync(have) && statSync(have).isFile() && fileEqualsData(have, data)) {
+      return { ok: true, rel: `${t.dirRel}/${wanted}`, name: wanted, renamed: false, bytes: dataBytes(data) }
     }
   } catch { /* unreadable: the normal write decides */ }
   return null
@@ -1604,14 +1605,14 @@ function sameFileInFolder(project: ProjectRow, dir: string, name: string, data: 
  * `into: 'attachments'` (#501): a munkadarab mappajan belul a "Mellekletek" almappaba.
  */
 export function attachAsset(
-  item: WorkItemRow, name: string, data: Buffer,
+  item: WorkItemRow, name: string, data: UploadData,
   opts: { force?: boolean; createdBy?: string | null; uploads?: boolean; lang?: string; into?: 'attachments' | 'finished' | 'uploads' } = {},
 ): AttachOutcome {
   ensureAssetTables()
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
   const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').get(item.id) as { n: number }).n
   if (count >= ASSETS_MAX_PER_ITEM) return { ok: false, code: 'asset_limit' }
-  const sha = sha256Of(data)
+  const sha = dataSha256(data)
   if (!opts.force) {
     const dup = findAssetByHash(item.id, sha)
     if (dup) return { ok: false, code: 'asset_duplicate', existing: dup }
@@ -1644,7 +1645,7 @@ export type ChatRefOutcome =
  * to the item's "Agentnek" folder and is NOT registered as an asset: it never shows among the materials and the
  * Uploads folder stays clean. The agent gets its project-relative path in the message and reads it from there.
  */
-export function attachChatReference(item: WorkItemRow, name: string, data: Buffer, opts: { lang?: string } = {}): ChatRefOutcome {
+export function attachChatReference(item: WorkItemRow, name: string, data: UploadData, opts: { lang?: string } = {}): ChatRefOutcome {
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
@@ -2360,16 +2361,16 @@ export type SharedUploadOutcome =
   | { ok: false; code: 'asset_unsupported' | FileErrorCode | 'folder_name' | 'not_found' | 'no_shared_folder'; message?: string }
 
 /** Egy fajl a projekt kozos taraba. Ugyanaz a tartalom masodszorra csak `force`-szal. */
-export function uploadSharedFile(project: ProjectRow, name: string, data: Buffer, opts: { force?: boolean; lang?: 'hu' | 'en' } = {}): SharedUploadOutcome {
+export function uploadSharedFile(project: ProjectRow, name: string, data: UploadData, opts: { force?: boolean; lang?: 'hu' | 'en' } = {}): SharedUploadOutcome {
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
   const f = projectSharedFolder(project, { create: true, lang: opts.lang })
   if (!f.ok) return f
   if (!opts.force) {
-    const sha = sha256Of(data)
+    const sha = dataSha256(data)
     for (const s of listSharedFiles(project).files) {
-      if (s.bytes !== data.length) continue
+      if (s.bytes !== dataBytes(data)) continue
       try {
-        if (sha256Of(readFileSync(join(f.dirAbs, s.name))) === sha) return { ok: false, code: 'shared_duplicate', existing: s }
+        if (fileSha256(join(f.dirAbs, s.name)) === sha) return { ok: false, code: 'shared_duplicate', existing: s }
       } catch { /* olvashatatlan fajl: nem duplikatum */ }
     }
   }

@@ -399,6 +399,10 @@ export function startWebServer(port = 3420): http.Server {
     }
   })
 
+  // A multi-GB upload takes longer than Node's default 5-minute whole-request timeout (#663); the body is
+  // streamed to disk, so a slow transfer costs no memory. Headers must still arrive in time.
+  server.requestTimeout = 0
+
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       // Try to reclaim the port only if the listener is another node/dashboard

@@ -5,6 +5,8 @@ import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
+import { setOverride } from '../settings-store.js'
+import { STORE_DIR } from '../config.js'
 import { createProject, updateProject, setProjectArchived } from '../projects.js'
 import { listWorkItems } from '../workbench.js'
 import { lifeName } from '../life-tree.js'
@@ -118,12 +120,52 @@ describe('POST /api/workbench/items/upload', () => {
     expect(arch.body.error).toBe('project_archived')
   })
 
-  it('tul nagy fajl: a bejelentett meretbol mar a beolvasas elott elutasit', async () => {
+  it('tul nagy fajl: a beallitott limitnel a bejelentett meretbol mar a beolvasas elott elutasit, a limit szamat kiirja', async () => {
+    useDepot()
+    setOverride('WORKBENCH_UPLOAD_MAX_MB', 100)
+    try {
+      const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=a.mp4`, 'POST', Buffer.from('x'), { 'content-length': String(500 * 1024 * 1024) })
+      expect(r.status).toBe(413)
+      expect(r.body.error).toBe('upload_too_large')
+      expect(r.body.message).toMatch(/100 MB/)
+      const en = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=a.mp4&lang=en`, 'POST', Buffer.from('x'), { 'content-length': String(500 * 1024 * 1024) })
+      expect(en.body.message).toMatch(/100 MB at most/)
+    } finally {
+      setOverride('WORKBENCH_UPLOAD_MAX_MB', 0)
+    }
+  })
+
+  it('#663: alapbol nincs korlat -- a 500 MB-ot bejelento kerest nem utasitja el a limit', async () => {
     useDepot()
     const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=a.mp4`, 'POST', Buffer.from('x'), { 'content-length': String(500 * 1024 * 1024) })
-    expect(r.status).toBe(413)
-    expect(r.body.error).toBe('upload_too_large')
-    expect(r.body.message).toMatch(/MB/)
+    expect(r.status).toBe(201)
+  })
+
+  it('#663: a torzs lemezre streamelodik, a fajl byte-pontos, es a ideiglenes fajl nem marad vissza', async () => {
+    useDepot()
+    const big = Buffer.alloc(3 * 1024 * 1024 + 17)
+    for (let i = 0; i < big.length; i++) big[i] = (i * 31 + 7) & 0xff
+    const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=nagy.mp4`, 'POST', big)
+    expect(r.status).toBe(201)
+    const rel = String(r.body.file?.rel ?? r.body.rel ?? '')
+    expect(rel).toMatch(/nagy\.mp4$/)
+    const saved = readFileSync(join(depot, rel))
+    expect(saved.length).toBe(big.length)
+    expect(saved.equals(big)).toBe(true)
+    expect(readdirSync(join(STORE_DIR, 'upload-tmp')).filter((n) => n.endsWith('.part'))).toEqual([])
+  })
+
+  it('#663: a limitnel nagyobb torzs (bejelentett meret nelkul) is elutasitott, es nem marad ideiglenes fajl', async () => {
+    useDepot()
+    setOverride('WORKBENCH_UPLOAD_MAX_MB', 1)
+    try {
+      const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=b.mp4`, 'POST', Buffer.alloc(2 * 1024 * 1024, 1), { 'content-length': '0' })
+      expect(r.status).toBe(413)
+      expect(r.body.error).toBe('upload_too_large')
+      expect(readdirSync(join(STORE_DIR, 'upload-tmp')).filter((n) => n.endsWith('.part'))).toEqual([])
+    } finally {
+      setOverride('WORKBENCH_UPLOAD_MAX_MB', 0)
+    }
   })
 })
 

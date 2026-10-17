@@ -11,6 +11,7 @@
 //   - a projektmappaba irt fajl SOHA nem ir felul, nem lep ki a projekt
 //     mappajabol, git-repo belsejebe nem ir, es az ekezetes nev sem torik el;
 //   - a projektben cimke nelkul kert kartya a projekt alapertelmezett cimkejet kapja.
+import { setOverride } from '../settings-store.js'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -36,6 +37,7 @@ function mustProject(input: Parameters<typeof createProject>[0]) {
 function call(method: string, pathAndQuery: string, body?: unknown | Buffer, handler: (c: RouteContext) => Promise<boolean> = tryHandleProjects) {
   const out: { status: number; body: any; handled: boolean } = { status: 0, body: null, handled: false }
   const res: any = {
+    on() { return res },
     writeHead(status: number) { out.status = status; return res },
     end(chunk?: string) { if (chunk) out.body = JSON.parse(chunk) },
   }
@@ -265,6 +267,8 @@ describe('uj fajl a projektmappaba', () => {
     expect(r.status).toBe(200)
     expect(r.body).toMatchObject({ ok: true, name: 'Szerződés.pdf', bytes: 6 })
     expect(readFileSync(join(depot, 'Projektek', 'Web', 'Szerződés.pdf'), 'utf-8')).toBe('%PDF-1')
+    // #663: no limit by default; the 413 is the configured limit at work.
+    setOverride('WORKBENCH_UPLOAD_MAX_MB', 50)
     const big: any = await (async () => {
       const out: any = { status: 0, body: null }
       const res: any = { writeHead(s: number) { out.status = s; return res }, end(c?: string) { if (c) out.body = JSON.parse(c) } }
@@ -273,8 +277,10 @@ describe('uj fajl a projektmappaba', () => {
       await tryHandleProjects({ req, res, path: url.pathname, method: 'POST', url } as RouteContext)
       return out
     })()
+    setOverride('WORKBENCH_UPLOAD_MAX_MB', 0)
     expect(big.status).toBe(413)
     expect(big.body.error).toBe('too_large')
+    expect(big.body.message).toMatch(/50 MB/)
     const folders = await call('GET', `/api/projects/${p.id}/folders`)
     expect(folders.body).toMatchObject({ state: 'ok', path: 'Projektek/Web', subfolders: [] })
     // A Fajlok ful sajat listaja: a feltoltott fajl benne van.

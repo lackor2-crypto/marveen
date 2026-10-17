@@ -23,10 +23,10 @@ import { safeLifeName, lifeName } from './life-tree.js'
 import { writeBlockReason } from './git-guard.js'
 import { mountsInside, resolveMount } from './life-mounts.js'
 import { cleanFolderRel, getProject, updateProject, type ProjectRow } from './projects.js'
+import { dataBytes, isStaged, placeStaged, type UploadData } from './upload-stream.js'
 
-/** Egy feltoltott fajl felso hatara. A nagyobbat a Windows Intezoben kell a
- *  mappaba huzni -- a felulet megmutatja, hova. */
-export const PROJECT_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
+/** The old fixed 50 MB cap is gone (#663): the limit is the WORKBENCH_UPLOAD_MAX_MB setting, read through
+ *  `uploadLimitBytes()` in upload-stream.ts (0 = no limit). */
 export const NOTE_MAX_CHARS = 200_000
 
 export type FileErrorCode =
@@ -179,7 +179,7 @@ export type WriteOutcome =
   | { ok: false; code: FileErrorCode; message?: string }
 
 /** Egy fajl kiirasa a projekt mappajaba. Soha nem ir felul. */
-export function writeProjectFile(p: ProjectRow, sub: unknown, name: unknown, data: Buffer): WriteOutcome {
+export function writeProjectFile(p: ProjectRow, sub: unknown, name: unknown, data: UploadData): WriteOutcome {
   ensureProjectHasFolder(p)
   const t = projectFileTarget(p, sub)
   if (!t.ok) return t
@@ -190,11 +190,12 @@ export function writeProjectFile(p: ProjectRow, sub: unknown, name: unknown, dat
   const finalName = freeFileName(t.dirAbs, wanted)
   try {
     // `wx`: ha a nev a ket lepes kozott megis foglalt lett, inkabb hiba, mint felulirt fajl.
-    writeFileSync(join(t.dirAbs, finalName), data, { flag: 'wx' })
+    if (isStaged(data)) placeStaged(data, join(t.dirAbs, finalName))
+    else writeFileSync(join(t.dirAbs, finalName), data, { flag: 'wx' })
   } catch (e) {
     return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) }
   }
-  return { ok: true, rel: `${t.dirRel}/${finalName}`, name: finalName, renamed: finalName !== wanted, bytes: data.length }
+  return { ok: true, rel: `${t.dirRel}/${finalName}`, name: finalName, renamed: finalName !== wanted, bytes: dataBytes(data) }
 }
 
 /** Uj jegyzet: a nevbol fajlnev, `.md` vagy `.txt` kiterjesztessel. */

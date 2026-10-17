@@ -53,7 +53,8 @@ import {
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
-import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, ensureProjectHasFolder, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, ensureProjectHasFolder } from '../../project-files.js'
+import { uploadExceeds, uploadLimitBytes, uploadLimitMbForMessage, streamBodyToStage, UploadDiskError, BUFFERED_UPLOAD_CAP_BYTES, type StagedUpload } from '../../upload-stream.js'
 import {
   hasDocModel, documentOutline, documentCheck, replacePage, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
   confirmOwnerClaim, recheckPendingSources, acceptRewrite, dismissRewrite,
@@ -707,8 +708,16 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'It is unclear which way to move the part (up or down).',
   },
   too_large: {
-    hu: `Ez a kép túl nagy (legfeljebb ${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB). Másold be a projekt mappájába, és onnan vedd fel.`,
-    en: `This image is too large (${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB at most). Copy it into the project folder and add it from there.`,
+    get hu() { return `Ez a kép túl nagy (legfeljebb ${uploadLimitMbForMessage()} MB). Másold be a projekt mappájába, és onnan vedd fel, vagy emeld meg a limitet a Beállításokban.` },
+    get en() { return `This image is too large (${uploadLimitMbForMessage()} MB at most). Copy it into the project folder and add it from there, or raise the limit in Settings.` },
+  },
+  upload_disk_full: {
+    hu: 'Nincs elég szabad hely a lemezen ehhez a fájlhoz. Szabadíts fel helyet, és próbáld újra.',
+    en: 'There is not enough free disk space for this file. Free some space and try again.',
+  },
+  upload_disk_error: {
+    hu: 'A fájlt nem sikerült a lemezre menteni a feltöltés közben. Próbáld újra.',
+    en: 'The file could not be saved to disk during the upload. Try again.',
   },
   bad_name: {
     hu: 'Ez a fájlnév nem használható. Adj neki egyszerű nevet (például: kep.jpg).',
@@ -801,8 +810,8 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'The converter ran but produced no PDF. This usually happens with a damaged or password-protected document.',
   },
   document_too_large: {
-    hu: `Ez a dokumentum túl nagy (legfeljebb ${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB). Másold be a projekt mappájába, és onnan vedd fel.`,
-    en: `This document is too large (${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB at most). Copy it into the project folder and add it from there.`,
+    get hu() { return `Ez a dokumentum túl nagy (legfeljebb ${uploadLimitMbForMessage()} MB). Másold be a projekt mappájába, és onnan vedd fel, vagy emeld meg a limitet a Beállításokban.` },
+    get en() { return `This document is too large (${uploadLimitMbForMessage()} MB at most). Copy it into the project folder and add it from there, or raise the limit in Settings.` },
   },
   convert_not_ready: {
     hu: 'Ennek a dokumentumnak még nincs kész PDF-előnézete. Nyomj az „Előnézet készítése” gombra.',
@@ -1383,8 +1392,8 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: `The text is too long (${TEXT_SOURCE_MAX} characters at most).`,
   },
   upload_too_large: {
-    hu: `Ez a fájl túl nagy (legfeljebb ${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB). Másold be a projekt mappájába a gépeden, és onnan vedd fel.`,
-    en: `This file is too large (${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB at most). Copy it into the project folder on your computer and add it from there.`,
+    get hu() { return `Ez a fájl túl nagy (legfeljebb ${uploadLimitMbForMessage()} MB). Másold be a projekt mappájába a gépeden, és onnan vedd fel, vagy emeld meg a limitet a Beállításokban.` },
+    get en() { return `This file is too large (${uploadLimitMbForMessage()} MB at most). Copy it into the project folder on your computer and add it from there, or raise the limit in Settings.` },
   },
   asset_duplicate: {
     hu: 'Ez a fájl már megvan ennek a munkadarabnak az anyagai között.',
@@ -2900,15 +2909,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
-    let data: Buffer
+    if (uploadExceeds(declared)) return fail(res, 413, 'upload_too_large', lang)
+    let data: StagedUpload
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await streamBodyToStage(req)
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
       throw e
     }
-    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    res.on('close', () => data.discard())
+    if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
     const r = uploadSharedFile(project, url.searchParams.get('name') || '', data, {
       force: url.searchParams.get('force') === '1', lang,
     })
@@ -3456,15 +3467,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
-    let data: Buffer
+    if (uploadExceeds(declared)) return fail(res, 413, 'upload_too_large', lang)
+    let data: StagedUpload
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await streamBodyToStage(req)
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
       throw e
     }
-    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    res.on('close', () => data.discard())
+    if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
     // A project still without a folder (fresh install, seeded project) gets one on its first upload.
     ensureProjectHasFolder(project)
     const name = url.searchParams.get('name') || ''
@@ -3764,15 +3777,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     //   POST .../outline/annexes/upload?name=...&title=...
     if (segs.length === 4 && segs[2] === 'annexes' && segs[3] === 'upload' && method === 'POST') {
       const declared = Number(req.headers['content-length'] || 0)
-      if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
-      let data: Buffer
+      if (uploadExceeds(declared)) return fail(res, 413, 'upload_too_large', lang)
+      let data: StagedUpload
       try {
-        data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+        data = await streamBodyToStage(req)
       } catch (e) {
         if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+        if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
         throw e
       }
-      if (!data.length) return fail(res, 400, 'upload_empty', lang)
+      res.on('close', () => data.discard())
+      if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
       const up = attachAsset(item, url.searchParams.get('name') || '', data, { createdBy: actor(ctx), into: 'attachments' })
       let path = ''
       if (up.ok) path = up.asset.project_path
@@ -4077,15 +4092,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
-    let data: Buffer
+    if (uploadExceeds(declared)) return fail(res, 413, 'upload_too_large', lang)
+    let data: StagedUpload
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await streamBodyToStage(req)
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
       throw e
     }
-    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    res.on('close', () => data.discard())
+    if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
     const r = attachAsset(item, url.searchParams.get('name') || '', data, {
       force: url.searchParams.get('force') === '1',
       createdBy: actor(ctx),
@@ -4115,15 +4132,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
-    let data: Buffer
+    if (uploadExceeds(declared)) return fail(res, 413, 'upload_too_large', lang)
+    let data: StagedUpload
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await streamBodyToStage(req)
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+      if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
       throw e
     }
-    if (!data.length) return fail(res, 400, 'upload_empty', lang)
+    res.on('close', () => data.discard())
+    if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
     const r = attachChatReference(item, url.searchParams.get('name') || '', data, { lang })
     if (!r.ok) {
       const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
@@ -4719,10 +4738,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(item.project_id)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+    if (uploadExceeds(declared)) return fail(res, 413, 'upload_too_large', lang)
     let data: Buffer
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await readBody(req, { maxBytes: Math.min(uploadLimitBytes() || BUFFERED_UPLOAD_CAP_BYTES, BUFFERED_UPLOAD_CAP_BYTES) })
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
       throw e
@@ -4806,15 +4825,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(item.project_id)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'document_too_large', lang)
-    let data: Buffer
+    if (uploadExceeds(declared)) return fail(res, 413, 'document_too_large', lang)
+    let data: StagedUpload
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await streamBodyToStage(req)
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'document_too_large', lang)
+      if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
       throw e
     }
-    if (!data.length) return fail(res, 400, 'empty_file', lang)
+    res.on('close', () => data.discard())
+    if (!data.bytes) return fail(res, 400, 'empty_file', lang)
     if (optionalBaseIsStale(item.id, url.searchParams.get('base_version'))) return fail(res, 409, 'version_stale', lang)
     const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang)
@@ -5470,10 +5491,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(item.project_id)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'upload_too_large', lang)
+    if (uploadExceeds(declared)) return fail(res, 413, 'upload_too_large', lang)
     let data: Buffer
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await readBody(req, { maxBytes: Math.min(uploadLimitBytes() || BUFFERED_UPLOAD_CAP_BYTES, BUFFERED_UPLOAD_CAP_BYTES) })
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
       throw e
@@ -5599,15 +5620,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(item.project_id)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'too_large', lang)
-    let data: Buffer
+    if (uploadExceeds(declared)) return fail(res, 413, 'too_large', lang)
+    let data: StagedUpload
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await streamBodyToStage(req)
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'too_large', lang)
+      if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
       throw e
     }
-    if (!data.length) return fail(res, 400, 'empty_file', lang)
+    res.on('close', () => data.discard())
+    if (!data.bytes) return fail(res, 400, 'empty_file', lang)
     // Boss, TG 2865/2872: the picture lands in the Uploads folder beside the work item, not in the project root.
     let sub: string | null = url.searchParams.get('sub')
     if (!sub) {
