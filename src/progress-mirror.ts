@@ -11,6 +11,7 @@
 //
 // Everything here is a pure function of its inputs, so the tests drive the
 // exact branches the runner takes -- no tmux, no Telegram, no store.
+import { createHash } from 'node:crypto'
 import { detectPaneState } from './pane-state.js'
 import { detectsUsageLimit } from './model-fallback.js'
 
@@ -187,6 +188,25 @@ export function shouldEdit(prevText: string | undefined, nextText: string, lastE
 }
 
 const norm = (t: unknown) => String(t ?? '').split(/\s+/).filter(Boolean).join(' ').slice(0, 400)
+
+/** How many sent-thought fingerprints are remembered per agent (#665). */
+export const MAX_SENT_THOUGHTS = 200
+
+/**
+ * Content fingerprint of a verbose-mode thought (#665): whitespace-normalised,
+ * hashed, short. The same text read in two ticks (streaming, a re-read
+ * transcript) gets the same fingerprint, so it is sent once.
+ */
+export function thoughtFingerprint(text: string): string {
+  const flat = String(text ?? '').split(/\s+/).filter(Boolean).join(' ')
+  return createHash('sha1').update(flat).digest('base64').slice(0, 16)
+}
+
+/** Appends `fp` to the remembered list and keeps only the newest `max`. */
+export function rememberThought(seen: string[], fp: string, max = MAX_SENT_THOUGHTS): string[] {
+  const next = [...seen, fp]
+  return next.length > max ? next.slice(next.length - max) : next
+}
 
 /**
  * Verbose mode: the assistant's visible text blocks from new transcript lines,
