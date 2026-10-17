@@ -2085,6 +2085,9 @@
     var rows = []
     // Every top-level group gets its own base tint; its folders, items and files share it (Boss, TG 2531).
     var topIdx = 0
+    var folIdx = 0
+    var ownFold = {} // a work item's OWN folder is the one blue; the folders the owner made (and the item's subfolders) are not
+    ;(wf.own_folders || []).forEach(function (f) { ownFold[f] = true })
     function groupStyle(g) {
       if (g == null) return ''
       return ' style="--wb-grp: ' + grpHsl(g) + '"'
@@ -2092,9 +2095,10 @@
     function walk(path, depth, grp) {
       ;(kids[path] || []).forEach(function (f) {
         if (folderGone(f)) return
-        // #684: the item folders are blue. #685 (Boss TG 3163): a folder inside another folder takes the colour of the folder it
-        // sits in, so a dragged folder (and everything in it) turns into the colour of its target at once.
-        var g = path === box ? -(++topIdx) : grp
+        // #684 (Boss TG 9585): the item's own folder is blue, EVERY other folder has a colour of its own from the palette, never
+        // its parent's (so folders inside one work item differ). What a folder holds wears that folder's colour, which is
+        // how a file or work item dragged into it takes the target colour at once (#685).
+        var g = ownFold[f] ? -(++topIdx) : folIdx++
         var collapsed = isShut(f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
@@ -2182,7 +2186,7 @@
         if (e.box) { renderBox(); return }
         var f = e.f
         var shut = isShut(f)
-        var g = path === '' ? outIdx++ : grp // #684: every top-level branch has a colour of its own; #685: deeper folders take their parent's
+        var g = outIdx++ // #684: every folder has a colour of its own (Boss TG 9585: never its parent's)
         var linked = Object.prototype.hasOwnProperty.call(out.linked || {}, f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!shut) + '"'
