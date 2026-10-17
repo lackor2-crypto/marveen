@@ -259,7 +259,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'doc.addAnnex',
     description: 'Add a file of the project folder (usually one of the materials) to the annex list. It gets the next number; with position it is inserted and the references in the text are renumbered.',
-    input: 'id (optional); path: the file inside the project folder; title: a short description ("Bérleti szerződés, 2024. május 2."); position (optional, 0 = first)',
+    input: 'id (optional); path: the file inside the project folder; title: the annex name ("Bérleti szerződés, 2024. május 2."; the file on disk keeps its name); position (optional, 0 = first)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
@@ -270,7 +270,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'doc.removeAnnex',
-    description: 'Take an annex off the list (the file stays in the folder). The later annexes move up; a reference to the removed one becomes a missing-data mark that blocks finalizing.',
+    description: 'Remove an annex from the list (the file stays in the folder). The later annexes move up; a reference to the removed one becomes a missing-data mark that blocks finalizing.',
     input: 'id (optional); annex: the annex id',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
