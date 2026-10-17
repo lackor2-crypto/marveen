@@ -10493,10 +10493,14 @@
     if (!WB.projectId) return
     WB.chatStatus = null
     WB.chatSide = null
+    WB.chatAccount = '' // each project has its own pick (#687); the saved one arrives with the status
     WB.chatStatusError = null
     api('GET', '/api/workbench/agent/status?project=' + encodeURIComponent(WB.projectId)).then(function (r) {
       if (!WB.open) return
-      if (r.ok) { WB.chatStatus = r.data; WB.chatStatusError = null }
+      if (r.ok) {
+        WB.chatStatus = r.data; WB.chatStatusError = null
+        if (!WB.chatAccount && r.data && r.data.account_pref) WB.chatAccount = r.data.account_pref
+      }
       else { WB.chatStatus = null; WB.chatStatusError = r.message }
       renderChat()
     })
@@ -11085,6 +11089,21 @@
       + '<select class="wb-input wb-chat-account" id="wbChatSide" data-wb-act="chat-side" title="' + escA(t('workbench.chat.side_hint')) + '">'
       + opts.map(function (o) { return '<option value="' + o[0] + '"' + (cur === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>' }).join('')
       + '</select></div>'
+  }
+
+  /** #687: a pick in either chat dropdown is remembered for this project on the server right away (not only when a
+   *  message is sent), so a reload and a phone see it. A failed save only leaves the pick for this session. */
+  function saveChatPrefs(patch) {
+    if (!WB.projectId) return
+    var body = { project: WB.projectId }
+    if (patch.side !== undefined) body.side = patch.side
+    if (patch.account !== undefined) body.account = patch.account
+    api('POST', '/api/workbench/agent/chat-prefs', body).then(function (r) {
+      if (r && r.ok && WB.chatStatus) {
+        if (patch.side !== undefined) WB.chatStatus.side = r.data.side
+        if (patch.account !== undefined) WB.chatStatus.account_pref = r.data.account
+      }
+    })
   }
 
   function chatSideValue() {
@@ -18734,10 +18753,11 @@
     var nfLang = e.target.closest('[data-wb-act="note-final-lang"]')
     if (nfLang) { WB.noteFinalLang = nfLang.value === 'orig' ? '' : nfLang.value; render(); return }
     var sideSel = e.target.closest('[data-wb-act="chat-side"]')
-    if (sideSel) { WB.chatSide = sideSel.value; return }
+    if (sideSel) { WB.chatSide = sideSel.value; saveChatPrefs({ side: sideSel.value }); return }
     var sel = e.target.closest('[data-wb-act="chat-account"]')
     if (!sel) return
     WB.chatAccount = sel.value === 'auto' ? '' : sel.value
+    saveChatPrefs({ account: sel.value })
     // The hint under the picker explains the CHOSEN option, so it is redrawn now (the draft lives in WB.chatDraft).
     renderChat()
   })

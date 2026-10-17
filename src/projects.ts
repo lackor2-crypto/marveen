@@ -54,6 +54,9 @@ export interface ProjectRow {
    *  side) or `windows` (the Windows-side VS Code). NULL = automatic: by where the folder
    *  lives (a Windows drive -> Windows, a WSL folder -> Marvin side). Boss, 2026-10-02. */
   bridge_side: 'wsl' | 'windows' | null
+  /** The Workbench chat's account picked for this project (#687); NULL = automatic. Kept on the server so
+   *  a reload and a second device see the same pick. */
+  chat_account: string | null
   /** A kezzel kert AI-osszefoglalo. NEM generalodik megnyitaskor. */
   summary: string | null
   /** Mikor keszult az osszefoglalo (masodperc). */
@@ -136,6 +139,7 @@ export function ensureProjectTables(): void {
   const cols = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => c.name))
   if (!cols.has('summary_by')) db.exec('ALTER TABLE projects ADD COLUMN summary_by TEXT')
   if (!cols.has('bridge_side')) db.exec('ALTER TABLE projects ADD COLUMN bridge_side TEXT')
+  if (!cols.has('chat_account')) db.exec('ALTER TABLE projects ADD COLUMN chat_account TEXT')
   const linkCols = new Set((db.prepare('PRAGMA table_info(project_links)').all() as { name: string }[]).map((c) => c.name))
   if (!linkCols.has('since')) db.exec('ALTER TABLE project_links ADD COLUMN since INTEGER')
   // A projekt-nezet minden lekerdezese ezen a mezon szur.
@@ -294,12 +298,13 @@ export interface ProjectInput {
   folder_path?: unknown
   default_label_id?: unknown
   bridge_side?: unknown
+  chat_account?: unknown
 }
 
 /** A szerver-oldali ellenorzes eredmenye: vagy a tiszta mezok, vagy egy hibakod
  *  (a felulet a kodhoz tartozo, forditott mondatot mutatja -- `projects.err.*`). */
 export type ProjectValidation =
-  | { ok: true; fields: Partial<Pick<ProjectRow, 'name' | 'slug' | 'description' | 'client' | 'status' | 'folder_path' | 'default_label_id' | 'bridge_side'>> }
+  | { ok: true; fields: Partial<Pick<ProjectRow, 'name' | 'slug' | 'description' | 'client' | 'status' | 'folder_path' | 'default_label_id' | 'bridge_side' | 'chat_account'>> }
   | { ok: false; code: string }
 
 function optText(v: unknown, max: number): string | null {
@@ -360,6 +365,12 @@ export function validateProjectInput(input: ProjectInput, partial: boolean): Pro
     if (side === '' || side === 'auto') fields.bridge_side = null
     else if (side === 'wsl' || side === 'windows') fields.bridge_side = side
     else return { ok: false, code: 'bad_bridge_side' }
+  }
+  if (input.chat_account !== undefined) {
+    const acc = input.chat_account === null ? '' : String(input.chat_account).trim()
+    if (acc === '' || acc.toLowerCase() === 'auto') fields.chat_account = null
+    else if (acc.length <= 64) fields.chat_account = acc
+    else return { ok: false, code: 'bad_chat_account' }
   }
   return { ok: true, fields }
 }

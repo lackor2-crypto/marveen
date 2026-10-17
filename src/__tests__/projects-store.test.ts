@@ -192,3 +192,18 @@ describe('bridge_side: per-project Workbench side (Boss, 2026-10-02)', () => {
     expect(b.ok && b.project.bridge_side).toBeNull()
   })
 })
+
+describe('chat_account: per-project Workbench chat account (#687)', () => {
+  it('stores a name, null for auto/empty, and is kept per project', () => {
+    expect(validateProjectInput({ chat_account: 'lackor2' }, true)).toEqual({ ok: true, fields: { chat_account: 'lackor2' } })
+    expect(validateProjectInput({ chat_account: 'auto' }, true)).toEqual({ ok: true, fields: { chat_account: null } })
+    expect(validateProjectInput({ chat_account: '' }, true)).toEqual({ ok: true, fields: { chat_account: null } })
+    expect(validateProjectInput({ chat_account: 'x'.repeat(65) }, true)).toEqual({ ok: false, code: 'bad_chat_account' })
+    const a = mustCreate({ name: 'Fiok A' })
+    const b = mustCreate({ name: 'Fiok B' })
+    expect(a.chat_account).toBeNull()
+    const r = updateProject(a.id, { chat_account: 'lackor3' })
+    expect(r.ok && r.project.chat_account).toBe('lackor3')
+    expect(getProject(b.id)?.chat_account).toBeNull()
+  })
+})
