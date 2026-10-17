@@ -300,7 +300,10 @@ fi
 # --- 5. Build BEFORE restart. A broken build must not take the app down. ----
 # Build and restart commands are overridable so tests can exercise the git and
 # decision logic without npm/systemd; the defaults are the real thing.
-BUILD_CMD="${MARVEEN_DEPLOY_BUILD_CMD:-npm run build}"
+# The default build takes its turn on the heavy-job queue (card #683): a tsc
+# build overlapping a full test run and browser runs froze the VM on 2026-10-17.
+# A tree without scripts/heavy-job.sh yet (first deploy that brings it in) builds directly.
+BUILD_CMD="${MARVEEN_DEPLOY_BUILD_CMD:-if [ -f scripts/heavy-job.sh ]; then bash scripts/heavy-job.sh deploy-build -- npm run build; else npm run build; fi}"
 RESTART_CMD="${MARVEEN_DEPLOY_RESTART_CMD:-systemctl --user restart "$UNIT"}"
 if ! ( cd "$ROOT" && bash -c "$BUILD_CMD" ) >>"$LOG" 2>&1; then
   log "BUILD FAILED for $SHORT -- NOT restarting; the previous working dist/ stays live."

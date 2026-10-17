@@ -87,6 +87,16 @@ _t() {
     hu:next_steps.4_openrouter) echo "  4. Opcionalis: OpenRouter/egyeb API-kulcsok a dashboard Vault oldalan" ;;
     en:prompt_swap) echo "  Create a 2 GB swap file? (y/n) [y]: " ;;
     hu:prompt_swap) echo "  Létrehozzak 2 GB swap fájlt? (i/n) [i]: " ;;
+    en:prompt_wslconfig) echo "  Create a .wslconfig with swap=2GB (stops the WSL VM freezing under load; memory stays as is)? (y/n) [n]: " ;;
+    hu:prompt_wslconfig) echo "  Létrehozzak egy .wslconfig fájlt swap=2GB-vel (megelőzi, hogy a WSL gép terhelés alatt lefagyjon; a memória marad)? (i/n) [n]: " ;;
+    en:linux.wslconfig_ok) echo "WSL swap is set in .wslconfig" ;;
+    hu:linux.wslconfig_ok) echo "A WSL swap be van állítva a .wslconfig-ban" ;;
+    en:linux.wslconfig_exists) echo "A .wslconfig exists without swap. Not touching it. Add under [wsl2]: swap=2GB, then run: wsl --shutdown" ;;
+    hu:linux.wslconfig_exists) echo "Van .wslconfig, de swap nélkül. Nem nyúlok hozzá. Írd a [wsl2] alá: swap=2GB, majd futtasd: wsl --shutdown" ;;
+    en:linux.wslconfig_written) echo "Wrote .wslconfig (swap=2GB). It takes effect after: wsl --shutdown (then start Marveen again)" ;;
+    hu:linux.wslconfig_written) echo ".wslconfig megírva (swap=2GB). Ez a wsl --shutdown után lép életbe (utána indítsd újra a Marveent)" ;;
+    en:linux.wslconfig_unknown) echo "Could not find your Windows profile folder, so the WSL swap setting was not checked." ;;
+    hu:linux.wslconfig_unknown) echo "Nem találtam a Windows-profilmappát, ezért a WSL swap beállítást nem ellenőriztem." ;;
     en:prompt_vps_continue) echo "  Continue installation? (y/n) [y]: " ;;
     hu:prompt_vps_continue) echo "  Folytassam a telepítést? (i/n) [i]: " ;;
     en:prompt_auth_mode) echo "  Choice (1/2/3) [2]: " ;;

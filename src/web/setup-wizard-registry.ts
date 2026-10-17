@@ -267,6 +267,19 @@ export const SETUP_ITEMS: SetupItem[] = [
     required: false, tier: 'recommended',
   },
   {
+    // Card #683: a 10 GB WSL VM without a sensible memory/swap limit froze on
+    // 2026-10-17 and took the fleet down for minutes. Shown ONLY on WSL (the
+    // route hides it elsewhere); "set" means .wslconfig really holds a swap
+    // size -- an unreadable Windows profile is NOT reported as fine.
+    id: 'wsl-memory', group: 'maintenance', kind: 'external',
+    labelKey: 'wizard.item.wsl_memory', descKey: 'wizard.item.wsl_memory_desc',
+    helpKey: 'wizard.item.wsl_memory_help',
+    stepKeys: ['wizard.item.wsl_memory_step1', 'wizard.item.wsl_memory_step2', 'wizard.item.wsl_memory_step3', 'wizard.item.wsl_memory_step4'],
+    links: [{ url: 'https://learn.microsoft.com/windows/wsl/wsl-config#configuration-setting-for-wslconfig', labelKey: 'wizard.link.wsl_config' }],
+    exampleKey: 'wizard.item.wsl_memory_example',
+    required: false, tier: 'recommended',
+  },
+  {
     id: 'ollama-url', group: 'models', kind: 'env', envKey: 'OLLAMA_URL',
     labelKey: 'wizard.item.ollama', descKey: 'wizard.item.ollama_desc',
     helpKey: 'wizard.item.ollama_help',
@@ -319,8 +332,10 @@ export interface SetupSummary {
 export function buildSetupSummary(
   envValues: Record<string, string>,
   externalState: Record<string, boolean>,
+  /** Items that do not apply to this machine (e.g. the WSL limit on a non-WSL install): left out entirely. */
+  hiddenIds: ReadonlySet<string> = new Set(),
 ): SetupSummary {
-  const items: SetupItemState[] = SETUP_ITEMS.map((item) => {
+  const items: SetupItemState[] = SETUP_ITEMS.filter((item) => !hiddenIds.has(item.id)).map((item) => {
     if (item.kind === 'external') {
       return { ...item, configured: externalState[item.id] === true }
     }

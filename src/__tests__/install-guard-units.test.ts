@@ -132,11 +132,13 @@ describe('install-guard-units.sh', () => {
       expect(existsSync(join(unitDir, `${sid}-backup.service`))).toBe(true)
     })
 
-    it('a frissites (update.sh) is leveszi a meglevo telepitesen', () => {
+    it('a frissites (update.sh) a hianyzo orszemeket is letrehozza, nem csak leveszi a regit (#683)', () => {
       const upd = readFileSync(join(ROOT, 'update.sh'), 'utf8')
-      expect(upd).toMatch(/install-guard-units\.sh" --retire-only/)
+      // The full script runs (it retires the old backup timer AND fills the gaps); --retire-only would leave an existing install without new guards.
+      expect(upd).toMatch(/install-guard-units\.sh" 2>\/dev\/null/)
+      expect(upd).not.toMatch(/install-guard-units\.sh" --retire-only/)
       const maint = upd.slice(upd.indexOf('run_unit_maintenance() {'), upd.indexOf('}', upd.indexOf('run_unit_maintenance() {')))
-      expect(maint).toContain('retire_legacy_backup_timer')
+      expect(maint).toContain('ensure_guard_units')
     })
   })
 })

@@ -21,7 +21,8 @@
 #
 # Usage: scripts/install-guard-units.sh [--dry-run] [--retire-only]
 #   --retire-only: only take down RETIRED units (see retire_backup_timer), write
-#   nothing new. update.sh runs it this way on every update.
+#   nothing new. (update.sh no longer uses it: since #683 an update runs the full
+#   script, so an existing install also gets guards added after it was set up.)
 set -uo pipefail
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,7 +54,8 @@ GUARDS=(
   "channel-watchdog|scripts/channel-watchdog.sh|every:300|linux|channels watchdog (independent of the dashboard)"
   "channel-keepalive-probe|scripts/channel-keepalive-probe.sh|every:180|all|token-free channel keepalive probe"
   "modal-guard|bash scripts/modal-question-guard.sh|every:60|all|forward a blocking panel-menu question to the owner and release it"
-  "memgate-shed|scripts/fleet-memory-gate.sh --shed|every:60|linux|memory gate (park an idle agent under hard memory pressure)"
+  "memgate-shed|scripts/fleet-memory-gate.sh --shed|every:60|linux|memory gate (stop a runaway heavy job at 85%, park an idle agent under hard memory pressure)"
+  "tmp-sweep|python3 scripts/tmp-sweep.py|daily:04:30|linux|clear old known leftovers out of /tmp (a restart no longer spends minutes deleting them)"
   "telegram-progress-watchdog|python3 scripts/hooks/telegram_progress_watchdog.py|every:60|all|Telegram progress-indicator watchdog"
   "ratelimit-alert|bash scripts/ratelimit-telegram-alert.sh|every:60|all|rate-limit alert to the owner (90%/99%)"
   "subagent-retry|bash scripts/subagent-retry.sh|every:600|all|retry sub-agents stuck on a provider error"

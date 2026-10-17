@@ -28,6 +28,7 @@ import { claudeAuthPresent, channelConfigured, paired } from './onboarding.js'
 import { connectedGoogleAccountCount } from '../google-auth-runner.js'
 import { existsSync } from 'node:fs'
 import { measureSystemDeps, systemDepsSnapshot, installCommand, type DepsSnapshot } from '../../system-deps.js'
+import { measureWslMemory } from '../../wsl-memory.js'
 import { startVisionInstall, visionInstallStatus } from '../../vision-install.js'
 import { saveOauthClient } from '../../google-oauth-client.js'
 import type { RouteContext } from './types.js'
@@ -64,7 +65,14 @@ function externalState(): Record<string, boolean> {
     // Kulso programok (kanban d7acdd75): "beallitva" = minden ALAP es AJANLOTT
     // program megvan. Meres nelkul NEM mondjuk ra, hogy rendben van.
     'system-programs': systemProgramsComplete(systemDepsSnapshot()),
+    // WSL memory limit (card #683): only a readable .wslconfig holding both limits counts.
+    'wsl-memory': measureWslMemory().state === 'ok',
   }
+}
+
+/** Items that do not apply here: the WSL memory limit on an install that is not WSL. */
+function hiddenItemIds(): Set<string> {
+  return new Set(measureWslMemory().state === 'not_applicable' ? ['wsl-memory'] : [])
 }
 
 export function systemProgramsComplete(snap: DepsSnapshot | null): boolean {
@@ -79,7 +87,7 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
   if (path === '/api/setup-wizard' && method === 'GET') {
     const env = wizardValues()
     const ext = externalState()
-    const summary = buildSetupSummary(env, ext)
+    const summary = buildSetupSummary(env, ext, hiddenItemIds())
     // The channel token is an env key AND provider state; if either says
     // configured, it is. Without this the wizard nags for a token that is
     // already working from the provider's own state dir.
