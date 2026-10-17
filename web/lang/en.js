@@ -6772,6 +6772,8 @@ window._i18n.en = {
   "workbench.fr.vid.trans.len_bad": "The transition length must be a number between 0.1 and 2 seconds.",
   "workbench.fr.vid.trans.close": "Done",
   "workbench.fr.vid.trans.hint": "A transition overlaps the two clips, so the finished video is shorter by the length of the transition. Your choice is saved at once, and undo works.",
+  "workbench.fr.vid.speed": "Speed",
+  "workbench.fr.vid.speed_hint": "How fast the clip plays: 1× is normal, 2× twice as fast, 0.5× slow motion. The sound follows and the finished video's length adapts. The player preview runs at normal speed; the change shows in the finished video. Your choice is saved at once, and undo works.",
   "workbench.fr.vid.trans.t_none": "None (plain cut)",
   "workbench.fr.vid.trans.t_fade": "Crossfade",
   "workbench.fr.vid.trans.t_fadeblack": "Fade through black",

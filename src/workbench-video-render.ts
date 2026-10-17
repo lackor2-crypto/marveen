@@ -23,7 +23,7 @@ import { getWorkItem } from './workbench.js'
 import { itemOutputFolder } from './workbench-assets.js'
 import { finishedFolderFor } from './project-files.js'
 import { videoTool, videoTarget, videoRunTo, videoBusy, VIDEO_TRIM_TIMEOUT_MS, type VideoFail } from './workbench-video.js'
-import { ASPECT_SIZE, effectiveTransition, timelineDuration, type TimelineDoc } from './workbench-video-timeline.js'
+import { ASPECT_SIZE, clipLen, effectiveTransition, timelineDuration, type TimelineDoc } from './workbench-video-timeline.js'
 
 export const RENDER_FPS = 30
 export const RENDER_TIMEOUT_MS = 4 * VIDEO_TRIM_TIMEOUT_MS
@@ -86,11 +86,11 @@ export function joinClips(doc: TimelineDoc, outV: string, outA: string): string[
   }
   const out: string[] = []
   let accV = 'v0', accA = 'a0'
-  let accLen = doc.clips[0].end - doc.clips[0].start
+  let accLen = clipLen(doc.clips[0])
   for (let i = 0; i < n - 1; i++) {
     const last = i === n - 2
     const nv = last ? outV : `jv${i}`, na = last ? outA : `ja${i}`
-    const len = doc.clips[i + 1].end - doc.clips[i + 1].start
+    const len = clipLen(doc.clips[i + 1])
     const t = trs[i]
     if (t) {
       out.push(
@@ -109,6 +109,17 @@ export function joinClips(doc: TimelineDoc, outV: string, outA: string): string[
     accV = nv; accA = na
   }
   return out
+}
+
+/** The `atempo` steps for a speed (one `atempo` only takes 0.5 to 2, so a bigger change is chained). */
+export function atempo(speed: number): string {
+  if (speed === 1) return ''
+  const steps: number[] = []
+  let r = speed
+  while (r > 2) { steps.push(2); r /= 2 }
+  while (r < 0.5) { steps.push(0.5); r /= 0.5 }
+  steps.push(r)
+  return steps.map((x) => `,atempo=${fnum(x)}`).join('')
 }
 
 /** The ffmpeg arguments for a timeline. Throws nothing; the caller checks the inputs first. */
@@ -131,15 +142,15 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   doc.clips.forEach((c, i) => {
     const n = clipIdx[i]
     f.push(
-      `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=PTS-STARTPTS,fps=${RENDER_FPS},split=2[bg${i}][fg${i}]`,
+      `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=(PTS-STARTPTS)/${fnum(c.speed ?? 1)},fps=${RENDER_FPS},split=2[bg${i}][fg${i}]`,
       `[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3[bb${i}]`,
       `[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease[ff${i}]`,
       `[bb${i}][ff${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p,settb=1/${RENDER_FPS}[v${i}]`,
     )
     if (inp.hasAudio[c.src]) {
-      f.push(`[${n}:a]atrim=start=${fnum(c.start)}:end=${fnum(c.end)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=${fnum(doc.clip_volume)}[a${i}]`)
+      f.push(`[${n}:a]atrim=start=${fnum(c.start)}:end=${fnum(c.end)},asetpts=PTS-STARTPTS${atempo(c.speed ?? 1)},aresample=48000,aformat=channel_layouts=stereo,volume=${fnum(doc.clip_volume)}[a${i}]`)
     } else {
-      f.push(`anullsrc=r=48000:cl=stereo,atrim=0:${fnum(c.end - c.start)},asetpts=PTS-STARTPTS[a${i}]`)
+      f.push(`anullsrc=r=48000:cl=stereo,atrim=0:${fnum(clipLen(c))},asetpts=PTS-STARTPTS[a${i}]`)
     }
   })
   f.push(...joinClips(doc, 'vc', 'ac'))
