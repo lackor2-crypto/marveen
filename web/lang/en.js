@@ -5831,6 +5831,8 @@ window._i18n.en = {
   "workbench.empty.title": "No work item yet.",
   "workbench.empty.hint": "Create one: give it a name, pick what it will be (document, image, graphic, video or note), and the Workbench starts keeping its versions.",
   "workbench.new_item": "+ New work",
+  "workbench.item.own_file": "own file",
+  "workbench.item.own_file_hint": "This file is the work item's content itself, not a separate entry: the marked row and the file are the same thing.",
   "workbench.item.mark_title": "Work item (editable in the Workbench)",
   "workbench.pin.add": "Pin to the top of the list (star)",
   "workbench.pin.remove": "Remove the star: it goes back to its normal place in the list",

@@ -5905,6 +5905,8 @@ window._i18n.hu = {
   "workbench.empty.title": "Még nincs munkadarab.",
   "workbench.empty.hint": "Hozz létre egyet: adj neki nevet, válaszd ki, mi lesz (dokumentum, kép, grafika, videó vagy jegyzet), és a Munkapad elkezdi vezetni a verzióit.",
   "workbench.new_item": "+ Új munka",
+  "workbench.item.own_file": "saját fájl",
+  "workbench.item.own_file_hint": "Ez a fájl maga a munkadarab tartalma, nem külön bejegyzés: a jelölt sor és a fájl ugyanaz.",
   "workbench.item.mark_title": "Munkadarab (a Munkapadon szerkeszthető)",
   "workbench.pin.add": "Kitűzés a lista tetejére (csillag)",
   "workbench.pin.remove": "Csillag eltávolítása: visszakerül a helyére a listában",

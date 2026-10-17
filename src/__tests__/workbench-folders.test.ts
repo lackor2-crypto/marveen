@@ -364,7 +364,16 @@ describe('agent context by folder', () => {
 /** The tree in the items panel only (in split layout the editor pane lists the items flat, too). */
 function treeOf(html: string): string {
   const a = html.indexOf('<ul class="wb-items">')
-  return a < 0 ? '' : html.slice(a, html.indexOf('</ul>', a))
+  if (a < 0) return ''
+  // #680: the tree nests one <ul> per section box, so the list ends at the </ul> that balances its own opening.
+  let depth = 0
+  const re = /<ul[ >]|<\/ul>/g
+  re.lastIndex = a
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    depth += m[0] === '</ul>' ? -1 : 1
+    if (depth === 0) return html.slice(a, m.index)
+  }
+  return html.slice(a)
 }
 
 describe('list UI', () => {

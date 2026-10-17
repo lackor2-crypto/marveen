@@ -1435,7 +1435,7 @@
       + (pinned ? '★' : '☆') + '</button>'
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + ' title="' + escA((it.source_path ? baseOf(it.source_path) : it.title) + (archived() ? '' : ' \u2014 ' + t('workbench.ctx.hint'))) + '"' + '>'
       + '<span class="wb-item-title">' + workSeqHtml(it) + '<span class="wb-item-mark" title="' + escA(t('workbench.item.mark_title')) + '">\u25c6</span> ' + esc(it.source_path ? baseOf(it.source_path) : it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
-      + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + '</span>'
+      + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + (it.source_path ? ' · <span class="wb-own-file" title="' + escA(t('workbench.item.own_file_hint')) + '">' + esc(t('workbench.item.own_file')) + '</span>' : '') + '</span>'
       + '</button>'
       // Phones have no right-click, and iOS Safari fires no contextmenu on a long press: a small "..." button
       // (shown only on touch / narrow screens by the CSS) opens the same menu.
@@ -1965,7 +1965,33 @@
     return out
   }
 
+  /** #680 (Boss TG 9433): every top-level section of the tree (Favorites, the work items box, each other project
+   *  folder such as Further materials / Knowledge base / Trash) gets its OWN framed box. A section starts at a
+   *  depth-1 folder row; loose depth-1 files and work items share one box of their own. */
+  function boxTreeSections(rows) {
+    var out = []
+    var cur = null
+    var kind = ''
+    function flush() { if (cur) out.push('<li class="wb-sec-box wb-sec-' + kind + '"><ul class="wb-sec-list">' + cur.join('') + '</ul></li>'); cur = null }
+    rows.forEach(function (r) {
+      var head = r.indexOf('<li class="wb-folder-row') === 0 && r.indexOf(' wb-depth-1') > 0
+      var loose = !head && /^<li class="[^"]*\bwb-depth-1\b/.test(r)
+      if (head || (loose && kind !== 'loose') || !cur) {
+        flush()
+        kind = head ? (r.indexOf('wb-fav-row') > 0 ? 'fav' : r.indexOf('wb-box-row') > 0 ? 'box' : 'folder') : 'loose'
+        cur = []
+      }
+      cur.push(r)
+    })
+    flush()
+    return out
+  }
+
   function folderTreeRows() {
+    return boxTreeSections(folderTreeRowsFlat())
+  }
+
+  function folderTreeRowsFlat() {
     WB.rootHead = ''
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box || ''
