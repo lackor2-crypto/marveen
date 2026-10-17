@@ -2085,7 +2085,6 @@
     var rows = []
     // Every top-level group gets its own base tint; its folders, items and files share it (Boss, TG 2531).
     var topIdx = 0
-    var subIdx = 0
     function groupStyle(g) {
       if (g == null) return ''
       return ' style="--wb-grp: ' + grpHsl(g) + '"'
@@ -2093,8 +2092,9 @@
     function walk(path, depth, grp) {
       ;(kids[path] || []).forEach(function (f) {
         if (folderGone(f)) return
-        if (path === box) subIdx = 0
-        var g = path === box ? -(++topIdx) : subIdx++ // #684: the item folder is blue, every folder inside it has its own colour
+        // #684: the item folders are blue. #685 (Boss TG 3163): a folder inside another folder takes the colour of the folder it
+        // sits in, so a dragged folder (and everything in it) turns into the colour of its target at once.
+        var g = path === box ? -(++topIdx) : grp
         var collapsed = isShut(f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
@@ -2182,7 +2182,7 @@
         if (e.box) { renderBox(); return }
         var f = e.f
         var shut = isShut(f)
-        var g = outIdx++ // #684: every folder has a colour of its own
+        var g = path === '' ? outIdx++ : grp // #684: every top-level branch has a colour of its own; #685: deeper folders take their parent's
         var linked = Object.prototype.hasOwnProperty.call(out.linked || {}, f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!shut) + '"'
