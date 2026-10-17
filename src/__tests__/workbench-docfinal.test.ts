@@ -213,8 +213,8 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     const abs = join(depot, fin.body.file)
     expect(existsSync(abs)).toBe(true)
     expect(fin.body.file).toMatch(/ – Válaszbeadvány – HU – v1\.pdf$/)
-    // #641: the finalized PDF sits in the item's Finished documents subfolder, not loose in the item folder
-    expect(fin.body.file).toMatch(/\/(Elkészített iratok|Finished documents)\/[^/]+\.pdf$/)
+    // #641: the finalized PDF sits in the item's Finished materials subfolder, not loose in the item folder
+    expect(fin.body.file).toMatch(/\/(Elkészített anyagok|Finished materials)\/[^/]+\.pdf$/)
     expect(readFileSync(abs, 'utf-8')).toContain('"SelectPdfVersion":{"type":"long","value":"2"}')
     expect(PDF_FILTER_FINAL).toContain('SelectPdfVersion')
     expect(fin.body.assets.some((a: { path: string }) => a.path === fin.body.file)).toBe(true)

@@ -43,7 +43,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, uploadsFolderFor, agentRefsFolderFor, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -1366,10 +1366,52 @@ export function ensureAllAttachmentsFolders(): { items: number } {
     for (const { id } of rows) {
       const folder = workItemFolder(id)
       if (!folder) continue
-      try { ensureItemStandardFolders(p, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
+      try { const it = getWorkItem(id); if (it) migrateFinishedFolder(it); ensureItemStandardFolders(p, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
     }
   }
   return { items }
+}
+
+/** #664 (Boss TG 9193): the item's "Elkészített iratok" / "Finished documents" subfolder becomes "Elkészített anyagok" /
+ *  "Finished materials" on disk, and every registered path into it follows (the same rewrite a folder move uses).
+ *  Idempotent; nothing is touched when the new folder already exists (finishedFolderFor still finds the old one), when
+ *  another item shares the folder, or when the rename fails -- the old name stays readable, nothing is lost. */
+export function migrateFinishedFolder(item: WorkItemRow): { renamed: boolean; reason?: string } {
+  ensureAssetTables()
+  const folder = workItemFolder(item.id)
+  const project = getProject(item.project_id)
+  if (!folder || !project) return { renamed: false, reason: 'no_folder' }
+  for (const n of [FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en]) {
+    if (projectFileTarget(project, `${folder}/${n}`).ok) return { renamed: false, reason: 'already_new' }
+  }
+  let oldName: string | null = null
+  for (const n of FINISHED_FOLDER_OLD_NAMES) if (projectFileTarget(project, `${folder}/${n}`).ok) { oldName = n; break }
+  if (!oldName) return { renamed: false, reason: 'nothing_to_rename' }
+  const cur = projectFileTarget(project, `${folder}/${oldName}`)
+  if (!cur.ok) return { renamed: false, reason: 'missing' }
+  const oldPrefix = cur.dirRel + '/'
+  const db = getDb()
+  const like = oldPrefix.replace(/[\\%_]/g, (c) => '\\' + c) + '%'
+  const shared = db.prepare(`SELECT 1 FROM work_items WHERE id != ? AND source_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_versions WHERE work_item_id != ? AND source_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_parts WHERE work_item_id != ? AND asset_path LIKE ? ESCAPE '\\'
+    UNION SELECT 1 FROM work_item_assets WHERE work_item_id != ? AND path LIKE ? ESCAPE '\\' AND removed_at IS NULL LIMIT 1`)
+    .get(item.id, like, item.id, like, item.id, like, item.id, like)
+  if (shared) return { renamed: false, reason: 'shared' }
+  const blocked = writeBlockReason(cur.dirRel)
+  if (blocked) return { renamed: false, reason: 'blocked' }
+  const newName = ol(FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en)
+  const newAbs = join(dirname(cur.dirAbs), newName)
+  if (existsSync(newAbs)) return { renamed: false, reason: 'target_exists' }
+  try { renameSync(cur.dirAbs, newAbs) } catch { return { renamed: false, reason: 'rename_failed' } }
+  const newPrefix = (toLifeRel(newAbs) || `${dirname(cur.dirRel)}/${newName}`) + '/'
+  const rw = rewriteItemPaths(item, project, `${folder}/${oldName}`, `${folder}/${newName}`, oldPrefix, newPrefix, { folderMoved: false })
+  if (!rw.ok) {
+    try { renameSync(newAbs, cur.dirAbs) } catch { /* the old name stays readable either way */ }
+    return { renamed: false, reason: 'rewrite_failed' }
+  }
+  try { rewriteCanvasFilesUnder(newAbs, oldPrefix, newPrefix) } catch { /* best effort */ }
+  return { renamed: true }
 }
 
 export interface FolderMigration { moved: number; skipped: number; container: string | null }
@@ -1423,7 +1465,7 @@ export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
   if (r.ok) {
     try {
       const project = getProject(item.project_id)
-      if (project) ensureItemStandardFolders(project, r.folder)
+      if (project) { migrateFinishedFolder(item); ensureItemStandardFolders(project, r.folder) }
     } catch { /* the folder is made on demand with the first annex instead */ }
   }
   return r
@@ -1620,7 +1662,7 @@ export function attachAsset(
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
   // Boss TG 3025: an uploaded or attached file goes to Uploads, an attachment of a document to Attachments, a finished
-  // PDF to Finished documents; only a folder that cannot be made falls back to the item's own folder.
+  // PDF to Finished materials; only a folder that cannot be made falls back to the item's own folder.
   const f = ensureWorkItemFolder(item)
   if (!f.ok) return f
   const into = opts.into ?? 'uploads'
@@ -1978,6 +2020,35 @@ export function renameWorkItemFolder(item: WorkItemRow, newTitle: string): Folde
   return relocateWorkItemFolder(item, folderNameFromTitle(newTitle), null)
 }
 
+/** After a folder (an item's own, or a subfolder of it) was renamed on disk: every registered path that pointed into it
+ *  follows, in one transaction, then the saved version files and the draft documents. `folderMoved` also moves the
+ *  item's own `folder` field (the item's folder itself was renamed). Returns the failure text when the rewrite fails. */
+function rewriteItemPaths(item: WorkItemRow, project: ProjectRow, folder: string, newFolder: string, oldPrefix: string, newPrefix: string, opts: { folderMoved: boolean }): { ok: true } | { ok: false; message: string } {
+  const db = getDb()
+  const swap = (p: string | null): string | null => (p && p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p)
+  try {
+    db.transaction(() => {
+      if (opts.folderMoved) db.prepare('UPDATE work_items SET folder = ?, source_path = ? WHERE id = ?').run(newFolder, swap(item.source_path), item.id)
+      else db.prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(swap(item.source_path), item.id)
+      for (const v of db.prepare('SELECT id, source_path FROM work_item_versions WHERE work_item_id = ?').all(item.id) as { id: string; source_path: string | null }[]) {
+        if (v.source_path && v.source_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_versions SET source_path = ? WHERE id = ?').run(swap(v.source_path), v.id)
+      }
+      for (const r of db.prepare('SELECT id, asset_path FROM work_item_parts WHERE work_item_id = ?').all(item.id) as { id: string; asset_path: string | null }[]) {
+        if (r.asset_path && r.asset_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE id = ?').run(swap(r.asset_path), r.id)
+      }
+      for (const a of db.prepare('SELECT id, path FROM work_item_assets WHERE work_item_id = ?').all(item.id) as { id: string; path: string }[]) {
+        if (a.path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_assets SET path = ? WHERE id = ?').run(swap(a.path), a.id)
+      }
+      moveDocModelPaths(item, project.id, `${folder}/`, `${newFolder}/`, swap)
+      moveDraftDocPaths(item.id, oldPrefix, newPrefix)
+    })()
+    moveVersionFilePaths(item.id, oldPrefix, newPrefix)
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) }
+  }
+  return { ok: true }
+}
+
 /**
  * The one mover behind both the rename and the move into the project's
  * "Munkadarabok" folder: the folder gets the name `wanted` under `newParentRel`
@@ -2021,26 +2092,10 @@ function relocateWorkItemFolder(item: WorkItemRow, wanted: string, newParentRel:
     return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
   }
   const newPrefix = (toLifeRel(newAbs) || `${parentT.dirRel}/${newSeg}`) + '/'
-  const swap = (p: string | null): string | null => (p && p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p)
-  try {
-    db.transaction(() => {
-      db.prepare('UPDATE work_items SET folder = ?, source_path = ? WHERE id = ?').run(newFolder, swap(item.source_path), item.id)
-      for (const v of db.prepare('SELECT id, source_path FROM work_item_versions WHERE work_item_id = ?').all(item.id) as { id: string; source_path: string | null }[]) {
-        if (v.source_path && v.source_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_versions SET source_path = ? WHERE id = ?').run(swap(v.source_path), v.id)
-      }
-      for (const r of db.prepare('SELECT id, asset_path FROM work_item_parts WHERE work_item_id = ?').all(item.id) as { id: string; asset_path: string | null }[]) {
-        if (r.asset_path && r.asset_path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_parts SET asset_path = ? WHERE id = ?').run(swap(r.asset_path), r.id)
-      }
-      for (const a of db.prepare('SELECT id, path FROM work_item_assets WHERE work_item_id = ?').all(item.id) as { id: string; path: string }[]) {
-        if (a.path.startsWith(oldPrefix)) db.prepare('UPDATE work_item_assets SET path = ? WHERE id = ?').run(swap(a.path), a.id)
-      }
-      moveDocModelPaths(item, project.id, `${folder}/`, `${newFolder}/`, swap)
-      moveDraftDocPaths(item.id, oldPrefix, newPrefix)
-    })()
-    moveVersionFilePaths(item.id, oldPrefix, newPrefix)
-  } catch (e) {
+  const rw = rewriteItemPaths(item, project, folder, newFolder, oldPrefix, newPrefix, { folderMoved: true })
+  if (!rw.ok) {
     try { renameSync(newAbs, cur.dirAbs) } catch { /* a hibauzenet megy tovabb */ }
-    return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
+    return { ok: false, code: 'move_failed', message: rw.message }
   }
   return { ok: true, renamed: true, from: folder, to: newFolder }
 }

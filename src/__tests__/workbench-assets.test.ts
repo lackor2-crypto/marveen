@@ -11,9 +11,10 @@ import { createWorkItem, createWorkItemVersion, getWorkItem, listWorkItems, list
 import {
   assetSupport, folderNameFromTitle, attachAsset, listWorkItemAssets, tidyWorkItemIntoFolder,
   listWorkItemAssetsSynced, renameWorkItemFolder, adoptExistingFolder, registerAsset,
-  migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders, listWorkFolders,
+  migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders, listWorkFolders, migrateFinishedFolder,
 } from '../workbench-assets.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
+import { finishedFolderFor } from '../project-files.js'
 import { rootStrays, resolveRootStrays } from '../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../workbench-json-orphans.js'
 import { executeTool } from '../workbench-agent/execute.js'
@@ -95,13 +96,13 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     if (!f.ok) throw new Error('mappa')
     const dir = join(projDir(), f.folder)
     mkdirSync(join(dir, 'Feltöltések'), { recursive: true })
-    mkdirSync(join(dir, 'Elkészített iratok'), { recursive: true })
+    mkdirSync(join(dir, 'Elkészített anyagok'), { recursive: true })
     writeFileSync(join(dir, 'Feltöltések', 'bejovo.pdf'), 'x')
     writeFileSync(join(dir, 'Kontextus - Wohngeld valasz.md'), 'c')
     writeFileSync(join(dir, 'Teendő - Wohngeld valasz.md'), 't')
     writeFileSync(join(dir, 'marveen-item.json'), '{}')
     writeFileSync(join(dir, 'kesz.pdf'), 'k')
-    writeFileSync(join(dir, 'Elkészített iratok', 'level.pdf'), 'l')
+    writeFileSync(join(dir, 'Elkészített anyagok', 'level.pdf'), 'l')
     const cur = getProject(pid) as ProjectRow
     const w = getWorkItem(item.id) as any
     const c = lifeMoveCandidates(cur, w)
@@ -115,7 +116,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(r.results.map((x) => x.ok)).toEqual([true, false, false])
     expect(existsSync(join(depot, 'Cel', 'kesz.pdf'))).toBe(true)
     expect(existsSync(join(dir, 'kesz.pdf'))).toBe(false)
-    expect(existsSync(join(dir, 'Elkészített iratok', 'level.pdf'))).toBe(true)
+    expect(existsSync(join(dir, 'Elkészített anyagok', 'level.pdf'))).toBe(true)
     // a second file of the same name never overwrites
     writeFileSync(join(dir, 'kesz.pdf'), 'masik')
     const c2 = lifeMoveCandidates(cur, w)
@@ -170,12 +171,59 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(rootStrays(cur, w).map((x) => x.name)).toEqual(['level.pdf'])
   })
 
-  it('Boss TG 3025: a new work item folder has Finished documents, Uploads and Attachments from the start', () => {
+  it('Boss TG 3025: a new work item folder has Finished materials, Uploads and Attachments from the start', () => {
     const item = newItem('Wohngeld valasz')
     const f = ensureWorkItemFolder(item)
     if (!f.ok) throw new Error('mappa')
     const dir = join(projDir(), f.folder)
-    for (const n of ['Elkészített iratok', 'Feltöltések', 'Mellékletek']) expect(existsSync(join(dir, n))).toBe(true)
+    for (const n of ['Elkészített anyagok', 'Feltöltések', 'Mellékletek']) expect(existsSync(join(dir, n))).toBe(true)
+    expect(existsSync(join(dir, 'Elkészített iratok'))).toBe(false)
+  })
+
+  it('#664: an old "Elkészített iratok" folder is renamed to "Elkészített anyagok", its registered paths follow, and a second run does nothing', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    rmSync(join(dir, 'Elkészített anyagok'), { recursive: true })
+    mkdirSync(join(dir, 'Elkészített iratok'), { recursive: true })
+    writeFileSync(join(dir, 'Elkészített iratok', 'level.pdf'), 'l')
+    const oldRel = `Projektek/Iroda/${f.folder}/Elkészített iratok/level.pdf`
+    getDb().prepare('INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)')
+      .run('a664', item.id, oldRel, 'level.pdf', 'file', 'x', 1, 1)
+    const r = migrateFinishedFolder(getWorkItem(item.id) as any)
+    expect(r.renamed).toBe(true)
+    expect(existsSync(join(dir, 'Elkészített iratok'))).toBe(false)
+    expect(readFileSync(join(dir, 'Elkészített anyagok', 'level.pdf'), 'utf8')).toBe('l')
+    const row = getDb().prepare('SELECT path FROM work_item_assets WHERE id = ?').get('a664') as { path: string }
+    expect(row.path).toBe(oldRel.replace('Elkészített iratok', 'Elkészített anyagok'))
+    expect(migrateFinishedFolder(getWorkItem(item.id) as any).renamed).toBe(false)
+  })
+
+  it('#664: the startup backfill migrates old folders, and an old folder that is not migrated yet is still found (nothing lost)', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    rmSync(join(dir, 'Elkészített anyagok'), { recursive: true })
+    mkdirSync(join(dir, 'Finished documents'), { recursive: true })
+    const cur = getProject(pid) as ProjectRow
+    expect(finishedFolderFor(cur, f.folder)).toBe(`${f.folder}/Finished documents`)
+    ensureAllAttachmentsFolders()
+    expect(existsSync(join(dir, 'Finished documents'))).toBe(false)
+    expect(existsSync(join(dir, 'Elkészített anyagok')) || existsSync(join(dir, 'Finished materials'))).toBe(true)
+    expect(finishedFolderFor(cur, f.folder)).toMatch(/\/(Elkészített anyagok|Finished materials)$/)
+  })
+
+  it('#664: when the new folder already exists next to the old one, nothing is merged or deleted', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    mkdirSync(join(dir, 'Elkészített iratok'), { recursive: true })
+    writeFileSync(join(dir, 'Elkészített iratok', 'regi.pdf'), 'r')
+    expect(migrateFinishedFolder(getWorkItem(item.id) as any)).toMatchObject({ renamed: false, reason: 'already_new' })
+    expect(existsSync(join(dir, 'Elkészített iratok', 'regi.pdf'))).toBe(true)
   })
 
   it('Boss TG 3043: a material registered from the Life tree shows in Uploads as a link, with no copy on the disk', () => {

@@ -49,7 +49,7 @@ function filesIn(folderRel: string): string[] {
 /** The PDF twin: inside the item folder's finished-documents subfolder (named after the app language). */
 function pdfOf(folder: string): string {
   const base = join(dir, 'Projektek', 'Robotok', ...folder.split('/'))
-  const sub = ['Elk\u00e9sz\u00edtett iratok', 'Finished documents'].find((n) => existsSync(join(base, n))) ?? 'Elk\u00e9sz\u00edtett iratok'
+  const sub = ['Elk\u00e9sz\u00edtett anyagok', 'Finished materials'].find((n) => existsSync(join(base, n))) ?? 'Elk\u00e9sz\u00edtett anyagok'
   return join(base, sub, 'Box szignal optimalizalasa.pdf')
 }
 
