@@ -88,6 +88,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(existsSync(att)).toBe(false)
     // an older item that was never provisioned (no marker) is backfilled
     getDb().prepare('DELETE FROM work_item_std_folders WHERE work_item_id = ?').run(item.id)
+    getDb().exec('DELETE FROM auto_folders_made') // ... and one from before the made-once registry
     expect(ensureAllAttachmentsFolders().items).toBeGreaterThanOrEqual(1)
     expect(existsSync(att)).toBe(true)
     // a second run changes nothing (no "Mellekletek (2)")

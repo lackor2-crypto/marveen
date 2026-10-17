@@ -94,19 +94,12 @@ describe('folder ids (.marveen-id)', () => {
     expect(rows()).toBe(0)
   })
 
-  it('a new folder under a parent that vanished from disk recreates it, and depth is not capped (TG 2447)', () => {
+  it('a new folder under a parent that vanished from disk is refused, the parent is NOT rebuilt (#681, was TG 2447)', () => {
     const g = group('szulo')
     rmSync(abs(g), { recursive: true, force: true })
     const r = makeWorkFolder(proj(), g, 'gyerek')
-    expect(r.ok).toBe(true)
-    expect(existsSync(abs(`${g}/gyerek`))).toBe(true)
-    let cur = `${g}/gyerek`
-    for (let i = 0; i < 12; i++) {
-      const n = makeWorkFolder(proj(), cur, `s${i}`)
-      expect(n.ok).toBe(true)
-      cur = `${cur}/s${i}`
-    }
-    expect(existsSync(abs(cur))).toBe(true)
+    expect(r.ok).toBe(false)
+    expect(existsSync(abs(g))).toBe(false)
   })
 
   it('forgetLostFolder refuses a folder that is still on disk', () => {

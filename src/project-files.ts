@@ -18,6 +18,7 @@ import { ol } from './owner-lang.js'
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { extname, join, sep } from 'node:path'
+import { getDb } from './db.js'
 import { resolveLifePath, toLifeRel, explorerRoot, mkdirLifePath, mkdirLife } from './life-explorer.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { writeBlockReason } from './git-guard.js'
@@ -81,7 +82,10 @@ export function ensureProjectHasFolder(p: ProjectRow): void {
   if (!made.ok) return
   for (const sub of [lifeName('knowledgeBase'), lifeName('moreMaterial'), lifeName('workItems')]) mkdirLife(made.rel, sub)
   const up = updateProject(p.id, { folder_path: made.rel })
-  if (up.ok) p.folder_path = up.project.folder_path
+  if (up.ok) {
+    p.folder_path = up.project.folder_path
+    for (const key of ['knowledgeBase', 'moreMaterial', 'workItems'] as const) noteFolderMade(p, lifeName(key))
+  }
 }
 
 /** A projekt mappajanak almappai, a MELYEBBEK is ('Media/Fotok'), relativ
@@ -152,6 +156,42 @@ export function makeProjectFolder(p: ProjectRow, parent: unknown, name: unknown)
     return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) }
   }
   return { ok: true, sub, created: true }
+}
+
+
+/**
+ * #681 (Boss TG 9548): a folder the app makes by itself is made ONCE. Every automatic folder (box, standard subfolder,
+ * versions folder) is written down here when it is made or first seen; when it is gone from the disk later, the owner
+ * deleted (or moved) it and no code path -- opening, syncing, snapshotting, a write -- makes it again.
+ */
+function ensureMadeTable(): void {
+  getDb().exec('CREATE TABLE IF NOT EXISTS auto_folders_made (project_id TEXT NOT NULL, rel TEXT NOT NULL, made_at INTEGER NOT NULL, PRIMARY KEY (project_id, rel))')
+}
+export function folderWasMade(p: ProjectRow, rel: string): boolean {
+  try {
+    ensureMadeTable()
+    return !!getDb().prepare('SELECT 1 FROM auto_folders_made WHERE project_id = ? AND rel = ?').get(p.id, rel)
+  } catch { return false }
+}
+export function noteFolderMade(p: ProjectRow, rel: string): void {
+  try {
+    ensureMadeTable()
+    getDb().prepare('INSERT OR IGNORE INTO auto_folders_made (project_id, rel, made_at) VALUES (?, ?, ?)').run(p.id, rel, Date.now())
+  } catch { /* the note is a safety net, never a reason to fail a write */ }
+}
+
+/** The existing one of `names` under `base` (noted as made), else a new one named `make` -- unless one of them was made
+ *  before (then it is gone by the owner's hand and stays gone: null). */
+function onceFolderFor(p: ProjectRow, base: string, names: readonly string[], make: string): string | null {
+  for (const n of names) {
+    const have = projectFileTarget(p, `${base}/${n}`)
+    if (have.ok) { noteFolderMade(p, `${base}/${n}`); return `${base}/${n}` }
+  }
+  if (names.some((n) => folderWasMade(p, `${base}/${n}`))) return null
+  const r = makeProjectFolder(p, base, make)
+  if (!r.ok) return null
+  noteFolderMade(p, r.sub)
+  return r.sub
 }
 
 /** Biztonsagos fajlnev: a Windows tiltott jelei nelkul, a kiterjesztes marad. */
@@ -429,12 +469,7 @@ export function versionsFolderFor(p: ProjectRow, itemFolder: string | null | und
   if (!base) return null
   if (!hasVersion) return base
   // The folder follows the owner's language, but a folder that already exists under the other name is reused.
-  for (const n of ['Verzi\u00f3k', 'Versions']) {
-    const have = projectFileTarget(p, `${base}/${n}`)
-    if (have.ok) return `${base}/${n}`
-  }
-  const r = makeProjectFolder(p, base, ol('Verzi\u00f3k', 'Versions'))
-  return r.ok ? r.sub : base
+  return onceFolderFor(p, base, ['Verzi\u00f3k', 'Versions'], ol('Verzi\u00f3k', 'Versions')) ?? base
 }
 
 /** #501 (Boss TG 2762): a file uploaded as an annex of a document goes into a "Mell\u00e9kletek" folder inside the item's
@@ -442,12 +477,7 @@ export function versionsFolderFor(p: ProjectRow, itemFolder: string | null | und
 export function attachmentsFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  for (const n of ['Mell\u00e9kletek', 'Attachments']) {
-    const have = projectFileTarget(p, `${base}/${n}`)
-    if (have.ok) return `${base}/${n}`
-  }
-  const r = makeProjectFolder(p, base, ol('Mell\u00e9kletek', 'Attachments'))
-  return r.ok ? r.sub : null
+  return onceFolderFor(p, base, ['Mell\u00e9kletek', 'Attachments'], ol('Mell\u00e9kletek', 'Attachments'))
 }
 
 /** #664 (Boss TG 9193): the folder of an item's finished files (a PDF twin, a rendered video, an exported deck) is called
@@ -461,12 +491,7 @@ export const FINISHED_FOLDER_OLD_NAMES = ['Elkészített iratok', 'Finished docu
 export function finishedFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  for (const n of [FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES]) {
-    const have = projectFileTarget(p, `${base}/${n}`)
-    if (have.ok) return `${base}/${n}`
-  }
-  const r = makeProjectFolder(p, base, ol(FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en))
-  return r.ok ? r.sub : null
+  return onceFolderFor(p, base, [FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES], ol(FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en))
 }
 
 /** The "Feltöltések" / "Uploads" subfolder of an item's own folder (made on demand): what the owner uploads or attaches
@@ -474,12 +499,7 @@ export function finishedFolderFor(p: ProjectRow, itemFolder: string | null | und
 export function uploadsFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  for (const n of ['Feltöltések', 'Uploads']) {
-    const have = projectFileTarget(p, `${base}/${n}`)
-    if (have.ok) return `${base}/${n}`
-  }
-  const r = makeProjectFolder(p, base, ol('Feltöltések', 'Uploads'))
-  return r.ok ? r.sub : null
+  return onceFolderFor(p, base, ['Feltöltések', 'Uploads'], ol('Feltöltések', 'Uploads'))
 }
 
 /** Boss, 2026-10-16: a file the owner shows the agent in the chat ONLY as a reference ("this is what I mean, fix it like
@@ -491,12 +511,7 @@ export const AGENT_REFS_FOLDER_OLD_NAMES = ['Agentnek', 'For the agent'] as cons
 export function agentRefsFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  for (const n of [AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES]) {
-    const have = projectFileTarget(p, `${base}/${n}`)
-    if (have.ok) return `${base}/${n}`
-  }
-  const r = makeProjectFolder(p, base, lang === 'en' ? AGENT_REFS_FOLDER_NAMES.en : AGENT_REFS_FOLDER_NAMES.hu)
-  return r.ok ? r.sub : null
+  return onceFolderFor(p, base, [AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES], lang === 'en' ? AGENT_REFS_FOLDER_NAMES.en : AGENT_REFS_FOLDER_NAMES.hu)
 }
 
 /** #676 (Boss TG 9372/9375): the "Vitáztatás" / "Debate" subfolder of an item's own folder: the debate report of the item
@@ -506,12 +521,7 @@ export const DEBATE_FOLDER_OLD_NAMES = ['Vitáztatás jelentés', 'Debate report
 export function debateFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  for (const n of [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]) {
-    const have = projectFileTarget(p, `${base}/${n}`)
-    if (have.ok) return `${base}/${n}`
-  }
-  const r = makeProjectFolder(p, base, lang === 'en' ? DEBATE_FOLDER_NAMES.en : ol(DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en))
-  return r.ok ? r.sub : null
+  return onceFolderFor(p, base, [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES], lang === 'en' ? DEBATE_FOLDER_NAMES.en : ol(DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en))
 }
 
 /** Boss TG 3025, #676 (TG 9372): EVERY work item folder, of every type, has these five subfolders from the start
@@ -527,3 +537,13 @@ export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | nu
   }
 }
 
+
+/** #681: write down the standard subfolders an item folder has RIGHT NOW (the ones made before the registry existed), so
+ *  deleting one of them later is remembered too. Reads and notes only; makes nothing. */
+export function noteItemStandardFoldersSeen(p: ProjectRow, itemFolder: string | null | undefined): void {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return
+  const names = ['Verzi\u00f3k', 'Versions', 'Mell\u00e9kletek', 'Attachments', FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES,
+    'Feltöltések', 'Uploads', AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES, DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]
+  for (const n of names) if (projectFileTarget(p, `${base}/${n}`).ok) noteFolderMade(p, `${base}/${n}`)
+}
