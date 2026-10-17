@@ -1422,13 +1422,22 @@
   function statusLabel(status) { return t('workbench.status.' + status) }
 
   /** One row of the work item list (#454: indented by its folder depth). */
+  /** #684 (Boss TG 9503): the tree shows what belongs together by BACKGROUND colour. A work item, the loose files beside
+   *  it and its node are one blue (g < 0: -1, -2 ... alternate two blues so neighbouring items stay apart); every folder
+   *  gets a colour of its own (g >= 0, never blue) and the files of an opened folder take that folder's colour. */
+  function grpHsl(g) {
+    if (g < 0) return 'hsl(' + (210 + ((-g - 1) % 2) * 16) + ' 70% 50%)'
+    var pal = [350, 28, 135, 275, 48, 168, 305, 95]
+    return 'hsl(' + pal[g % pal.length] + ' 65% 48%)'
+  }
+
   function itemRowHtml(it, depth, grp) {
     var on = it.id === WB.selectedId
     // A csillag KULON gomb a sorban (gombba gomb nem agyazhato), es nem
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (it.status === 'done' ? ' wb-item-done' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (it.status === 'done' ? ' wb-item-done' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: ' + grpHsl(grp) + '"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
@@ -1721,7 +1730,7 @@
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' + esc(f.name) + '</span>'
         + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
     }
-    return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: hsl(' + Math.round((grp * 137.508 + 210) % 360) + ' 65% 50%)"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
+    return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: ' + grpHsl(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(f.name + ' \u2014 ' + t('workbench.file.open')) + '">'
@@ -2075,15 +2084,17 @@
     function nameCmp(a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) }
     var rows = []
     // Every top-level group gets its own base tint; its folders, items and files share it (Boss, TG 2531).
-    var groupIdx = 0
+    var topIdx = 0
+    var subIdx = 0
     function groupStyle(g) {
       if (g == null) return ''
-      return ' style="--wb-grp: hsl(' + Math.round((g * 137.508 + 210) % 360) + ' 65% 50%)"'
+      return ' style="--wb-grp: ' + grpHsl(g) + '"'
     }
     function walk(path, depth, grp) {
       ;(kids[path] || []).forEach(function (f) {
         if (folderGone(f)) return
-        var g = grp != null ? grp : (path === box ? groupIdx++ : null)
+        if (path === box) subIdx = 0
+        var g = path === box ? -(++topIdx) : subIdx++ // #684: the item folder is blue, every folder inside it has its own colour
         var collapsed = isShut(f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
@@ -2171,7 +2182,7 @@
         if (e.box) { renderBox(); return }
         var f = e.f
         var shut = isShut(f)
-        var g = grp != null ? grp : (path === '' ? outIdx++ : null)
+        var g = outIdx++ // #684: every folder has a colour of its own
         var linked = Object.prototype.hasOwnProperty.call(out.linked || {}, f)
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!shut) + '"'

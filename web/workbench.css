@@ -1810,7 +1810,7 @@ main.projects-active.wb-sh-locked { overflow-y: hidden; }
 .wb-fr-panel .wb-depth-8 { margin-left: 62px; }
 
 /* Boss, TG 2531: everything that belongs to one top-level group shares a base tint (like the Intezo tree). */
-.wb-grp { background: color-mix(in srgb, var(--wb-grp) 14%, transparent); border-left: 3px solid var(--wb-grp); border-radius: 4px; }
+.wb-grp { background: color-mix(in srgb, var(--wb-grp) 22%, transparent); border-left: 3px solid var(--wb-grp); border-radius: 4px; }
 .wb-grp.wb-item-active, .wb-grp:has(> .wb-item-active) { background: color-mix(in srgb, var(--wb-grp) 26%, transparent); }
 
 .wb-fr-layer-off .wb-fr-layer-btn { opacity: .45; text-decoration: line-through; }
@@ -2211,10 +2211,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-fr-speed select { width: auto; max-width: 7rem; margin: 0; padding: 4px 6px; }
 
 /* #680 (Boss TG 9433): every top-level section of the left tree is a framed box of its own. */
-.wb-sec-box { list-style: none; margin: 0 0 8px; padding: 4px 6px 6px; border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: 8px; background: color-mix(in srgb, currentColor 4%, transparent); }
-.wb-sec-fav { border-color: color-mix(in srgb, #e0a800 55%, transparent); }
-.wb-sec-box { box-shadow: 0 1px 2px color-mix(in srgb, currentColor 10%, transparent); }
-.wb-sec-box:has(> .wb-sec-list > .wb-box-row) { border-color: var(--accent, #6d5efc); border-width: 2px; }
+.wb-sec-box { list-style: none; margin: 0 0 8px; padding: 4px 6px 6px; border: 1px solid color-mix(in srgb, currentColor 10%, transparent); border-radius: 8px; background: transparent; }
+.wb-sec-fav { border-color: color-mix(in srgb, #e0a800 28%, transparent); }
+.wb-sec-box:has(> .wb-sec-list > .wb-box-row) { border-color: color-mix(in srgb, var(--accent, #6d5efc) 35%, transparent); }
 .wb-sec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 @media (max-width: 760px) { .wb-sec-box { padding: 3px 4px 5px; margin-bottom: 10px; } }
 .wb-own-file { font-style: italic; opacity: .85; }
