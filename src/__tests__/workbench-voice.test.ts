@@ -89,6 +89,35 @@ describe('diktalas (#406, 17. pont)', () => {
     expect(h.toasts.join('\n')).toContain('workbench.voice.err_denied')
   })
 
+  // #640 (Boss TG 3608): the field must be empty after Send, even if a dictation was running.
+  it('Kuldes utan a chat mezo ures (gepelt szoveg), es az uzenet a beszelgetesben van', async () => {
+    const h = workbenchHarness()
+    await openItem(h)
+    h.inputs['wbChatInput'] = { value: 'Kérek egy ajánlatot', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    expect(h.inputs['wbChatInput'].value).toBe('')
+    expect(h.html()).toContain('Kérek egy ajánlatot')
+  })
+
+  it('diktalas kozben kuldve a mezo ures marad: a bongeszo kesei utolso szavai sem irjak vissza az elkuldott szoveget', async () => {
+    const h = workbenchHarness()
+    h.win.webkitSpeechRecognition = FakeRec
+    await openItem(h)
+    h.inputs['wbChatInput'] = { value: 'Szia,', focus() {} }
+    h.click({ 'data-wb-act': 'dict', 'data-wb-dict': 'wbChatInput' })
+    const rec = FakeRec.last!
+    rec.onresult!({ resultIndex: 0, results: [Object.assign([{ transcript: 'kérek egy ajánlatot' }], { isFinal: true })] })
+    expect(h.inputs['wbChatInput'].value).toBe('Szia, kérek egy ajánlatot')
+    h.click({ 'data-wb-act': 'chat-send' })
+    expect(rec.stopped).toBe(true)
+    expect(h.inputs['wbChatInput'].value).toBe('')
+    // The browser still delivers a late final word after stop(), then fires end: neither may bring the sent text back.
+    rec.onresult!({ resultIndex: 1, results: [Object.assign([{ transcript: 'kérek egy ajánlatot' }], { isFinal: true }), Object.assign([{ transcript: 'köszi' }], { isFinal: true })] })
+    rec.onend!()
+    expect(h.inputs['wbChatInput'].value).not.toContain('Szia')
+    expect(h.inputs['wbChatInput'].value).not.toContain('ajánlatot')
+  })
+
   it('az uj szoveges resz mezojeben a begepelt szoveg tuleli az ujrarajzolast', async () => {
     const h = workbenchHarness()
     await openItem(h)
