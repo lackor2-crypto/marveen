@@ -67,7 +67,7 @@ describe('outline mirror file', () => {
     if (!r.ok) throw new Error('mirror: ' + r.code)
     expect(r.written).toBe(true)
     const folder = getWorkItem(id)!.folder!
-    // #636 + Boss TG 3021 (A): the PDF twin sits in the item's finished-documents folder (only when a converter made the Word copy)
+    // the item folder holds only the Word / Markdown copy
     expect(filesIn(folder).sort()).toEqual(r.format === 'docx' ? ['Box szignal optimalizalasa.docx'] : ['Box szignal optimalizalasa.md'])
     // Boss, 2026-10-16: no PDF twin any more: the finished-documents folder holds only finalized PDFs
     expect(existsSync(pdfOf(folder))).toBe(false)
