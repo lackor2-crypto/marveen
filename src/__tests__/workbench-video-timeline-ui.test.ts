@@ -72,6 +72,21 @@ describe('video timeline editor (phase 5)', () => {
     expect(JSON.parse(String(call.init!.body))).toEqual({ ops: [{ op: 'moveClip', id: 'c1', to: 2 }] })
   })
 
+  it('deleting a clip asks what goes (the clip, not the file) and sends nothing when refused (#561)', async () => {
+    const h = await open()
+    const ask = vi.fn(() => false)
+    ;(h.win as unknown as { confirm: unknown }).confirm = ask
+    h.click({ 'data-wb-act': 'vt-clip-del', 'data-wb-id': 'c1' })
+    expect(ask).toHaveBeenCalledTimes(1)
+    expect(String(ask.mock.calls[0]![0])).toContain('workbench.vt.remove_confirm')
+    expect(h.fetchCalls.some((c) => c.url.includes('/timeline/ops'))).toBe(false)
+    ask.mockReturnValue(true)
+    h.click({ 'data-wb-act': 'vt-clip-del', 'data-wb-id': 'c1' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/timeline/ops'))).toBe(true))
+    const call = h.fetchCalls.find((c) => c.url.includes('/timeline/ops'))!
+    expect(JSON.parse(String(call.init!.body))).toEqual({ ops: [{ op: 'removeClip', id: 'c1' }] })
+  })
+
   it('a text that is not a number is refused in plain words and nothing is sent', async () => {
     const h = await open()
     h.inputs['wbVt-start-c1'] = { value: 'abc', focus() {} } as never

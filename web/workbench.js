@@ -15963,7 +15963,8 @@
       var on = sel && sel.id === c.id
       return '<div class="wb-tl-clip' + (on ? ' wb-tl-on' : '') + '" data-wb-tl="' + escA(c.id) + '" style="width:' + (dur / total * 100).toFixed(3) + '%" title="' + escA(c.src.split('/').pop()) + '">'
         + (archived() ? '' : '<span class="wb-tl-h wb-tl-hl" data-wb-tlh="l" aria-hidden="true"></span>')
-        + '<span class="wb-tl-no">' + (i + 1) + '</span><span class="wb-tl-name">' + esc(c.src.split('/').pop()) + '</span><span class="wb-tl-dur">' + esc(vtSecs(dur)) + ' s</span>'
+        + (on ? '<span class="wb-tl-ph" data-wb-ph="1" aria-hidden="true"><span class="wb-tl-pht"></span></span>' : '')
+        + '<span class="wb-tl-no"' + (!archived() && clips.length > 1 ? ' data-wb-tlh="m" title="' + escA(t('workbench.fr.vid.grip')) + '"' : '') + '>' + (i + 1) + '</span><span class="wb-tl-name">' + esc(c.src.split('/').pop()) + '</span><span class="wb-tl-dur">' + esc(vtSecs(dur)) + ' s</span>'
         + (archived() ? '' : '<span class="wb-tl-h wb-tl-hr" data-wb-tlh="r" aria-hidden="true"></span>')
         + '</div>'
     }).join('')
@@ -15971,7 +15972,7 @@
       + '<div class="wb-fr-tl-bar">'
       + btn('vt-undo', '↶', t('workbench.vt.undo'), !h.can_undo) + btn('vt-redo', '↷', t('workbench.vt.redo'), !h.can_redo)
       + btn('fr-vt-split', '✂ ' + esc(t('workbench.fr.vid.split')), t('workbench.fr.vid.split_hint'), !sel)
-      + btn('vt-clip-del', '🗑 ' + esc(t('workbench.vt.remove')), t('workbench.vt.remove'), !sel, sel && sel.id)
+      + btn('vt-clip-del', '🗑 ' + esc(t('workbench.vt.remove')), t('workbench.vt.remove_hint'), !sel, sel && sel.id)
       + '<span class="wb-fr-tl-sp"></span>'
       + '<span class="wb-muted wb-fr-tl-len">' + esc(t('workbench.vt.length', { s: vtSecs((WB.vt && WB.vt.duration) || 0) })) + '</span>'
       + (archived() ? '' : frVtAddRowHtml())
@@ -15991,6 +15992,59 @@
     if (!(at > c.start + 0.1 && at < c.end - 0.1)) { window.showToast(t('workbench.fr.vid.split_range')); return }
     vtOps([{ op: 'splitClip', id: c.id, at: at }])
   }
+
+  /** Remove a clip from the timeline -- says what goes (the clip, not the video file) and that it can be undone. */
+  function vtClipRemove(id) {
+    var clips = (vtDoc() || {}).clips || []
+    var c = clips.filter(function (x) { return x.id === id })[0]
+    var name = c ? String(c.src).split('/').pop() : ''
+    if (typeof window.confirm === 'function' && !window.confirm(t('workbench.vt.remove_confirm', { name: name }))) return
+    vtOps([{ op: 'removeClip', id: id }])
+  }
+
+  /** The yellow playhead line in the picked clip block: it follows the player and shows where "Szetvagas" cuts. */
+  function frVtPlayheadSync() {
+    if (typeof document.querySelector !== 'function') return
+    var c = frVtSelClip()
+    var v = document.getElementById('wbVideo')
+    var ph = document.querySelector('[data-wb-ph]')
+    if (!c || !v || !ph || typeof v.currentTime !== 'number') return
+    var dur = Math.max(0.1, c.end - c.start)
+    var at = Math.min(c.end, Math.max(c.start, v.currentTime))
+    ph.style.left = ((at - c.start) / dur * 100).toFixed(2) + '%'
+    var lab = ph.firstChild
+    if (lab) lab.textContent = vtSecs(at)
+    var sp = document.querySelector('[data-wb-act="fr-vt-split"]')
+    if (sp) sp.setAttribute('title', t('workbench.fr.vid.split_at', { s: vtSecs(Math.round(at * 10) / 10) }))
+  }
+
+  /** Put the player on the spot of the picked clip that the pointer is over (frac 0..1 of the block). */
+  function frVtSeekFrac(c, frac) {
+    var v = document.getElementById('wbVideo')
+    if (!c || !v) return
+    var f = Math.min(1, Math.max(0, frac))
+    try { v.currentTime = c.start + f * Math.max(0.1, c.end - c.start) } catch (_e) { /* not loaded yet */ }
+    frVtPlayheadSync()
+  }
+
+  /** After a redraw: a click on another clip jumps the (new) player to the clicked spot. */
+  function frVtApplySeek() {
+    var pend = WB.vtSeek
+    WB.vtSeek = null
+    var c = frVtSelClip()
+    var v = document.getElementById('wbVideo')
+    if (!pend || !c || !v || c.id !== pend.id) return
+    var go = function () { frVtSeekFrac(c, pend.frac) }
+    go()
+    if (typeof v.addEventListener === 'function') v.addEventListener('loadedmetadata', go, { once: true })
+  }
+
+  // Media events do not bubble: capture them to keep the playhead in step with the player.
+  ;['timeupdate', 'seeked', 'loadedmetadata'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      if (e.target && e.target.id === 'wbVideo') frVtPlayheadSync()
+    }, true)
+  })
 
   function frVtAddFromStrip() {
     var el = document.getElementById('wbFrVtSrc')
@@ -17781,6 +17835,8 @@
     docEditMount()
     pdfEditMount()
     if (vidKeep) videoRestore(vidKeep)
+    frVtApplySeek()
+    frVtPlayheadSync()
     WB.rendering = false
     tableUniverAttach()
     dpFocusRestore(dpSnap)
@@ -18644,7 +18700,7 @@
     else if (a === 'vt-clip-trim') vtTrimClip(act.getAttribute('data-wb-id'))
     else if (a === 'vt-clip-up' || a === 'vt-clip-down') vtMoveClip(act.getAttribute('data-wb-id'), a === 'vt-clip-up' ? -1 : 1)
     else if (a === 'vt-clip-split') vtSplitClip(act.getAttribute('data-wb-id'))
-    else if (a === 'vt-clip-del') vtOps([{ op: 'removeClip', id: act.getAttribute('data-wb-id') }])
+    else if (a === 'vt-clip-del') vtClipRemove(act.getAttribute('data-wb-id'))
     else if (a === 'vt-sub-add') vtAddSubtitle()
     else if (a === 'vt-sub-save') vtSaveSubtitle(act.getAttribute('data-wb-id'))
     else if (a === 'vt-sub-del') vtOps([{ op: 'removeSubtitle', id: act.getAttribute('data-wb-id') }])
@@ -18948,7 +19004,20 @@
     var clips = (vtDoc() || {}).clips || []
     for (var i = 0; i < clips.length; i += 1) if (clips[i].id === blk.getAttribute('data-wb-tl')) c = clips[i]
     if (!c || !rect.width) return
-    tlDrag = { id: c.id, el: blk, kind: h ? h.getAttribute('data-wb-tlh') : 'move', x0: e.clientX, moved: false, clip: c, secPerPx: Math.max(0.1, c.end - c.start) / rect.width, dx: 0 }
+    var kind = h ? h.getAttribute('data-wb-tlh') : 'scrub'
+    if (kind === 'm') kind = 'move'
+    if (kind === 'scrub') {
+      // A click or drag on the block body is the scrubber: the player goes to that spot and the playhead shows the cut.
+      var sel = frVtSelClip()
+      if (!sel || sel.id !== c.id) {
+        WB.vtSel = c.id
+        WB.vtSeek = { id: c.id, frac: (e.clientX - rect.left) / rect.width }
+        render()
+        return
+      }
+      frVtSeekFrac(c, (e.clientX - rect.left) / rect.width)
+    }
+    tlDrag = { id: c.id, el: blk, kind: kind, x0: e.clientX, moved: false, clip: c, secPerPx: Math.max(0.1, c.end - c.start) / rect.width, dx: 0, rect: rect }
     if (typeof blk.setPointerCapture === 'function') { try { blk.setPointerCapture(e.pointerId) } catch (_e) { /* synthetic event */ } }
   })
 
@@ -18956,6 +19025,7 @@
     if (!tlDrag) return
     var d = tlDrag
     d.dx = e.clientX - d.x0
+    if (d.kind === 'scrub') { frVtSeekFrac(d.clip, (e.clientX - d.rect.left) / d.rect.width); return }
     if (!d.moved && Math.abs(d.dx) < 4) return
     d.moved = true
     if (archived()) return
@@ -18980,6 +19050,7 @@
     if (!d) return
     d.el.style.transform = ''
     d.el.classList.remove('wb-tl-drag')
+    if (d.kind === 'scrub') return
     if (!d.moved) {
       WB.vtSel = d.id
       render()
