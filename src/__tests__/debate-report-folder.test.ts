@@ -6,6 +6,7 @@ const made: { parent: unknown; name: unknown; opts: unknown }[] = []
 vi.mock('../workbench-assets.js', () => ({
   makeWorkFolder: (_p: unknown, parent: unknown, name: unknown, opts: unknown) => { made.push({ parent, name, opts }); return { ok: true, folder: `${parent || 'Box'}/${name}`, created: true } },
   assignWorkItemFolder: () => {},
+  ensureWorkItemFolder: (i: { folder?: string | null }) => i.folder ? { ok: true, folder: i.folder, created: false } : { ok: false, code: 'not_found' },
   folderNameFromTitle: (t: string) => t,
 }))
 vi.mock('../workbench-docmirror.js', () => ({ scheduleOutlineMirror: () => {} }))

@@ -10,7 +10,7 @@ import { logger } from './logger.js'
 import { createWorkItem, getWorkItem, setWorkItemDeleted, type WorkItemRow } from './workbench.js'
 import { replacePage, BLOCK_TEXT_MAX } from './workbench-docmodel.js'
 import { scheduleOutlineMirror } from './workbench-docmirror.js'
-import { assignWorkItemFolder, findWorkItemsBox, makeWorkFolder, moveWorkItemToFolder } from './workbench-assets.js'
+import { assignWorkItemFolder, ensureWorkItemFolder, findWorkItemsBox, makeWorkFolder, moveWorkItemToFolder } from './workbench-assets.js'
 import { reportTitle, type DebateReport } from './debate-export.js'
 import { listDebateOrigins } from './debate-run.js'
 
@@ -47,7 +47,13 @@ export function createReportDocument(projectId: string, report: DebateReport, by
   // folder of the work item the debate was started from; a debate with no known origin gets one shared "Debate report"
   // folder of the box (never a folder of its own at the box level).
   const origin = opts?.originItem ? getWorkItem(opts.originItem) : null
-  const originFolder = origin && origin.project_id === project.id && origin.deleted_at == null && origin.folder ? origin.folder : ''
+  // An origin item whose folder is not made yet (it is made lazily, with the first file) gets it now: the report must
+  // still land under that item, not in the shared folder of the box.
+  let originFolder = ''
+  if (origin && origin.project_id === project.id && origin.deleted_at == null) {
+    const of = ensureWorkItemFolder(origin)
+    if (of.ok) originFolder = of.folder
+  }
   const mf = makeWorkFolder(project, originFolder, reportFolderName(opts?.lang ?? 'hu'))
   const folder = mf.ok ? mf.folder : null
   const made = createWorkItem({ project_id: project.id, type: 'document', title, container_folder: folder, created_by: by })
