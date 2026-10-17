@@ -7232,7 +7232,7 @@
   function vtAddSubtitle() {
     var s = vtNum('sub-start'), e = vtNum('sub-end')
     if (vtBad(s) || vtBad(e)) return
-    vtOps([{ op: 'addSubtitle', text: vtText('sub-text'), start: s, end: e }])
+    vtOps([vtSubStyleOp({ op: 'addSubtitle', text: vtText('sub-text'), start: s, end: e }, '')])
   }
   function vtSaveSubtitle(id) {
     var s = vtNum('start', id), e = vtNum('end', id)
@@ -7240,7 +7240,7 @@
     var op = { op: 'updateSubtitle', id: id, text: vtText('text', id) }
     if (s !== undefined) op.start = s
     if (e !== undefined) op.end = e
-    vtOps([op])
+    vtOps([vtSubStyleOp(op, id)])
   }
   function vtMusicVolume() {
     var v = vtNum('music-volume')
@@ -7322,16 +7322,31 @@
       + '<p class="wb-hint">' + esc(t('workbench.vt.clip_hint')) + '</p>'
   }
 
+  /** #669: the look / animation / position pickers of a subtitle (first value of each list = the default). */
+  var VT_SUB_STYLE = { look: ['classic', 'bold', 'yellow', 'box', 'title'], anim: ['none', 'fade', 'pop', 'slideup'], pos: ['bottom', 'middle', 'top'] }
+  function vtSubStyleSelects(id, s) {
+    return ['look', 'anim', 'pos'].map(function (k) {
+      var cur = (s && s[k]) || VT_SUB_STYLE[k][0]
+      return '<select class="wb-input" id="wbVt-' + k + (id ? '-' + escA(id) : '') + '" aria-label="' + escA(t('workbench.vt.sub_' + k)) + '" title="' + escA(t('workbench.vt.sub_' + k)) + '">'
+        + VT_SUB_STYLE[k].map(function (v) { return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + esc(t('workbench.vt.sub_' + k + '_' + v)) + '</option>' }).join('') + '</select> '
+    }).join('')
+  }
+  function vtSubStyleOp(op, id) {
+    ;['look', 'anim', 'pos'].forEach(function (k) { var el = vtInput(k, id); if (el) op[k] = el.value })
+    return op
+  }
   function vtSubtitlesHtml(doc) {
     var rows = doc.subtitles.map(function (s) {
       return '<li class="wb-vt-row"><input type="text" size="34" id="wbVt-text-' + escA(s.id) + '" value="' + escA(s.text) + '"> '
         + vtNumField('start', s.id, s.start, t('workbench.vt.from')) + vtNumField('end', s.id, s.end, t('workbench.vt.to'))
+        + vtSubStyleSelects(s.id, s)
         + vtBtn('vt-sub-save', t('workbench.vt.save'), s.id) + vtBtn('vt-sub-del', t('workbench.vt.remove'), s.id) + '</li>'
     }).join('')
     return '<h5>' + esc(t('workbench.vt.subtitles')) + '</h5>'
       + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
       + '<p><input type="text" size="34" id="wbVt-sub-text" placeholder="' + escA(t('workbench.vt.sub_text')) + '"> '
       + vtNumField('sub-start', '', undefined, t('workbench.vt.from')) + vtNumField('sub-end', '', undefined, t('workbench.vt.to'))
+      + vtSubStyleSelects('', null)
       + vtBtn('vt-sub-add', t('workbench.vt.add_sub')) + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.sub_hint')) + '</p>'
       + (doc.clips.length ? '<p><select class="wb-input" id="wbVt-auto-lang" aria-label="' + escA(t('workbench.vt.auto_lang')) + '">'
