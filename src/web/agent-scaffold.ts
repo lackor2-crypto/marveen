@@ -3126,6 +3126,89 @@ export function ensureGlobalShortReplyRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+// --- Browser click-through rule (kanban #672, owner 2026-10-17) ---------------
+//
+// A UI change was reported done on the strength of unit tests alone, and the
+// owner met the broken screen first. The last mandatory step of any work that
+// touches the interface is a real browser click-through, as a user would do it,
+// on a separate empty web-only instance; only then may the card go to waiting.
+const BROWSER_CLICK_BEGIN = '<!-- BEGIN GENERATED: browser-clickthrough-rule (auto-generated, do not edit by hand) -->'
+const BROWSER_CLICK_END = '<!-- END GENERATED: browser-clickthrough-rule -->'
+const BROWSER_CLICK_BLOCK_RE = new RegExp(
+  `${BROWSER_CLICK_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${BROWSER_CLICK_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildBrowserClickthroughBody(): string {
+  return [
+    '## FELULETET ERINTO MUNKA UTOLSO LEPESE: VALODI BONGESZOS VEGIGKATTINTAS',
+    '',
+    'Ha a munka a felületet (web/, dashboard, Munkapad) erinti, a "kesz" ELOTTI utolso',
+    'kotelezo lepes: kulon, ures web-only peldanyon, valodi bongeszoben (Playwright) vegig',
+    'kell kattintanod, mint egy felhasznalonak: minden gomb es funkcio, amit erintettel,',
+    'PDF/fajl-generalasnal a kimenet es az is, HOVA kerul. A forras-teszt es a vitest',
+    'ezt NEM helyettesiti. Csak ha a vegigkattintas mukodik, mehet a kartya waiting-be;',
+    'az eredmenyt (mit kattintottal, mit mertel, mit NEM probaltal) kommentben a kartyara',
+    'kell irni. Ha nem tudod megcsinalni, mondd ki, hogy nem mertel, es a kartya marad.',
+    'Eljaras: `isolated-web-only-instance-browser-test` es `browser-clickthrough-before-done` skill.',
+  ].join('\n')
+}
+
+/** Beviszi a bongeszos vegigkattintas szabalyt egy agens sajat CLAUDE.md-jebe. */
+export function ensureBrowserClickthroughSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${BROWSER_CLICK_BEGIN}\n${buildBrowserClickthroughBody()}\n${BROWSER_CLICK_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = BROWSER_CLICK_BLOCK_RE.test(existing)
+    ? existing.replace(BROWSER_CLICK_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalBrowserClickthroughRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${BROWSER_CLICK_BEGIN}\n${buildBrowserClickthroughBody()}\n${BROWSER_CLICK_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = BROWSER_CLICK_BLOCK_RE.test(existing)
+    ? existing.replace(BROWSER_CLICK_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 // --- statusLine: the rate-limit snapshot producer ---------------------------
 //
 // scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;
