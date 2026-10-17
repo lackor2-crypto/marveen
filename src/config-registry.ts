@@ -96,6 +96,17 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     restartTarget: 'dashboard',
   },
   {
+    key: 'WORKBENCH_UPLOAD_MAX_MB',
+    type: 'int',
+    default: 0,
+    min: 0,
+    max: 10485760,
+    description: 'Ekkora fájlt (MB-ban) lehet feltölteni a Munkapadon és a projektekbe. 0 = nincs korlát (a gigabájtos fájl is feltölthető, a lemezre kerül, nem a memóriába). Ha a gépen kevés a hely, adj meg egy határt, például 4096 (4 GB).',
+    module: 'system',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
     key: 'LIFE_TRASH_DAYS',
     type: 'int',
     default: 60,

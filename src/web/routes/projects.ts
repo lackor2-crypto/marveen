@@ -49,9 +49,10 @@ import {
 import { buildProjectOverview, recentFiles } from '../../project-overview.js'
 import { summarizeProject } from '../../project-summary.js'
 import {
-  projectSubfolders, makeProjectFolder, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
+  projectSubfolders, makeProjectFolder, writeProjectFile, writeProjectNote, projectFileTarget,
   listProjectDir, findProjectFiles, warmProjectNameIndex, forgetProjectNameIndex,
 } from '../../project-files.js'
+import { uploadExceeds, uploadLimitBytes, uploadLimitMbForMessage, streamBodyToStage, UploadDiskError, type StagedUpload } from '../../upload-stream.js'
 import { createIdea, getDb } from '../../db.js'
 import { randomUUID } from 'node:crypto'
 import {
@@ -146,7 +147,15 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   vfolder_missing: { hu: 'Ez a mappa nem található (lehet, hogy közben törölték). Frissítsd a listát.', en: 'This folder was not found (it may have been deleted). Refresh the list.' },
   vfolder_limit: { hu: 'Ezen a fülön már 100 mappa van, többet nem lehet létrehozni.', en: 'This tab already has 100 folders; no more can be created.' },
   nothing_to_sort: { hu: 'Minden elem mappában van, nincs mit besorolni.', en: 'Every item is in a folder; there is nothing to sort.' },
-  too_large: { hu: 'A fájl túl nagy a feltöltéshez (legfeljebb 50 MB). A nagyobbat húzd be közvetlenül a mappába a Windows Intézőben.', en: 'The file is too large to upload (50 MB at most). Drag a bigger one straight into the folder in Windows Explorer.' },
+  get too_large() {
+    const mb = uploadLimitMbForMessage()
+    return {
+      hu: `A fájl túl nagy a feltöltéshez (legfeljebb ${mb} MB). A nagyobbat húzd be közvetlenül a mappába a Windows Intézőben, vagy emeld meg a limitet a Beállításokban.`,
+      en: `The file is too large to upload (${mb} MB at most). Drag a bigger one straight into the folder in Windows Explorer, or raise the limit in Settings.`,
+    }
+  },
+  upload_disk_full: { hu: 'Nincs elég szabad hely a lemezen ehhez a fájlhoz. Szabadíts fel helyet, és próbáld újra.', en: 'There is not enough free disk space for this file. Free some space and try again.' },
+  upload_disk_error: { hu: 'A fájlt nem sikerült a lemezre menteni a feltöltés közben. Próbáld újra.', en: 'The file could not be saved to disk during the upload. Try again.' },
 }
 
 function fail(res: RouteContext['res'], status: number, code: string, lang: 'hu' | 'en', extra: Record<string, unknown> = {}): true {
@@ -646,8 +655,8 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
   if (sub === '/folders' && method === 'GET') {
     const t = projectFileTarget(project, '')
     json(res, t.ok
-      ? { state: 'ok', path: project.folder_path, subfolders: await projectSubfolders(project), maxBytes: PROJECT_UPLOAD_MAX_BYTES }
-      : { state: t.code, path: project.folder_path, subfolders: [], maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      ? { state: 'ok', path: project.folder_path, subfolders: await projectSubfolders(project), maxBytes: uploadLimitBytes() }
+      : { state: t.code, path: project.folder_path, subfolders: [], maxBytes: uploadLimitBytes() })
     return true
   }
 
@@ -678,14 +687,16 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     // A tul nagy fajlt meg olvasas elott visszautasitjuk -- igy a bongeszo
     // valaszt kap, nem egy megszakadt kapcsolatot.
     const declared = Number(req.headers['content-length'] || 0)
-    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'too_large', lang)
-    let data: Buffer
+    if (uploadExceeds(declared)) return fail(res, 413, 'too_large', lang)
+    let data: StagedUpload
     try {
-      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+      data = await streamBodyToStage(req)
     } catch (e) {
       if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'too_large', lang)
+      if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
       throw e
     }
+    res.on('close', () => data.discard())
     const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
     forgetProjectNameIndex(project)
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang, out.message ? { detail: out.message } : {})
