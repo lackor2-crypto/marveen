@@ -16204,6 +16204,50 @@
     return '<video class="wb-fr-video" id="wbVideo" src="' + escA(frVtSrcUrl(c)) + '" controls preload="metadata" playsinline></video>'
   }
 
+  var VT_TRANSITIONS = ['fade', 'fadeblack', 'slideleft', 'slideright', 'wipeleft']
+
+  /** #669: the small button between two clip blocks: it opens the transition panel for that boundary. */
+  function frVtTransChipHtml(prev, i) {
+    var tr = prev.transition
+    var label = tr ? '\u21C4 ' + esc(vtSecs(tr.duration)) : '\u21C4'
+    var title = tr ? t('workbench.fr.vid.trans.set', { type: t('workbench.fr.vid.trans.t_' + tr.type), s: vtSecs(tr.duration) }) : t('workbench.fr.vid.trans.chip')
+    return '<span class="wb-tl-gap"><button type="button" class="wb-tl-chip' + (tr ? ' wb-tl-chip-on' : '') + (WB.vtTransFor === prev.id ? ' wb-tl-chip-open' : '')
+      + '" data-wb-act="vt-trans-open" data-wb-id="' + escA(prev.id) + '" title="' + escA(title) + '" aria-label="' + escA(title) + '"'
+      + (WB.vtBusy || WB.vtRender ? ' disabled' : '') + '>' + label + '</button></span>'
+  }
+
+  /** The panel of the opened boundary: type, length, remove. Every change is saved at once (and can be undone). */
+  function frVtTransPanelHtml(clips) {
+    if (!WB.vtTransFor || archived()) return ''
+    var i = -1
+    for (var k = 0; k < clips.length; k += 1) if (clips[k].id === WB.vtTransFor) i = k
+    if (i < 0 || i >= clips.length - 1) return ''
+    var tr = clips[i].transition
+    var busy = WB.vtBusy || WB.vtRender ? ' disabled' : ''
+    var opts = VT_TRANSITIONS.map(function (ty) {
+      return '<option value="' + ty + '"' + (tr && tr.type === ty ? ' selected' : '') + '>' + esc(t('workbench.fr.vid.trans.t_' + ty)) + '</option>'
+    }).join('')
+    return '<div class="wb-fr-trans" id="wbTransPanel">'
+      + '<strong>' + esc(t('workbench.fr.vid.trans.title', { a: i + 1, b: i + 2 })) + '</strong> '
+      + '<select id="wbVtTransType"' + busy + ' aria-label="' + escA(t('workbench.fr.vid.trans.type')) + '">'
+      + '<option value="none"' + (tr ? '' : ' selected') + '>' + esc(t('workbench.fr.vid.trans.t_none')) + '</option>' + opts + '</select> '
+      + '<label class="wb-muted">' + esc(t('workbench.fr.vid.trans.len')) + ' <input type="number" id="wbVtTransDur" min="0.1" max="2" step="0.1" value="' + escA(tr ? tr.duration : 0.5) + '"' + busy + '></label> '
+      + '<button type="button" class="wb-fr-tbtn2" data-wb-act="vt-trans-close">' + esc(t('workbench.fr.vid.trans.close')) + '</button>'
+      + '<p class="wb-hint">' + esc(t('workbench.fr.vid.trans.hint')) + '</p></div>'
+  }
+
+  function frVtTransApply() {
+    var id = WB.vtTransFor
+    var ty = document.getElementById('wbVtTransType')
+    var du = document.getElementById('wbVtTransDur')
+    if (!id || !ty || WB.vtBusy || archived()) return
+    var dur = Number(String(du && du.value || '0.5').replace(',', '.'))
+    if (!(dur >= 0.1 && dur <= 2)) { window.showToast(t('workbench.fr.vid.trans.len_bad')); return }
+    var op = { op: 'setTransition', id: id, type: ty.value }
+    if (ty.value !== 'none') op.duration = dur
+    vtOps([op])
+  }
+
   /** The timeline under the player: toolbar + proportional clip blocks. */
   function frVideoStripHtml() {
     var doc = vtDoc()
@@ -16220,7 +16264,7 @@
     var blocks = clips.map(function (c, i) {
       var dur = Math.max(0.1, c.end - c.start)
       var on = sel && sel.id === c.id
-      return '<div class="wb-tl-clip' + (on ? ' wb-tl-on' : '') + '" data-wb-tl="' + escA(c.id) + '" style="width:' + (dur / total * 100).toFixed(3) + '%" title="' + escA(c.src.split('/').pop()) + '">'
+      return (i > 0 && !archived() ? frVtTransChipHtml(clips[i - 1], i - 1) : '') + '<div class="wb-tl-clip' + (on ? ' wb-tl-on' : '') + '" data-wb-tl="' + escA(c.id) + '" style="width:' + (dur / total * 100).toFixed(3) + '%" title="' + escA(c.src.split('/').pop()) + '">'
         + (archived() ? '' : '<span class="wb-tl-h wb-tl-hl" data-wb-tlh="l" aria-hidden="true"></span>')
         + (on ? '<span class="wb-tl-ph" data-wb-ph="1" aria-hidden="true"><span class="wb-tl-pht"></span></span>' : '')
         + '<span class="wb-tl-no"' + (!archived() && clips.length > 1 ? ' data-wb-tlh="m" title="' + escA(t('workbench.fr.vid.grip')) + '"' : '') + '>' + (i + 1) + '</span><span class="wb-tl-name">' + esc(c.src.split('/').pop()) + '</span><span class="wb-tl-dur">' + esc(vtSecs(dur)) + ' s</span>'
@@ -16240,6 +16284,7 @@
       + '</div>'
       + (clips.length
         ? '<div class="wb-tl-track" id="wbTlTrack">' + blocks + '</div>'
+          + frVtTransPanelHtml(clips)
           + (sel ? '<p class="wb-fr-tl-sel" id="wbTlSel">' + esc(t('workbench.fr.vid.selected', { name: sel.src.split('/').pop(), s: vtSecs(Math.max(0.1, sel.end - sel.start)) })) + '</p>' : '')
           + '<p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
         : '')
@@ -18982,6 +19027,8 @@
     else if (a === 'deck-notes') deckSaveNotes()
     else if (a === 'deck-export') deckExportNow(act.getAttribute('data-wb-v'))
     else if (a === 'fr-vt-split') frVtSplitAtPlayhead()
+    else if (a === 'vt-trans-open') { WB.vtTransFor = WB.vtTransFor === act.getAttribute('data-wb-id') ? null : act.getAttribute('data-wb-id'); render() }
+    else if (a === 'vt-trans-close') { WB.vtTransFor = null; render() }
     else if (a === 'fr-vt-add') frVtAddFromStrip()
     else if (a === 'fr-vt-add-path') { var vp = act.getAttribute('data-wb-path'); if (vp) vtOps([{ op: 'addClip', src: vp, start: 0 }]) }
     else if (a === 'vt-refresh') loadVideoTimeline(WB.selectedId)
@@ -19931,6 +19978,7 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
     if (WB.img && /^wbImg(CapPos|CapColor|CapBand)$/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
+    if (e.target.id === 'wbVtTransType' || e.target.id === 'wbVtTransDur') { frVtTransApply(); return }
     if (e.target.id === 'wbPostPlatform') { postState().platform = postPlatform(e.target.value).id; postState().more = false; render(); return }
     if (e.target.id === 'wbCanPlatform') { WB.canvasPlatformPick = e.target.value; render(); return }
     if (e.target.id === 'wbSwitch') {

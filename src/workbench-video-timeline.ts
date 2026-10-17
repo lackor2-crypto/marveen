@@ -37,7 +37,15 @@ export const ASPECT_SIZE: Record<TimelineAspect, { width: number; height: number
   '1:1': { width: 1080, height: 1080 },
 }
 
-export interface TimelineClip { id: string; src: string; start: number; end: number }
+/** Transition styles between two clips: the names are ffmpeg `xfade` types, so the renderer passes them straight on. */
+export const TIMELINE_TRANSITIONS = ['fade', 'fadeblack', 'slideleft', 'slideright', 'wipeleft'] as const
+export type TimelineTransitionType = (typeof TIMELINE_TRANSITIONS)[number]
+export const TRANSITION_MIN = 0.1
+export const TRANSITION_MAX = 2
+export const TRANSITION_DEFAULT = 0.5
+/** The change from a clip into the NEXT one (the last clip's is never used). */
+export interface TimelineTransition { type: TimelineTransitionType; duration: number }
+export interface TimelineClip { id: string; src: string; start: number; end: number; transition?: TimelineTransition }
 export interface TimelineSubtitle { id: string; text: string; start: number; end: number }
 export interface TimelineMusic {
   src: string
@@ -90,7 +98,7 @@ const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i
 export type TimelineCode =
   | 'timeline_bad_shape' | 'timeline_bad_op' | 'timeline_not_found' | 'timeline_too_many'
   | 'timeline_bad_time' | 'timeline_bad_media' | 'timeline_text_required' | 'timeline_text_too_long'
-  | 'timeline_bad_aspect' | 'timeline_bad_value'
+  | 'timeline_bad_aspect' | 'timeline_bad_value' | 'timeline_bad_transition'
 
 export type TimelineFail = { ok: false; code: TimelineCode; detail: string }
 export type TimelineParse = { ok: true; doc: TimelineDoc } | TimelineFail
@@ -100,6 +108,20 @@ function fail(code: TimelineCode, detail: string): TimelineFail { return { ok: f
 function num(v: unknown): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v.replace(',', '.')) : NaN
   return Number.isFinite(n) ? n : null
+}
+
+/** A transition from raw input, or a failure; `undefined` raw = none. */
+function parseTransition(raw: unknown): { ok: true; transition: TimelineTransition | undefined } | TimelineFail {
+  if (raw === undefined || raw === null) return { ok: true, transition: undefined }
+  const o = (typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  if (!(TIMELINE_TRANSITIONS as readonly unknown[]).includes(o.type)) {
+    return fail('timeline_bad_transition', `the transition type must be one of ${TIMELINE_TRANSITIONS.join(', ')}`)
+  }
+  const d = o.duration === undefined ? TRANSITION_DEFAULT : num(o.duration)
+  if (d === null || d < TRANSITION_MIN || d > TRANSITION_MAX) {
+    return fail('timeline_bad_transition', `the transition length must be between ${TRANSITION_MIN} and ${TRANSITION_MAX} seconds`)
+  }
+  return { ok: true, transition: { type: o.type as TimelineTransitionType, duration: round3(d) } }
 }
 
 function nextId(prefix: string, taken: Iterable<string>): string {
@@ -160,7 +182,9 @@ export function parseTimeline(raw: unknown): TimelineParse {
     if (!isMediaPath(o.src) || !VIDEO_EXT.test(o.src)) return fail('timeline_bad_media', 'a clip needs a video file inside the project')
     const s = span(o.start, o.end, 'clip')
     if (!s.ok) return s
-    doc.clips.push({ id: id(o, 'c'), src: o.src.trim(), start: s.start, end: s.end })
+    const tr = parseTransition(o.transition)
+    if (!tr.ok) return tr
+    doc.clips.push({ id: id(o, 'c'), src: o.src.trim(), start: s.start, end: s.end, ...(tr.transition ? { transition: tr.transition } : {}) })
   }
   const subs = list('subtitles', TIMELINE_MAX_SUBTITLES)
   if (!Array.isArray(subs)) return subs
@@ -196,16 +220,30 @@ export function parseTimeline(raw: unknown): TimelineParse {
   return { ok: true, doc }
 }
 
-/** Length of the finished video: the clips back to back. */
+/**
+ * The transition that really plays between clip `i` and the next one, or null. Its length is
+ * capped at half of each neighbour, so the change into a clip and the change out of it never
+ * overlap (a trim made after the transition was set cannot break the render).
+ */
+export function effectiveTransition(doc: TimelineDoc, i: number): TimelineTransition | null {
+  const c = doc.clips[i], next = doc.clips[i + 1]
+  if (!c || !next || !c.transition) return null
+  const d = round3(Math.min(c.transition.duration, (c.end - c.start) / 2, (next.end - next.start) / 2))
+  return d >= TRANSITION_MIN ? { type: c.transition.type, duration: d } : null
+}
+
+/** Length of the finished video: the clips back to back, minus what each transition overlaps. */
 export function timelineDuration(doc: TimelineDoc): number {
-  return round3(doc.clips.reduce((sum, c) => sum + (c.end - c.start), 0))
+  let sum = doc.clips.reduce((t, c) => t + (c.end - c.start), 0)
+  for (let i = 0; i < doc.clips.length - 1; i++) sum -= effectiveTransition(doc, i)?.duration ?? 0
+  return round3(sum)
 }
 
 /** Where each clip starts on the finished timeline. */
 export function clipOffsets(doc: TimelineDoc): number[] {
   const out: number[] = []
   let t = 0
-  for (const c of doc.clips) { out.push(round3(t)); t += c.end - c.start }
+  doc.clips.forEach((c, i) => { out.push(round3(t)); t += c.end - c.start - (effectiveTransition(doc, i)?.duration ?? 0) })
   return out
 }
 
@@ -220,7 +258,9 @@ type Op = Record<string, unknown>
  * first bad operation stops the whole list and nothing is changed.
  *
  * Operations: addClip {src,start,end,at?}, trimClip {id,start?,end?}, moveClip {id,to},
- * splitClip {id,at} (at = source second), removeClip {id}, addSubtitle {text,start,end},
+ * splitClip {id,at} (at = source second), removeClip {id},
+ * setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
+ * addSubtitle {text,start,end},
  * updateSubtitle {id,text?,start?,end?}, removeSubtitle {id}, setMusic {src,volume?,duck?},
  * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?},
  * updateOverlay {id,...}, removeOverlay {id}, setAspect {aspect}, setClipVolume {volume}.
@@ -283,8 +323,10 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         }
         if (doc.clips.length >= TIMELINE_MAX_CLIPS) return fail('timeline_too_many', `at most ${TIMELINE_MAX_CLIPS} clips`)
         const id = nextId('c', doc.clips.map((x) => x.id))
-        doc.clips.splice(idx + 1, 0, { id, src: c.src, start: round3(at), end: c.end })
+        // The change into the next clip belongs to the end of the cut, so the second half keeps it.
+        doc.clips.splice(idx + 1, 0, { id, src: c.src, start: round3(at), end: c.end, ...(c.transition ? { transition: c.transition } : {}) })
         c.end = round3(at)
+        delete c.transition
         applied.push({ op: name, id: c.id, note: `split into ${c.id} and ${id}` })
         break
       }
@@ -293,6 +335,22 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (idx < 0) return fail('timeline_not_found', `no clip with id ${String(op.id)}`)
         doc.clips.splice(idx, 1)
         applied.push({ op: name, id: String(op.id), note: 'removed' })
+        break
+      }
+      case 'setTransition': {
+        const idx = doc.clips.findIndex((x) => x.id === op.id)
+        if (idx < 0) return fail('timeline_not_found', `no clip with id ${String(op.id)}`)
+        const c = doc.clips[idx]
+        if (op.type === 'none') {
+          delete c.transition
+          applied.push({ op: name, id: c.id, note: 'transition removed' })
+          break
+        }
+        if (idx === doc.clips.length - 1) return fail('timeline_bad_transition', 'a transition sits between two clips: the last clip has no next clip')
+        const tr = parseTransition({ type: op.type, duration: op.duration ?? c.transition?.duration })
+        if (!tr.ok) return tr
+        c.transition = tr.transition
+        applied.push({ op: name, id: c.id, note: `${tr.transition!.type}, ${tr.transition!.duration}s into the next clip` })
         break
       }
       case 'addSubtitle': {
@@ -397,7 +455,8 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
 /** A readable one-paragraph summary, for the agent and for logs. */
 export function timelineSummary(doc: TimelineDoc): string {
   const d = timelineDuration(doc)
-  return `${doc.clips.length} clips (${d}s), ${doc.subtitles.length} subtitles, `
+  const tr = doc.clips.filter((_, i) => effectiveTransition(doc, i)).length
+  return `${doc.clips.length} clips (${d}s${tr ? `, ${tr} transitions` : ''}), ${doc.subtitles.length} subtitles, `
     + `${doc.music ? 'music' : 'no music'}, ${doc.overlays.length} overlays, ${doc.aspect}`
 }
 
