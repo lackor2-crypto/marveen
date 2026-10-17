@@ -53,7 +53,12 @@ TOKEN="$(cat "$TOKEN_FILE")"
 export API TOKEN
 cards="$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" "$API/api/kanban" 2>/dev/null)" || exit 0
 [ -n "$cards" ] || exit 0
-approvals="$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" "$API/api/approvals" 2>/dev/null)"
+# Ask for the PENDING approvals only, at the endpoint's maximum page (500). The
+# balance pairs waiting cards with pending approvals, so it needs the WHOLE
+# pending set: the unfiltered default page is the newest 100 of every status,
+# and once older pending ones fell off that page the sweep reported cards that
+# already had an approval as orphans (#662).
+approvals="$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" "$API/api/approvals?status=pending&limit=500" 2>/dev/null)"
 [ -n "$approvals" ] || approvals='[]'
 
 # Boss's rule, 2026-08-16: as many pending approvals as there are waiting cards,
