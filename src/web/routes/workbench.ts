@@ -74,6 +74,7 @@ import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, s
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { finalizeTextItem, hasTextFinalPanel } from '../../workbench-notefinal.js'
+import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefinal.js'
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
@@ -318,6 +319,22 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   note_final_bad_translation: {
     hu: 'A lefordított szöveg vagy a nyelv kódja nem megfelelő, ezért nem készült PDF. Fordítsd le újra a szöveget, és próbáld újra.',
     en: 'The translated text or its language code is not usable, so no PDF was made. Translate the text again and retry.',
+  },
+  table_final_not_table: {
+    hu: 'Ennek a munkadarabnak nincs táblázat-fájlja (xlsx / csv), ezért nem véglegesíthető ezen a panelen.',
+    en: 'This work item has no spreadsheet file (xlsx / csv), so it cannot be finalized from this panel.',
+  },
+  table_final_unreadable: {
+    hu: 'A táblázat fájlja nem olvasható (törölték vagy áthelyezték?). Nézd meg a Raktárban, hogy megvan-e, és próbáld újra.',
+    en: 'The spreadsheet file cannot be read (deleted or moved?). Check that it is still in the Depot, then try again.',
+  },
+  table_final_save_failed: {
+    hu: 'A táblázatot nem sikerült az Elkészített anyagok mappába menteni, ezért a munkadarab nincs véglegesítve.',
+    en: 'The spreadsheet could not be saved into the Finished materials folder, so the work item is not finalized.',
+  },
+  table_final_already_done: {
+    hu: 'Ez a munkadarab már véglegesítve van. Ha módosítani akarod, előbb nyisd újra.',
+    en: 'This work item is already finalized. Reopen it first if you want to change it.',
   },
   textdoc_not_text: {
     hu: 'Ez a munkadarab nem szöveges fájl (.md / .txt), ezért nem olvasható be a dokumentum-oldalra.',
@@ -4489,6 +4506,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         const tf = await finalizeTextItem(item, { by: who || 'dashboard', lang: body['lang'] == null ? null : String(body['lang']), text: typeof body['text'] === 'string' ? body['text'] : null })
         if (!tf.ok) return failDetail(res, tf.code === 'note_final_already_done' ? 409 : tf.code === 'note_final_not_text' || tf.code === 'note_final_bad_translation' || tf.code === 'note_final_no_variant' ? 400 : 500, tf.code, lang, tf.detail)
         json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name } })
+        return true
+      }
+      // #674: a table item is finalized from its own panel; the workbook (and a PDF, when LibreOffice is there) lands in Finished materials.
+      if (action === 'finalize' && body['pdf'] === true && hasTableFinalPanel(item)) {
+        const tf = await finalizeTableItem(item, { by: who || 'dashboard' })
+        if (!tf.ok) return failDetail(res, tf.code === 'table_final_already_done' ? 409 : tf.code === 'table_final_not_table' ? 400 : 500, tf.code, lang, tf.detail)
+        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name, pdf_name: tf.pdf_name, pdf_note: tf.pdf_note } })
         return true
       }
       r = action === 'finalize' ? finalizeWorkItem(item.id, { by: who || 'dashboard' }) : reopenWorkItem(item.id, { by: who || 'dashboard', lang })

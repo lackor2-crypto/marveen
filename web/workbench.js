@@ -11721,15 +11721,20 @@
         + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>'
     }
     return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="item-finalize"' + busy
-      + (isTextFinalItem(it) ? ' aria-expanded="' + (WB.noteFinal === it.id) + '"' : '')
+      + (isTextFinalItem(it) || isTableFinalItem(it) ? ' aria-expanded="' + (WB.noteFinal === it.id) + '"' : '')
       + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
   }
 
   /** #667 (Boss TG 9260): an item whose file is plain text / Markdown has no outline to check and no language variants; its
    *  Finalize opens a panel above the content (like a court filing) that says what will happen, instead of a browser confirm.
-   *  Types that make no output of their own (table, presentation, ...) keep the bare confirm. */
+   *  A table has its own panel (#674); a presentation keeps the bare confirm. */
   function isTextFinalItem(it) {
     return !!(it && it.source_path && /\.(md|markdown|txt)$/i.test(it.source_path) && it.status !== 'done')
+  }
+
+  /** #674: a spreadsheet (xlsx / csv) item: its Finalize opens the panel too (the workbook goes to Finished materials). */
+  function isTableFinalItem(it) {
+    return !!(it && it.source_path && isTableName(it.source_path) && it.status !== 'done')
   }
 
   /** #671: the saved language versions of the open text item (the server lists them with the item). */
@@ -11764,9 +11769,22 @@
 
   function noteFinalPanelHtml() {
     var it = WB.detail && WB.detail.item
-    if (!it || WB.noteFinal !== it.id || !isTextFinalItem(it) || archived()) return ''
+    if (!it || WB.noteFinal !== it.id || !(isTextFinalItem(it) || isTableFinalItem(it)) || archived()) return ''
     var name = baseOf(it.source_path)
     var busy = WB.noteFinalBusy ? ' disabled' : ''
+    if (isTableFinalItem(it)) {
+      return '<div class="wb-note-final wb-table-final" role="region" aria-label="' + escA(t('workbench.tablefinal.title')) + '">'
+        + '<h4>' + esc(t('workbench.tablefinal.title')) + '</h4>'
+        + '<p class="wb-hint">' + esc(t('workbench.tablefinal.intro', { name: name })) + '</p>'
+        + '<ol class="wb-note-final-steps"><li>' + esc(t('workbench.tablefinal.step_file', { name: name })) + '</li>'
+        + '<li>' + esc(t('workbench.tablefinal.step_pdf')) + '</li>'
+        + '<li>' + esc(t('workbench.tablefinal.step_status')) + '</li></ol>'
+        + '<p class="wb-hint">' + esc(t('workbench.tablefinal.safe')) + '</p>'
+        + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="note-final-go"' + busy + '>'
+        + esc(t(WB.noteFinalBusy ? 'workbench.tablefinal.working' : 'workbench.tablefinal.go')) + '</button> '
+        + '<button type="button" class="btn-secondary" data-wb-act="note-final-close"' + busy + '>' + esc(t('workbench.notefinal.cancel')) + '</button></p>'
+        + '</div>'
+    }
     return '<div class="wb-note-final" role="region" aria-label="' + escA(t('workbench.notefinal.title')) + '">'
       + '<h4>' + esc(t('workbench.notefinal.title')) + '</h4>'
       + '<p class="wb-hint">' + esc(t('workbench.notefinal.intro', { name: name })) + '</p>'
@@ -11781,9 +11799,33 @@
       + '</div>'
   }
 
+  /** #674: finalize a spreadsheet item: the server puts the workbook (and a PDF, when LibreOffice is there) into Finished materials. */
+  function tableFinalGo(it) {
+    // Unsaved cell edits are not in the file yet: the finished workbook would miss them.
+    if (WB.table && WB.table.dirty) { window.showToast(t('workbench.tablefinal.unsaved')); return }
+    var id = it.id
+    WB.noteFinalBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', { action: 'finalize', pdf: true }).then(function (r) {
+      WB.noteFinalBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      WB.noteFinal = null
+      if (WB.detail && WB.detail.item.id === id) {
+        if (r.data && r.data.item) WB.detail.item = r.data.item
+        WB.detail.approval = (r.data && r.data.approval) || null
+      }
+      var f = (r.data && r.data.final) || {}
+      var key = f.pdf_name ? 'workbench.tablefinal.done_pdf' : f.pdf_note === 'failed' ? 'workbench.tablefinal.done_pdf_failed' : f.pdf_note === 'no_converter' ? 'workbench.tablefinal.done_no_pdf' : 'workbench.tablefinal.done'
+      window.showToast(t(key, { name: f.name || '', pdf: f.pdf_name || '' }))
+      render()
+      load(WB.projectId)
+    })
+  }
+
   function noteFinalGo() {
     if (!WB.detail || WB.noteFinalBusy) return
     var it = WB.detail.item
+    if (isTableFinalItem(it)) { tableFinalGo(it); return }
     if (!isTextFinalItem(it)) return
     var id = it.id
     WB.noteFinalBusy = true
@@ -18758,7 +18800,7 @@
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
     // #667: a text-file item opens its finalize panel (what happens, then one clear button) instead of the browser confirm.
-    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && isTextFinalItem(WB.detail.item)) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() ? WB.tr.dst : ''; render() } else approvalAction('finalize') }
+    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item))) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() ? WB.tr.dst : ''; render() } else approvalAction('finalize') }
     else if (a === 'note-final-go') noteFinalGo()
     else if (a === 'tr-save-version') trSaveVersion()
     else if (a === 'note-final-close') { WB.noteFinal = null; render() }
