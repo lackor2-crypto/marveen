@@ -15,6 +15,7 @@ import { buildTextFodt, PDF_FILTER_FINAL, renderFodtPdf } from './workbench-docr
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { finalizeWorkItem } from './workbench-approval.js'
 import { cleanLangCode, readTextVariant, saveTextVariant } from './workbench-notelang.js'
+import { outlineTextOf } from './workbench-textdoc.js'
 
 /** True when the file is a plain text / Markdown file: the kind that has no outline of its own. */
 export function isTextSourcePath(rel: string | null | undefined): boolean {
@@ -53,10 +54,13 @@ export async function finalizeTextItem(item: WorkItemRow, input: { by: string | 
       text = have
     }
   } else {
+    // #673: once the note is on the document page its outline is the truth (the file can be a moment behind it).
+    const fromPage = outlineTextOf(item)
     const abs = resolveLifePath(item.source_path)
     try {
-      if (!abs) return { ok: false, code: 'note_final_unreadable', detail: null }
-      text = readFileSync(abs, 'utf-8')
+      if (fromPage != null) text = fromPage
+      else if (!abs) return { ok: false, code: 'note_final_unreadable', detail: null }
+      else text = readFileSync(abs, 'utf-8')
     } catch (e) {
       return { ok: false, code: 'note_final_unreadable', detail: e instanceof Error ? e.message : String(e) }
     }

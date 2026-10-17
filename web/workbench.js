@@ -1355,6 +1355,34 @@
       if (canvasKind(r.data && r.data.item) || (r.data && r.data.item && r.data.item.type === 'composite')) loadCanvas(id)
       if (r.data && r.data.item && r.data.item.type === 'video') loadVideoTimeline(id)
       if (r.data && r.data.item && r.data.item.type === 'presentation') loadDeck(id)
+      textProfileEnsure(id, r.data)
+    })
+  }
+
+  /** #673: a note with its own .md / .txt file is read onto the document page once (the file is kept as a new version,
+   *  nothing is overwritten); after that the detail is read again and the text-profile surface shows. A failure is shown, not retried. */
+  function textProfileEnsure(id, data) {
+    var tp = data && data.text_profile
+    if (!tp || !tp.candidate || tp.on || !data.item || data.item.archived_at) return
+    WB.textImportTried = WB.textImportTried || {}
+    if (WB.textImportTried[id]) return
+    WB.textImportTried[id] = true
+    WB.textImportError = null
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/text-import', {}).then(function (r) {
+      if (!r.ok) { WB.textImportError = r.message || ''; if (WB.selectedId === id) render(); return }
+      if (WB.selectedId === id) { loadDetail(id); load(WB.projectId) }
+    })
+  }
+
+  /** #673: the file was edited by hand since the page last wrote it: read it onto the page again (the page's text is kept as the previous version first). */
+  function textReimport() {
+    var id = WB.selectedId
+    if (!id) return
+    if (!window.confirm(t('workbench.textdoc.reimport_confirm'))) return
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/text-import', { reimport: true }).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      window.showToast(t('workbench.textdoc.reimported'))
+      loadDetail(id); load(WB.projectId)
     })
   }
 
@@ -8335,11 +8363,23 @@
       + '</div>'
   }
 
+  /** #673 (Boss TG 9339/9346): a text document (a note on the document page) is drawn by the SAME code as a court document.
+   *  `isTextProfile` is the ONE switch: it decides which court-only parts are hidden (see `courtOnly`). It never builds a
+   *  second page; everything else (tabs, page, tools, translation panel) is the court document's own render path. */
+  function isTextProfile(it) {
+    var d = WB.detail
+    return !!(it && d && d.item && d.item.id === it.id && d.text_profile && d.text_profile.on)
+  }
+  /** Does this work item stand on the document surface (the court document, or a text document in the text profile)? */
+  function isDocSurface(it) { return !!it && (it.type === 'document' || isTextProfile(it)) }
+  /** The court-only parts (sources, gaps, checks, court box, sending, glossary, language header) are drawn unless the text profile hides them. */
+  function courtOnly() { return !isTextProfile(WB.detail && WB.detail.item) }
+
   /** Melyik felulet a munkadarab fo felulete (K-3.3). */
   function surfaceOf(it) {
     if (!it) return 'parts'
     if (canvasKind(it) || (WB.canvas && WB.canvas.exists)) return 'canvas'
-    if (it.type === 'document') return 'document'
+    if (isDocSurface(it)) return 'document'
     if (it.type === 'video') return 'player'
     if (it.type === 'composite') return 'post'
     return 'parts'
@@ -8570,13 +8610,13 @@
     var o = d.outline
     var ro = docLocked()
     if (!o) {
-      if (d.item.type !== 'document' || ro) return ''
+      if (!isDocSurface(d.item) || ro) return ''
       return '<div class="wb-outline wb-outline-empty"><p class="wb-hint">' + esc(t('workbench.outline.empty_hint')) + '</p>'
         + '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p></div>'
     }
     // #534 (Boss TG 8849): the manual view of a document is the SAME continuous page as the simple view (one editing
     // host, no per-chapter boxes, no "+ paragraph" links); the chapter status and the translation bars sit on it.
-    var onePage = !!(d.item && d.item.type === 'document')
+    var onePage = isDocSurface(d.item)
     var secs = onePage ? '<div class="wb-outline-page">' + (function () {
       // Boss TG 3245: the manual and the simple view draw the SAME page -- one "check view" switch decides for both.
       return docPageHtml()
@@ -8615,15 +8655,13 @@
       // #533: ugyanaz a ket gomb, mint az Egyszeru nezet felso savjaban ("Mentve", majd vissza / elore).
       + manualStepsHtml(d.item)
       + '<p class="wb-hint">' + esc(t('workbench.outline.legend')) + '</p>'
-      + langHeadHtml(o, ro) + '</div>'
+      + (courtOnly() ? langHeadHtml(o, ro) : '') + '</div>'
     return '<div class="wb-outline">' + (onePage ? '' : '<h3>' + esc(t('workbench.outline.title')) + '</h3>' + helpers)
       + secs
       + (onePage ? helpers : '')
       + (ro || onePage ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
       + annexHtml(o, ro)
-      + glossaryHtml(o, ro)
-      + outlineCheckHtml(o.check, o, ro)
-      + outlinePdfHtml(o, ro)
+      + (courtOnly() ? glossaryHtml(o, ro) + outlineCheckHtml(o.check, o, ro) + outlinePdfHtml(o, ro) : '')
       + '</div>'
   }
 
@@ -9735,7 +9773,7 @@
   /** #521: a row of the item's own files / the project's shared folder can be dragged onto the document page
    *  (the same chooser as a tile: build in / attach as annex). The value carries the Life path itself. */
   function pageDragAttrs(path) {
-    var isDoc = !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
+    var isDoc = isDocSurface(WB.detail && WB.detail.item)
     if (!isDoc || archived() || !path) return ''
     return ' draggable="true" data-wb-drag-file="' + escA(path) + '" data-wb-src="' + escA(path) + '" title="' + escA(t('workbench.fr.tile_drag')) + '"'
   }
@@ -13718,7 +13756,7 @@
   }
   function twKey(secId) { return WB.selectedId + ':' + twState().lang + ':' + secId }
   function twAvailable(o) {
-    return !!(o && !o.variant && (o.sections || []).length) && !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
+    return !!(o && !o.variant && (o.sections || []).length) && isDocSurface(WB.detail && WB.detail.item)
   }
   /** #558 (Boss TG 8773): one block of the translation, drawn the way the page draws it -- the picture where and as big
    *  as in the original, the alignment, the heading / spacing, the text format the server carried over (`rich`). */
@@ -13958,7 +13996,7 @@
     return WB.tp
   }
   function tpAvailable() {
-    return !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
+    return isDocSurface(WB.detail && WB.detail.item)
   }
   // ---- #625: unused drawing / deck JSON files: a list, the owner approves, they go to the Trash ------------------
   // #660: the entry is global (the scan walks every project), so it lives on the Projects page (jsonCleanOpen is exposed below), not inside one work item.
@@ -14428,7 +14466,7 @@
     // Attachments get their own labelled, open place (Boss TG 8535, lackor2-bot 5733): they are not a footnote
     // of the language versions and the glossary.
     var annex = annexHtml(o, ro)
-    var inner = langHeadHtml(o, ro) + glossaryHtml(o, ro)
+    var inner = courtOnly() ? langHeadHtml(o, ro) + glossaryHtml(o, ro) : ''
     return (annex ? '<details class="wb-dp-more wb-dp-annex" open><summary>' + esc(t('workbench.dp.annex', { n: (o.annexes || []).length })) + '</summary>' + annex + '</details>' : '')
       + (inner ? '<details class="wb-dp-more"><summary>' + esc(t('workbench.dp.more')) + '</summary>' + inner + '</details>' : '')
   }
@@ -15243,7 +15281,7 @@
         return '<div class="wb-sh-doc-body">' + (WB.table && WB.table.itemId === dit.id ? tableHtml() : '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>') + '</div>'
       }
       docAutoOpen()
-      return '<div class="wb-sh-doc-body">' + previewHtml() + '</div>'
+      return '<div class="wb-sh-doc-body">' + (WB.textImportError ? '<p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' : '') + previewHtml() + '</div>'
     }
     // #536: the file of this document was deleted (it sits in the trash): say so, instead of an empty drafting editor.
     if (!o && WB.detail && WB.detail.item && !WB.detail.item.source_path) {
@@ -15252,8 +15290,10 @@
     }
     var ro = docLocked()
     twCollect() // #534: any redraw (another tab, a changed original) first reads back what stands on the translation page
+    var tabs = [['draft', 'workbench.sh.doc.draft'], ['preview', 'workbench.sh.doc.preview']]
+    if (courtOnly()) tabs.push(['sources', 'workbench.sh.doc.sources'], ['gaps', 'workbench.sh.doc.gaps'])
     var tab = WB.shDocTab
-    var tabs = [['draft', 'workbench.sh.doc.draft'], ['preview', 'workbench.sh.doc.preview'], ['sources', 'workbench.sh.doc.sources'], ['gaps', 'workbench.sh.doc.gaps']]
+    if (!courtOnly() && (tab === 'sources' || tab === 'gaps')) tab = 'draft'
     var head = '<div class="wb-sh-doc-tabs" role="tablist">' + tabs.map(function (x) {
       return '<button type="button" class="tab-btn' + (tab === x[0] ? ' active' : '') + '" role="tab" aria-selected="' + (tab === x[0]) + '"'
         + ' data-wb-act="sh-doc-tab" data-wb-tab="' + x[0] + '">' + esc(t(x[1])) + '</button>'
@@ -15267,6 +15307,8 @@
         : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '">' + esc(t('workbench.sh.doc.draft_pdf')) + '</button> ')
       // (Finalize is in the frame's top bar, where every other kind has it: finalizeTopHtml.)
       + (tab === 'preview' || tab === 'sources' || tab === 'gaps' ? '' : twToggleHtml(o) + ' ' + tpToggleHtml())
+      + (isTextProfile(WB.detail && WB.detail.item) && WB.detail.text_profile.file_edited && !ro
+        ? ' <button type="button" class="btn-secondary btn-compact" data-wb-act="text-reimport" title="' + escA(t('workbench.textdoc.reimport_tip')) + '">' + esc(t('workbench.textdoc.reimport')) + '</button>' : '')
       + ' ' + lifeMoveBtnHtml()
       + '</p>'
     var finalPanel = o && WB.shFinal && !ro ? outlinePdfHtml(o, ro) : ''
@@ -15289,7 +15331,7 @@
     var it = WB.detail.item
     var inner
     if (WB.compare && WB.compare.itemId === WB.selectedId) inner = compareHtml()
-    else if (it.type === 'document') inner = docTabsHtml()
+    else if (isDocSurface(it)) inner = docTabsHtml()
     else {
       // Egyszeru nezet: a kesz kep/oldal van legfelul, a szerkeszto gombok alatta (ures vaszon is latszik azonnal).
       // Videonal es diasornal az idosav / a diak a fo tartalom, az (ilyenkor ures) elonezet csak alattuk jon.
@@ -15316,7 +15358,7 @@
   /** #531: does the Simple frame itself draw the parts list (text / image parts) under the result? Only the generic
    *  result column does (simpleResultHtml); a document page, a deck, a video, a table and a canvas draw their own. */
   function frDrawsPartsInline(it) {
-    if (!it || it.type === 'document') return false
+    if (!it || isDocSurface(it)) return false
     if (WB.compare && WB.compare.itemId === WB.selectedId) return false
     if (isDeckItem() || frIsVideo(it) || frIsTable(it)) return false
     if (frIsCanvasItem(it) && WB.canvas && !WB.canvasError) return false
@@ -15338,7 +15380,7 @@
         + versionBarHtml()
         // #531: a document with its own page editor draws its chapters in the page; a document bound to a table / PDF file has
         // no page, so its outline (add a chapter) must be reachable here like in the Manual view.
-        + (it.type === 'document' && !it.source_path ? '' : outlineHtml())
+        + (isDocSurface(it) && (isTextProfile(it) || !it.source_path) ? '' : outlineHtml())
         + simpleItemPartsHtml(it)
         + deadlinesBoxHtml()
         + todosBoxHtml()
@@ -15410,7 +15452,7 @@
 
   /** Is the document's own page (the editable draft) what this work item shows? */
   function docPageOpen(it) {
-    if (!it || it.type !== 'document' || frIsTable(it)) return false
+    if (!isDocSurface(it) || frIsTable(it)) return false
     var o = WB.detail && WB.detail.outline
     return !!o || !(it.source_path && WB.preview)
   }
@@ -15731,7 +15773,7 @@
     })
     if (!rows.length) return canvasShown ? '' : '<p class="wb-hint">' + esc(t('workbench.fr.files_none')) + '</p>'
     var more = t('workbench.ctx.more_file')
-    var isDoc = !!(WB.detail && WB.detail.item && WB.detail.item.type === 'document')
+    var isDoc = isDocSurface(WB.detail && WB.detail.item)
     var lang = encodeURIComponent(window._lang || 'hu')
     return '<div class="wb-fr-tiles">' + rows.map(function (a) {
       var name = a.name || baseOf(a.path)
@@ -15860,7 +15902,7 @@
 
   function frPanelBodyHtml() {
     var can = frCanvasReady()
-    var needCanvas = '<p class="wb-hint">' + esc(t(WB.preview && WB.preview.kind === 'text' ? 'workbench.fr.need_canvas_text' : 'workbench.fr.need_canvas')) + '</p>'
+    var needCanvas = '<p class="wb-hint">' + esc(t(WB.preview && WB.preview.kind === 'text' && !isTextProfile(WB.detail && WB.detail.item) ? 'workbench.fr.need_canvas_text' : 'workbench.fr.need_canvas')) + '</p>'
     var add = function (act, label, arg) {
       return '<button type="button" class="wb-fr-pbtn" data-wb-act="' + act + '"' + (arg ? ' data-wb-arg="' + escA(arg) + '"' : '') + (WB.canvasBusy ? ' disabled' : '') + '>' + esc(label) + '</button>'
     }
@@ -18676,6 +18718,7 @@
     else if (a === 'tw-run') twRun()
     else if (a === 'tw-save') twSave()
     else if (a === 'sh-doc-tab') { WB.shDocTab = act.getAttribute('data-wb-tab') || 'draft'; render() }
+    else if (a === 'text-reimport') textReimport()
     else if (a === 'sh-final') { WB.shFinal = !WB.shFinal; if (WB.shFinal) { WB.dbOpen = false; WB.pdOpen = false } render() }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)

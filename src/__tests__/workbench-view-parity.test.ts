@@ -60,13 +60,13 @@ describe('Simple view knows what the Manual view knows (#531)', () => {
     expect(parts).toContain('partsHtml()')
     // the generic result column of the frame draws them itself; the helper must agree with it, or they show twice
     const inline = fn('frDrawsPartsInline')
-    expect(inline).toContain("it.type === 'document'")
+    expect(inline).toContain('isDocSurface(it)')
     expect(fn('simpleResultHtml')).toContain('partsHtml()')
   })
 
   it('a document bound to a table / PDF file has no page editor, so its outline (add a chapter) is drawn in the Simple view', () => {
     // measured in Chromium on a document with source_path .xlsx / .pdf: "outline-add-section" was Manual-only
-    expect(tech).toContain("it.type === 'document' && !it.source_path ? '' : outlineHtml()")
+    expect(tech).toContain("isDocSurface(it) && (isTextProfile(it) || !it.source_path) ? '' : outlineHtml()")
   })
 
   it('the project start view (no work item open) has the assistant chat too, as the Manual view does', () => {

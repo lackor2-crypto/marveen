@@ -17,6 +17,8 @@ import { assignWorkItemFolder } from './workbench-assets.js'
 import { ensureDocLangTables, listVariants, variantOf, variantTitle } from './workbench-doclang.js'
 import { baseNameForNextVersion, saveTextSourceAsNewVersion, subFolderOf, TEXT_SOURCE_MAX } from './workbench-edit.js'
 import { fileStem } from './workbench-docfinal.js'
+import { hasDocModel } from './workbench-docmodel.js'
+import { adoptVariantText, outlineTextOf } from './workbench-textdoc.js'
 
 const now = (): number => Math.floor(Date.now() / 1000)
 
@@ -60,6 +62,8 @@ export function saveTextVariant(source: WorkItemRow, rawLang: unknown, text: str
   if (hadItem && !hadItem.deleted_at && hadItem.source_path) {
     const r = saveTextSourceAsNewVersion(hadItem, project, hadItem.source_path, text, { created_by: by })
     if (!r.ok) return { ok: false, code: 'save_failed', detail: r.code }
+    // #673: the original is on the document page: the saved text goes into the version's chapters too (paired by position).
+    if (hasDocModel(source.id)) adoptVariantText(source, r.item, text, by)
     return { ok: true, item: r.item, existing: true }
   }
 
@@ -74,7 +78,9 @@ export function saveTextVariant(source: WorkItemRow, rawLang: unknown, text: str
   if (!v.ok) return { ok: false, code: 'save_failed', detail: v.code }
   getDb().prepare('INSERT OR REPLACE INTO wb_doc_variants (work_item_id, source_item_id, lang, created_at, created_by) VALUES (?, ?, ?, ?, ?)')
     .run(w.item.id, source.id, lang, now(), by)
-  return { ok: true, item: getWorkItem(w.item.id) ?? v.item, existing: false }
+  const made = getWorkItem(w.item.id) ?? v.item
+  if (hasDocModel(source.id)) adoptVariantText(source, made, text, by)
+  return { ok: true, item: made, existing: false }
 }
 
 /** The text of the saved `lang` version, or null when there is none (or its file cannot be read). */
@@ -83,7 +89,11 @@ export function readTextVariant(source: Pick<WorkItemRow, 'id'>, rawLang: unknow
   if (!lang) return null
   const had = listVariants(source.id).find((v) => v.lang === lang)
   const w = had ? getWorkItem(had.work_item_id) : null
-  if (!w || w.deleted_at || !w.source_path) return null
+  if (!w || w.deleted_at) return null
+  // #673: a version that is on the document page is read from its outline (the file mirror can be a moment behind).
+  const fromPage = outlineTextOf(w)
+  if (fromPage != null) return fromPage
+  if (!w.source_path) return null
   try {
     const abs = resolveLifePath(w.source_path)
     return abs ? readFileSync(abs, 'utf-8') : null
