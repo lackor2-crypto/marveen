@@ -137,8 +137,10 @@ export function streamBodyToStage(req: http.IncomingMessage, maxBytes: number = 
       if (settled) return
       total += c.length
       if (maxBytes > 0 && total > maxBytes) {
+        // The request is NOT destroyed: a dead socket would turn the "too large" sentence into a bare network error
+        // for a body without an honest Content-Length. The rest is read and thrown away (the 'data' handler returns
+        // early once settled) and Node drains whatever is left after the response.
         bail(new RequestBodyTooLargeError(maxBytes))
-        req.destroy()
         return
       }
       hash.update(c)
