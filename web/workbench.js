@@ -1427,7 +1427,9 @@
    *  gets a colour of its own (g >= 0, never blue) and the files of an opened folder take that folder's colour. */
   function grpHsl(g) {
     if (g < 0) return 'hsl(' + (210 + ((-g - 1) % 2) * 16) + ' 70% 50%)'
-    var pal = [350, 28, 135, 275, 48, 168, 305, 95]
+    // #690: ordered so that colours handed out one after the other are far apart on the colour wheel (at least 105 degrees
+    // between neighbours in the tree), never two shades of one colour; none near the work item's blue (210/226).
+    var pal = [350, 128, 275, 42, 168, 318, 95]
     return 'hsl(' + pal[g % pal.length] + ' 65% 48%)'
   }
 
