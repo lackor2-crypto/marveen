@@ -31,7 +31,12 @@ import sys
 SEGMENT_SPLIT = re.compile(r"\|\||&&|;|\||\n")
 ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 INTERPRETERS = {"node", "nodejs", "npx", "tsx", "bun", "bunx", "pnpm", "yarn", "python", "python3", "playwright", "chromium", "chromium-browser", "google-chrome", "chrome"}
-PLAYWRIGHT_HINT = re.compile(r"playwright|chromium\.launch|chromium-browser|google-chrome|chrome-headless|--headless", re.I)
+# Only signals of an actual browser launch. The bare word "playwright" in a comment, a
+# card text or a commit message must not stop a command (false positive, 2026-10-17).
+PLAYWRIGHT_HINT = re.compile(
+    r"npx\s+(-y\s+)?playwright|playwright\s+(test|install|codegen)|from\s+playwright|import\s+playwright"
+    r"|require\(\s*['\"](@?playwright[^'\"]*)['\"]|from\s+['\"]playwright|chromium\.launch|chromium-browser"
+    r"|google-chrome|chrome-headless|--headless", re.I)
 WEB_ONLY_HINT = re.compile(r"(^|[\s;&|(])(export\s+)?WEB_ONLY=(true|1)\b")
 # vitest flags that already narrow the run to a subset.
 VITEST_VALUE_FLAGS = {"--reporter", "--config", "-c", "--root", "-r", "--pool", "--outputFile", "--project", "--environment", "--mode", "--logHeapUsage", "--poolOptions", "--maxWorkers", "--minWorkers", "--testTimeout", "--retry"}

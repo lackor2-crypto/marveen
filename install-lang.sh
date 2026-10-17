@@ -91,6 +91,8 @@ _t() {
     hu:prompt_wslconfig) echo "  Létrehozzak egy .wslconfig fájlt swap=2GB-vel (megelőzi, hogy a WSL gép terhelés alatt lefagyjon; a memória marad)? (i/n) [n]: " ;;
     en:linux.wslconfig_ok) echo "WSL swap is set in .wslconfig" ;;
     hu:linux.wslconfig_ok) echo "A WSL swap be van állítva a .wslconfig-ban" ;;
+    en:linux.wslconfig_risky) echo "The WSL swap in .wslconfig is larger than 4GB: when memory runs out the VM then thrashes for minutes before it freezes. Not touching it. Recommended under [wsl2]: swap=2GB, then run: wsl --shutdown" ;;
+    hu:linux.wslconfig_risky) echo "A .wslconfig-ban a WSL swap 4GB-nál nagyobb: ha elfogy a memória, a gép percekig görgeti a lemezt, mielőtt lefagy. Nem nyúlok hozzá. Ajánlott a [wsl2] alatt: swap=2GB, majd futtasd: wsl --shutdown" ;;
     en:linux.wslconfig_exists) echo "A .wslconfig exists without swap. Not touching it. Add under [wsl2]: swap=2GB, then run: wsl --shutdown" ;;
     hu:linux.wslconfig_exists) echo "Van .wslconfig, de swap nélkül. Nem nyúlok hozzá. Írd a [wsl2] alá: swap=2GB, majd futtasd: wsl --shutdown" ;;
     en:linux.wslconfig_written) echo "Wrote .wslconfig (swap=2GB). It takes effect after: wsl --shutdown (then start Marveen again)" ;;

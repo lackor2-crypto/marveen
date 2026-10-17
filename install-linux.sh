@@ -366,7 +366,16 @@ if grep -qi microsoft /proc/version 2>/dev/null && command -v wslpath &>/dev/nul
   if [ -z "$WSLCFG" ] || [ ! -d "$(dirname "$WSLCFG")" ]; then
     warn "$(_t linux.wslconfig_unknown)"
   elif [ -f "$WSLCFG" ]; then
-    if grep -qiE '^[[:space:]]*swap[[:space:]]*=' "$WSLCFG"; then
+    WSL_SWAP="$(grep -iE '^[[:space:]]*swap[[:space:]]*=' "$WSLCFG" | tail -1 | sed 's/^[^=]*=[[:space:]]*//; s/[[:space:]#;].*$//' | tr -d '\r')"
+    WSL_SWAP_GB=""
+    case "$WSL_SWAP" in
+      *[Tt][Bb]|*[Tt]) WSL_SWAP_GB=999 ;;
+      *[Gg][Bb]|*[Gg]) WSL_SWAP_GB="$(echo "$WSL_SWAP" | sed 's/[^0-9].*$//')" ;;
+      *[Mm][Bb]|*[Mm]) WSL_SWAP_GB=0 ;;
+    esac
+    if [ -n "$WSL_SWAP" ] && [ -n "$WSL_SWAP_GB" ] && [ "$WSL_SWAP_GB" -gt 4 ] 2>/dev/null; then
+      warn "$(_t linux.wslconfig_risky)"
+    elif [ -n "$WSL_SWAP" ]; then
       ok "$(_t linux.wslconfig_ok)"
     else
       warn "$(_t linux.wslconfig_exists)"
