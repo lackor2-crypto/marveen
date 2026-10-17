@@ -2209,3 +2209,15 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 @media (max-width: 700px) { .wb-fr-tl-render { flex: 1 1 100%; } .wb-vt-result video { max-height: 160px; } }
 .wb-fr-speed { margin: 6px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .wb-fr-speed select { width: auto; max-width: 7rem; margin: 0; padding: 4px 6px; }
+
+/* #680 (Boss TG 9433): every top-level section of the left tree is a framed box of its own. */
+.wb-sec-box { list-style: none; margin: 0 0 8px; padding: 4px 6px 6px; border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: 8px; background: color-mix(in srgb, currentColor 4%, transparent); }
+.wb-sec-fav { border-color: color-mix(in srgb, #e0a800 55%, transparent); }
+.wb-sec-box { box-shadow: 0 1px 2px color-mix(in srgb, currentColor 10%, transparent); }
+.wb-sec-box:has(> .wb-sec-list > .wb-box-row) { border-color: var(--accent, #6d5efc); border-width: 2px; }
+.wb-sec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+@media (max-width: 760px) { .wb-sec-box { padding: 3px 4px 5px; margin-bottom: 10px; } }
+.wb-own-file { font-style: italic; opacity: .85; }
+/* #680: on a phone the rail's Projektek panel showed an empty box, because the narrow-screen rule hides every
+   .wb-panel that is not the "current" tab, and the tree panel lives inside the rail panel (no tab there). */
+.wb-fr-panel .wb-panel { display: flex; }

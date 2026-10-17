@@ -479,7 +479,8 @@ describe('project tree header order (#580, TG 3151)', () => {
     expect(iTitle).toBeGreaterThan(-1)
     expect(iFav).toBeGreaterThan(iList)
     // No other row stands before Favorites.
-    expect(tree.slice(iList, iFav).match(/<li /g)?.length).toBe(1)
+    // #680: the section box <li> and the Favorites <li> itself.
+    expect(tree.slice(iList, iFav).match(/<li /g)?.length).toBe(2)
   })
 })
 

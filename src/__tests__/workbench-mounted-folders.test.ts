@@ -270,7 +270,19 @@ describe('the tree loads a linked folder when it is opened (#502)', async () => 
     ok: true, folder: L,
     outside: { folders: [`${L}/src`], files: { [L]: [{ name: 'README.md', size: 2, rel: `Projektek/Robotok/${L}/README.md` }] }, truncated: false, lazy: { [`${L}/src`]: null }, linked: {} },
   }
-  const treeOf = (html: string) => { const a = html.indexOf('<ul class="wb-items">'); return a < 0 ? '' : html.slice(a, html.indexOf('</ul>', a)) }
+  const treeOf = (html: string) => {
+    const a = html.indexOf('<ul class="wb-items">')
+    if (a < 0) return ''
+    // #680: the tree nests one <ul> per section box, so the list ends at the </ul> that balances its own opening.
+    let depth = 0
+    const re = /<ul[ >]|<\/ul>/g
+    re.lastIndex = a
+    for (let m = re.exec(html); m; m = re.exec(html)) {
+      depth += m[0] === '</ul>' ? -1 : 1
+      if (depth === 0) return html.slice(a, m.index)
+    }
+    return html.slice(a)
+  }
   const levelCalls = (h: { fetchCalls: { url: string }[] }) => h.fetchCalls.filter((c) => c.url.includes('/api/workbench/folder-level')).length
 
   it('shows the link and its count closed, loads on opening, then shows the files', async () => {
