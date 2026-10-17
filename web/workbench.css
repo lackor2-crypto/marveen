@@ -2186,3 +2186,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-tb.is-busy { opacity: .6; cursor: progress; }
 .wb-db-nokey ol { margin: 6px 0 0 18px; padding: 0; }
 .wb-db-nokey li { margin: 2px 0; }
+
+/* #667: finalize panel of a text-file work item (above the content, like the court filing's) */
+.wb-note-final { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--border, #d1d5db); border-radius: 8px; background: var(--card-bg, transparent); }
+.wb-note-final h4 { margin: 0 0 6px; }
+.wb-note-final-steps { margin: 4px 0 8px; padding-left: 20px; }
+.wb-note-final-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
+@media (max-width: 640px) { .wb-note-final-btns button { flex: 1 1 100%; } }

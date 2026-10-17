@@ -71,6 +71,7 @@ import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../
 import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { pageBreaksFor } from '../../workbench-docpages.js'
+import { finalizeTextItem, hasTextFinalPanel } from '../../workbench-notefinal.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
@@ -294,6 +295,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   approval_owner_only: {
     hu: 'Elfogadni vagy visszadobni csak a tulajdonos tud, bejelentkezve a felületen.',
     en: 'Only the owner can approve or send back, signed in on the dashboard.',
+  },
+  note_final_not_text: {
+    hu: 'Ennek a munkadarabnak nincs szöveges (.md / .txt) fájlja, ezért nem készíthető belőle PDF.',
+    en: 'This work item has no text (.md / .txt) file, so no PDF can be made of it.',
+  },
+  note_final_unreadable: {
+    hu: 'A munkadarab fájlja nem olvasható (törölték vagy áthelyezték?). Nézd meg a Raktárban, hogy megvan-e, és próbáld újra.',
+    en: 'The file of this work item cannot be read (deleted or moved?). Check that it is still in the Depot, then try again.',
+  },
+  note_final_pdf_failed: {
+    hu: 'A PDF nem készült el, ezért a munkadarab nincs véglegesítve. Próbáld újra; ha megint hibát kapsz, a részlet a hibaüzenetben van.',
+    en: 'The PDF could not be made, so the work item is not finalized. Try again; if it fails again, the detail is in the error message.',
+  },
+  note_final_save_failed: {
+    hu: 'A PDF elkészült, de az Elkészített anyagok mappába nem sikerült elmenteni, ezért a munkadarab nincs véglegesítve.',
+    en: 'The PDF was made, but it could not be saved into the Finished materials folder, so the work item is not finalized.',
+  },
+  note_final_already_done: {
+    hu: 'Ez a munkadarab már véglegesítve van. Ha újra kell, előbb nyisd újra.',
+    en: 'This work item is already finalized. To do it again, reopen it first.',
   },
   approval_bad_action: {
     hu: 'Ismeretlen jóváhagyási lépés.',
@@ -4397,6 +4418,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     } else if (action === 'finalize' || action === 'reopen') {
       // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.
       if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
+      // #667: a text-file item (.md / .txt) is finalized from the panel with its PDF, which lands in Finished materials.
+      if (action === 'finalize' && body['pdf'] === true && hasTextFinalPanel(item)) {
+        const tf = await finalizeTextItem(item, { by: who || 'dashboard' })
+        if (!tf.ok) return failDetail(res, tf.code === 'note_final_already_done' ? 409 : tf.code === 'note_final_not_text' ? 400 : 500, tf.code, lang, tf.detail)
+        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name } })
+        return true
+      }
       r = action === 'finalize' ? finalizeWorkItem(item.id, { by: who || 'dashboard' }) : reopenWorkItem(item.id, { by: who || 'dashboard', lang })
     } else return fail(res, 400, 'approval_bad_action', lang)
     if (!r.ok) return fail(res, r.code === 'reason_too_long' ? 400 : 409, 'approval_' + r.code, lang)

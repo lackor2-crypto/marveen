@@ -167,6 +167,8 @@
     docNew: null,       // dokumentum-lap: ures, uj sor a megadott helyen
     docFocus: null,     // dokumentum-lap: ujrarajzolas utan ide kerul a fokusz
     shFinal: false,     // egyszeru nezet, dokumentum: a veglesites lepesei nyitva
+    noteFinal: null,    // #667: a szoveges fajlu munkadarab (.md/.txt) veglesites-panelje nyitva: a munkadarab azonositoja
+    noteFinalBusy: false,
     liveTimer: null,
     // --- projekt-idovonal (#406, 7. pont) ---
     // `tl === null` = meg nem kerdeztuk meg; ures tomb = megkerdeztuk, es
@@ -8345,6 +8347,7 @@
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         // #556: Finalize / Reopen in the head of the item, for every kind (it used to sit only at the very bottom).
         + finalizeTopHtml(it, 'btn-secondary btn-compact') + '</div>'
+        + noteFinalPanelHtml()
         + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
           ? compareHtml()
@@ -11642,7 +11645,56 @@
       return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="sh-final"' + (o ? '' : ' disabled title="' + escA(t('workbench.sh.doc.no_draft')) + '"')
         + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>'
     }
-    return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="item-finalize"' + busy + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
+    return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="item-finalize"' + busy
+      + (isTextFinalItem(it) ? ' aria-expanded="' + (WB.noteFinal === it.id) + '"' : '')
+      + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
+  }
+
+  /** #667 (Boss TG 9260): an item whose file is plain text / Markdown has no outline to check and no language variants; its
+   *  Finalize opens a panel above the content (like a court filing) that says what will happen, instead of a browser confirm.
+   *  Types that make no output of their own (table, presentation, ...) keep the bare confirm. */
+  function isTextFinalItem(it) {
+    return !!(it && it.source_path && /\.(md|markdown|txt)$/i.test(it.source_path) && it.status !== 'done')
+  }
+
+  function noteFinalPanelHtml() {
+    var it = WB.detail && WB.detail.item
+    if (!it || WB.noteFinal !== it.id || !isTextFinalItem(it) || archived()) return ''
+    var name = baseOf(it.source_path)
+    var busy = WB.noteFinalBusy ? ' disabled' : ''
+    return '<div class="wb-note-final" role="region" aria-label="' + escA(t('workbench.notefinal.title')) + '">'
+      + '<h4>' + esc(t('workbench.notefinal.title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.notefinal.intro', { name: name })) + '</p>'
+      + '<ol class="wb-note-final-steps"><li>' + esc(t('workbench.notefinal.step_pdf', { name: name })) + '</li>'
+      + '<li>' + esc(t('workbench.notefinal.step_folder')) + '</li>'
+      + '<li>' + esc(t('workbench.notefinal.step_status')) + '</li></ol>'
+      + '<p class="wb-hint"><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> ' + esc(t('workbench.notefinal.lang_single')) + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.notefinal.safe')) + '</p>'
+      + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="note-final-go"' + busy + '>'
+      + esc(t(WB.noteFinalBusy ? 'workbench.notefinal.working' : 'workbench.notefinal.go')) + '</button> '
+      + '<button type="button" class="btn-secondary" data-wb-act="note-final-close"' + busy + '>' + esc(t('workbench.notefinal.cancel')) + '</button></p>'
+      + '</div>'
+  }
+
+  function noteFinalGo() {
+    if (!WB.detail || WB.noteFinalBusy) return
+    var it = WB.detail.item
+    if (!isTextFinalItem(it)) return
+    var id = it.id
+    WB.noteFinalBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', { action: 'finalize', pdf: true }).then(function (r) {
+      WB.noteFinalBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      WB.noteFinal = null
+      if (WB.detail && WB.detail.item.id === id) {
+        if (r.data && r.data.item) WB.detail.item = r.data.item
+        WB.detail.approval = (r.data && r.data.approval) || null
+      }
+      window.showToast(t('workbench.notefinal.done', { name: (r.data && r.data.final && r.data.final.name) || '' }))
+      render()
+      load(WB.projectId)
+    })
   }
 
   function approvalBoxHtml() {
@@ -17413,7 +17465,7 @@
     // The zoom bar is no longer inside this column: it sits slim at the very bottom of the frame
     // (frameHtml), so the content above gets the room (Boss, TG 2252/2258).
     WB.frShowBar = !(isVid || tbl)
-    return '<div class="wb-fr-center">' + main + strip + '</div>'
+    return '<div class="wb-fr-center">' + noteFinalPanelHtml() + main + strip + '</div>'
   }
 
   /** Alul: nagyitas, oldalszam. */
@@ -18555,7 +18607,10 @@
     else if (a === 'tl-close') { WB.tlOpen = false; render() }
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
-    else if (a === 'item-finalize') { WB.dbOpen = false; approvalAction('finalize') }
+    // #667: a text-file item opens its finalize panel (what happens, then one clear button) instead of the browser confirm.
+    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && isTextFinalItem(WB.detail.item)) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; render() } else approvalAction('finalize') }
+    else if (a === 'note-final-go') noteFinalGo()
+    else if (a === 'note-final-close') { WB.noteFinal = null; render() }
     else if (a === 'item-reopen') approvalAction('reopen')
     else if (a === 'approval-submit') approvalAction('submit')
     else if (a === 'approval-withdraw') approvalAction('withdraw')
