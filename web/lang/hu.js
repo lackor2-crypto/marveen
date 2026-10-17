@@ -6729,6 +6729,7 @@ window._i18n.hu = {
   "workbench.pd.close.open_items_open": "{n} munkadarab még nincs kész (összesen {total}).",
   "workbench.pd.close.open_items_unknown": "A munkadarabokat nem tudtam megszámolni.",
   "workbench.chat.width_hint": "Húzd balra vagy jobbra: a chat szélessége (dupla kattintás: alaphelyzet)",
+  "workbench.tree.width_hint": "Húzd balra vagy jobbra: a mappa-oszlop szélessége (dupla kattintás: alaphelyzet)",
   "workbench.chat.split_hint": "Húzd fel vagy le: mennyit látsz a válaszokból és mennyit az ágens munkájából (dupla kattintás: alaphelyzet)",
   "workbench.chat.head_shut": "Beállítások, mappa és fiók elrejtése",
   "workbench.chat.head_open": "Beállítások, mappa és fiók megjelenítése",

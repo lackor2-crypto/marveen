@@ -13183,7 +13183,7 @@
       + '<div class="wb-fr-chatsplit wb-split-divider" id="wbChatWidthSplit" role="separator" aria-orientation="vertical" tabindex="0" title="' + hint + '" aria-label="' + hint + '"><span></span></div>'
       + '<div class="wb-split-work">' + editorPanelHtml() + '</div>'
       + '</div>'
-      + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>'
+      + '<div class="wb-grid wb-grid-aside"' + treeWidthStyle() + '>' + itemsPanelHtml() + treeWidthHandleHtml('wb-tree-split-grid') + contextPanelHtml() + '</div>'
   }
 
   /** Did this tool event change what the right side shows? A deck, a video
@@ -16092,7 +16092,7 @@
 
   function frPanelHtml() {
     if (!WB.frTab) return ''
-    return '<aside class="wb-fr-panel">' + frPanelTitleHtml() + frPanelBodyHtml() + '</aside>'
+    return '<aside class="wb-fr-panel"' + treeWidthStyle() + '>' + frPanelTitleHtml() + frPanelBodyHtml() + '</aside>' + treeWidthHandleHtml()
   }
 
   /** A dia-/kartya-export gombjai (PPTX, PDF) -- az Export-doboz tetejen, a deck-nek. */
@@ -17883,6 +17883,66 @@
     WB.chatWidth = 0
     try { window.localStorage && window.localStorage.removeItem(CHAT_WIDTH_KEY) } catch (_e) { /* fine */ }
     var tgt = chatWidthTarget(); if (tgt) tgt.style.removeProperty('--wb-chat-w')
+  })
+
+  // Folder column width (Boss TG 9571, #686): the left folder column of the Simple (frame) and the Manual (split) view drags
+  // sideways, same pointer pattern as the chat width above; kept per browser, double-click resets.
+  var TREE_WIDTH_KEY = 'marveen.workbench.treeWidth'
+  var TREE_WIDTH_MIN = 200
+  function loadTreeWidth() {
+    try {
+      var v = parseInt((window.localStorage && window.localStorage.getItem(TREE_WIDTH_KEY)) || '', 10)
+      if (v >= TREE_WIDTH_MIN) return v
+    } catch (_e) { /* no storage: the default width */ }
+    return 0
+  }
+  function treeWidthStyle() { if (WB.treeWidth === undefined) WB.treeWidth = loadTreeWidth(); return WB.treeWidth > 0 ? ' style="--wb-tree-w:' + WB.treeWidth + 'px"' : '' }
+  function treeWidthHandleHtml(extra) {
+    var hint = escA(t('workbench.tree.width_hint'))
+    return '<div class="wb-fr-chatsplit wb-tree-split ' + (extra || '') + '" id="wbTreeWidthSplit" role="separator" aria-orientation="vertical" tabindex="0" title="' + hint + '" aria-label="' + hint + '"><span></span></div>'
+  }
+  // The element that carries --wb-tree-w and the column whose width is measured: the panel in the frame (Simple) view, the
+  // grid and its first column (the folder tree) in the Manual split.
+  function treeWidthTarget() { return document.querySelector('.wb-fr-panel') || document.querySelector('.wb-grid-aside') }
+  function treeWidthPane() { return document.querySelector('.wb-fr-panel') || document.querySelector('.wb-grid-aside > :first-child') }
+  function treeWidthMax() {
+    var body = document.querySelector('.wb-fr-body, .wb-grid-aside')
+    return Math.max(TREE_WIDTH_MIN, (body ? body.getBoundingClientRect().width : 1200) - 380)
+  }
+  function applyTreeWidth(w, save) {
+    var tgt = treeWidthTarget()
+    if (!tgt) return
+    w = Math.round(Math.min(treeWidthMax(), Math.max(TREE_WIDTH_MIN, w)))
+    tgt.style.setProperty('--wb-tree-w', w + 'px') // a variable: the narrow (column) layout overrides it
+    WB.treeWidth = w
+    if (save) { try { window.localStorage && window.localStorage.setItem(TREE_WIDTH_KEY, String(w)) } catch (_e) { /* only this session */ } }
+  }
+  document.addEventListener('pointerdown', function (e) {
+    var h = e.target && e.target.closest ? e.target.closest('#wbTreeWidthSplit') : null
+    if (!h) return
+    var pane = treeWidthPane()
+    if (!pane) return
+    e.preventDefault()
+    var x0 = e.clientX; var w0 = pane.getBoundingClientRect().width
+    function mv(ev) { applyTreeWidth(w0 + (ev.clientX - x0), false) }
+    function up(ev) {
+      document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up)
+      applyTreeWidth(w0 + (ev.clientX - x0), true)
+    }
+    document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up)
+  })
+  document.addEventListener('keydown', function (e) {
+    if (!(e.target && e.target.id === 'wbTreeWidthSplit') || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
+    var pane = treeWidthPane()
+    if (!pane) return
+    e.preventDefault()
+    applyTreeWidth(pane.getBoundingClientRect().width + (e.key === 'ArrowLeft' ? -24 : 24), true)
+  })
+  document.addEventListener('dblclick', function (e) {
+    if (!(e.target && e.target.closest && e.target.closest('#wbTreeWidthSplit'))) return
+    WB.treeWidth = 0
+    try { window.localStorage && window.localStorage.removeItem(TREE_WIDTH_KEY) } catch (_e) { /* fine */ }
+    var tgt = treeWidthTarget(); if (tgt) tgt.style.removeProperty('--wb-tree-w')
   })
 
   function frameHtml() {
