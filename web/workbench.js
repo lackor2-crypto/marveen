@@ -7844,7 +7844,23 @@
     return null
   }
 
+  /** #668: a video's export is the rendered mp4 (download, the finished-files folder, send), not a PDF/DOCX/PNG. */
+  function videoExportPanelHtml() {
+    var doc = vtDoc()
+    var busy = WB.vtBusy || WB.vtRender || archived() || !doc || !(doc.clips || []).length
+    return '<div class="wb-exp" role="region" aria-label="' + escA(t('workbench.exp.open')) + '">'
+      + '<h4 class="wb-exp-title">' + esc(t('workbench.exp.title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.exp.video_hint')) + '</p>'
+      + '<div class="wb-exp-row"><button type="button" class="btn-primary" data-wb-act="vt-render"' + (busy ? ' disabled' : '') + '>'
+      + esc(WB.vtRender ? t('workbench.vt.rendering') : t('workbench.fr.vid.render')) + '</button></div>'
+      + (vtResultHtml('exp') || '<p class="wb-muted">' + esc(t('workbench.exp.video_none')) + '</p>')
+      + sendHtml()
+      + shareBoxHtml('item')
+      + '</div>'
+  }
+
   function exportPanelHtml() {
+    if (WB.detail && WB.detail.item && WB.detail.item.type === 'video') return videoExportPanelHtml()
     var p = WB.preview || {}
     var png = pngSource()
     var rows = []
@@ -16097,12 +16113,30 @@
       + btn('fr-vt-split', '✂ ' + esc(t('workbench.fr.vid.split')), t('workbench.fr.vid.split_hint'), !sel)
       + btn('vt-clip-del', '🗑 ' + esc(t('workbench.vt.remove')), t('workbench.vt.remove_hint'), !sel, sel && sel.id)
       + '<span class="wb-fr-tl-sp"></span>'
+      + (archived() ? '' : '<button type="button" class="btn-primary wb-fr-tl-render" data-wb-act="vt-render"' + (busy || !clips.length ? ' disabled' : '')
+        + ' title="' + escA(t('workbench.fr.vid.render_hint')) + '">' + esc(WB.vtRender ? t('workbench.vt.rendering') : t('workbench.fr.vid.render')) + '</button>')
       + '<span class="wb-muted wb-fr-tl-len">' + esc(t('workbench.vt.length', { s: vtSecs((WB.vt && WB.vt.duration) || 0) })) + '</span>'
       + (archived() ? '' : frVtAddRowHtml())
       + '</div>'
       + (clips.length
-        ? '<div class="wb-tl-track" id="wbTlTrack">' + blocks + '</div><p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
+        ? '<div class="wb-tl-track" id="wbTlTrack">' + blocks + '</div>'
+          + (sel ? '<p class="wb-fr-tl-sel" id="wbTlSel">' + esc(t('workbench.fr.vid.selected', { name: sel.src.split('/').pop(), s: vtSecs(Math.max(0.1, sel.end - sel.start)) })) + '</p>' : '')
+          + '<p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
         : '')
+      + vtResultHtml('fr')
+      + '</div>'
+  }
+
+  /** #668: the rendered video: a player plus the download link and where it was saved. Shared by the strip and the export panel. */
+  function vtResultHtml(where) {
+    var last = WB.vt && WB.vt.last_render
+    if (!last || !last.url) return ''
+    var folder = String(last.rel || '').replace(/\/[^/]*$/, '')
+    return '<div class="wb-vt-result wb-vt-result-' + where + '">'
+      + '<p class="wb-muted">' + esc(t(last.current ? 'workbench.vt.last_current' : 'workbench.vt.last_old')) + '</p>'
+      + '<video controls preload="metadata" playsinline src="' + escA(last.url) + '"></video>'
+      + '<p><a class="btn-secondary" href="' + escA(last.url + '&download=1') + '" download="' + escA(last.name || 'video.mp4') + '">' + esc(t('workbench.fr.vid.download')) + '</a>'
+      + (folder ? ' <span class="wb-hint">' + esc(t('workbench.fr.vid.saved_in', { folder: folder })) + '</span>' : '') + '</p>'
       + '</div>'
   }
 
