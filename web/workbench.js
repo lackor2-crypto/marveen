@@ -13343,11 +13343,14 @@
 
   /** #649 (Boss TG 3087): a table opened for editing shows its "a | b" lines; without this the table seems to have vanished.
    *  The grid stays visible under the lines (read-only preview of what the lines say) with a sentence on how it works. */
-  function dpTableEditAidHtml(b) {
-    var lines = String(dpDraft('b:' + b.id, dpBlockShown(b))).split('\n')
-    var body = lines.map(function (ln, r) {
+  function dpTableGridRowsHtml(text) {
+    return String(text == null ? '' : text).split('\n').filter(function (ln, i, a) { return ln.trim() || i < a.length - 1 }).map(function (ln, r) {
       return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
     }).join('')
+  }
+
+  function dpTableEditAidHtml(b) {
+    var body = dpTableGridRowsHtml(dpDraft('b:' + b.id, dpBlockShown(b)))
     return '<div class="wb-dp-extra wb-dp-tbl-aid" contenteditable="false"><p class="wb-hint">' + esc(t('workbench.dp.tbl_editing')) + '</p>'
       + '<table class="wb-dp-tbl-prev">' + body + '</table></div>'
   }
@@ -19800,9 +19803,7 @@
     var tf = dpCurrent()
     var prev = tf && tf.parentElement ? tf.parentElement.querySelector('.wb-dp-tbl-prev') : null
     if (prev) {
-      prev.innerHTML = String(tf.innerText || '').split('\n').filter(function (ln, i, a) { return ln.trim() || i < a.length - 1 }).map(function (ln, r) {
-        return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
-      }).join('')
+      prev.innerHTML = dpTableGridRowsHtml(tf.innerText)
     }
   })
 
