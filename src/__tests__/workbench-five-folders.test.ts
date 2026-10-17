@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { ensureWorkItemFolder, ensureAllAttachmentsFolders } from '../workbench-assets.js'
@@ -75,6 +75,8 @@ describe('the five standard folders of a work item', () => {
     mkdirSync(join(projDir(), f.folder, 'Vitáztatás jelentés'))
     writeFileSync(join(projDir(), f.folder, 'Agentnek', 'minta.png'), 'x')
     rmSync(join(projDir(), f.folder, 'Mellékletek'), { recursive: true })
+    // an item that was never provisioned (made before the one-time marker existed)
+    getDb().prepare('DELETE FROM work_item_std_folders WHERE work_item_id = ?').run(w.item.id)
     ensureAllAttachmentsFolders()
     const have = subs(f.folder)
     expect(have).toContain('Mellékletek')
@@ -85,5 +87,26 @@ describe('the five standard folders of a work item', () => {
     expect(readFileSync(join(projDir(), f.folder, 'Agentnek', 'minta.png'), 'utf8')).toBe('x')
     expect(existsSync(join(projDir(), f.folder, 'Elkészített anyagok'))).toBe(true)
     expect(getProject(pid)).toBeTruthy()
+  })
+
+  // #681 (Boss TG 9541): nothing is made automatically inside a sub-document; a folder the user deleted stays deleted.
+  it('a sub-document (a debate report item) gets NO folder at all, and a deleted folder is not made again', () => {
+    const w = createWorkItem({ project_id: pid, title: 'Eredeti', type: 'document' })
+    if (!w.ok) throw new Error('item')
+    const f = ensureWorkItemFolder(w.item)
+    if (!f.ok) throw new Error('folder')
+    const r = createReportDocument(pid, { title: 'Wohngeld vita', sections: [{ title: 'S', paragraphs: ['p'] }] } as never, 'test', { originItem: w.item.id })
+    if (!r.ok) throw new Error('report')
+    const sub = getWorkItem((r as unknown as { item: { id: string } }).item.id)!
+    const sf = ensureWorkItemFolder(sub)
+    expect(sf.ok).toBe(true)
+    if (sf.ok) expect(subs(sf.folder)).toEqual([])
+    ensureAllAttachmentsFolders()
+    if (sf.ok) expect(subs(sf.folder)).toEqual([])
+    // the user deletes a folder of the real item: neither a re-open nor the sweep brings it back
+    rmSync(join(projDir(), f.folder, 'Mellékletek'), { recursive: true })
+    ensureWorkItemFolder(w.item)
+    ensureAllAttachmentsFolders()
+    expect(subs(f.folder)).not.toContain('Mellékletek')
   })
 })
