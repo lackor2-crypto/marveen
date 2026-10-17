@@ -77,3 +77,37 @@ describe('#661: a suggested target per file', () => {
     expect(s?.suggested_confident).toBe(true)
   })
 })
+
+// #659 follow-up: Escape closes only the dialog on top. The folder picker opened from the Life-move dialog sits above
+// it; before the fix one Escape closed BOTH, and the folder picked afterwards landed in a dialog that was gone.
+describe('#659: Escape closes only the topmost dialog', () => {
+  // The real isTopModal() from web/workbench.js, run against a fake document holding the overlays in DOM order.
+  const isTopModal = (overlays: object[]) => {
+    const src = fn('isTopModal')
+    const f = new Function('document', src + '\nreturn isTopModal')
+    return f({ querySelectorAll: () => overlays }) as (o: object) => boolean
+  }
+  const lifeMove = { id: 'wbLifeMove' }
+  const picker = { id: 'wbLifeFilePick' }
+
+  it('the dialog underneath ignores Escape while the picker is open; the picker (on top) takes it', () => {
+    const check = isTopModal([lifeMove, picker])
+    expect(check(lifeMove)).toBe(false)
+    expect(check(picker)).toBe(true)
+  })
+
+  it('a lone dialog takes Escape; so does one when the page lists no overlay at all', () => {
+    expect(isTopModal([lifeMove])(lifeMove)).toBe(true)
+    expect(isTopModal([])(lifeMove)).toBe(true)
+  })
+
+  it('all four Escape handlers (Life-move, orphan JSON, root guard, folder picker) ask isTopModal first', () => {
+    const handlers = wbSrc.match(/var onKey = function \(e\) \{[^\n]*\}/g) || []
+    const escapes = handlers.filter((h) => h.includes("'Escape'"))
+    expect(escapes.length).toBeGreaterThanOrEqual(4)
+    for (const h of escapes) expect(h).toContain('isTopModal(overlay)')
+    for (const name of ['lifeMoveOpen', 'jsonCleanOpen', 'rootGuardAsk', 'pickLifeFile']) {
+      expect(fn(name)).toContain('isTopModal(overlay)')
+    }
+  })
+})
