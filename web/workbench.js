@@ -11767,6 +11767,12 @@
       + '<p class="wb-hint">' + esc(t(help)) + '</p>'
   }
 
+  /** On a phone the panel stacks under the tool column, below the fold: bring it into view so the click visibly does something. */
+  function noteFinalScrollIn() {
+    var box = document.querySelector('.wb-note-final')
+    if (box && typeof box.scrollIntoView === 'function') box.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+
   function noteFinalPanelHtml() {
     var it = WB.detail && WB.detail.item
     if (!it || WB.noteFinal !== it.id || !(isTextFinalItem(it) || isTableFinalItem(it)) || archived()) return ''
@@ -18800,7 +18806,7 @@
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
     // #667: a text-file item opens its finalize panel (what happens, then one clear button) instead of the browser confirm.
-    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item))) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() ? WB.tr.dst : ''; render() } else approvalAction('finalize') }
+    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item))) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() ? WB.tr.dst : ''; render(); if (WB.noteFinal) noteFinalScrollIn() } else approvalAction('finalize') }
     else if (a === 'note-final-go') noteFinalGo()
     else if (a === 'tr-save-version') trSaveVersion()
     else if (a === 'note-final-close') { WB.noteFinal = null; render() }
