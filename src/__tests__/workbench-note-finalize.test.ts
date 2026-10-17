@@ -211,3 +211,16 @@ describe('finalize language list (#678, source contract)', () => {
     expect(js).toMatch(/noteFinalScrollIn\(\); noteLangsRefresh\(\)/)
   })
 })
+
+// #678 follow-up: the "Original" entry never repeats a saved version's language, and the server message no longer points to a finalize-panel translation that does not exist.
+describe('finalize language list naming (#678 follow-up, source contract)', () => {
+  const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
+  const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf-8')
+  it('names the original without a language when a saved version has the same one', () => {
+    expect(js).toContain('workbench.notefinal.lang_orig_plain')
+  })
+  it('the no-variant message points only to the Translation view', () => {
+    expect(route).not.toContain('a véglegesítő panelen')
+    expect(route).not.toContain('or on the finalize panel')
+  })
+})

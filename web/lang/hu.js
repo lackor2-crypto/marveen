@@ -6211,6 +6211,7 @@ window._i18n.hu = {
   "workbench.notefinal.step_status": "A munkadarab véglegesítettnek számít (a lista elrejtheti), és bármikor újranyitható.",
   "workbench.notefinal.lang_title": "Nyelv:",
   "workbench.notefinal.lang_orig": "Eredeti ({lang})",
+  "workbench.notefinal.lang_orig_plain": "Eredeti (a jegyzet saját nyelve)",
   "workbench.notefinal.lang_help": "A PDF a jegyzet fájljának saját nyelvén készül, változtatás nélkül.",
   "workbench.notefinal.lang_saved": "{lang} (mentett változat)",
   "workbench.notefinal.lang_help_saved": "A mentett változat szövegéből készül a PDF, nem fordít újra. Az Elkészített anyagok mappába kerül, a nyelv kódjával a fájlnév végén.",
