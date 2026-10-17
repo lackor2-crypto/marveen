@@ -143,3 +143,27 @@ describe('waitingApprovalBalance', () => {
     expect(r.balanced).toBe(true)
   })
 })
+
+// #662: the sweep used to fetch /api/approvals with no filter, which returns the
+// newest 100 approvals of ALL statuses. Pending ones older than that window
+// vanished from the list and their waiting cards were reported as orphans.
+describe('kanban-audit.sh approval fetch (#662)', () => {
+  it('asks for the pending approvals only, at the maximum page size', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const src = readFileSync(fileURLToPath(new URL('../../scripts/kanban-audit.sh', import.meta.url)), 'utf8')
+    expect(src).toMatch(/\/api\/approvals\?status=pending&limit=500/)
+    expect(src).not.toMatch(/"\$API\/api\/approvals"/)
+  })
+
+  it('pairs correctly when the pending set is larger than a 100-item window', () => {
+    const cards = Array.from({ length: 120 }, (_, i) => card(`c${String(i).padStart(7, '0')}`, 'waiting', i + 1))
+    const approvals = cards.map((c, i) => payloadApproval(`ap${i}`, c.id))
+    const r = waitingApprovalBalance(cards, approvals)
+    expect(r).toMatchObject({ waitingCount: 120, pendingCount: 120, balanced: true })
+    expect(r.waitingWithoutApproval).toEqual([])
+    // The old behaviour: only a 100-item window reached the balance.
+    const truncated = waitingApprovalBalance(cards, approvals.slice(0, 100))
+    expect(truncated.waitingWithoutApproval).toHaveLength(20)
+  })
+})
