@@ -23,7 +23,7 @@ import { getWorkItem } from './workbench.js'
 import { itemOutputFolder } from './workbench-assets.js'
 import { finishedFolderFor } from './project-files.js'
 import { videoTool, videoTarget, videoRunTo, videoBusy, VIDEO_TRIM_TIMEOUT_MS, type VideoFail } from './workbench-video.js'
-import { ASPECT_SIZE, timelineDuration, type TimelineDoc } from './workbench-video-timeline.js'
+import { ASPECT_SIZE, effectiveTransition, timelineDuration, type TimelineDoc } from './workbench-video-timeline.js'
 
 export const RENDER_FPS = 30
 export const RENDER_TIMEOUT_MS = 4 * VIDEO_TRIM_TIMEOUT_MS
@@ -73,6 +73,44 @@ export function buildAss(doc: TimelineDoc): string {
   return lines.join('\n') + '\n'
 }
 
+/**
+ * Joins the normalised clips `[v0][a0]`, `[v1][a1]`, ... into `[outV][outA]`. Without a transition this is
+ * the plain `concat` (unchanged since the first render). With transitions it chains pairs: a hard cut is a
+ * two-input concat, a transition is `xfade` (picture) plus `acrossfade` (sound), which overlap the two clips.
+ */
+export function joinClips(doc: TimelineDoc, outV: string, outA: string): string[] {
+  const n = doc.clips.length
+  const trs = doc.clips.map((_, i) => effectiveTransition(doc, i))
+  if (!trs.some(Boolean)) {
+    return [`${doc.clips.map((_, i) => `[v${i}][a${i}]`).join('')}concat=n=${n}:v=1:a=1[${outV}][${outA}]`]
+  }
+  const out: string[] = []
+  let accV = 'v0', accA = 'a0'
+  let accLen = doc.clips[0].end - doc.clips[0].start
+  for (let i = 0; i < n - 1; i++) {
+    const last = i === n - 2
+    const nv = last ? outV : `jv${i}`, na = last ? outA : `ja${i}`
+    const len = doc.clips[i + 1].end - doc.clips[i + 1].start
+    const t = trs[i]
+    if (t) {
+      out.push(
+        `[${accV}][v${i + 1}]xfade=transition=${t.type}:duration=${fnum(t.duration)}:offset=${fnum(accLen - t.duration)}[${nv}]`,
+        `[${accA}][a${i + 1}]acrossfade=d=${fnum(t.duration)}:c1=tri:c2=tri[${na}]`,
+      )
+      accLen += len - t.duration
+    } else {
+      // concat stamps its output with a 1/1000000 timebase; xfade needs both inputs in the clips' own.
+      out.push(
+        `[${accV}][${accA}][v${i + 1}][a${i + 1}]concat=n=2:v=1:a=1[jr${i}][${na}]`,
+        `[jr${i}]settb=1/${RENDER_FPS}[${nv}]`,
+      )
+      accLen += len
+    }
+    accV = nv; accA = na
+  }
+  return out
+}
+
 /** The ffmpeg arguments for a timeline. Throws nothing; the caller checks the inputs first. */
 export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   const { width: W, height: H } = ASPECT_SIZE[doc.aspect]
@@ -90,23 +128,21 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
 
   // Every clip: cut, fill the frame (the picture sits on a blurred copy of itself, so a
   // 16:9 clip in a 9:16 video has no black bars), same frame rate and sound format.
-  const vl: string[] = []
   doc.clips.forEach((c, i) => {
     const n = clipIdx[i]
     f.push(
       `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=PTS-STARTPTS,fps=${RENDER_FPS},split=2[bg${i}][fg${i}]`,
       `[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3[bb${i}]`,
       `[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease[ff${i}]`,
-      `[bb${i}][ff${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v${i}]`,
+      `[bb${i}][ff${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p,settb=1/${RENDER_FPS}[v${i}]`,
     )
     if (inp.hasAudio[c.src]) {
       f.push(`[${n}:a]atrim=start=${fnum(c.start)}:end=${fnum(c.end)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=${fnum(doc.clip_volume)}[a${i}]`)
     } else {
       f.push(`anullsrc=r=48000:cl=stereo,atrim=0:${fnum(c.end - c.start)},asetpts=PTS-STARTPTS[a${i}]`)
     }
-    vl.push(`[v${i}][a${i}]`)
   })
-  f.push(`${vl.join('')}concat=n=${doc.clips.length}:v=1:a=1[vc][ac]`)
+  f.push(...joinClips(doc, 'vc', 'ac'))
 
   // Picture overlays, each only between its start and end.
   let v = 'vc'
