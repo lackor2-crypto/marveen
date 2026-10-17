@@ -3308,6 +3308,87 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
     const body = JSON.parse(String(posted('/api/workbench/agent/stop')[0].init?.body))
     expect(body).toEqual({ project_id: 'p1', work_item_id: null })
   })
+
+  // #644 (Boss TG 3052): a line waiting behind a busy agent used to live only in the page's memory.
+  describe('#644: a queued message survives F5 / a dashboard restart', () => {
+    let store: Record<string, string>
+    const mkStorage = () => ({ getItem: (k: string) => (k in store ? store[k] : null), setItem: (k: string, v: string) => { store[k] = v }, removeItem: (k: string) => { delete store[k] } })
+    /** The server side: `messages` is what the history holds, the inject request is NOT taken (code bridge / busy). */
+    const serve = (state: { running: boolean; messages: { role: string; content: string }[] }) => h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        return { status: 200, body: sse([{ type: 'session', sessionId: 's1' }, { type: 'text', text: 'Elküldve.' }, { type: 'done', model: 'm' }]) }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, running: state.running, messages: state.messages, toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    const openChat = async (expectIn: string) => {
+      h.win.localStorage = mkStorage()
+      h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain(expectIn))
+    }
+    beforeEach(() => { store = {} })
+
+    it('the line waiting behind the running answer is back after F5 and goes out when the answer is done', async () => {
+      const server = { running: true, messages: [{ role: 'user', content: 'véleményezd a tervet' }] }
+      serve(server)
+      await openChat('workbench.chat.resumed_running')
+      h.inputs.wbChatInput = { value: 'és még ezt is', focus() {} }
+      h.click({ 'data-wb-act': 'chat-send' })
+      expect(h.rootEl.innerHTML).toContain('workbench.chat.queued')
+      expect(Object.keys(store).filter((k) => k.indexOf('marveen.wb.chatq.') === 0)).toHaveLength(1)
+
+      // F5: a fresh page, the same browser storage, the server still working.
+      h = harness()
+      serve(server)
+      await openChat('workbench.chat.resumed_running')
+      expect(h.rootEl.innerHTML).toContain('és még ezt is')
+      expect(h.rootEl.innerHTML).toContain('workbench.chat.queued')
+      expect(posted('/api/workbench/agent/message')).toHaveLength(0)
+
+      server.running = false
+      await vi.advanceTimersByTimeAsync(3100)
+      await vi.waitFor(() => expect(posted('/api/workbench/agent/message')).toHaveLength(1))
+      expect(JSON.parse(String(posted('/api/workbench/agent/message')[0].init?.body)).message).toBe('és még ezt is')
+    })
+
+    it('a waiting line whose words were already sent earlier ("folytasd") is NOT dropped', async () => {
+      const server = { running: true, messages: [{ role: 'user', content: 'folytasd' }, { role: 'assistant', content: 'Rendben.' }, { role: 'user', content: 'számolj' }] }
+      serve(server)
+      await openChat('workbench.chat.resumed_running')
+      h.inputs.wbChatInput = { value: 'folytasd', focus() {} }
+      h.click({ 'data-wb-act': 'chat-send' })
+      h = harness()
+      serve(server)
+      await openChat('workbench.chat.resumed_running')
+      // Fails without the queued flag: the old restore matched the words against the whole history and lost the line.
+      expect(h.rootEl.innerHTML).toContain('workbench.chat.queued')
+      expect(h.rootEl.innerHTML.split('folytasd').length - 1).toBe(2)
+    })
+
+    it('two identical waiting lines both come back, and a line the server already holds is not doubled', async () => {
+      const server = { running: true, messages: [{ role: 'user', content: 'véleményezd a tervet' }] }
+      serve(server)
+      await openChat('workbench.chat.resumed_running')
+      // Saved by an older page: one line was in flight (the server has it), two were waiting.
+      h.inputs.wbChatInput = { value: 'okéz', focus() {} }
+      h.click({ 'data-wb-act': 'chat-send' })
+      h.inputs.wbChatInput = { value: 'okéz', focus() {} }
+      h.click({ 'data-wb-act': 'chat-send' })
+      const key = Object.keys(store).find((k) => k.indexOf('marveen.wb.chatq.') === 0) as string
+      const saved = JSON.parse(store[key])
+      saved.unshift({ text: 'véleményezd a tervet', queued: false })
+      store[key] = JSON.stringify(saved)
+      h = harness()
+      serve(server)
+      await openChat('workbench.chat.resumed_running')
+      const html = h.rootEl.innerHTML
+      expect(html.split('workbench.chat.queued').length - 1).toBe(2)
+      expect(html.split('véleményezd a tervet').length - 1).toBe(1)
+      // Fails without per-entry matching: the second identical line used to be dropped as a "duplicate".
+      expect(html.split('okéz').length - 1).toBe(2)
+    })
+  })
 })
 
 // #435 (Boss, TG 1753): "a munkapadnal F5-ot nyomtam, es visszament legelejere a
@@ -4126,14 +4207,6 @@ describe('Vitaztatas: haromoldalu mod (#597, 7. fazis)', () => {
     expect(html).toContain('id="wbDbModelC"')
     expect(html).toContain(`<option value="${C}" selected>`)
     expect(html).toContain('<option value="hard" selected>')
-  })
-})
-
-describe('chat: a queued message survives F5 (Boss TG 3052)', () => {
-  it('the queued / in-flight texts are kept in localStorage and put back after the history loads', () => {
-    expect(SRC).toContain("'marveen.wb.chatq.'")
-    expect(SRC).toMatch(/function renderChat\(\) \{\n\s+saveChatQueue\(\)/)
-    expect(SRC).toContain('restoreChatQueue(st, ')
   })
 })
 

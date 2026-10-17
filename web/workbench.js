@@ -10365,7 +10365,7 @@
       // nem torolheti le a kepernyorol a sajat mondatat es a valaszt.
       attachHistoryTools(regi, r.data.messages || [], r.data.toolCalls || [])
       st.turns = regi.concat(st.turns)
-      restoreChatQueue(st, regi.filter(function (x) { return x.role === 'user' }).slice(-8).map(function (x) { return x.text }))
+      restoreChatQueue(st, regi.filter(function (x) { return x.role === 'user' }).slice(-3).map(function (x) { return x.text }), regi.length)
       // The freshly loaded history opens at its latest message.
       WB.chatForceBottom = true
       renderChat()
@@ -11019,7 +11019,9 @@
    *  rajzoltunk), a teljes rajzolas lep a helyebe. */
   // Boss TG 3052: a message typed while the agent was busy waited only in this page's memory, so F5 (or the dashboard
   // restarting) wiped it from the chat. The texts that are queued or in flight are kept per chat in localStorage and
-  // put back after the history loads, unless the server already has them as a user message.
+  // put back after the history loads. Each entry is { text, queued }: a line that was never sent (queued) cannot be on
+  // the server, even if the same words ("ok", "folytasd") were sent earlier, so it is always put back; a line that was
+  // in flight is skipped only if the server already holds it among its latest user messages.
   function chatQueueStoreKey(key) { return 'marveen.wb.chatq.' + key }
 
   function saveChatQueue() {
@@ -11031,7 +11033,7 @@
         var x = st.turns[i]
         if (x.role !== 'user' || !x.text) continue
         var next = st.turns[i + 1]
-        if (x.queued || (next && next.role === 'agent' && !next.done && !next.watching)) out.push(x.text)
+        if (x.queued || (next && next.role === 'agent' && !next.done && !next.watching)) out.push({ text: x.text, queued: !!x.queued && !x.injecting })
       }
       var k = chatQueueStoreKey(chatKey())
       if (out.length) window.localStorage.setItem(k, JSON.stringify(out))
@@ -11039,15 +11041,21 @@
     } catch (_e) { /* storage unavailable: the queue just stays in memory */ }
   }
 
-  function restoreChatQueue(st, serverUserTexts) {
+  /** `ownFrom`: st.turns[ownFrom..] are the lines this page made itself (typed while the history loaded, or kept by a
+   *  reload); each one stands for one saved entry. `serverUserTexts`: the latest user messages the server holds. */
+  function restoreChatQueue(st, serverUserTexts, ownFrom) {
     try {
       var raw = window.localStorage.getItem(chatQueueStoreKey(chatKey()))
       var list = raw ? JSON.parse(raw) : []
       if (!Array.isArray(list)) return
+      var own = st.turns.slice(ownFrom).filter(function (x) { return x.role === 'user' })
       for (var i = 0; i < list.length; i++) {
-        var text = String(list[i] || '')
-        if (!text || serverUserTexts.indexOf(text) >= 0) continue
-        if (st.turns.some(function (x) { return x.role === 'user' && x.text === text })) continue
+        var e = typeof list[i] === 'string' ? { text: list[i], queued: false } : (list[i] || {})
+        var text = String(e.text || '')
+        if (!text) continue
+        var mine = own.findIndex(function (x) { return x.text === text })
+        if (mine >= 0) { own.splice(mine, 1); continue }
+        if (!e.queued && serverUserTexts.indexOf(text) >= 0) continue
         st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true, queued: true })
       }
     } catch (_e) { /* nothing to restore */ }
