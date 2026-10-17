@@ -21,8 +21,19 @@ describe('workbench list group tint', () => {
     expect(js).toContain('function grpHsl(g)')
     expect(js).toContain('var g = ownFold[f] ? -(++topIdx) : folIdx++')
     expect(js).not.toContain('subIdx')
-    expect(js).toContain('var pal = [350, 28, 135, 275, 48, 168, 305, 95]')
+    expect(js).toContain('var pal = [350, 128, 275, 42, 168, 318, 95]')
     expect(js).toContain('var g = outIdx++')
     expect(css).toMatch(/\.wb-sec-box\s*\{[^}]*10%, transparent[^}]*background: transparent/)
+  })
+})
+
+describe('palette order (#690)', () => {
+  it('neighbouring colours are at least 100 degrees apart on the wheel, never two shades of one hue', () => {
+    const js = readFileSync(join(process.cwd(), 'web/workbench.js'), 'utf-8')
+    const m = /var pal = \[([0-9, ]+)\]/.exec(js)
+    const pal = m![1].split(',').map((x) => Number(x.trim()))
+    const dist = (a: number, b: number) => { const x = Math.abs(a - b) % 360; return Math.min(x, 360 - x) }
+    for (let i = 0; i < pal.length; i++) expect(dist(pal[i], pal[(i + 1) % pal.length])).toBeGreaterThanOrEqual(100)
+    for (const h of pal) expect(dist(h, 210)).toBeGreaterThanOrEqual(40)
   })
 })
