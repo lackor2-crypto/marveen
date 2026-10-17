@@ -52,6 +52,7 @@ import {
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
+  type WorkItemRow,
 } from '../../workbench.js'
 import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, ensureProjectHasFolder } from '../../project-files.js'
 import { uploadExceeds, uploadLimitBytes, uploadLimitMbForMessage, streamBodyToStage, UploadDiskError, BUFFERED_UPLOAD_CAP_BYTES, type StagedUpload } from '../../upload-stream.js'
@@ -64,7 +65,8 @@ import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-wor
 import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
-import { scheduleOutlineMirror } from '../../workbench-docmirror.js'
+import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
+import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { forgetMailDraft, mailDraftView, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
 import { getAccounts as getMailAccounts } from './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
@@ -316,6 +318,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   note_final_bad_translation: {
     hu: 'A lefordított szöveg vagy a nyelv kódja nem megfelelő, ezért nem készült PDF. Fordítsd le újra a szöveget, és próbáld újra.',
     en: 'The translated text or its language code is not usable, so no PDF was made. Translate the text again and retry.',
+  },
+  textdoc_not_text: {
+    hu: 'Ez a munkadarab nem szöveges fájl (.md / .txt), ezért nem olvasható be a dokumentum-oldalra.',
+    en: 'This work item is not a text file (.md / .txt), so it cannot be read into the document page.',
+  },
+  textdoc_unreadable: {
+    hu: 'A jegyzet fájlja nem olvasható (hiányzik vagy nem érhető el a Raktár), ezért nem tudtam beolvasni. Nézd meg, hogy a fájl megvan-e a mappájában.',
+    en: 'The note\'s file cannot be read (it is missing or the Depot is not reachable), so it was not read in. Check that the file is in its folder.',
+  },
+  textdoc_project_gone: {
+    hu: 'A projekt archivált vagy nem található, ezért a jegyzet nem módosítható.',
+    en: 'The project is archived or not found, so the note cannot be changed.',
+  },
+  textdoc_save_failed: {
+    hu: 'A jegyzet eredeti állapotát nem sikerült új verzióként elmenteni, ezért semmi sem változott.',
+    en: 'The note\'s original state could not be saved as a new version, so nothing was changed.',
+  },
+  textdoc_import_failed: {
+    hu: 'A szöveget nem sikerült a dokumentum-oldalra beolvasni, ezért a jegyzet változatlan maradt.',
+    en: 'The text could not be read into the document page, so the note stayed as it was.',
   },
   note_final_no_variant: {
     hu: 'Ehhez a nyelvhez még nincs mentett változat. Fordítsd le a szöveget (a Fordítás nézetben vagy a véglegesítő panelen), és próbáld újra.',
@@ -2045,6 +2067,12 @@ function projectDocsOut(projectId: string): Record<string, unknown> {
   }
 }
 
+/** #673: what the page needs to know about the text profile: is it on, may a note be read in, was the file edited outside. */
+function textProfileView(item: WorkItemRow): { on: boolean; candidate: boolean; file_edited: boolean } {
+  const on = textProfileOf(item)
+  return { on, candidate: isTextProfileCandidate(item), file_edited: on && mirrorFileEdited(item) }
+}
+
 function outlineOut(itemId: string): OutlineOut | null {
   if (!hasDocModel(itemId)) return null
   const item = getWorkItem(itemId)
@@ -3559,7 +3587,23 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       privacy: privacyState(item.project_id, item.id),
       court: courtOut(item.id),
       ...(hasTextFinalPanel(item) ? { text_langs: textLangState(item) } : {}),
+      text_profile: textProfileView(item),
     })
+    return true
+  }
+
+  // #673: a text note is read into the document page's outline (once), or re-read from its file after a hand edit.
+  //   POST .../text-import {reimport?: true}
+  if (segs.length === 2 && segs[1] === 'text-import' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const owner = getProject(item.project_id)
+    if (!owner) return fail(res, 404, 'project_not_found', lang)
+    if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = body['reimport'] === true ? reimportTextFromFile(item, actor(ctx)) : importTextToOutline(item, actor(ctx))
+    if (!r.ok) return failDetail(res, r.code === 'textdoc_not_text' ? 400 : r.code === 'textdoc_unreadable' ? 404 : r.code === 'textdoc_project_gone' ? 409 : 500, r.code, lang, r.detail)
+    if (body['reimport'] === true) scheduleOutlineMirror(item.id)
+    json(res, { ok: true, imported: r.imported, item: r.item, outline: outlineOut(item.id), text_profile: textProfileView(r.item), versions: listWorkItemVersionsView(item.id) }, r.imported ? 201 : 200)
     return true
   }
 
