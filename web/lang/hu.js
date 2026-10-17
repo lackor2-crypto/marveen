@@ -6846,6 +6846,8 @@ window._i18n.hu = {
   "workbench.fr.vid.trans.len_bad": "Az átmenet hossza 0,1 és 2 másodperc közötti szám legyen.",
   "workbench.fr.vid.trans.close": "Kész",
   "workbench.fr.vid.trans.hint": "Az átmenet a két klipet egymásra csúsztatja, ezért a kész videó az átmenet hosszával rövidebb lesz. A választásod azonnal mentődik, a visszavonás működik.",
+  "workbench.fr.vid.speed": "Sebesség",
+  "workbench.fr.vid.speed_hint": "A klip lejátszási sebessége: 1× normál, 2× kétszer gyorsabb, 0,5× lassított. A hang is követi, és a kész videó hossza ehhez igazodik. A lejátszó előnézete normál sebességen megy, a változás a kész videóban látszik. A választásod azonnal mentődik, a visszavonás működik.",
   "workbench.fr.vid.trans.t_none": "Nincs (sima vágás)",
   "workbench.fr.vid.trans.t_fade": "Áttűnés",
   "workbench.fr.vid.trans.t_fadeblack": "Áttűnés feketén át",

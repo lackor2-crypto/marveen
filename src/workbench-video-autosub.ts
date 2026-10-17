@@ -14,7 +14,7 @@ import { PROJECT_ROOT } from './config.js'
 import { videoTool, videoRunTo, videoBusy } from './workbench-video.js'
 import { resolveMedia, probeMedia } from './workbench-video-render.js'
 import {
-  applyTimelineOps, clipOffsets, TIMELINE_MAX_SUBTITLES, TIMELINE_TEXT_MAX, type TimelineDoc,
+  applyTimelineOps, clipLen, clipOffsets, TIMELINE_MAX_SUBTITLES, TIMELINE_TEXT_MAX, type TimelineDoc,
 } from './workbench-video-timeline.js'
 import type { ProjectRow } from './projects.js'
 
@@ -113,7 +113,7 @@ export type AutoSubResult =
 export async function recogniseTimeline(project: ProjectRow, itemId: string, doc: TimelineDoc, lang: AutoSubLang): Promise<AutoSubResult> {
   if (!(AUTOSUB_LANGS as readonly string[]).includes(lang)) return { ok: false, code: 'autosub_bad_language', detail: null }
   if (!doc.clips.length) return { ok: false, code: 'render_empty', detail: null }
-  const total = doc.clips.reduce((n, c) => n + (c.end - c.start), 0)
+  const total = doc.clips.reduce((n, c) => n + clipLen(c), 0)
   if (total > AUTOSUB_MAX_SECONDS) return { ok: false, code: 'autosub_too_long', detail: `${Math.round(total / 60)} minutes` }
   if (videoBusy.has(itemId)) return { ok: false, code: 'video_busy', detail: null }
   videoBusy.add(itemId)
@@ -138,8 +138,10 @@ export async function recogniseTimeline(project: ProjectRow, itemId: string, doc
       if (!r.ok) return r
       for (const l of wordsToSubtitles(r.words)) {
         // The recogniser works on the cut audio, so its times start at 0 at the start of the clip.
-        const start = Math.min(offsets[i] + (c.end - c.start), offsets[i] + l.start)
-        lines.push({ text: l.text, start: Math.round(start * 1000) / 1000, end: Math.round(Math.min(offsets[i] + (c.end - c.start), offsets[i] + l.end) * 1000) / 1000 })
+        // A sped-up or slowed clip plays the same words in (cut length / speed) seconds.
+        const sp = c.speed || 1
+        const start = Math.min(offsets[i] + clipLen(c), offsets[i] + l.start / sp)
+        lines.push({ text: l.text, start: Math.round(start * 1000) / 1000, end: Math.round(Math.min(offsets[i] + clipLen(c), offsets[i] + l.end / sp) * 1000) / 1000 })
       }
     }
     lines.sort((a, b) => a.start - b.start)

@@ -16248,6 +16248,20 @@
     vtOps([op])
   }
 
+  var VT_SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4]
+
+  /** #669: how long a clip plays on the timeline (the cut divided by its speed). */
+  function vtClipLen(c) { return (c.end - c.start) / (c.speed || 1) }
+
+  /** The speed picker of the picked clip. Saved at once, undo works. */
+  function frVtSpeedHtml(sel) {
+    if (!sel || archived()) return ''
+    var cur = sel.speed || 1
+    var opts = VT_SPEEDS.map(function (v) { return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + esc(String(v).replace('.', ',')) + '\u00D7</option>' }).join('')
+    return '<p class="wb-fr-speed" id="wbSpeedRow"><label>' + esc(t('workbench.fr.vid.speed')) + ' <select id="wbVtSpeed" data-wb-id="' + escA(sel.id) + '"' + (WB.vtBusy || WB.vtRender ? ' disabled' : '') + '>' + opts + '</select></label> '
+      + '<span class="wb-hint">' + esc(t('workbench.fr.vid.speed_hint')) + '</span></p>'
+  }
+
   /** The timeline under the player: toolbar + proportional clip blocks. */
   function frVideoStripHtml() {
     var doc = vtDoc()
@@ -16256,18 +16270,18 @@
     var sel = frVtSelClip()
     var h = (WB.vt && WB.vt.history) || {}
     var busy = WB.vtBusy || WB.vtRender || archived()
-    var total = clips.reduce(function (a, c) { return a + Math.max(0.1, c.end - c.start) }, 0) || 1
+    var total = clips.reduce(function (a, c) { return a + Math.max(0.1, vtClipLen(c)) }, 0) || 1
     var btn = function (act, label, title, dis, id) {
       return '<button type="button" class="wb-fr-tbtn2" data-wb-act="' + act + '"' + (id ? ' data-wb-id="' + escA(id) + '"' : '')
         + (dis || busy ? ' disabled' : '') + ' title="' + escA(title || label) + '"' + (label.length <= 2 ? ' aria-label="' + escA(title || label) + '"' : '') + '>' + label + '</button>'
     }
     var blocks = clips.map(function (c, i) {
-      var dur = Math.max(0.1, c.end - c.start)
+      var dur = Math.max(0.1, vtClipLen(c))
       var on = sel && sel.id === c.id
       return (i > 0 && !archived() ? frVtTransChipHtml(clips[i - 1], i - 1) : '') + '<div class="wb-tl-clip' + (on ? ' wb-tl-on' : '') + '" data-wb-tl="' + escA(c.id) + '" style="width:' + (dur / total * 100).toFixed(3) + '%" title="' + escA(c.src.split('/').pop()) + '">'
         + (archived() ? '' : '<span class="wb-tl-h wb-tl-hl" data-wb-tlh="l" aria-hidden="true"></span>')
         + (on ? '<span class="wb-tl-ph" data-wb-ph="1" aria-hidden="true"><span class="wb-tl-pht"></span></span>' : '')
-        + '<span class="wb-tl-no"' + (!archived() && clips.length > 1 ? ' data-wb-tlh="m" title="' + escA(t('workbench.fr.vid.grip')) + '"' : '') + '>' + (i + 1) + '</span><span class="wb-tl-name">' + esc(c.src.split('/').pop()) + '</span><span class="wb-tl-dur">' + esc(vtSecs(dur)) + ' s</span>'
+        + '<span class="wb-tl-no"' + (!archived() && clips.length > 1 ? ' data-wb-tlh="m" title="' + escA(t('workbench.fr.vid.grip')) + '"' : '') + '>' + (i + 1) + '</span><span class="wb-tl-name">' + esc(c.src.split('/').pop()) + '</span><span class="wb-tl-dur">' + esc(vtSecs(dur)) + ' s' + (c.speed ? ' \u00B7 ' + esc(String(c.speed).replace('.', ',')) + '\u00D7' : '') + '</span>'
         + (archived() ? '' : '<span class="wb-tl-h wb-tl-hr" data-wb-tlh="r" aria-hidden="true"></span>')
         + '</div>'
     }).join('')
@@ -16285,6 +16299,7 @@
       + (clips.length
         ? '<div class="wb-tl-track" id="wbTlTrack">' + blocks + '</div>'
           + frVtTransPanelHtml(clips)
+          + frVtSpeedHtml(sel)
           + (sel ? '<p class="wb-fr-tl-sel" id="wbTlSel">' + esc(t('workbench.fr.vid.selected', { name: sel.src.split('/').pop(), s: vtSecs(Math.max(0.1, sel.end - sel.start)) })) + '</p>' : '')
           + '<p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
         : '')
@@ -19978,6 +19993,7 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
     if (WB.img && /^wbImg(CapPos|CapColor|CapBand)$/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
+    if (e.target.id === 'wbVtSpeed') { vtOps([{ op: 'setSpeed', id: e.target.getAttribute('data-wb-id'), speed: Number(e.target.value) }]); return }
     if (e.target.id === 'wbVtTransType' || e.target.id === 'wbVtTransDur') { frVtTransApply(); return }
     if (e.target.id === 'wbPostPlatform') { postState().platform = postPlatform(e.target.value).id; postState().more = false; render(); return }
     if (e.target.id === 'wbCanPlatform') { WB.canvasPlatformPick = e.target.value; render(); return }

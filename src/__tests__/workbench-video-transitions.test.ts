@@ -5,9 +5,9 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  emptyTimeline, parseTimeline, applyTimelineOps, timelineDuration, clipOffsets, effectiveTransition, type TimelineDoc,
+  emptyTimeline, parseTimeline, applyTimelineOps, timelineDuration, clipOffsets, clipLen, effectiveTransition, type TimelineDoc,
 } from '../workbench-video-timeline.js'
-import { buildRender, joinClips } from '../workbench-video-render.js'
+import { buildRender, joinClips, atempo } from '../workbench-video-render.js'
 
 function ok(doc: TimelineDoc, ops: unknown[]): TimelineDoc {
   const r = applyTimelineOps(doc, ops)
@@ -98,6 +98,40 @@ describe.skipIf(!hasFfmpeg)('transitions: real ffmpeg', () => {
       const px = (t: string) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-ss', t, '-i', out, '-frames:v', '1', '-vf', 'scale=1:1,format=rgb24', '-f', 'rawvideo', '-']).toString('hex')
       const mid = px('2.5')
       expect(mid.slice(0, 2)).not.toBe('ff'); expect(mid.slice(0, 2)).not.toBe('00'); expect(mid.slice(4, 6)).not.toBe('00')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe('speed (#669)', () => {
+  it('setSpeed changes the length, offsets and the transition cap; 1 clears; bad values fail', () => {
+    let d = ok(emptyTimeline(), [{ op: 'addClip', src: 'P/a.mp4', start: 0, end: 4 }, { op: 'addClip', src: 'P/b.mp4', start: 0, end: 4 }])
+    d = ok(d, [{ op: 'setSpeed', id: 'c1', speed: 2 }])
+    expect(clipLen(d.clips[0])).toBe(2); expect(timelineDuration(d)).toBe(6); expect(clipOffsets(d)).toEqual([0, 2])
+    expect(ok(d, [{ op: 'setSpeed', id: 'c1', speed: 1 }]).clips[0].speed).toBeUndefined()
+    for (const bad of [0.1, 5, 'x']) expect(applyTimelineOps(d, [{ op: 'setSpeed', id: 'c1', speed: bad }]).ok).toBe(false)
+    expect(applyTimelineOps(d, [{ op: 'setSpeed', id: 'zz', speed: 2 }]).ok).toBe(false)
+  })
+  it('split keeps the speed on both halves; save/parse round-trips it', () => {
+    let d = ok(emptyTimeline(), [{ op: 'addClip', src: 'P/a.mp4', start: 0, end: 4 }, { op: 'setSpeed', id: 'c1', speed: 0.5 }])
+    d = ok(d, [{ op: 'splitClip', id: 'c1', at: 2 }])
+    expect(d.clips.map((c) => c.speed)).toEqual([0.5, 0.5])
+    const r = parseTimeline(JSON.parse(JSON.stringify(d))); expect(r.ok && r.doc.clips[1].speed).toBe(0.5)
+  })
+  it('atempo chains outside 0.5-2', () => {
+    expect(atempo(1)).toBe(''); expect(atempo(1.5)).toBe(',atempo=1.5'); expect(atempo(4)).toBe(',atempo=2,atempo=2'); expect(atempo(0.25)).toBe(',atempo=0.5,atempo=0.5')
+  })
+})
+
+describe.skipIf(!hasFfmpeg)('speed: real ffmpeg', () => {
+  it('a 4 s clip at 2x renders 2 s, with sound', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wbsp'))
+    try {
+      execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=red:s=320x180:r=30', '-f', 'lavfi', '-i', 'sine=f=440', '-t', '4', '-pix_fmt', 'yuv420p', join(dir, 'a.mp4')])
+      const d = ok(emptyTimeline(), [{ op: 'addClip', src: 'P/a.mp4', start: 0, end: 4 }, { op: 'setSpeed', id: 'c1', speed: 4 }])
+      const out = join(dir, 'out.mp4')
+      execFileSync('ffmpeg', buildRender(d, { abs: { 'P/a.mp4': join(dir, 'a.mp4') }, hasAudio: { 'P/a.mp4': true }, assPath: null, out }))
+      const dur = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', out]).toString())
+      expect(dur).toBeGreaterThan(0.9); expect(dur).toBeLessThan(1.2)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })
