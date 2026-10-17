@@ -83,6 +83,11 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     const att = join(projDir(), f.folder, 'Mellékletek')
     expect(existsSync(att)).toBe(true)
     rmSync(att, { recursive: true })
+    // #681: a folder the user deleted from a provisioned item stays deleted
+    ensureAllAttachmentsFolders()
+    expect(existsSync(att)).toBe(false)
+    // an older item that was never provisioned (no marker) is backfilled
+    getDb().prepare('DELETE FROM work_item_std_folders WHERE work_item_id = ?').run(item.id)
     expect(ensureAllAttachmentsFolders().items).toBeGreaterThanOrEqual(1)
     expect(existsSync(att)).toBe(true)
     // a second run changes nothing (no "Mellekletek (2)")
