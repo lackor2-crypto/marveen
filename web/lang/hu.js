@@ -1698,7 +1698,7 @@ window._i18n.hu = {
   'wizard.item.wsl_memory_help': 'A Marveen egy kis Linux-gépben fut a Windowson belül (ez a WSL). Ha nincs megadva neki határ, saját szakállára dönt a memóriáról, és ha egyszerre sok nehéz munka fut, az egész gép lefagyhat, a Marveennel együtt. Egy kis szöveges fájl (.wslconfig) a Windows-fiókod mappájában ezt megelőzi. Nélküle is működik, csak fagyás esetén percekig tarthat az újraindulás.',
   'wizard.item.wsl_memory_step1': 'Nyisd meg a Windows Intézőt, és írd be a címsorba: %UserProfile% (Enter). Ez a te Windows-mappád.',
   'wizard.item.wsl_memory_step2': 'Hozz létre ott egy új szöveges fájlt, és nevezd el pontosan így: .wslconfig (a név elején ponttal, a végén nincs .txt). Ha már van ilyen fájl, nyisd meg és ne töröld ki a tartalmát.',
-  'wizard.item.wsl_memory_step3': 'Írd bele ezt a [wsl2] rész alá: swap=2GB. A memory= sort NE írd be, ha nincs ott: a meglévő érték marad.',
+  'wizard.item.wsl_memory_step3': 'Írd bele ezt a [wsl2] rész alá: swap=2GB. Ha már van swap= sor 4GB-nál nagyobb értékkel, írd át 2GB-ra (a túl nagy swap lefagyáskor percekig terheli a lemezt). A memory= sort NE írd be, ha nincs ott: a meglévő érték marad.',
   'wizard.item.wsl_memory_step4': 'Mentsd el, majd a Windows parancsablakában add ki: wsl --shutdown, és indítsd újra a Marveent. Utána ez a pont zöld lesz.',
   'wizard.item.wsl_memory_example': '[wsl2]\nswap=2GB',
   'wizard.link.wsl_config': 'A .wslconfig leírása (Microsoft)',

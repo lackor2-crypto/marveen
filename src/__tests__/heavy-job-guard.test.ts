@@ -36,6 +36,23 @@ describe('heavy-job.sh queue', () => {
     first.kill('SIGTERM')
   }, 20000)
 
+  it('a web-only instance has its own slot: a build / browser job is not blocked by it (H1)', async () => {
+    const store = mkdtempSync(join(tmpdir(), 'heavy-q-'))
+    const env = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '' }
+    const web = spawn('bash', [HEAVY, 'web-only', '--', 'sleep', '8'], { env, stdio: 'ignore' })
+    await sleep(800)
+    expect(existsSync(join(store, 'heavy-job-web.json'))).toBe(true)
+    expect(existsSync(join(store, 'heavy-job.json'))).toBe(false)
+    const marker = join(store, 'build-ran')
+    const build = spawnSync('bash', [HEAVY, '--wait', '5', 'build', '--', 'touch', marker], { env, encoding: 'utf8' })
+    expect(build.status).toBe(0)
+    expect(existsSync(marker)).toBe(true)
+    // a second web-only still waits for the first one
+    const web2 = spawnSync('bash', [HEAVY, '--wait', '5', 'web-only-2', '--', 'true'], { env, encoding: 'utf8' })
+    expect(web2.status).toBe(75)
+    web.kill('SIGTERM')
+  }, 25000)
+
   it('passes the command exit code through and clears the registry', async () => {
     const store = mkdtempSync(join(tmpdir(), 'heavy-q-'))
     const env = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '' }
@@ -123,6 +140,15 @@ describe('fleet-memory-gate --shed heavy-job kill', () => {
   }, 20000)
 })
 
+describe('heavy-job-gate.py false positives', () => {
+  it('the bare word playwright in a comment or text does not stop a python command', () => {
+    expect(gate("python3 - <<'E'\n# the playwright run is fine\nprint(1)\nE").status).toBe(0)
+  })
+  it('a real browser launch still does', () => {
+    expect(gate("node -e \"require('playwright').chromium.launch()\"").status).toBe(2)
+  })
+})
+
 describe('tmp-sweep.py', () => {
   function old(path: string, days: number) {
     const t = Date.now() / 1000 - days * 86400
@@ -157,6 +183,18 @@ describe('tmp-sweep.py', () => {
     } finally {
       holder.kill()
     }
+  })
+
+  it('sweeps the unit-test mkdtemp leftovers, and keeps a quiet session scratchpad for 14 days (H2, H5)', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'sweep-'))
+    const store = mkdtempSync(join(tmpdir(), 'sweep-store-'))
+    const uid = process.getuid!()
+    const leak = ['marveen-deploy-abc', 'marveen-bigfolder-x', 'voice-scope-q', 'named-login-z'].map((n) => join(tmp, n))
+    for (const d of leak) { mkdirSync(d); old(d, 5) }
+    const quiet = join(tmp, `claude-${uid}`, 'proj', 'quiet-session'); mkdirSync(quiet, { recursive: true }); old(quiet, 5)
+    spawnSync('python3', [SWEEP, '--dir', tmp], { env: { ...process.env, MARVEEN_STORE: store }, encoding: 'utf8' })
+    for (const d of leak) expect(existsSync(d)).toBe(false)
+    expect(existsSync(quiet)).toBe(true)
   })
 
   it('MARVEEN_TMP_SWEEP_DAYS moves the threshold', () => {

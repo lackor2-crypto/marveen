@@ -1664,7 +1664,7 @@ window._i18n.en = {
   'wizard.item.wsl_memory_help': 'Marveen runs in a small Linux machine inside Windows (this is WSL). With no limit set, it decides about memory on its own, and when many heavy jobs run at once the whole machine can freeze, Marveen included. A small text file (.wslconfig) in your Windows user folder prevents this. It works without it, but after a freeze the restart can take minutes.',
   'wizard.item.wsl_memory_step1': 'Open Windows Explorer and type this into the address bar: %UserProfile% (Enter). This is your Windows folder.',
   'wizard.item.wsl_memory_step2': 'Create a new text file there and name it exactly: .wslconfig (leading dot, no .txt at the end). If the file already exists, open it and keep its content.',
-  'wizard.item.wsl_memory_step3': 'Put this under the [wsl2] section: swap=2GB. Do not add a memory= line if there is none: the existing value stays.',
+  'wizard.item.wsl_memory_step3': 'Put this under the [wsl2] section: swap=2GB. If a swap= line already exists with a value above 4GB, change it to 2GB (a huge swap makes a frozen VM thrash the disk for minutes). Do not add a memory= line if there is none: the existing value stays.',
   'wizard.item.wsl_memory_step4': 'Save it, then in a Windows command window run: wsl --shutdown, and start Marveen again. This item then turns green.',
   'wizard.item.wsl_memory_example': '[wsl2]\nswap=2GB',
   'wizard.link.wsl_config': 'The .wslconfig reference (Microsoft)',
