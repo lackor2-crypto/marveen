@@ -56,9 +56,9 @@ export async function exportDeck(
     }
   }
   // #496: into the item's own folder (else beside the deck file, else the work-items box), never the project root.
-  // Boss TG 3025: a finished PDF goes to the item's Finished materials folder; a pptx stays beside the item.
+  // Boss TG 9391: both the PDF and the pptx go to the item's Finished materials folder.
   const outFolder = itemOutputFolder(project, item, deckRel)
-  const target = format === 'pdf' ? (finishedFolderFor(project, outFolder) ?? outFolder) : outFolder
+  const target = finishedFolderFor(project, outFolder) ?? outFolder
   const out = writeProjectFile(project, target, `${stem(item.title)}.${format}`, bytes)
   if (!out.ok) return { ok: false, code: out.code === 'write_failed' ? 'deck_export_failed' : out.code, detail: out.message || null }
   return { ok: true, file: { rel: out.rel, name: out.name, bytes: out.bytes }, format, slides: deck.slides.length, warnings: built.warnings }

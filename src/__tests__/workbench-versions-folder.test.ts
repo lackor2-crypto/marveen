@@ -15,7 +15,7 @@ import { renderTimeline, _setRenderDeps } from '../workbench-video-render.js'
 import { applyTimelineOps, emptyTimeline, timelineStore } from '../workbench-video-timeline.js'
 import { exportDeck } from '../workbench-deck-export.js'
 import { savePostFile } from '../workbench-post-files.js'
-import { finishedFolderFor } from '../project-files.js'
+import { finishedFolderFor, FINISHED_FOLDER_NAMES } from '../project-files.js'
 
 let pid = ''
 let dir = ''
@@ -169,10 +169,14 @@ describe('files made from a work item stay with it, not in the project root (#49
     expect(files()).toEqual(['a.mp4'])
   })
 
+  // #677 (Boss TG 9391): the pptx, like the pdf, lands in the item's Finished materials subfolder.
+  const finishedPptx = (folder: string) =>
+    new RegExp(`^Projektek/Robotok/${folder}/(${FINISHED_FOLDER_NAMES.hu}|${FINISHED_FOLDER_NAMES.en})/nevjegy\\.pptx$`)
+
   it('deck export with no deck file yet: into the item folder; a folderless item: into the box -- never the root', async () => {
     const { it: w, folder } = item('presentation', true)
     const a = await exportDeck(proj(), w, null, deckWith('elso'), 'pptx')
-    expect(a).toMatchObject({ ok: true, file: { rel: `Projektek/Robotok/${folder}/nevjegy.pptx` } })
+    expect(a).toMatchObject({ ok: true, file: { rel: expect.stringMatching(finishedPptx(folder)) } })
     const { it: loose } = item('presentation', false)
     const b = await exportDeck(proj(), loose, null, deckWith('elso'), 'pptx')
     if (!b.ok) throw new Error('export: ' + b.code)
@@ -184,7 +188,7 @@ describe('files made from a work item stay with it, not in the project root (#49
     const { it: w, folder } = item('presentation', true)
     writeFileSync(join(root(), 'diak.deck.json'), '{}')
     const r = await exportDeck(proj(), w, 'Projektek/Robotok/diak.deck.json', deckWith('elso'), 'pptx')
-    expect(r).toMatchObject({ ok: true, file: { rel: `Projektek/Robotok/${folder}/nevjegy.pptx` } })
+    expect(r).toMatchObject({ ok: true, file: { rel: expect.stringMatching(finishedPptx(folder)) } })
     expect(files()).toEqual(['diak.deck.json'])
   })
 
