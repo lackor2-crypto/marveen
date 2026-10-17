@@ -9,6 +9,7 @@ import { initDatabase } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { ensureWorkItemFolder, ensureAllAttachmentsFolders } from '../workbench-assets.js'
+import { createReportDocument } from '../debate-export-doc.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
 const FIVE = ['Elkészített anyagok', 'Mellékletek', 'Feltöltések', 'Agent', 'Vitáztatás']
@@ -50,6 +51,16 @@ describe('the five standard folders of a work item', () => {
     const folder = getWorkItem(r.body.item.id)!.folder
     expect(folder).toBeTruthy()
     expect(subs(folder!)).toEqual([...FIVE].sort())
+  })
+
+  it('a debate report shares the origin item\'s Vitáztatás folder: no five folders (or a nested Vitáztatás) inside it', () => {
+    const w = createWorkItem({ project_id: pid, title: 'Eredeti', type: 'document' })
+    if (!w.ok) throw new Error('item')
+    const f = ensureWorkItemFolder(w.item)
+    if (!f.ok) throw new Error('folder')
+    const r = createReportDocument(pid, { title: 'Vitáztatás jelentés: X', sections: [{ title: 'S', paragraphs: ['p'] }] } as never, 'test', { originItem: w.item.id })
+    expect(r.ok).toBe(true)
+    expect(subs(`${f.folder}/Vitáztatás`)).toEqual([])
   })
 
   it('an existing item folder is topped up with the missing EMPTY folders; content and the first-generation names stay', () => {

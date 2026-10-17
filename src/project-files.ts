@@ -510,6 +510,10 @@ export function debateFolderFor(p: ProjectRow, itemFolder: string | null | undef
  *  (Finished materials, Attachments, Uploads, Agent, Debate), so each kind of file has its place before the first one
  *  arrives. Only EMPTY folders are made, existing ones (either name) are reused and never touched. Each one is best effort. */
 export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | null | undefined): void {
+  // A debate report is filed INTO the origin item's debate folder and shares it: five folders (with another "Debate"
+  // inside "Debate") there would only be clutter.
+  const last = String(itemFolder ?? '').split('/').pop() ?? ''
+  if ([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES].some(n => n === last)) return
   for (const f of [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor]) {
     try { f(p, itemFolder) } catch { /* the folder is made on demand with its first file instead */ }
   }
