@@ -18207,6 +18207,8 @@
     var sel = e.target.closest('[data-wb-act="chat-account"]')
     if (!sel) return
     WB.chatAccount = sel.value === 'auto' ? '' : sel.value
+    // The hint under the picker explains the CHOSEN option, so it is redrawn now (the draft lives in WB.chatDraft).
+    renderChat()
   })
 
   // ---- Ctrl+click / middle click: a new browser tab (Boss, TG 1802) --------
