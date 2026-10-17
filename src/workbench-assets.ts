@@ -43,7 +43,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
-import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -89,6 +89,11 @@ export function ensureAssetTables(): void {
   // kulonben a mappa-szinkron a kovetkezo listazasnal visszavenne a listara.
   const aCols = new Set((db.prepare('PRAGMA table_info(work_item_assets)').all() as { name: string }[]).map((c) => c.name))
   if (!aCols.has('removed_at')) db.exec('ALTER TABLE work_item_assets ADD COLUMN removed_at INTEGER')
+  // #681: the standard folders are provisioned ONCE per item. After that a folder the user deleted is never made again,
+  // and the items that existed when this table first appeared that already have a folder count as provisioned (nothing is re-created for them).
+  const hadStdTable = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_item_std_folders'").get()
+  db.exec('CREATE TABLE IF NOT EXISTS work_item_std_folders (work_item_id TEXT PRIMARY KEY, done_at INTEGER NOT NULL)')
+  if (!hadStdTable) db.exec('INSERT OR IGNORE INTO work_item_std_folders (work_item_id, done_at) SELECT id, CAST(strftime(\'%s\', \'now\') AS INTEGER) * 1000 FROM work_items WHERE folder IS NOT NULL AND folder != \'\'')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_assets_item ON work_item_assets(work_item_id, created_at)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_assets_sha ON work_item_assets(work_item_id, sha256)')
   tablesDb = db
@@ -1357,6 +1362,28 @@ export function migrateSubItemsToFolders(): number {
   return subs.length
 }
 
+/** #681: a work item whose folder lies INSIDE another work item's folder (a debate report, a sub-document) is not a
+ *  top-level item: nothing is made automatically in it. */
+export function isSubDocumentItem(item: { id: string; project_id: string }, folder: string): boolean {
+  ensureAssetTables()
+  // A report filed in a debate folder (shared box-level one included) is a sub-document whatever else surrounds it.
+  const debateNames: string[] = [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]
+  if (folder.split('/').some(seg => debateNames.includes(seg))) return true
+  const rows = getDb().prepare("SELECT folder FROM work_items WHERE project_id = ? AND id != ? AND folder IS NOT NULL AND folder != '' AND deleted_at IS NULL").all(item.project_id, item.id) as { folder: string }[]
+  return rows.some(r => r.folder !== folder && folder.startsWith(r.folder + '/'))
+}
+
+/** #681: make the five standard folders of a TOP-LEVEL item once. A sub-document gets none; an item already provisioned
+ *  is never topped up again (a folder the user deleted stays deleted). */
+function provisionStandardFolders(project: ProjectRow, item: WorkItemRow, folder: string): void {
+  ensureAssetTables()
+  const db = getDb()
+  migrateFinishedFolder(item) // only renames an existing old-name folder, never makes one
+  if (db.prepare('SELECT 1 FROM work_item_std_folders WHERE work_item_id = ?').get(item.id)) return
+  if (!isSubDocumentItem(item, folder)) ensureItemStandardFolders(project, folder)
+  db.prepare('INSERT OR IGNORE INTO work_item_std_folders (work_item_id, done_at) VALUES (?, ?)').run(item.id, Date.now())
+}
+
 /** #618: the "Mellekletek" subfolder every work item folder always has -- made for the items that already existed. Idempotent. */
 export function ensureAllAttachmentsFolders(): { items: number } {
   ensureAssetTables()
@@ -1367,7 +1394,7 @@ export function ensureAllAttachmentsFolders(): { items: number } {
     for (const { id } of rows) {
       const folder = workItemFolder(id)
       if (!folder) continue
-      try { const it = getWorkItem(id); if (it) migrateFinishedFolder(it); ensureItemStandardFolders(p, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
+      try { const it = getWorkItem(id); if (it) provisionStandardFolders(p, it, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
     }
   }
   return { items }
@@ -1466,7 +1493,7 @@ export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
   if (r.ok) {
     try {
       const project = getProject(item.project_id)
-      if (project) { migrateFinishedFolder(item); ensureItemStandardFolders(project, r.folder) }
+      if (project) provisionStandardFolders(project, item, r.folder)
     } catch { /* the folder is made on demand with the first annex instead */ }
   }
   return r
