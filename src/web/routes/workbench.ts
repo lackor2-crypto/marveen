@@ -72,6 +72,7 @@ import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, s
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { finalizeTextItem, hasTextFinalPanel } from '../../workbench-notefinal.js'
+import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
@@ -311,6 +312,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   note_final_save_failed: {
     hu: 'A PDF elkészült, de az Elkészített anyagok mappába nem sikerült elmenteni, ezért a munkadarab nincs véglegesítve.',
     en: 'The PDF was made, but it could not be saved into the Finished materials folder, so the work item is not finalized.',
+  },
+  note_final_bad_translation: {
+    hu: 'A lefordított szöveg vagy a nyelv kódja nem megfelelő, ezért nem készült PDF. Fordítsd le újra a szöveget, és próbáld újra.',
+    en: 'The translated text or its language code is not usable, so no PDF was made. Translate the text again and retry.',
+  },
+  note_final_no_variant: {
+    hu: 'Ehhez a nyelvhez még nincs mentett változat. Fordítsd le a szöveget (a Fordítás nézetben vagy a véglegesítő panelen), és próbáld újra.',
+    en: 'There is no saved version in this language yet. Translate the text (in the Translation view or on the finalize panel) and retry.',
   },
   note_final_already_done: {
     hu: 'Ez a munkadarab már véglegesítve van. Ha újra kell, előbb nyisd újra.',
@@ -3549,7 +3558,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       deadlines: itemDeadlines(item.id, assets),
       privacy: privacyState(item.project_id, item.id),
       court: courtOut(item.id),
+      ...(hasTextFinalPanel(item) ? { text_langs: textLangState(item) } : {}),
     })
+    return true
+  }
+
+  // #671: the Translation view's result is SAVED as a language version of the text item (a sibling item in the same
+  // folder, tied in wb_doc_variants like a document's version); the finalize panel and the tree then list it.
+  if (segs.length === 2 && segs[1] === 'text-variant' && method === 'POST') {
+    if (!hasTextFinalPanel(item)) return fail(res, 400, 'note_final_not_text', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const sv = saveTextVariant(item, body['lang'], typeof body['text'] === 'string' ? body['text'] : '', actor(ctx))
+    if (!sv.ok) return failDetail(res, sv.code === 'save_failed' ? 500 : 400, sv.code === 'save_failed' ? 'note_final_save_failed' : 'note_final_bad_translation', lang, sv.detail)
+    json(res, { ok: true, item: sv.item, existing: sv.existing, text_langs: textLangState(item) }, sv.existing ? 200 : 201)
     return true
   }
 
@@ -4420,8 +4442,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
       // #667: a text-file item (.md / .txt) is finalized from the panel with its PDF, which lands in Finished materials.
       if (action === 'finalize' && body['pdf'] === true && hasTextFinalPanel(item)) {
-        const tf = await finalizeTextItem(item, { by: who || 'dashboard' })
-        if (!tf.ok) return failDetail(res, tf.code === 'note_final_already_done' ? 409 : tf.code === 'note_final_not_text' ? 400 : 500, tf.code, lang, tf.detail)
+        const tf = await finalizeTextItem(item, { by: who || 'dashboard', lang: body['lang'] == null ? null : String(body['lang']), text: typeof body['text'] === 'string' ? body['text'] : null })
+        if (!tf.ok) return failDetail(res, tf.code === 'note_final_already_done' ? 409 : tf.code === 'note_final_not_text' || tf.code === 'note_final_bad_translation' || tf.code === 'note_final_no_variant' ? 400 : 500, tf.code, lang, tf.detail)
         json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name } })
         return true
       }
