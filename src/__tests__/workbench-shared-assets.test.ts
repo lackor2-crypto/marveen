@@ -92,7 +92,7 @@ describe('a projekt kozos tara', () => {
     expect(dup.status).toBe(409)
     expect(dup.body.error).toBe('shared_duplicate')
     expect(dup.body.existing.name).toBe('logo.png')
-    expect(dup.body.message).toMatch(/közös tár/)
+    expect(dup.body.message).toMatch(/közös anyagai/)
     const forced = await callWorkbench(`/api/workbench/shared?project=${pid}&name=logo.png&force=1`, 'POST', Buffer.from('PNG'))
     expect(forced.status).toBe(201)
     expect(forced.body.renamed).toBe(true)

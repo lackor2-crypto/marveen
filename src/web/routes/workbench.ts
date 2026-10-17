@@ -1786,15 +1786,15 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'This path does not point to a file inside the project folder.',
   },
   shared_duplicate: {
-    hu: 'Ez a fájl már megvan a projekt közös tárában.',
+    hu: 'Ez a fájl már megvan a projekt közös anyagai között.',
     en: 'This file is already in the shared materials of the project.',
   },
   no_shared_folder: {
-    hu: 'Ennek a projektnek még nincs közös tára. Tölts fel bele egy fájlt, és az létrehozza.',
+    hu: 'Ennek a projektnek még nincsenek közös anyagai. Tölts fel bele egy fájlt, és az létrehozza.',
     en: 'This project has no shared materials yet. Upload a file there and it will be created.',
   },
   not_shared: {
-    hu: 'Ez a fájl nem a projekt közös tárában van.',
+    hu: 'Ez a fájl nem a projekt közös anyagai között van.',
     en: 'This file is not in the shared materials of the project.',
   },
   asset_in_use: {
