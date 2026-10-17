@@ -10,6 +10,7 @@ import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { makeWorkFolder, PROJECT_ROOT_PLACE } from '../workbench-assets.js'
 import { saveCanvas } from '../workbench-canvas-store.js'
+import { writeProjectFile } from '../project-files.js'
 import { emptyCanvas } from '../workbench-graphic.js'
 
 let dir = ''
@@ -54,10 +55,23 @@ describe('a work item JSON goes next to the item', () => {
     expect(s.rel.slice('P/Hivatal/'.length).includes('/')).toBe(true)
   })
 
-  it('an item the owner put directly in the project folder keeps its JSON there', () => {
+  it('#679: an item the owner put directly in the project folder still keeps its JSON out of the root', () => {
     const s = saveCanvas(graphic(PROJECT_ROOT_PLACE), emptyCanvas())
     if (!s.ok) throw new Error(s.code)
-    expect(s.rel.slice('P/Hivatal/'.length).includes('/')).toBe(false)
+    expect(s.rel.slice('P/Hivatal/'.length).includes('/')).toBe(true)
+  })
+
+  it('#679: the project file writer refuses item JSON in the root but allows it in a folder and allows other uploads', () => {
+    const p = getProject(pid)!
+    const data = Buffer.from('{}')
+    for (const n of ['x.deck.json', 'x.canvas.json', 'x.timeline.json', 'x.deck (2).json', 'marveen-item.json']) {
+      const r = writeProjectFile(p, '', n, data)
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.code).toBe('json_outside_item')
+    }
+    expect(writeProjectFile(p, '', 'data.json', data).ok).toBe(true)
+    mkdirSync(join(dir, 'P', 'Hivatal', 'Munkadarabok', 'A'), { recursive: true })
+    expect(writeProjectFile(p, 'Munkadarabok/A', 'x.deck.json', data).ok).toBe(true)
   })
 
   it('an item made from an existing file keeps its next versions beside that file (no split into the box)', () => {
