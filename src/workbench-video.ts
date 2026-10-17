@@ -119,7 +119,7 @@ export function timeText(sec: number): string {
 export type VideoCode =
   | 'video_stale' | 'video_not_video' | 'video_bad_time' | 'video_no_ffmpeg' | 'video_ffmpeg_check_failed'
   | 'video_busy' | 'video_failed' | 'video_timeout' | 'video_no_output'
-  | 'no_folder' | 'no_depot' | 'missing' | 'unreachable' | 'bad_folder' | 'bad_name' | 'repo_inside' | 'write_failed'
+  | 'no_folder' | 'no_depot' | 'missing' | 'unreachable' | 'bad_folder' | 'bad_name' | 'repo_inside' | 'write_failed' | 'json_outside_item'
   | 'preview_missing' | 'preview_unreachable' | 'preview_no_folder' | 'preview_too_large'
 
 export type VideoFail = { ok: false; code: VideoCode; detail?: string | null }

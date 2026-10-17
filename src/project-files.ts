@@ -30,7 +30,7 @@ import { dataBytes, isStaged, placeStaged, type UploadData } from './upload-stre
 export const NOTE_MAX_CHARS = 200_000
 
 export type FileErrorCode =
-  | 'no_folder' | 'no_depot' | 'missing' | 'unreachable' | 'bad_folder' | 'bad_name' | 'repo_inside' | 'write_failed'
+  | 'no_folder' | 'no_depot' | 'missing' | 'unreachable' | 'bad_folder' | 'bad_name' | 'repo_inside' | 'write_failed' | 'json_outside_item'
 
 export type FileTarget = { ok: true; dirAbs: string; dirRel: string } | { ok: false; code: FileErrorCode; message?: string }
 
@@ -178,6 +178,11 @@ export type WriteOutcome =
   | { ok: true; rel: string; name: string; renamed: boolean; bytes: number }
   | { ok: false; code: FileErrorCode; message?: string }
 
+/** #679 (Boss TG 9425/9427): Marvin's own item JSON (canvas / deck / timeline / registry file) is never written
+ *  loose into the project root: it belongs in a work item folder. Plain user uploads of other .json files stay free. */
+const ITEM_JSON_NAME = /(\.(canvas|deck|timeline)(?: \(\d+\))?\.json|^marveen-item\.json)$/i
+export function isItemJsonName(name: string): boolean { return ITEM_JSON_NAME.test(name) }
+
 /** Egy fajl kiirasa a projekt mappajaba. Soha nem ir felul. */
 export function writeProjectFile(p: ProjectRow, sub: unknown, name: unknown, data: UploadData): WriteOutcome {
   ensureProjectHasFolder(p)
@@ -185,6 +190,9 @@ export function writeProjectFile(p: ProjectRow, sub: unknown, name: unknown, dat
   if (!t.ok) return t
   const wanted = safeFileName(name)
   if (!wanted) return { ok: false, code: 'bad_name' }
+  if (isItemJsonName(wanted) && t.dirRel === String(p.folder_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')) {
+    return { ok: false, code: 'json_outside_item', message: 'A work item JSON file is not written into the project root.' }
+  }
   const blocked = writeBlockReason(`${t.dirRel}/${wanted}`)
   if (blocked) return { ok: false, code: 'repo_inside', message: blocked }
   const finalName = freeFileName(t.dirAbs, wanted)

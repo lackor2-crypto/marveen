@@ -340,7 +340,9 @@ export function createDraftStore<D, P>(kind: DraftKind<D, P>): DraftStore<D> {
     const data = Buffer.from(JSON.stringify(doc, null, 2), 'utf-8')
     // Boss TG 2545 + TG 2929 (rule): the saved file lives next to the item (its own folder, else the folder it is
     // listed in, else the work-items box), never in the project root; so it moves with the item.
-    const out = writeProjectFile(project, opts.sub ?? itemJsonFolder(project, item), name, data)
+    // #679: an empty `sub` (a source file sitting in the project root) means "no usable folder" -> the item box, never the root.
+    const subGiven = typeof opts.sub === 'string' ? opts.sub.trim() : opts.sub
+    const out = writeProjectFile(project, subGiven === undefined || subGiven === null || subGiven === '' ? itemJsonFolder(project, item) : subGiven, name, data)
     if (!out.ok) return { ok: false, code: out.code, detail: out.message || null }
     const v = createWorkItemVersion(item.id, {
       source_path: out.rel,

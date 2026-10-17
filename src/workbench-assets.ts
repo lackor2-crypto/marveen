@@ -172,15 +172,16 @@ export function projectWorkItemsFolder(project: ProjectRow): SharedFolderOutcome
  * Where a work item's own JSON file (.canvas.json, .deck.json, document JSON) is written: NEXT TO THE ITEM, never in
  * the project root (Boss TG 2927/2929, a rule: "a jsonoknak a munkadarab mellett a helyuk"). Own folder -> that folder
  * (its versions subfolder once the item has a saved file); no own folder -> the folder the item is listed in; else the
- * folder of its current file (an item made from an existing file); none of these (or the root) -> the work-items box. Only an item the owner put directly in the project folder
- * (PROJECT_ROOT_PLACE) gets the root, because that is where the item itself is. Null: no usable folder at all.
+ * folder of its current file (an item made from an existing file); none of these (or the root) -> the work-items box.
+ * Never the project root (#679), not even for an item placed directly in the project folder. Null: no usable folder at all.
  */
 export function itemJsonFolder(project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'container_folder' | 'source_path'>): string | null {
   const own = String(item.folder ?? '').trim()
   if (own && projectFileTarget(project, own).ok) return versionsFolderFor(project, own, !!item.source_path)
   const c = String(item.container_folder ?? '').trim()
-  if (c === PROJECT_ROOT_PLACE) return ''
-  if (c && projectFileTarget(project, c).ok) return c
+  // #679: even an item the owner put directly in the project folder keeps its JSON OUT of the root (Boss TG 9425/9427:
+  // JSON lives only in a work item folder); it falls through to the work-items box below.
+  if (c && c !== PROJECT_ROOT_PLACE && projectFileTarget(project, c).ok) return c
   // An item made from an existing file (e.g. a .pptx in "Tovabbi anyagok") lives where that file is: its next
   // versions stay beside the first one instead of splitting into the box. Not the root, though (the rule above).
   const dir = folderOfFile(project, item.source_path)
