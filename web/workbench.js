@@ -11777,7 +11777,7 @@
     return found
   }
 
-  /** #671: the PDF is made in the file's own language, in a language version already saved, or translated now into another one. */
+  /** #671/#678: the PDF is made in the file's own language or in a language version already saved. The list is only what EXISTS; a new translation is made (and saved) in the Translation view. */
   function noteFinalLangHtml() {
     var langs = noteLangs()
     if (langs.variant_of) return '<p class="wb-hint"><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> ' + esc(t('workbench.notefinal.lang_is_version', { lang: trLangName(langs.variant_of.lang) })) + '</p>'
@@ -11787,14 +11787,23 @@
     saved.forEach(function (c) {
       opts += '<option value="' + escA(c) + '"' + (WB.noteFinalLang === c ? ' selected' : '') + '>' + esc(t('workbench.notefinal.lang_saved', { lang: trLangName(c) })) + '</option>'
     })
-    trCodes().forEach(function (c) {
-      if (c === left || saved.indexOf(c) >= 0) return
-      opts += '<option value="' + escA(c) + '"' + (WB.noteFinalLang === c ? ' selected' : '') + '>' + esc(t('workbench.notefinal.lang_new', { lang: trLangName(c) })) + '</option>'
-    })
-    var help = !WB.noteFinalLang ? 'workbench.notefinal.lang_help' : noteVariantFor(WB.noteFinalLang) ? 'workbench.notefinal.lang_help_saved' : 'workbench.notefinal.lang_help_tr'
+    var help = !WB.noteFinalLang ? 'workbench.notefinal.lang_help' : 'workbench.notefinal.lang_help_saved'
+    if (!saved.length) help = 'workbench.notefinal.lang_none'
     return '<p class="wb-hint"><label><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> '
       + '<select class="btn-secondary btn-compact" id="wbNoteFinalLang" data-wb-act="note-final-lang"' + (WB.noteFinalBusy ? ' disabled' : '') + '>' + opts + '</select></label></p>'
       + '<p class="wb-hint">' + esc(t(help)) + '</p>'
+  }
+
+  /** #678: the saved-version list comes from the server each time the panel opens, so a version saved elsewhere (another tab, the agent) is offered at once. */
+  function noteLangsRefresh() {
+    var id = WB.selectedId
+    if (!id || !isTextFinalItem(WB.detail && WB.detail.item)) return
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
+      if (!r.ok || !r.data || !WB.detail || WB.selectedId !== id || WB.noteFinal !== id) return
+      WB.detail.text_langs = r.data.text_langs
+      if (WB.noteFinalLang && !noteVariantFor(WB.noteFinalLang)) WB.noteFinalLang = ''
+      render()
+    })
   }
 
   /** On a phone the panel stacks under the tool column, below the fold: bring it into view so the click visibly does something. */
@@ -11867,25 +11876,13 @@
     WB.noteFinalBusy = true
     render()
     var lang = WB.noteFinalLang
-    var text = trCurrentText()
     var step
     function post(extra) {
       var body = { action: 'finalize', pdf: true }
-      if (extra) { body.lang = extra.lang; if (extra.text != null) body.text = extra.text }
+      if (extra) body.lang = extra.lang
       return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', body)
     }
-    if (!lang) step = post(null)
-    else if (trFresh() && WB.tr.dst === lang && WB.tr.result) step = post({ lang: lang, text: WB.tr.result })
-    else if (noteVariantFor(lang)) step = post({ lang: lang })
-    else {
-      // No saved version and no fresh translation into this language: make it now (the same translator the Translation view uses);
-      // the server saves it as a language version and makes the PDF of it.
-      step = api('POST', '/api/workbench/translate', { text: text, source_lang: WB.tr.src, target_lang: lang }).then(function (tr) {
-        if (!tr.ok) return tr
-        if (tr.data && tr.data.source_lang && tr.data.source_lang !== 'unknown') WB.tr.detected = tr.data.source_lang
-        return post({ lang: lang, text: (tr.data && tr.data.translation) || '' })
-      })
-    }
+    step = !lang ? post(null) : post({ lang: lang })
     step.then(function (r) {
       WB.noteFinalBusy = false
       if (!r.ok) { window.showToast(r.message); render(); return }
@@ -18881,7 +18878,7 @@
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
     // #667: a text-file item opens its finalize panel (what happens, then one clear button) instead of the browser confirm.
-    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item))) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() ? WB.tr.dst : ''; render(); if (WB.noteFinal) noteFinalScrollIn() } else approvalAction('finalize') }
+    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item))) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() && noteVariantFor(WB.tr.dst) ? WB.tr.dst : ''; render(); if (WB.noteFinal) { noteFinalScrollIn(); noteLangsRefresh() } } else approvalAction('finalize') }
     else if (a === 'note-final-go') noteFinalGo()
     else if (a === 'tr-save-version') trSaveVersion()
     else if (a === 'note-final-close') { WB.noteFinal = null; render() }
