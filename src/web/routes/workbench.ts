@@ -245,11 +245,11 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'That version does not exist. The work item may have been deleted, or you are looking at a stale page -- reload it.',
   },
   version_last: {
-    hu: 'Ez a munkadarab egyetlen verziója, ezt nem lehet törölni, mert nem maradna mit betölteni. Ha az egész munkadarabot el akarod tüntetni, töröld a listából (a Lomtárba kerül).',
+    hu: 'Ez a munkadarab egyetlen verziója, ezt nem lehet törölni, mert nem maradna mit betölteni. Ha az egész munkadarabot el akarod tüntetni, töröld a listából (a Kukába kerül).',
     en: 'This is the only version of the work item, so it cannot be deleted -- nothing would be left to load. To remove the whole work item, delete it from the list (it goes to the Trash).',
   },
   not_in_trash: {
-    hu: 'Véglegesen csak a Lomtárban lévő munkadarabot lehet törölni. Előbb tedd a Lomtárba.',
+    hu: 'Véglegesen csak a Kukában lévő munkadarabot lehet törölni. Előbb tedd a Kukába.',
     en: 'Only a work item in the Trash can be deleted permanently. Move it to the Trash first.',
   },
   version_mismatch: {
@@ -682,7 +682,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'No file is ticked. Tick the files you want to move.',
   },
   file_trash_missing: {
-    hu: 'Ez a fájl már nincs a lomtárban. Frissítsd a listát.',
+    hu: 'Ez a fájl már nincs a Kukában. Frissítsd a listát.',
     en: 'This file is no longer in the trash. Refresh the list.',
   },
   file_trash_gone: {
