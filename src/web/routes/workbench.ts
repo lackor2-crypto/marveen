@@ -2258,11 +2258,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   // folder such as Fejlesztés/GIT_REPOS, or one there was no time for). Read only.
   // #625: drawing / deck JSON files no work item uses (GET the list; POST {rels} trashes the approved ones).
   if (path === '/api/workbench/json-orphans' && (method === 'GET' || method === 'POST')) {
-    if (method === 'GET') { json(res, { ok: true, ...findOrphanJsons() }); return true }
+    if (method === 'GET') { json(res, { ok: true, ...(await findOrphanJsons()) }); return true }
     if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
-    json(res, { ok: true, results: trashOrphanJsons(body['rels'], lang), ...findOrphanJsons() })
+    const results = await trashOrphanJsons(body['rels'], lang)
+    json(res, { ok: true, results, ...(await findOrphanJsons()) })
     return true
   }
   if (path === '/api/workbench/folder-level' && method === 'GET') {

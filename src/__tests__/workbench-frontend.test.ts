@@ -4191,6 +4191,13 @@ describe('orphan JSON cleaner entry is global, not inside a work item (#660, Bos
     expect(typeof h.win.MarvinWorkbench.jsonCleanOpen).toBe('function')
   })
 
+  it('#625: an empty list of an INCOMPLETE scan shows the "not complete" note and never the "every file is in use" line', () => {
+    const open = SRC.slice(SRC.indexOf('function jsonCleanOpen()'), SRC.indexOf('// ---- #624'))
+    // the empty branch must consult `truncated` before it may print the "none" line, and still print the note
+    expect(open).toMatch(/if \(!files\.length\) \{ if \(!truncated\) list\.innerHTML = [^;]*workbench\.jsonclean\.none[^;]*; note\(\); return \}/)
+    expect(open).toContain("t('workbench.jsonclean.truncated')")
+  })
+
   it('the Projects page header has the button (also with no project at all) and wires it to the shared opener', () => {
     const app = readFileSync(join(ROOT, 'web', 'app.js'), 'utf8')
     const head = app.slice(app.indexOf('function _prjListHeadHtml()'), app.indexOf('function _prjWireListHead()'))

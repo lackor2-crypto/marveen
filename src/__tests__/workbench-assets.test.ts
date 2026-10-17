@@ -192,7 +192,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(existsSync(join(depot, f.folder, 'Feltöltések', 'Kerelem (aláírt).pdf'))).toBe(false)
   })
 
-  it('#625: only a drawing / deck JSON no work item uses is listed; approval trashes it, an item JSON is never a candidate', () => {
+  it('#625: only a drawing / deck JSON no work item uses is listed; approval trashes it, an item JSON is never a candidate', async () => {
     const item = newItem('Wohngeld valasz')
     const f = ensureWorkItemFolder(item)
     if (!f.ok) throw new Error('mappa')
@@ -204,13 +204,34 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     const rel = (n: string) => `Projektek/Iroda/${f.folder.replace(/^\/+/, '')}/${n}`
     getDb().prepare('INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES (?,?,?,?,?,?,?,?)')
       .run('a1', item.id, rel('hasznalt.canvas.json'), 'hasznalt.canvas.json', 'usable', 'x', 2, 1)
-    const l = findOrphanJsons()
+    const l = await findOrphanJsons()
     expect(l.files.map((x) => x.name).sort()).toEqual(['gazdatlan.canvas.json', 'regi.deck.json'])
-    const r = trashOrphanJsons([rel('gazdatlan.canvas.json'), rel('hasznalt.canvas.json')], 'hu')
+    const r = await trashOrphanJsons([rel('gazdatlan.canvas.json'), rel('hasznalt.canvas.json')], 'hu')
     expect(r.map((x) => x.ok)).toEqual([true, false])
     expect(existsSync(join(dir, 'gazdatlan.canvas.json'))).toBe(false)
     expect(existsSync(join(dir, 'hasznalt.canvas.json'))).toBe(true)
     expect(existsSync(join(dir, 'marveen-item.json'))).toBe(true)
+  })
+
+  it('#625: a huge project folder does not starve the other projects of the scan, and a nested project folder is not listed twice', async () => {
+    const other = createProject({ name: 'Masik' })
+    if (!other.ok) throw new Error('projekt')
+    const nested = createProject({ name: 'Beagyazott' })
+    if (!nested.ok) throw new Error('projekt')
+    mkdirSync(join(depot, 'Projektek', 'Nagy', 'sok'), { recursive: true })
+    for (let i = 0; i < 40; i++) writeFileSync(join(depot, 'Projektek', 'Nagy', 'sok', `f${i}.txt`), 'x')
+    mkdirSync(join(depot, 'Projektek', 'Masik'), { recursive: true })
+    writeFileSync(join(depot, 'Projektek', 'Masik', 'maradek.deck.json'), '{}')
+    mkdirSync(join(projDir(), 'Bent'), { recursive: true })
+    writeFileSync(join(projDir(), 'Bent', 'bent.canvas.json'), '{}')
+    const big = createProject({ name: 'Nagy' })
+    if (!big.ok) throw new Error('projekt')
+    updateProject(big.project.id, { folder_path: 'Projektek/Nagy' })
+    updateProject(other.project.id, { folder_path: 'Projektek/Masik' })
+    updateProject(nested.project.id, { folder_path: 'Projektek/Iroda/Bent' })
+    const l = await findOrphanJsons(25)
+    expect(l.truncated).toBe(true)
+    expect(l.files.map((x) => x.name).sort()).toEqual(['bent.canvas.json', 'maradek.deck.json'])
   })
 
   it('K-0.9/K-0.16: az elso fajl a munkadarab nevevel keszult SAJAT mappaba kerul, NEM lesz uj munkadarab', async () => {
