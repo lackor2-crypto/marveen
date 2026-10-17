@@ -1,7 +1,7 @@
 // #659 + #661: the Life-move and orphan-JSON dialogs must fit the screen (title and button row stay put, the list
 // scrolls, Escape / backdrop close), and the Life-move list carries a suggested target per file.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -109,5 +109,50 @@ describe('#659: Escape closes only the topmost dialog', () => {
     for (const name of ['lifeMoveOpen', 'jsonCleanOpen', 'rootGuardAsk', 'pickLifeFile']) {
       expect(fn(name)).toContain('isTopModal(overlay)')
     }
+  })
+})
+
+// #661, route level: the REAL GET /life-move carries the suggestion per file, and nothing moves until the owner POSTs
+// the approved list (a suggestion alone never moves a file).
+describe('#661: the real life-move route', () => {
+  it('GET carries suggested_target per file; a vague file has none; POST moves only the approved row', async () => {
+    const { initDatabase } = await import('../db.js')
+    const { createProject, updateProject } = await import('../projects.js')
+    const { createWorkItem } = await import('../workbench.js')
+    const { ensureWorkItemFolder } = await import('../workbench-assets.js')
+    const { callWorkbench } = await import('./helpers/workbench-route-call.js')
+    initDatabase(':memory:')
+    mkdirSync(join(root, 'Korpás László', 'Hatóságok'), { recursive: true })
+    saveLifeConfig({ ...loadLifeConfig(), persons: [{ id: 'p1', name: 'Korpás László', role: 'owner', countries: [], mediaGroups: [] }] } as any)
+    const p = createProject({ name: 'Iroda' })
+    if (!p.ok) throw new Error('projekt')
+    mkdirSync(join(root, 'Projektek', 'Iroda'), { recursive: true })
+    updateProject(p.project.id, { folder_path: 'Projektek/Iroda' })
+    const w = createWorkItem({ project_id: p.project.id, title: 'Valasz', type: 'note' })
+    if (!w.ok) throw new Error('munkadarab')
+    const fo = ensureWorkItemFolder(w.item)
+    if (!fo.ok) throw new Error('mappa')
+    const dir = join(root, 'Projektek', 'Iroda', fo.folder)
+    writeFileSync(join(dir, 'hatarozat.txt'), 'Hivatalos határozat Korpás László részére')
+    writeFileSync(join(dir, 'semmi.txt'), 'xyz')
+
+    const g = await callWorkbench('/api/workbench/items/' + w.item.id + '/life-move', 'GET')
+    expect(g.status).toBe(200)
+    const byName = Object.fromEntries((g.body.files as any[]).map((f) => [f.name, f]))
+    expect(byName['hatarozat.txt'].suggested_target).toBe('Korpás László/Hatóságok')
+    expect(byName['hatarozat.txt'].suggested_confident).toBe(true)
+    expect(typeof byName['hatarozat.txt'].suggested_display).toBe('string')
+    // a suggestion alone moved nothing
+    expect(existsSync(join(dir, 'hatarozat.txt'))).toBe(true)
+    // a file the sorter cannot place is NOT given a confident pre-filled target
+    expect(byName['semmi.txt'].suggested_confident === true).toBe(false)
+
+    // the owner approves one row with the suggested target: only that one moves
+    const post = await callWorkbench('/api/workbench/items/' + w.item.id + '/life-move', 'POST',
+      { moves: [{ rel: byName['hatarozat.txt'].rel, target: byName['hatarozat.txt'].suggested_target }] })
+    expect(post.status).toBe(200)
+    expect(existsSync(join(root, 'Korpás László', 'Hatóságok', 'hatarozat.txt'))).toBe(true)
+    expect(existsSync(join(dir, 'hatarozat.txt'))).toBe(false)
+    expect(existsSync(join(dir, 'semmi.txt'))).toBe(true)
   })
 })
