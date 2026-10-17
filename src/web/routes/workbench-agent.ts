@@ -623,12 +623,40 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       side: (() => {
         try { const pr = getProject(String(url.searchParams.get('project') || '')); return pr?.bridge_side || '' } catch { return '' }
       })(),
+      // #687: the account picked for this project; a name that is no longer a logged-in account reads as automatic ('').
+      account_pref: (() => {
+        try {
+          const pr = getProject(String(url.searchParams.get('project') || ''))
+          return pr?.chat_account && isKnownWorkbenchAccount(pr.chat_account) ? pr.chat_account : ''
+        } catch { return '' }
+      })(),
       tools: TOOLS.map((t) => ({
         name: t.name, destructive: t.destructive, reversible: t.reversible,
         external_effect: t.external_effect, autonomyCategory: t.autonomyCategory,
       })),
       maxMessageChars: MESSAGE_MAX_CHARS,
     })
+    return true
+  }
+
+  // --- #687: the two chat pickers (side, account) are remembered per project on the server ---------
+  if (path === '/api/workbench/agent/chat-prefs' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang, msg('bad_json', lang))
+    const pr = getProject(String(body.project ?? ''))
+    if (!pr) return fail(res, 404, 'not_found', lang)
+    const patch: { bridge_side?: string | null; chat_account?: string | null } = {}
+    if (body.side !== undefined) {
+      const w = String(body.side ?? '').trim().toLowerCase()
+      patch.bridge_side = w === 'wsl' || w === 'windows' ? w : null
+    }
+    if (body.account !== undefined) {
+      const a = String(body.account ?? '').trim()
+      patch.chat_account = a && a !== 'auto' && isKnownWorkbenchAccount(a) ? a : null
+    }
+    const upd = updateProject(pr.id, patch)
+    if (!upd.ok) return fail(res, 400, upd.code, lang)
+    json(res, { ok: true, side: upd.project.bridge_side || '', account: upd.project.chat_account || '' })
     return true
   }
 
