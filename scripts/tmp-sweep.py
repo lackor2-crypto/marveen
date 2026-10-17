@@ -38,10 +38,29 @@ KNOWN_PATTERNS = [
     "tsx-*",
     "aptprompt-*",
     "b1f-env-*",
+    # Unit-test mkdtemp leftovers (measured 2026-10-17: ~95% of a 37258-entry /tmp).
+    # New runs clean up after themselves (vitest-tmpdir-global.ts); these catch what
+    # older runs and crashed runs left behind.
+    "marveen-*",
+    "voice-broken-*",
+    "voice-scope-*",
+    "voice-ok-*",
+    "voice-empty-*",
+    "wb-live-*",
+    "wb-mnt*",
+    "named-login-*",
+    "main-acct-*",
+    "qr-render-*",
     ".org.chromium.Chromium.*",
     "org.chromium.Chromium.*",
 ]
 DEFAULT_DAYS = 2
+# A Claude Code session scratchpad (/tmp/claude-<uid>/<project>/<session>) is held open
+# by the running session WITHOUT a trace the live-process check can see (measured
+# 2026-10-17: 9 running claude processes, none named its scratchpad in cmdline or
+# environ). A session can be quiet for days and still be alive, so these
+# directories get a much longer idle limit than test leftovers.
+SESSION_DAYS = 14
 
 
 def install_dir():
@@ -138,6 +157,9 @@ def newest_mtime(path):
     return newest
 
 
+SESSION_DIRS = set()
+
+
 def collect_candidates(tmp, uid):
     out = []
     try:
@@ -170,6 +192,7 @@ def collect_candidates(tmp, uid):
                     sp = os.path.join(pp, sess)
                     if not os.path.islink(sp) and os.path.isdir(sp):
                         out.append(sp)
+                        SESSION_DIRS.add(sp)
             continue
         if any(fnmatch.fnmatch(n, pat) for pat in KNOWN_PATTERNS):
             out.append(p)
@@ -202,8 +225,9 @@ def main(argv):
     refs = live_references(uid)
     removed = kept_new = kept_live = 0
     freed = 0
+    session_cutoff = time.time() - max(days, SESSION_DAYS) * 86400
     for path in collect_candidates(tmp, uid):
-        if newest_mtime(path) >= cutoff:
+        if newest_mtime(path) >= (session_cutoff if path in SESSION_DIRS else cutoff):
             kept_new += 1
             continue
         if path in refs:

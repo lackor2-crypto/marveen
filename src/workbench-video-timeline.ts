@@ -49,7 +49,14 @@ export const SPEED_MIN = 0.25
 export const SPEED_MAX = 4
 /** `speed` is how fast the clip plays (1 = normal, absent = 1); the picture and the sound keep step. */
 export interface TimelineClip { id: string; src: string; start: number; end: number; transition?: TimelineTransition; speed?: number }
-export interface TimelineSubtitle { id: string; text: string; start: number; end: number }
+/** Subtitle looks, entrance animations and places. The first of each list is the default and is never stored. */
+export const SUBTITLE_LOOKS = ['classic', 'bold', 'yellow', 'box', 'title'] as const
+export const SUBTITLE_ANIMS = ['none', 'fade', 'pop', 'slideup'] as const
+export const SUBTITLE_POSITIONS = ['bottom', 'middle', 'top'] as const
+export type SubtitleLook = (typeof SUBTITLE_LOOKS)[number]
+export type SubtitleAnim = (typeof SUBTITLE_ANIMS)[number]
+export type SubtitlePos = (typeof SUBTITLE_POSITIONS)[number]
+export interface TimelineSubtitle { id: string; text: string; start: number; end: number; look?: SubtitleLook; anim?: SubtitleAnim; pos?: SubtitlePos }
 export interface TimelineMusic {
   src: string
   /** 0..1 */
@@ -101,7 +108,7 @@ const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i
 export type TimelineCode =
   | 'timeline_bad_shape' | 'timeline_bad_op' | 'timeline_not_found' | 'timeline_too_many'
   | 'timeline_bad_time' | 'timeline_bad_media' | 'timeline_text_required' | 'timeline_text_too_long'
-  | 'timeline_bad_aspect' | 'timeline_bad_value' | 'timeline_bad_transition' | 'timeline_bad_speed'
+  | 'timeline_bad_aspect' | 'timeline_bad_value' | 'timeline_bad_transition' | 'timeline_bad_speed' | 'timeline_bad_style'
 
 export type TimelineFail = { ok: false; code: TimelineCode; detail: string }
 export type TimelineParse = { ok: true; doc: TimelineDoc } | TimelineFail
@@ -111,6 +118,20 @@ function fail(code: TimelineCode, detail: string): TimelineFail { return { ok: f
 function num(v: unknown): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v.replace(',', '.')) : NaN
   return Number.isFinite(n) ? n : null
+}
+
+/** One subtitle style field from raw input: absent/empty or the default -> `undefined` (not stored), a bad name -> failure. */
+function pickStyle<T extends string>(raw: unknown, list: readonly T[], what: string): { ok: true; v: T | undefined } | TimelineFail {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, v: undefined }
+  if (typeof raw !== 'string' || !list.includes(raw as T)) return fail('timeline_bad_style', `the subtitle ${what} must be one of: ${list.join(', ')}`)
+  return { ok: true, v: raw === list[0] ? undefined : (raw as T) }
+}
+type SubStyle = { look?: SubtitleLook; anim?: SubtitleAnim; pos?: SubtitlePos }
+function parseSubStyle(o: Record<string, unknown>): ({ ok: true } & { style: SubStyle }) | TimelineFail {
+  const look = pickStyle(o.look, SUBTITLE_LOOKS, 'look'); if (!look.ok) return look
+  const anim = pickStyle(o.anim, SUBTITLE_ANIMS, 'animation'); if (!anim.ok) return anim
+  const pos = pickStyle(o.pos, SUBTITLE_POSITIONS, 'position'); if (!pos.ok) return pos
+  return { ok: true, style: { ...(look.v ? { look: look.v } : {}), ...(anim.v ? { anim: anim.v } : {}), ...(pos.v ? { pos: pos.v } : {}) } }
 }
 
 /** A clip speed from raw input (`undefined` = normal), or a failure. */
@@ -207,7 +228,9 @@ export function parseTimeline(raw: unknown): TimelineParse {
     if (!t.ok) return t
     const s = span(o.start, o.end, 'subtitle')
     if (!s.ok) return s
-    doc.subtitles.push({ id: id(o, 's'), text: t.text, start: s.start, end: s.end })
+    const st = parseSubStyle(o)
+    if (!st.ok) return st
+    doc.subtitles.push({ id: id(o, 's'), text: t.text, start: s.start, end: s.end, ...st.style })
   }
   if (r.music != null) {
     const m = (typeof r.music === 'object' ? r.music : {}) as Record<string, unknown>
@@ -278,8 +301,8 @@ type Op = Record<string, unknown>
  * Operations: addClip {src,start,end,at?}, trimClip {id,start?,end?}, moveClip {id,to},
  * splitClip {id,at} (at = source second), removeClip {id},
  * setSpeed {id,speed} (0.25 to 4, 1 = normal), setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
- * addSubtitle {text,start,end},
- * updateSubtitle {id,text?,start?,end?}, removeSubtitle {id}, setMusic {src,volume?,duck?},
+ * addSubtitle {text,start,end,look?,anim?,pos?} (look classic|bold|yellow|box|title, anim none|fade|pop|slideup, pos bottom|middle|top),
+ * updateSubtitle {id,text?,start?,end?,look?,anim?,pos?} ("" or the default clears a style field), removeSubtitle {id}, setMusic {src,volume?,duck?},
  * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?},
  * updateOverlay {id,...}, removeOverlay {id}, setAspect {aspect}, setClipVolume {volume}.
  */
@@ -386,8 +409,10 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (!t.ok) return t
         const s = span(op.start, op.end, 'subtitle')
         if (!s.ok) return s
+        const st = parseSubStyle(op as Record<string, unknown>)
+        if (!st.ok) return st
         const id = nextId('s', doc.subtitles.map((x) => x.id))
-        doc.subtitles.push({ id, text: t.text, start: s.start, end: s.end })
+        doc.subtitles.push({ id, text: t.text, start: s.start, end: s.end, ...st.style })
         doc.subtitles.sort((a, b) => a.start - b.start)
         applied.push({ op: name, id, note: 'added' })
         break
@@ -399,6 +424,13 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         const s = span(op.start ?? c.start, op.end ?? c.end, 'subtitle')
         if (!s.ok) return s
         c.start = s.start; c.end = s.end
+        // A style field that is present replaces the old one ("" or the default clears it); an absent one stays.
+        for (const [k, list] of [['look', SUBTITLE_LOOKS], ['anim', SUBTITLE_ANIMS], ['pos', SUBTITLE_POSITIONS]] as const) {
+          if (!(k in op)) continue
+          const r = pickStyle(op[k], list as readonly string[], k)
+          if (!r.ok) return r
+          if (r.v) (c as unknown as Record<string, string>)[k] = r.v; else delete c[k]
+        }
         doc.subtitles.sort((a, b) => a.start - b.start)
         applied.push({ op: name, id: c.id, note: 'updated' })
         break

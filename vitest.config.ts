@@ -46,6 +46,8 @@ export default defineConfig({
     //    the live-install gate above: that one inspects the CHECKOUT, and ~/.ssh is
     //    HOME-scoped -- a clean worktree run leaked 62 real keys (ENROLL813,
     //    2026-09-15). A seam, not a gate: it sets state, so it lives in its own file.
+    // One scratch TMPDIR per run, removed at the end (see that file's header, card #683).
+    globalSetup: ['./src/__tests__/setup/vitest-tmpdir-global.ts'],
     setupFiles: [
       './src/__tests__/setup/assert-not-live-install.ts',
       './src/__tests__/setup/assert-supported-node.ts',

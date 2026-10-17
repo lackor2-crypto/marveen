@@ -70,6 +70,14 @@ shift
 [[ "$WAIT_SEC" =~ ^[0-9]+$ ]] || usage
 [[ "$RUN_TIMEOUT" =~ ^[0-9]+$ ]] || usage
 NAME="${NAME//[^a-zA-Z0-9_.-]/_}"
+# A web-only instance is LONG-LIVED (a whole browser check, minutes to hours), so
+# it must not hold the single burst slot: the browser run that tests it and the
+# deploy build would queue behind it for the full wait and then fail. It gets its
+# own one-instance slot (a second web-only waits for the first); memory pressure
+# still stops it (fleet-memory-gate reads both registries).
+case "$NAME" in
+  web-only*) LOCK="$STORE_DIR/heavy-job-web.lock"; REG="$STORE_DIR/heavy-job-web.json" ;;
+esac
 
 run_cmd() {
   if (( RUN_TIMEOUT > 0 )) && command -v timeout >/dev/null 2>&1; then

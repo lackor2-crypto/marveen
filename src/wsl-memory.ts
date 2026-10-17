@@ -20,6 +20,8 @@ export type WslMemoryState =
   | 'ok'
   /** .wslconfig found (or measurably absent) but no swap size is set. */
   | 'missing'
+  /** A swap size is set but far above the recommendation: a frozen VM then thrashes for minutes. */
+  | 'risky'
   /** WSL, but the Windows profile could not be read from here: unknown, not "fine". */
   | 'unreadable'
 
@@ -67,13 +69,21 @@ export function parseWslConfig(text: string): { memoryGb?: number; swapGb?: numb
   return out
 }
 
+/**
+ * Largest swap (GB) still treated as fine. Recommendation is 2GB; on 2026-10-17 a
+ * swap=8GB VM spent ~9 minutes thrashing on the disk before it froze, so anything
+ * above 4GB (twice the recommendation) is flagged instead of reported green.
+ */
+export const MAX_SAFE_SWAP_GB = 4
+
 /** Pure classification of a readable .wslconfig text. */
 export function classifyWslConfig(text: string | null): WslMemoryReport['state'] {
   if (text === null) return 'missing'
   const c = parseWslConfig(text)
   // Owner decision (card #683): the recommendation is swap=2GB; the memory value
   // stays whatever the owner / WSL default has, so only the swap is required.
-  return c.swapGb !== undefined ? 'ok' : 'missing'
+  if (c.swapGb === undefined) return 'missing'
+  return c.swapGb > MAX_SAFE_SWAP_GB ? 'risky' : 'ok'
 }
 
 /** Real Windows profile folders under /mnt/c/Users (Public / Default / All Users are not profiles). */

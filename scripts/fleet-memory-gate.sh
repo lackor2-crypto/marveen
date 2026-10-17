@@ -264,6 +264,7 @@ clear_safe_mode() {
 # while a heavy job runs. A stale file (dead pid, or a pid that is no longer a
 # heavy-job.sh) is ignored -- never kill a recycled pid.
 HEAVY_REG="$STATE_DIR/heavy-job.json"
+HEAVY_REG_WEB="$STATE_DIR/heavy-job-web.json"   # the long-lived web-only slot
 
 _descendants() {   # all descendant pids of $1 (depth-first, children before parent not required)
   local p="$1" k
@@ -277,10 +278,11 @@ _ancestors() {     # this process and every ancestor (never kill our own call ch
 
 # Prints "<name>\n<pid> <pid> ..." (registered job + its tree), or nothing.
 heavy_registered() {
-  [[ -f "$HEAVY_REG" ]] || return 0
+  local reg="${1:-$HEAVY_REG}"
+  [[ -f "$reg" ]] || return 0
   local name pid
-  name="$(sed -n 's/.*"name": *"\([^"]*\)".*/\1/p' "$HEAVY_REG" 2>/dev/null | head -1)"
-  pid="$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$HEAVY_REG" 2>/dev/null | head -1)"
+  name="$(sed -n 's/.*"name": *"\([^"]*\)".*/\1/p' "$reg" 2>/dev/null | head -1)"
+  pid="$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$reg" 2>/dev/null | head -1)"
   [[ -n "$pid" ]] || return 0
   kill -0 "$pid" 2>/dev/null || return 0
   tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'heavy-job\.sh' || return 0
@@ -309,7 +311,8 @@ heavy_fallback() {
 
 heavy_kill() {
   local out name pids
-  out="$(heavy_registered)"
+  out="$(heavy_registered "$HEAVY_REG")"
+  [[ -z "$out" ]] && out="$(heavy_registered "$HEAVY_REG_WEB")"
   [[ -z "$out" ]] && out="$(heavy_fallback)"
   [[ -z "$out" ]] && return 0
   name="$(echo "$out" | sed -n 1p)"; pids="$(echo "$out" | sed -n 2p)"

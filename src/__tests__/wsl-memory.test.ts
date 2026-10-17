@@ -20,6 +20,8 @@ describe('wsl-memory', () => {
   it('is ok with a swap line alone, missing without one, and missing when the file is absent', () => {
     expect(classifyWslConfig('[wsl2]\nswap=2GB\n')).toBe('ok')
     expect(classifyWslConfig('[wsl2]\nmemory=10GB\n')).toBe('missing')
+    expect(classifyWslConfig('[wsl2]\nmemory=10GB\nswap=8GB\n')).toBe('risky')
+    expect(classifyWslConfig('[wsl2]\nswap=4GB\n')).toBe('ok')
     expect(classifyWslConfig(null)).toBe('missing')
   })
 })
