@@ -529,6 +529,46 @@ describe('the draft page wiring', () => {
     expect(js).toContain("twTableLines(el) : null")
     expect(readFileSync(join(__dirname, '..', '..', 'web', 'workbench.css'), 'utf8')).toContain('.wb-tw-tbl th, .wb-tw-tbl td')
   })
+  // #621: the #620 draw / read-back pair is RUN here (the real functions cut out of workbench.js, a small fake table for the
+  // read-back) -- and was also run in a real Chromium: the "Absender | Empfänger" table is two rows of cells, not two paragraphs.
+  describe('#621: the translation page table, run for real', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const cut = (from: string, to: string): string => js.slice(js.indexOf(from), js.indexOf(to, js.indexOf(from)))
+    const fns = new Function('esc', [cut('function dpFree(', 'function dpFreeSuffix'), cut('function dpTableParts', 'function dpTableText'), cut('function twTableHtml', 'function twTableRowAtCaret')].join('\n') + '; return { twTableHtml, twTableLines }')(
+      (x: unknown) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;')) as { twTableHtml: (t: string) => string; twTableLines: (el: unknown) => string | null }
+    /** A drawn table as the page holds it: rows of cells, each cell a list of text / <br> nodes. */
+    const fakeTable = (rows: (string | null)[][][]): unknown => {
+      const node = (n: string | null) => (n === null ? { nodeName: 'BR', textContent: '' } : { nodeName: '#text', textContent: n })
+      const trs = rows.map((cells) => ({ children: cells.map((c) => ({ childNodes: c.map(node), textContent: c.map((n) => n ?? '').join('') })) }))
+      return { querySelectorAll: (sel: string) => (sel === 'tr' ? trs : []) }
+    }
+
+    it('a table block is drawn as a real table: one row per line, one cell per "|", the first row as header, the size line hidden', () => {
+      const html = fns.twTableHtml('Absender: | Anna Kovács\nEmpfänger: | Amtsgericht Köln\n#w=100&a=c')
+      expect(html).toBe('<table class="wb-tw-tbl"><tr><th>Absender:</th><th>Anna Kovács</th></tr><tr><td>Empfänger:</td><td>Amtsgericht Köln</td></tr></table>')
+      expect(html).not.toContain('#w=')
+    })
+
+    it('what the page holds reads back as the same lines; an edited cell, a typed "|" and a line break in a cell are handled', () => {
+      expect(fns.twTableLines(fakeTable([[['Absender:'], ['Anna Kovács']], [['Empfänger:'], ['Amtsgericht Köln']]]))).toBe('Absender: | Anna Kovács\nEmpfänger: | Amtsgericht Köln')
+      // a "|" typed into a cell must not add a column on the next read
+      expect(fns.twTableLines(fakeTable([[['a|b'], ['c']]]))).toBe('a/b | c')
+      // Shift+Enter inside a cell reads as a space, not as glued words; the caret's trailing break adds nothing
+      expect(fns.twTableLines(fakeTable([[['Amtsgericht', null, 'Köln', null], ['x']]]))).toBe('Amtsgericht Köln | x')
+      // a new empty row (Enter) keeps its empty cells, so the row stays in the saved lines
+      expect(fns.twTableLines(fakeTable([[['a'], ['b']], [[null], [null]]]))).toBe('a | b\n | ')
+      // the table gone from the block: null, so the caller falls back to the block's plain text
+      expect(fns.twTableLines({ querySelectorAll: () => [] })).toBeNull()
+    })
+
+    it('Enter in a table cell adds a row under it (not a line break in the cell); a break at the end of a cell stays in that cell', () => {
+      expect(js).toContain('function twTableRowAtCaret()')
+      expect(js).toMatch(/e\.inputType === 'insertParagraph' && host && host\.getAttribute\('data-tw-kind'\) === 'table' && twTableRowAtCaret\(\)\) return/)
+      // the trailing break goes into the cell the break stands in, and an empty text node left by the split does not count as "something follows"
+      expect(js).toContain("if (!after) br.parentNode.appendChild(document.createElement('br'))")
+      expect(js).toContain('after.nodeType === 3 && !after.nodeValue')
+    })
+  })
 })
 
 // Boss, 2026-10-15 (screenshot after F5): the right column stood empty ("Még nincs lefordítva") although the German
