@@ -2,7 +2,7 @@
 // Seen live: a folderless graphic item listed in "Munkadarabok/Wohngeld 2026/Feltöltések" got its .canvas.json
 // in the project root.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
@@ -85,5 +85,13 @@ describe('a work item JSON goes next to the item', () => {
     const s = saveCanvas(graphic(null, 'P/Hivatal/regi.canvas.json'), emptyCanvas())
     if (!s.ok) throw new Error(s.code)
     expect(s.rel.slice('P/Hivatal/'.length).includes('/')).toBe(true)
+  })
+
+  it('#679: json_outside_item has a Hungarian and an English user message in both route tables (no raw code on screen)', () => {
+    for (const f of ['../web/routes/projects.ts', '../web/routes/workbench.ts']) {
+      const src = readFileSync(new URL(f, import.meta.url), 'utf-8')
+      expect(src).toMatch(/json_outside_item:\s*\{\s*hu:/)
+      expect(src).toMatch(/json_outside_item:[\s\S]{0,400}?en:/)
+    }
   })
 })

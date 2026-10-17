@@ -825,6 +825,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A képet nem sikerült kiírni a projekt mappájába.',
     en: 'The image could not be written into the project folder.',
   },
+  json_outside_item: {
+    hu: 'Munkadarab-fájl (.deck.json, .canvas.json, .timeline.json) a projekt gyökerébe nem kerülhet. Tedd egy munkadarab mappájába.',
+    en: 'A work item file (.deck.json, .canvas.json, .timeline.json) cannot go into the project root. Put it into a work item folder.',
+  },
 
   // --- 7. fazis: irodai dokumentum -> PDF ---
   preview_needs_conversion: {
