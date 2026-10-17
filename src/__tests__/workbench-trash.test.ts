@@ -321,7 +321,7 @@ describe('lomtar: vegleges torles', () => {
     const no = await callWorkbench(`/api/workbench/items/${ids.A}/purge`, 'POST', {})
     expect(no.status).toBe(409)
     expect(no.body).toMatchObject({ error: 'not_in_trash' })
-    expect((no.body as { message: string }).message).toContain('Lomtár')
+    expect((no.body as { message: string }).message).toContain('Kukában')
     await callWorkbench(`/api/workbench/items/${ids.A}/trash`, 'POST', { deleted: true })
     const r = await callWorkbench(`/api/workbench/items/${ids.A}/purge`, 'POST', {})
     expect(r.status).toBe(200)
