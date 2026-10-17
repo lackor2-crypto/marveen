@@ -15990,6 +15990,9 @@
     if (!c || !v || typeof v.currentTime !== 'number') return
     var at = Math.round(v.currentTime * 10) / 10
     if (!(at > c.start + 0.1 && at < c.end - 0.1)) { window.showToast(t('workbench.fr.vid.split_range')); return }
+    // The player is rebuilt by the redraw: park it on the cut (the end of the left part, which keeps this id),
+    // not back at the start of the clip -- so the cut stays visible where it happened.
+    WB.vtSeek = { id: c.id, at: at }
     vtOps([{ op: 'splitClip', id: c.id, at: at }])
   }
 
@@ -16030,11 +16033,18 @@
   /** After a redraw: a click on another clip jumps the (new) player to the clicked spot. */
   function frVtApplySeek() {
     var pend = WB.vtSeek
+    // While an operation is in flight the clip is not final yet (the redraw before the answer): keep waiting.
+    if (!pend || WB.vtBusy) return
     WB.vtSeek = null
     var c = frVtSelClip()
     var v = document.getElementById('wbVideo')
-    if (!pend || !c || !v || c.id !== pend.id) return
-    var go = function () { frVtSeekFrac(c, pend.frac) }
+    if (!c || !v || c.id !== pend.id) return
+    var go = function () {
+      if (typeof pend.at === 'number') {
+        try { v.currentTime = Math.min(c.end, Math.max(c.start, pend.at)) } catch (_e) { /* not loaded yet */ }
+        frVtPlayheadSync()
+      } else frVtSeekFrac(c, pend.frac)
+    }
     go()
     if (typeof v.addEventListener === 'function') v.addEventListener('loadedmetadata', go, { once: true })
   }
