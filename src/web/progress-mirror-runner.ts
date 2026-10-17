@@ -37,7 +37,9 @@ import {
   limitNoticeText,
   parseProgressMode,
   placeholderLiveText,
+  rememberThought,
   shouldEdit,
+  thoughtFingerprint,
   thoughtMessage,
   type ProgressMode,
 } from '../progress-mirror.js'
@@ -61,17 +63,20 @@ type Persisted = {
   background: Record<string, { chatId: string; messageId: number; text: string }>
   // #495: the last rate-limit notice sent per agent, so the same one goes out only once.
   limitNotice: Record<string, string>
+  // #665: fingerprints of the verbose thoughts already sent per agent (bounded),
+  // so the same line is never sent twice across ticks or restarts.
+  sentThoughts: Record<string, string[]>
 }
 
 const edits = new Map<string, { text: string; at: number }>()
 const offsets = new Map<string, number>()
-let persisted: Persisted = { background: {}, limitNotice: {} }
+let persisted: Persisted = { background: {}, limitNotice: {}, sentThoughts: {} }
 let running = false
 
 function loadState(): void {
   try {
     const raw = JSON.parse(readFileSync(STATE_PATH, 'utf-8'))
-    if (raw && typeof raw.background === 'object') persisted = { background: raw.background, limitNotice: raw.limitNotice && typeof raw.limitNotice === 'object' ? raw.limitNotice : {} }
+    if (raw && typeof raw.background === 'object') persisted = { background: raw.background, limitNotice: raw.limitNotice && typeof raw.limitNotice === 'object' ? raw.limitNotice : {}, sentThoughts: raw.sentThoughts && typeof raw.sentThoughts === 'object' ? raw.sentThoughts : {} }
   } catch { /* fresh install or unreadable: start empty */ }
 }
 
@@ -202,7 +207,15 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
         if (since === undefined) { try { since = statSync(p.file).mtimeMs } catch { /* gone: no bound */ } }
         const lines = newTranscriptLines(p.transcript_path)
         for (const th of extractThoughts(lines, lang, since)) {
-          await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(th), disable_notification: true })
+          const fp = thoughtFingerprint(th)
+          const seen = persisted.sentThoughts[t.agent] ?? []
+          if (seen.includes(fp)) continue
+          const r = await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(th), disable_notification: true })
+          // Only a delivered send is remembered, same as the limit notice.
+          if (r?.ok) {
+            persisted.sentThoughts[t.agent] = rememberThought(seen, fp)
+            saveState()
+          }
         }
         // A rate-limit notice goes out once per outage, in the owner's language (#495).
         const prevNotice = persisted.limitNotice[t.agent] ?? null
@@ -261,6 +274,9 @@ export async function progressMirrorTick(now = Date.now()): Promise<void> {
     }
     for (const agent of Object.keys(persisted.limitNotice)) {
       if (!live.has(agent)) { delete persisted.limitNotice[agent]; saveState() }
+    }
+    for (const agent of Object.keys(persisted.sentThoughts)) {
+      if (!live.has(agent)) { delete persisted.sentThoughts[agent]; saveState() }
     }
   } finally {
     running = false

@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import {
   langOf, classifyPane, placeholderLiveText, backgroundText, shouldEdit,
   extractThoughts, limitNoticesDue, limitNoticeText, thoughtMessage, parseProgressMode,
+  thoughtFingerprint, rememberThought, MAX_SENT_THOUGHTS,
 } from '../progress-mirror.js'
 import { readPending } from '../web/progress-mirror-runner.js'
 import { SETTINGS_REGISTRY } from '../config-registry.js'
@@ -277,5 +278,32 @@ describe('readPending', () => {
   })
   it('no progress dir (fresh install) is no pending, not an error', () => {
     expect(readPending(mkdtempSync(join(tmpdir(), 'pm-')))).toEqual([])
+  })
+})
+
+describe('thought dedup across ticks (#665)', () => {
+  // The runner's per-thought rule: skip when the fingerprint is remembered.
+  const pass = (seen: string[], th: string) => seen.includes(thoughtFingerprint(th))
+
+  it('the same thought read in two ticks goes out once', () => {
+    let seen: string[] = []
+    const sent: string[] = []
+    for (const th of ['Megnézem a naplót.', 'Megnézem  a\nnaplót.']) {
+      if (pass(seen, th)) continue
+      sent.push(th)
+      seen = rememberThought(seen, thoughtFingerprint(th))
+    }
+    expect(sent).toEqual(['Megnézem a naplót.'])
+  })
+  it('a different thought still goes out', () => {
+    const seen = rememberThought([], thoughtFingerprint('Egy.'))
+    expect(pass(seen, 'Kettő.')).toBe(false)
+  })
+  it('the remembered set is bounded and keeps the newest', () => {
+    let seen: string[] = []
+    for (let i = 0; i < MAX_SENT_THOUGHTS + 50; i++) seen = rememberThought(seen, thoughtFingerprint('t' + i))
+    expect(seen).toHaveLength(MAX_SENT_THOUGHTS)
+    expect(pass(seen, 't' + (MAX_SENT_THOUGHTS + 49))).toBe(true)
+    expect(pass(seen, 't0')).toBe(false)
   })
 })
