@@ -32,6 +32,7 @@ import { setUsageSnapshotReader, resetUsageManagerForTest } from '../workbench-a
 import { setAuditWriterForTest } from '../workbench-agent/audit.js'
 import { clearAIProvidersForTest, registerAIProvider, type AIChunk, type AIProvider } from '../workbench-agent/provider.js'
 import { resetWorkbenchAgentForTest } from '../workbench-agent/index.js'
+import { addAgentMessage, openSessionForWorkItem, projectSessionKey } from '../workbench-agent/sessions.js'
 import { tryHandleWorkbenchAgent } from '../web/routes/workbench-agent.js'
 import type { RouteContext } from '../web/routes/types.js'
 
@@ -287,6 +288,24 @@ describe('GET /api/workbench/agent/session', () => {
     // ...es NEM keveredik ossze a munkadarabehoz tartozoval.
     const item = await call(`/api/workbench/agent/session?workItem=${workItemId}`, 'GET')
     expect(item.body.messages).toEqual([])
+  })
+
+  // #647 (Boss TG 3080/3082): a 216 uzenetes beszelgetesnel az F5 utan az ELSO 200 jott
+  // vissza, a legujabb 16 -- koztuk Boss utolso uzenete -- eltunt. A valodi uton, a
+  // valodi meretnel: az utolso uzenetnek ott kell lennie, regi->uj sorrendben, es a
+  // kozos masodpercben irt sorok sorrendje is megmarad.
+  it('#647: 216 uzenetes beszelgetesbol a LEGUJABB 200 jon vissza (munkadarab es projekt), regi->uj', async () => {
+    const wi = openSessionForWorkItem(projectId, workItemId, 'hu')
+    const pj = openSessionForWorkItem(projectId, projectSessionKey(projectId), 'hu')
+    for (const s of [wi, pj]) for (let i = 1; i <= 216; i++) addAgentMessage(s.id, i % 2 ? 'user' : 'assistant', `uzenet-${i}`)
+    for (const url of [`workItem=${workItemId}`, `project=${projectId}`]) {
+      const r = await call(`/api/workbench/agent/session?${url}`, 'GET')
+      const texts = r.body.messages.map((m: any) => m.content)
+      expect(texts).toHaveLength(200)
+      expect(texts[0]).toBe('uzenet-17')
+      expect(texts[199]).toBe('uzenet-216')
+      expect(texts).toEqual(Array.from({ length: 200 }, (_, k) => `uzenet-${k + 17}`))
+    }
   })
 
   it('ismeretlen projekt: 404, nem ures beszelgetes', async () => {
