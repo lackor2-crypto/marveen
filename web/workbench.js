@@ -9283,6 +9283,12 @@
    * #530: pick ONE FILE of the Life tree (the Explorer's tree), nothing else. Only chooses: it
    * creates and changes nothing. `done(rel)` gets the file's path in the tree.
    */
+  // Escape closes only the dialog on top: the folder picker opened from the Life-move dialog sits above it, and
+  // Escape there must not also throw away the dialog underneath (the picked folder would land in a closed dialog).
+  function isTopModal(overlay) {
+    var all = document.querySelectorAll('.modal-overlay')
+    return !all.length || all[all.length - 1] === overlay
+  }
   function pickLifeFile(done, opts) {
     var folderMode = !!(opts && opts.folder)
     if (!document.body || typeof document.createElement !== 'function') return
@@ -9300,7 +9306,9 @@
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbLifeFilePickList')
     var here = overlay.querySelector('#wbLifeFilePickHere')
-    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    var onKey = function (e) { if (e.key === 'Escape' && isTopModal(overlay)) close() }
+    var close = function () { document.removeEventListener('keydown', onKey); if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    document.addEventListener('keydown', onKey)
     overlay.querySelector('#wbLifeFilePickClose').addEventListener('click', close)
     var hereBtn = overlay.querySelector('#wbLifeFilePickHereBtn')
     var hereRel = ''
@@ -13830,7 +13838,7 @@
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbJsonCleanList')
     var go = overlay.querySelector('#wbJsonCleanGo')
-    var onKey = function (e) { if (e.key === 'Escape') close() }
+    var onKey = function (e) { if (e.key === 'Escape' && isTopModal(overlay)) close() }
     var close = function () { document.removeEventListener('keydown', onKey); if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
     document.addEventListener('keydown', onKey)
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close() })
@@ -13908,7 +13916,7 @@
       document.removeEventListener('keydown', onKey)
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay)
     }
-    var onKey = function (e) { if (e.key === 'Escape') later() }
+    var onKey = function (e) { if (e.key === 'Escape' && isTopModal(overlay)) later() }
     document.addEventListener('keydown', onKey)
     overlay.addEventListener('click', function (e) { if (e.target === overlay) later() })
     overlay.querySelector('#wbRootGuardLater').addEventListener('click', later)
@@ -13963,7 +13971,7 @@
     document.body.appendChild(overlay)
     var list = overlay.querySelector('#wbLifeMoveList')
     var go = overlay.querySelector('#wbLifeMoveGo')
-    var onKey = function (e) { if (e.key === 'Escape') close() }
+    var onKey = function (e) { if (e.key === 'Escape' && isTopModal(overlay)) close() }
     var close = function () { document.removeEventListener('keydown', onKey); if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
     document.addEventListener('keydown', onKey)
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close() })
