@@ -817,7 +817,7 @@ export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' |
  * picture), covering the same places loosePathsInUse scans: the item/version/part/asset columns and the
  * deck/timeline JSON (working draft + undo steps), plus the saved version JSON files on disk (best effort).
  */
-function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: string): void {
+function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: string, oldProjRel?: string, newProjRel?: string): void {
   if (!oldRel || !newRel || oldRel === newRel) return
   const db = getDb()
   const ids = (db.prepare('SELECT id FROM work_items WHERE project_id = ?').all(project.id) as { id: string }[]).map((r) => r.id)
@@ -843,6 +843,17 @@ function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: strin
         if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(steps)) {
           db.prepare(`UPDATE ${steps} SET patch = replace(patch, ?, ?) WHERE work_item_id = ? AND instr(patch, ?) > 0`).run(oldQ, newQ, id, oldQ)
         }
+      }
+    }
+    // The annex list and the document's sources name a file by its PROJECT-relative path (not the Depot one).
+    if (oldProjRel && newProjRel) {
+      const has = (t: string): boolean => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
+      if (has('wb_doc_annexes')) {
+        db.prepare('UPDATE wb_doc_annexes SET path = ? WHERE path = ? AND work_item_id IN (SELECT id FROM work_items WHERE project_id = ?)').run(newProjRel, oldProjRel, project.id)
+      }
+      if (has('wb_doc_sources') && has('wb_doc_claims')) {
+        db.prepare(`UPDATE wb_doc_sources SET path = ? WHERE path = ? AND claim_id IN (SELECT c.id FROM wb_doc_claims c
+          JOIN work_items w ON w.id = c.work_item_id WHERE w.project_id = ?)`).run(newProjRel, oldProjRel, project.id)
       }
     }
   })()
@@ -880,6 +891,23 @@ function loosePathsInUse(project: ProjectRow, rels: string[]): Set<string> {
   return used
 }
 
+/** The project-relative paths among `projRels` that the document model names: an annex (`wb_doc_annexes`) or a source (`wb_doc_sources`). */
+function docModelPathsInUse(project: ProjectRow, projRels: string[]): Set<string> {
+  const used = new Set<string>()
+  if (!projRels.length) return used
+  const db = getDb()
+  const has = (t: string): boolean => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
+  const want = new Set(projRels)
+  if (has('wb_doc_annexes')) {
+    for (const r of db.prepare('SELECT a.path FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id WHERE w.project_id = ?').all(project.id) as { path: string }[]) if (want.has(r.path)) used.add(r.path)
+  }
+  if (has('wb_doc_sources') && has('wb_doc_claims')) {
+    for (const r of db.prepare(`SELECT s.path FROM wb_doc_sources s JOIN wb_doc_claims c ON c.id = s.claim_id
+      JOIN work_items w ON w.id = c.work_item_id WHERE w.project_id = ? AND s.path IS NOT NULL`).all(project.id) as { path: string }[]) if (want.has(r.path)) used.add(r.path)
+  }
+  return used
+}
+
 /** Every path these work items name: exact paths (`eq`: item/version/part/asset columns) and JSON texts to search (`hay`: drafts, saved version files). */
 function itemRefSources(ids: string[]): { eq: Set<string>; hay: string[] } {
   const db = getDb()
@@ -898,6 +926,8 @@ function itemRefSources(ids: string[]): { eq: Set<string>; hay: string[] } {
     }
     for (const r of db.prepare('SELECT asset_path FROM work_item_parts WHERE work_item_id = ?').all(id) as { asset_path: string | null }[]) if (r.asset_path) eq.add(r.asset_path)
     for (const r of db.prepare('SELECT path FROM work_item_assets WHERE work_item_id = ?').all(id) as { path: string }[]) eq.add(r.path)
+    // A finalised version names its PDF and attachments in metadata_json (`pdf_path`, `files[].path`).
+    for (const r of db.prepare("SELECT metadata_json FROM work_item_versions WHERE work_item_id = ? AND metadata_json LIKE '%\"pdf_path\"%'").all(id) as { metadata_json: string | null }[]) if (r.metadata_json) hay.push(r.metadata_json)
     for (const { name } of tables) {
       if (!/^work_item_[a-z]+_drafts$/.test(name)) continue
       for (const r of db.prepare(`SELECT doc FROM ${name} WHERE work_item_id = ?`).all(id) as { doc: string | null }[]) if (r.doc) hay.push(r.doc)
@@ -930,7 +960,8 @@ function itemsUsingFolder(project: ProjectRow, dirRel: string, skipIds: string[]
  * which is the whole point of seeing what belongs together in one folder.
  * A file lying in a work item's OWN folder is skipped as `item_file` (#492, Boss TG 7948): it belongs to the
  * item and is never taken away from it; copyLooseFiles makes an independent copy instead. The owner's explicit
- * `allowItem` (Boss TG 3001, the attachments) lets the files the registry does not name move out as well.
+ * `allowItem` (Boss TG 3001/3016) lets those files move out as well, also the ones the registry names (a material, a
+ * finalised version's PDF or attachment, an annex, a source): every reference follows the file.
  */
 export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown, opts: { allowItem?: boolean } = {}): MoveFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
@@ -944,6 +975,9 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
   const itemFiles = new Set<string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) { loose.set(f.rel, k); if (f.item) itemFiles.add(f.rel) }
   const inUse = loosePathsInUse(project, want.filter((r) => loose.has(r)))
+  // The annex list and the document's sources name a file by its project-relative path: folder key + name.
+  const projRelOf = (rel: string): string => { const k = loose.get(rel) ?? ''; const n = rel.slice(rel.lastIndexOf('/') + 1); return k ? `${k}/${n}` : n }
+  const docUsed = docModelPathsInUse(project, want.filter((r) => loose.has(r)).map(projRelOf))
   const moved: string[] = []
   const skipped: MoveFilesSkip[] = []
   for (const rel of want) {
@@ -966,8 +1000,8 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     // The registry repoint is one transaction, so a throw means nothing was rewritten: the file goes back to
     // where its references still point, and then 'failed' is the truth (as in renameLooseFile). Only if even
     // that is impossible does it stay -- it really is in the new place then, so it counts as moved (#487).
-    if (inUse.has(rel)) {
-      try { repointMovedFileRefs(project, rel, newRel) } catch {
+    if (inUse.has(rel) || docUsed.has(projRelOf(rel))) {
+      try { repointMovedFileRefs(project, rel, newRel, projRelOf(rel), c.folder ? `${c.folder}/${name}` : name) } catch {
         let back = false
         try { renameSync(dst, src); back = true } catch { /* it stays in the new place */ }
         if (back) { skipped.push({ name, reason: 'failed' }); continue }

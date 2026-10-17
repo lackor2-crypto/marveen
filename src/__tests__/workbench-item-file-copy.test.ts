@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
-import { createWorkItem, setWorkItemDeleted } from '../workbench.js'
+import { createWorkItem, setWorkItemDeleted, createWorkItemVersion } from '../workbench.js'
+import { ensureAnnexTables } from '../workbench-docannex.js'
 import { makeWorkFolder, ensureWorkItemFolder, listWorkFolders, moveLooseFiles, copyLooseFiles, deleteWorkFolder } from '../workbench-assets.js'
 import { trashRelPath } from '../life-tree.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -94,6 +95,33 @@ describe('#492 moveLooseFiles never takes a file away from its work item', () =>
     expect(r).toEqual({ ok: true, moved: ['kep.png'], skipped: [] })
     const row = getDb().prepare('SELECT path FROM work_item_assets WHERE id = ?').get('as1') as { path: string }
     expect(row.path).toBe(x.itemFile.replace(`/${x.itemFolder}/kep.png`, `/${x.target}/kep.png`))
+  })
+
+  it('#639: a file only the finalised version names (pdf_path / files[].path) moves and the metadata follows', () => {
+    const x = setup()
+    const meta = { final: true, content_hash: 'h', pdf_path: x.itemFile, pdf_name: 'kep.png', files: [{ path: x.itemFile, name: 'kep.png', role: 'main' }] }
+    const v = createWorkItemVersion(x.itemId, { metadata_json: JSON.stringify(meta) })
+    if (!v.ok) throw new Error('version')
+    expect(moveLooseFiles(proj(), [x.itemFile], x.target, { allowItem: true })).toEqual({ ok: true, moved: ['kep.png'], skipped: [] })
+    const row = getDb().prepare('SELECT metadata_json FROM work_item_versions WHERE id = ?').get(v.version.id) as { metadata_json: string }
+    const m = JSON.parse(row.metadata_json) as typeof meta
+    const to = `${base}/${x.target}/kep.png`
+    expect(m.pdf_path).toBe(to)
+    expect(m.files[0]!.path).toBe(to)
+  })
+
+  it('#639: an annex and a source the document names by project-relative path follow the moved file', () => {
+    const x = setup()
+    ensureAnnexTables()
+    const db = getDb()
+    db.prepare('INSERT INTO wb_doc_annexes (id, work_item_id, position, path, title, created_at) VALUES (?,?,?,?,?,?)')
+      .run('an1', x.itemId, 0, `${x.itemFolder}/kep.png`, 'Kep', 1)
+    db.prepare('INSERT INTO wb_doc_claims (id, work_item_id, block_id, text, created_at) VALUES (?,?,?,?,?)').run('cl1', x.itemId, 'b1', 'T', 1)
+    db.prepare('INSERT INTO wb_doc_sources (id, claim_id, kind, path, verdict, created_at) VALUES (?,?,?,?,?,?)')
+      .run('so1', 'cl1', 'document', `${x.itemFolder}/kep.png`, 'verified', 1)
+    expect(moveLooseFiles(proj(), [x.itemFile], x.target, { allowItem: true })).toEqual({ ok: true, moved: ['kep.png'], skipped: [] })
+    expect((db.prepare('SELECT path FROM wb_doc_annexes WHERE id = ?').get('an1') as { path: string }).path).toBe(`${x.target}/kep.png`)
+    expect((db.prepare('SELECT path FROM wb_doc_sources WHERE id = ?').get('so1') as { path: string }).path).toBe(`${x.target}/kep.png`)
   })
 
   it('a loose file can still be moved INTO a work item\'s folder (next to it)', () => {
