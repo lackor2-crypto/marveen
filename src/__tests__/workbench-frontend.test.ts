@@ -634,6 +634,41 @@ describe('chat head fold arrow (#578, TG 3142)', () => {
   })
 })
 
+describe('chat account picker hint (#646, TG 3075)', () => {
+  async function openWithAccounts(): Promise<void> {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) {
+        return { status: 200, body: { provider: { id: 'anthropic', model: 'claude-sonnet-5', available: true }, usage: { usedPct: 12, measured: true }, allowed: true, maxMessageChars: 8000, accounts: [{ agent: 'lackor3', model: 'm', status: 'online' }] } }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatAccount"'))
+  }
+  const selectAccount = (value: string) => h.changeEl({ value, closest: (sel: string) => (sel === '[data-wb-act="chat-account"]' ? { value } : null) })
+
+  it('Automatic shows the queueing hint; a fixed account switches it to the immediate one on the spot, and back', async () => {
+    await openWithAccounts()
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.account_hint_auto')
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.account_hint_fixed')
+    selectAccount('lackor3')
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.account_hint_fixed')
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.account_hint_auto')
+    selectAccount('auto')
+    expect(h.rootEl.innerHTML).toContain('workbench.chat.account_hint_auto')
+    expect(h.rootEl.innerHTML).not.toContain('workbench.chat.account_hint_fixed')
+  })
+
+  it('both hints exist in Hungarian and English', () => {
+    for (const f of ['hu', 'en']) {
+      const src = readFileSync(join(__dirname, '..', '..', 'web', 'lang', `${f}.js`), 'utf8')
+      expect(src).toMatch(/"workbench\.chat\.account_hint_auto": "[^"]{10,}"/)
+      expect(src).toMatch(/"workbench\.chat\.account_hint_fixed": "[^"]{10,}"/)
+    }
+  })
+})
+
 describe('chat width drag (#586, TG 3193)', () => {
   const KEY = 'marveen.workbench.chatWidth'
   let store: Record<string, string>
