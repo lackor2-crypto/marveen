@@ -295,6 +295,11 @@ describe('thought dedup across ticks (#665)', () => {
     }
     expect(sent).toEqual(['Megnézem a naplót.'])
   })
+  it('the same line in a later turn (another placeholder) still goes out', () => {
+    const seen = rememberThought([], thoughtFingerprint('Kész.', '1:10'))
+    expect(seen.includes(thoughtFingerprint('Kész.', '1:10'))).toBe(true)
+    expect(seen.includes(thoughtFingerprint('Kész.', '1:11'))).toBe(false)
+  })
   it('a different thought still goes out', () => {
     const seen = rememberThought([], thoughtFingerprint('Egy.'))
     expect(pass(seen, 'Kettő.')).toBe(false)

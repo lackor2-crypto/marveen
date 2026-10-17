@@ -207,7 +207,7 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
         if (since === undefined) { try { since = statSync(p.file).mtimeMs } catch { /* gone: no bound */ } }
         const lines = newTranscriptLines(p.transcript_path)
         for (const th of extractThoughts(lines, lang, since)) {
-          const fp = thoughtFingerprint(th)
+          const fp = thoughtFingerprint(th, `${p.chat_id}:${p.message_id}`)
           const seen = persisted.sentThoughts[t.agent] ?? []
           if (seen.includes(fp)) continue
           const r = await tg(token, 'sendMessage', { chat_id: p.chat_id, text: thoughtMessage(th), disable_notification: true })

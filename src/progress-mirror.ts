@@ -195,11 +195,13 @@ export const MAX_SENT_THOUGHTS = 200
 /**
  * Content fingerprint of a verbose-mode thought (#665): whitespace-normalised,
  * hashed, short. The same text read in two ticks (streaming, a re-read
- * transcript) gets the same fingerprint, so it is sent once.
+ * transcript) gets the same fingerprint, so it is sent once. `scope` ties the
+ * fingerprint to one turn (its placeholder), so a short line that legitimately
+ * recurs in a later turn ("Kész.") is not swallowed.
  */
-export function thoughtFingerprint(text: string): string {
+export function thoughtFingerprint(text: string, scope = ''): string {
   const flat = String(text ?? '').split(/\s+/).filter(Boolean).join(' ')
-  return createHash('sha1').update(flat).digest('base64').slice(0, 16)
+  return createHash('sha1').update(scope + '\n' + flat).digest('base64').slice(0, 16)
 }
 
 /** Appends `fp` to the remembered list and keeps only the newest `max`. */
