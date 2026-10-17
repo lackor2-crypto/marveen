@@ -162,7 +162,12 @@ set -e
 [ "$wt_rc" -eq 0 ] || die "nem sikerult izolalt worktree-t nyitni a HEAD-re (exit $wt_rc): $wt_err"
 ln -sfn "$BASE/node_modules" "$TSC_TMP/wt/node_modules"
 set +e
-( cd "$TSC_TMP/wt" && "$TSC_BIN" --noEmit )
+# The tsc is a heavy job: it takes its turn on the machine-wide queue (card #683).
+if [ -f "$BASE/scripts/heavy-job.sh" ]; then
+  ( cd "$TSC_TMP/wt" && bash "$BASE/scripts/heavy-job.sh" land-tsc -- "$TSC_BIN" --noEmit )
+else
+  ( cd "$TSC_TMP/wt" && "$TSC_BIN" --noEmit )
+fi
 tsc_rc=$?
 set -e
 if [ "$tsc_rc" -ne 0 ]; then

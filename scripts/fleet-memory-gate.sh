@@ -68,6 +68,13 @@ _WARN_PCT_ENV="$(_env_val MARVEEN_MEM_WARN_PCT)"
 _HARD_PCT_ENV="$(_env_val MARVEEN_MEM_HARD_PCT)"
 WARN_PCT="${MARVEEN_MEM_WARN_PCT:-${_WARN_PCT_ENV:-90}}"
 HARD_PCT="${MARVEEN_MEM_HARD_PCT:-${_HARD_PCT_ENV:-95}}"
+# Card #683: BELOW the agent-parking bands, stop the registered HEAVY job (and its
+# children) first. A heavy job is the cheapest thing to lose: it can be re-run,
+# whereas parking an agent interrupts a conversation (the 85% agent-parking band
+# fired constantly on 2026-08-21, which is why 90/95 stay exactly as they are).
+_HEAVY_KILL_PCT_ENV="$(_env_val MARVEEN_MEM_HEAVY_KILL_PCT)"
+HEAVY_KILL_PCT="${MARVEEN_MEM_HEAVY_KILL_PCT:-${_HEAVY_KILL_PCT_ENV:-85}}"
+[[ "$HEAVY_KILL_PCT" =~ ^[0-9]+$ ]] || HEAVY_KILL_PCT=85
 # Real env var wins (lets an operator override per-invocation without touching
 # .env); otherwise fall back to .env, like MAIN_AGENT_ID above -- a hand-edited
 # .env is the documented way to configure this script (see file header), but
@@ -252,6 +259,80 @@ clear_safe_mode() {
   [[ -f "$SAFE_FLAG" ]] && rm -f "$SAFE_FLAG" 2>/dev/null || true
 }
 
+# --- heavy-job kill (--shed, card #683) ---------------------------------------
+# Registry: scripts/heavy-job.sh writes {name,pid,...} to STORE/heavy-job.json
+# while a heavy job runs. A stale file (dead pid, or a pid that is no longer a
+# heavy-job.sh) is ignored -- never kill a recycled pid.
+HEAVY_REG="$STATE_DIR/heavy-job.json"
+
+_descendants() {   # all descendant pids of $1 (depth-first, children before parent not required)
+  local p="$1" k
+  for k in $(ps --ppid "$p" -o pid= 2>/dev/null); do echo "$k"; _descendants "$k"; done
+}
+
+_ancestors() {     # this process and every ancestor (never kill our own call chain)
+  local p=$$
+  while [[ -n "$p" && "$p" -gt 1 ]]; do echo "$p"; p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -dc '0-9')"; done
+}
+
+# Prints "<name>\n<pid> <pid> ..." (registered job + its tree), or nothing.
+heavy_registered() {
+  [[ -f "$HEAVY_REG" ]] || return 0
+  local name pid
+  name="$(sed -n 's/.*"name": *"\([^"]*\)".*/\1/p' "$HEAVY_REG" 2>/dev/null | head -1)"
+  pid="$(sed -n 's/.*"pid": *\([0-9]*\).*/\1/p' "$HEAVY_REG" 2>/dev/null | head -1)"
+  [[ -n "$pid" ]] || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
+  tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'heavy-job\.sh' || return 0
+  echo "${name:-heavy-job}"
+  echo "$pid $(_descendants "$pid" | tr '\n' ' ')"
+}
+
+# No registered job (a heavy process started outside the queue): fall back to
+# KNOWN heavy patterns, own UID only. The dashboard, the channels and claude
+# itself are never matched, and neither is our own call chain.
+heavy_fallback() {
+  [[ "${MARVEEN_MEM_HEAVY_FALLBACK:-1}" == "0" ]] && return 0
+  local self; self=" $(_ancestors | tr '\n' ' ')"
+  local pid args hit=""
+  while read -r pid args; do
+    [[ -z "$pid" || "$self" == *" $pid "* ]] && continue
+    if [[ "$args" =~ (dist/index\.js|server\.ts|--channels|/claude( |$)|^claude( |$)|fleet-memory-gate|heavy-job\.sh|systemd|tmux) ]]; then continue; fi
+    if [[ "$args" =~ (node_modules/(\.bin/)?vitest|vitest/dist|(^|/)vitest( |$)) ]] \
+       || [[ "$args" =~ (chrom(e|ium)[^ ]* .*(--headless|--remote-debugging|playwright)|ms-playwright) ]] \
+       || { [[ "$args" =~ (tsx|node) ]] && tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qE '^WEB_ONLY=(true|1)$'; }; then
+      hit="$hit$pid "
+    fi
+  done < <(ps -u "$(id -u)" -o pid=,args= 2>/dev/null)
+  [[ -n "$hit" ]] && { echo "fallback"; echo "$hit"; }
+}
+
+heavy_kill() {
+  local out name pids
+  out="$(heavy_registered)"
+  [[ -z "$out" ]] && out="$(heavy_fallback)"
+  [[ -z "$out" ]] && return 0
+  name="$(echo "$out" | sed -n 1p)"; pids="$(echo "$out" | sed -n 2p)"
+  [[ -z "${pids// /}" ]] && return 0
+  if (( DRY_RUN )); then
+    log "would-kill-heavy ${name}: ${pids}(used=${used_pct}% >= ${HEAVY_KILL_PCT}%)"
+    [[ "$name" == "fallback" ]] || echo "would-kill-heavy ${name}: ${pids}"
+    return 0
+  fi
+  local p
+  for p in $pids; do kill -TERM "$p" 2>/dev/null || true; done
+  local waited=0
+  while (( waited < ${MARVEEN_MEM_HEAVY_GRACE:-10} )); do
+    sleep 1; waited=$((waited + 1))
+    local alive=0; for p in $pids; do kill -0 "$p" 2>/dev/null && alive=1; done
+    (( alive )) || break
+  done
+  for p in $pids; do kill -0 "$p" 2>/dev/null && kill -KILL "$p" 2>/dev/null || true; done
+  echo "$(date '+%Y-%m-%d %H:%M:%S') heavy-kill ${name} pids=${pids}used=${used_pct}% avail=${avail_mb}MB" >>"$STATE_DIR/.fleet-heavy-kills" 2>/dev/null || true
+  echo "killed-heavy ${name}: ${pids}"
+  send_alert heavy "$(ol "Marveen memória-kapu: a memória ${used_pct}%-on állt (elérhető ${avail_mb} MB), ezért leállítottam a futó nehéz feladatot (${name}). Újra lefuttathatod, ha a gép kicsit megnyugodott; az ügynököket nem érintettem." "Marveen memory gate: memory was at ${used_pct}% (${avail_mb} MB available), so I stopped the running heavy job (${name}). You can run it again once the machine has calmed down; no agents were touched.")"
+}
+
 # --- determine band + side effects ---
 band="ok"
 if (( used_pct >= HARD_PCT )); then
@@ -267,6 +348,12 @@ else
 fi
 
 status_line="used=${used_pct}% avail=${avail_mb}MB running_agents=${running} cap=${AGENT_CAP} band=${band}"
+
+# Heavy-job kill runs BEFORE the observe-only exit: observe-only is about never
+# blocking an agent START, and a runaway test run is not an agent.
+if [[ "$MODE" == "shed" ]] && (( used_pct >= HEAVY_KILL_PCT )); then
+  heavy_kill
+fi
 
 # Observe-only: alerts have already fired above; from here the gate only reports and
 # always ALLOWS -- no block exit (10), no cap-block. Istvan owns the throttle call.

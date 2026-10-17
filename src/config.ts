@@ -353,6 +353,13 @@ export const DASHBOARD_PUBLIC_URL = cfg('DASHBOARD_PUBLIC_URL') ?? ''
 export const DASHBOARD_ALLOWED_ORIGINS = env['DASHBOARD_ALLOWED_ORIGINS'] ?? ''
 export const OLLAMA_URL = cfg('OLLAMA_URL') ?? 'http://localhost:11434'
 
+// Card #683: read by the shell guards (scripts/fleet-memory-gate.sh,
+// scripts/tmp-sweep.py), not by the dashboard; named here so they are findable.
+//   MARVEEN_MEM_HEAVY_KILL_PCT  memory % at which the registered heavy job
+//                               (scripts/heavy-job.sh) is stopped (default 85)
+//   MARVEEN_TMP_SWEEP_DAYS      /tmp leftovers older than this many days are
+//                               swept by the daily tmp-sweep guard (default 2)
+
 // Kanban swimlanes: which field the board groups by on first load. Invalid
 // values silently fall back to 'none' (flat board) rather than breaking the
 // grouping logic on the frontend.

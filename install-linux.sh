@@ -356,6 +356,30 @@ if command -v free &>/dev/null; then
   fi
 fi
 
+# WSL: the VM's swap lives in C:\Users\<name>\.wslconfig (card #683: a VM without
+# enough swap froze under load). Offer a minimal file WITH consent; never touch
+# an existing one. Memory is left to the owner / WSL default.
+if grep -qi microsoft /proc/version 2>/dev/null && command -v wslpath &>/dev/null && command -v cmd.exe &>/dev/null; then
+  WIN_PROFILE="$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r' | head -1)"
+  WSLCFG=""
+  [ -n "$WIN_PROFILE" ] && WSLCFG="$(wslpath "$WIN_PROFILE" 2>/dev/null)/.wslconfig"
+  if [ -z "$WSLCFG" ] || [ ! -d "$(dirname "$WSLCFG")" ]; then
+    warn "$(_t linux.wslconfig_unknown)"
+  elif [ -f "$WSLCFG" ]; then
+    if grep -qiE '^[[:space:]]*swap[[:space:]]*=' "$WSLCFG"; then
+      ok "$(_t linux.wslconfig_ok)"
+    else
+      warn "$(_t linux.wslconfig_exists)"
+    fi
+  else
+    WSL_ANS=""
+    read -rp "$(_t prompt_wslconfig)" WSL_ANS || true
+    if [ "${WSL_ANS:-n}" = "i" ] || [ "${WSL_ANS:-n}" = "y" ]; then
+      printf '[wsl2]\nswap=2GB\n' > "$WSLCFG" && ok "$(_t linux.wslconfig_written)"
+    fi
+  fi
+fi
+
 MISSING_PKGS=""
 for pkg in ffmpeg git tmux lsof curl python3 pipx unzip zstd; do
   if ! command -v "$pkg" &>/dev/null; then

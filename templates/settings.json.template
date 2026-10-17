@@ -167,6 +167,16 @@
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/heavy-job-gate.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/heavy-job-gate.py; exit 0'",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit|Bash",
         "hooks": [
           {
