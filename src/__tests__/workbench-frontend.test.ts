@@ -4316,4 +4316,60 @@ describe('orphan JSON cleaner entry is global, not inside a work item (#660, Bos
     expect(app).toContain("else if (a === 'json-clean') window.MarvinWorkbench?.jsonCleanOpen?.()")
     expect(SRC).not.toContain('jsonCleanBtnHtml')
   })
+  // The Projects page calls window.MarvinWorkbench.jsonCleanOpen() with NO work item open (the Workbench was never
+  // opened on that page). This runs the REAL opener in that state, against a small fake DOM.
+  it('opened from the Projects page (Workbench closed): asks the global scan, lists the files, moves only the ticked ones', async () => {
+    const mk = (tag: string) => {
+      const listeners: Record<string, (e?: any) => void> = {}
+      const el: any = { tag, id: '', className: '', style: {}, children: [] as any[], disabled: false, checked: false, textContent: '', _inner: '', parentNode: null as any,
+        addEventListener(type: string, fn: (e?: any) => void) { listeners[type] = fn },
+        fire(type: string, e: any = {}) { listeners[type]?.({ target: el, ...e }) },
+        appendChild(c: any) { c.parentNode = el; el.children.push(c); return c },
+        removeChild(c: any) { el.children = el.children.filter((x: any) => x !== c); c.parentNode = null },
+        get innerHTML() { return el._inner },
+        set innerHTML(v: string) { el._inner = v; if (v === '') el.children = [] } }
+      return el
+    }
+    const parts: Record<string, any> = {}
+    const overlays: any[] = []
+    h.doc.createElement = (tag: string) => {
+      const el = mk(tag)
+      if (tag === 'div') el.querySelector = (sel: string) => (parts[sel] ||= mk('x'))
+      return el
+    }
+    h.doc.body = { appendChild: (o: any) => { o.parentNode = h.doc.body; overlays.push(o) }, removeChild: (o: any) => { overlays.splice(overlays.indexOf(o), 1); o.parentNode = null } }
+    const baseGet = h.doc.getElementById
+    h.doc.getElementById = (id: string) => overlays.find((o) => o.id === id) || baseGet(id)
+    h.doc.querySelectorAll = () => overlays
+    h.respond((url, init) => {
+      if (url.indexOf('/api/workbench/json-orphans') >= 0 && (!init || !init.method || init.method === 'GET')) return { status: 200, body: { files: [{ rel: 'Projektek/A/rajz.canvas' }, { rel: 'Projektek/B/diak.deck' }], truncated: false } }
+      if (url.indexOf('/api/workbench/json-orphans') >= 0) return { status: 200, body: { results: [{ rel: 'Projektek/B/diak.deck', ok: true }], files: [{ rel: 'Projektek/A/rajz.canvas' }], truncated: false } }
+      return { status: 200, body: {} }
+    })
+    expect(h.win.MarvinWorkbench.isOpen()).toBe(false)
+    h.win.MarvinWorkbench.jsonCleanOpen()
+    expect(overlays.length).toBe(1)
+    expect(overlays[0].id).toBe('wbJsonClean')
+    h.win.MarvinWorkbench.jsonCleanOpen() // a second click does not stack a second dialog
+    expect(overlays.length).toBe(1)
+    // the scan is global: no project / item in the request
+    const get = h.fetchCalls.find((c) => c.url.indexOf('json-orphans') >= 0)!
+    expect(get.url.split('?')[1] || '').not.toMatch(/project|item/)
+    const list = parts['#wbJsonCleanList']
+    await vi.waitFor(() => expect(list.children.length).toBe(2))
+    expect(list.children.map((l: any) => l.children[1].textContent)).toEqual(['Projektek/A/rajz.canvas', 'Projektek/B/diak.deck'])
+    const go = parts['#wbJsonCleanGo']
+    expect(go.disabled).toBe(true)
+    list.children[1].children[0].checked = true
+    list.children[1].children[0].fire('change')
+    expect(go.disabled).toBe(false)
+    go.fire('click')
+    await vi.waitFor(() => expect(h.toasts.length).toBe(1))
+    const post = h.fetchCalls.find((c) => c.init && c.init.method === 'POST' && c.url.indexOf('json-orphans') >= 0)!
+    expect(JSON.parse(String(post.init!.body))).toEqual({ rels: ['Projektek/B/diak.deck'] })
+    expect(h.toasts[0]).toContain('workbench.jsonclean.done')
+    // closing removes the dialog
+    parts['#wbJsonCleanClose'].fire('click')
+    expect(overlays.length).toBe(0)
+  })
 })
