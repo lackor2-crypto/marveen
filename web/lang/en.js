@@ -5971,7 +5971,7 @@ window._i18n.en = {
   "workbench.folder.lost": "I cannot find the group (folder) \"{name}\": I looked in \"{where}\" and everything below it, and it is nowhere. If you moved it from outside, put it back here, or tell me where you took it.",
   "workbench.folder.name_required": "Type the name of the new folder.",
   "workbench.folder.delete": "Delete folder",
-  "workbench.folder.delete_confirm": "If you delete the folder \"{name}\", you lose everything in it from the Workbench. Restore the folder from the Life tree Trash by dragging it back in the Explorer, and its work items from the Trash at the bottom of the list. Delete it?",
+  "workbench.folder.delete_confirm": "If you delete the folder \"{name}\", you lose everything in it from the Workbench. You can restore it from the Trash: drag the folder back in the Explorer, and restore its work items from the bottom of the list. Delete it?",
   "workbench.folder.used_elsewhere_ask": "Delete the folder anyway?",
   "workbench.folder.deleted": "Folder deleted.",
   "workbench.folder.trashed": "The folder went to the Trash with everything in it. You can restore it from there.",

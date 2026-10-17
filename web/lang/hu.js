@@ -6045,7 +6045,7 @@ window._i18n.hu = {
   "workbench.folder.lost": "Nem találom a(z) „{name}” csoportot (mappát): a(z) „{where}” mappában és alatta kerestem, de sehol nincs. Ha kívülről áthelyezted, tedd vissza ide, vagy írd meg, merre vitted.",
   "workbench.folder.name_required": "Írd be az új mappa nevét.",
   "workbench.folder.delete": "Mappa törlése",
-  "workbench.folder.delete_confirm": "Ha törlöd a(z) \"{name}\" mappát, a benne levő összes tartalmat elveszíted a Munkapadról. A mappát az Életfa Kukájából húzd vissza az Intézőben, a munkadarabokat pedig a lista alján lévő Kukából állítsd vissza. Törlöd?",
+  "workbench.folder.delete_confirm": "Ha törlöd a(z) \"{name}\" mappát, a benne levő összes tartalmat elveszíted a Munkapadról. A Kukából vissza tudod állítani: a mappát húzd vissza az Intézőben, a munkadarabokat pedig a lista aljáról állítsd vissza. Törlöd?",
   "workbench.folder.used_elsewhere_ask": "Mégis törlöd a mappát?",
   "workbench.folder.deleted": "A mappa törölve.",
   "workbench.folder.trashed": "A mappa a Kukába került a tartalmával együtt. Innen vissza tudod állítani.",
