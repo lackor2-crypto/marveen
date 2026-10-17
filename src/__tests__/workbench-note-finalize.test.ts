@@ -3,7 +3,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
@@ -187,5 +188,16 @@ describe('#667 text-file work item: finalize makes the PDF', () => {
     }
     expect(getWorkItem(id)?.status).not.toBe('done')
     expect(textLangState({ id }).variants).toHaveLength(0)
+  })
+})
+
+describe('#667 the finalize panel is brought into view (it stacks below the fold on a phone)', () => {
+  it('opening the panel scrolls to it, and the scroll helper looks for the panel itself', () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'workbench.js'), 'utf-8')
+    const open = src.match(/a === 'item-finalize'\) \{[^\n]*/)?.[0] ?? ''
+    expect(open).toContain('noteFinalScrollIn()')
+    const helper = src.match(/function noteFinalScrollIn\(\) \{[\s\S]*?\n  \}/)?.[0] ?? ''
+    expect(helper).toContain("querySelector('.wb-note-final')")
+    expect(helper).toContain('scrollIntoView')
   })
 })
