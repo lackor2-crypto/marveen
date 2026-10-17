@@ -13830,7 +13830,9 @@
       list.innerHTML = ''
       picked = {}
       refresh()
-      if (!files.length) { list.innerHTML = '<p class="wb-muted">' + esc(t('workbench.jsonclean.none')) + '</p>'; return }
+      var note = function () { if (truncated) { var p = document.createElement('p'); p.className = 'wb-muted'; p.textContent = t('workbench.jsonclean.truncated'); list.appendChild(p) } }
+      // An empty list of an INCOMPLETE scan must not claim that every file is in use.
+      if (!files.length) { if (!truncated) list.innerHTML = '<p class="wb-muted">' + esc(t('workbench.jsonclean.none')) + '</p>'; note(); return }
       files.forEach(function (f) {
         var lab = document.createElement('label')
         lab.style.cssText = 'display:flex;gap:8px;align-items:flex-start;padding:4px 0;border-bottom:1px solid var(--border,#ddd);word-break:break-word'
@@ -13842,7 +13844,7 @@
         lab.appendChild(cb); lab.appendChild(sp)
         list.appendChild(lab)
       })
-      if (truncated) { var p = document.createElement('p'); p.className = 'wb-muted'; p.textContent = t('workbench.jsonclean.truncated'); list.appendChild(p) }
+      note()
     }
     api('GET', '/api/workbench/json-orphans').then(function (r) {
       if (!overlay.parentNode) return
