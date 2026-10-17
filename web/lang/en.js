@@ -8078,7 +8078,7 @@ window._i18n.en = {
   "workbench.annex.origin_unavailable": "The Explorer is not available on this page, so the folder cannot be opened. Reload the page (F5) and try again.",
   "workbench.annex.linked_missing": "the document is not at its place (it was not deleted here, it just cannot be found: you may have moved it, or the drive is not connected)",
   "workbench.annex.linked_searching": "the document is not at its place, looking for it in the Life tree… (refresh in a minute)",
-  "workbench.annex.remove_confirm_linked": "Take it off the list of annexes? This only removes the link: the original document stays where it is in the Life tree, and stays attached to the other submissions too. References to it turn into a \"Missing data\" mark, and the other annexes move up by one.",
+  "workbench.annex.remove_confirm_linked": "Remove it from the annexes? This only removes the link: the original document stays where it is in the Life tree, and stays attached to the other submissions too. References to it turn into a \"Missing data\" mark, and the other annexes move up by one.",
   "workbench.annex.browse_failed": "\"{name}\" was not added to the annexes: {message}",
   "workbench.annex.refs": "{n} references in the text",
   "workbench.annex.unreferenced": "the annex list at the end refers to it",
