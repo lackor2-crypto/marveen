@@ -16,8 +16,8 @@ import { loadLifeConfig } from './life-tree.js'
 import { isContextFileName } from './workbench-item-context.js'
 import { isTodoFileName } from './workbench-item-todos.js'
 
-/** Folders whose files are NOT candidates: uploads came FROM the owner / the Life tree, versions are the item's history, "Agentnek" holds chat references for the agent only. */
-const SKIP_FOLDERS = new Set(['feltöltések', 'uploads', 'verziók', 'versions', 'agentnek', 'for the agent'])
+/** Folders whose files are NOT candidates: uploads came FROM the owner / the Life tree, versions are the item's history, "Agent" holds chat references for the agent only. */
+const SKIP_FOLDERS = new Set(['feltöltések', 'uploads', 'verziók', 'versions', 'agent', 'agentnek', 'for the agent'])
 const SKIP_FILES = new Set(['marveen-item.json', '.marveen-id'])
 const MAX_CANDIDATES = 200
 

@@ -9602,7 +9602,7 @@
   }
 
   /** The chooser the chat's attach button, drop and paste open (Boss, 2026-10-16): the file is either a REFERENCE for
-   *  the agent only ("this is what I mean, fix it like this": goes to the item's "Agentnek" folder, not a material),
+   *  the agent only ("this is what I mean, fix it like this": goes to the item's "Agent" folder, not a material),
    *  or an upload into the work item (Uploads folder + materials). Nothing is stored before the owner picks. It sits
    *  right above the message box, so it works the same in the split view and on a phone. */
   function chatAttachAsk(files) {

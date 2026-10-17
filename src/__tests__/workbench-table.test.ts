@@ -214,7 +214,8 @@ describe('a szerver', () => {
     expect(s.status).toBe(201)
     expect(s.body.name).toBe('Költségvetés (2).xlsx')
     expect(s.body.version.version_no).toBe(2)
-    expect(readdirSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés')).sort()).toEqual(['Költségvetés (2).xlsx', 'Költségvetés.xlsx'])
+    // #676: the item folder also holds its five standard subfolders; the files are the xlsx versions.
+    expect(readdirSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés'), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name).sort()).toEqual(['Költségvetés (2).xlsx', 'Költségvetés.xlsx'])
     expect(readFileSync(join(depot, 'Projektek', 'teszt', 'Munkadarabok', 'Tabla', 'Költségvetés', 'Költségvetés.xlsx')).equals(firstBytes)).toBe(true)
 
     const g2 = await callWorkbench(`/api/workbench/items/${itemId}/table`, 'GET')
