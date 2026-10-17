@@ -2084,9 +2084,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 
 /* Chat width handle: the line between the middle area and the chat (Boss TG 3193). */
 .wb-fr-chatsplit { flex: 0 0 10px; cursor: col-resize; touch-action: none; display: flex; align-items: center; justify-content: center; margin: 0 -3px; z-index: 2; }
-.wb-fr-chatsplit > span { display: block; width: 4px; height: 48px; border-radius: 2px; background: var(--border, #c7ccd1); }
-.wb-fr-chatsplit:hover > span, .wb-fr-chatsplit:focus-visible > span { background: var(--accent, #2563eb); }
-@media (max-width: 900px) { .wb-fr-chatsplit { display: none; } }
+.wb-fr-chatsplit > span, .wb-tree-split > span { display: block; width: 4px; height: 48px; border-radius: 2px; background: var(--border, #c7ccd1); }
+.wb-fr-chatsplit:hover > span, .wb-fr-chatsplit:focus-visible > span, .wb-tree-split:hover > span, .wb-tree-split:focus-visible > span { background: var(--accent, #2563eb); }
+.wb-tree-split { flex: 0 0 10px; cursor: col-resize; touch-action: none; display: flex; align-items: center; justify-content: center; margin: 0 -3px; z-index: 2; }
+@media (max-width: 900px) { .wb-fr-chatsplit, .wb-tree-split { display: none; } }
 /* Folder column width (#686): the Simple view's left panel takes the stored width; the narrow layout keeps its own. */
 @media (min-width: 901px) { .wb-fr-panel { flex-basis: var(--wb-tree-w, 320px); } }
 

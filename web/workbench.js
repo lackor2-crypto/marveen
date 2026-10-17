@@ -17899,7 +17899,7 @@
   function treeWidthStyle() { if (WB.treeWidth === undefined) WB.treeWidth = loadTreeWidth(); return WB.treeWidth > 0 ? ' style="--wb-tree-w:' + WB.treeWidth + 'px"' : '' }
   function treeWidthHandleHtml(extra) {
     var hint = escA(t('workbench.tree.width_hint'))
-    return '<div class="wb-fr-chatsplit wb-tree-split ' + (extra || '') + '" id="wbTreeWidthSplit" role="separator" aria-orientation="vertical" tabindex="0" title="' + hint + '" aria-label="' + hint + '"><span></span></div>'
+    return '<div class="wb-tree-split ' + (extra || '') + '" id="wbTreeWidthSplit" role="separator" aria-orientation="vertical" tabindex="0" title="' + hint + '" aria-label="' + hint + '"><span></span></div>'
   }
   // The element that carries --wb-tree-w and the column whose width is measured: the panel in the frame (Simple) view, the
   // grid and its first column (the folder tree) in the Manual split.
