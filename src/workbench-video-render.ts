@@ -23,7 +23,7 @@ import { getWorkItem } from './workbench.js'
 import { itemOutputFolder } from './workbench-assets.js'
 import { finishedFolderFor } from './project-files.js'
 import { videoTool, videoTarget, videoRunTo, videoBusy, VIDEO_TRIM_TIMEOUT_MS, type VideoFail } from './workbench-video.js'
-import { ASPECT_SIZE, clipLen, effectiveTransition, timelineDuration, type TimelineDoc } from './workbench-video-timeline.js'
+import { ASPECT_SIZE, SUBTITLE_LOOKS, clipLen, effectiveTransition, timelineDuration, type SubtitleLook, type SubtitlePos, type TimelineDoc } from './workbench-video-timeline.js'
 
 export const RENDER_FPS = 30
 export const RENDER_TIMEOUT_MS = 4 * VIDEO_TRIM_TIMEOUT_MS
@@ -54,21 +54,44 @@ function assTime(sec: number): string {
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`
 }
 
+/** Colours are ASS &HAABBGGRR; the looks differ in size, weight, colour and box. */
+const ASS_LOOKS: Record<SubtitleLook, { scale: number; bold: number; primary: string; outline: string; box: boolean }> = {
+  classic: { scale: 1, bold: -1, primary: '&H00FFFFFF', outline: '&H00000000', box: false },
+  bold: { scale: 1.3, bold: -1, primary: '&H00FFFFFF', outline: '&H00000000', box: false },
+  yellow: { scale: 1.1, bold: -1, primary: '&H0000FFFF', outline: '&H00000000', box: false },
+  box: { scale: 1, bold: -1, primary: '&H00FFFFFF', outline: '&HB4000000', box: true },
+  title: { scale: 1.8, bold: -1, primary: '&H00FFFFFF', outline: '&H00000000', box: false },
+}
+const ASS_ALIGN: Record<SubtitlePos, number> = { bottom: 2, middle: 5, top: 8 }
+
 /** The text of the ASS subtitle file for a timeline. */
 export function buildAss(doc: TimelineDoc): string {
   const { width: W, height: H } = ASPECT_SIZE[doc.aspect]
   const size = Math.round(H / (doc.aspect === '9:16' ? 30 : 20))
   const margin = Math.round(H * (doc.aspect === '9:16' ? 0.14 : 0.06))
+  const styleLine = (name: string, look: SubtitleLook): string => {
+    const l = ASS_LOOKS[look]
+    const sz = Math.round(size * l.scale)
+    const outline = l.box ? Math.max(6, Math.round(sz / 4)) : Math.max(2, Math.round(sz / 12))
+    return `Style: ${name},DejaVu Sans,${sz},${l.primary},${l.primary},${l.outline},&H80000000,${l.bold},0,0,0,100,100,0,0,${l.box ? 3 : 1},${outline},${l.box ? 0 : 1},2,${Math.round(W * 0.06)},${Math.round(W * 0.06)},${margin},1`
+  }
   const lines = [
     '[Script Info]', 'ScriptType: v4.00+', `PlayResX: ${W}`, `PlayResY: ${H}`, 'WrapStyle: 0', '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Default,DejaVu Sans,${size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${Math.max(2, Math.round(size / 12))},1,2,${Math.round(W * 0.06)},${Math.round(W * 0.06)},${margin},1`,
+    styleLine('Default', 'classic'),
+    ...SUBTITLE_LOOKS.filter((k) => k !== 'classic').map((k) => styleLine(k, k)),
     '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ]
   for (const s of doc.subtitles) {
     const text = s.text.replace(/\\/g, '/').replace(/[{}]/g, '').replace(/\n/g, '\\N')
-    lines.push(`Dialogue: 0,${assTime(s.start)},${assTime(s.end)},Default,,0,0,0,,${text}`)
+    const pos = s.pos ?? 'bottom'
+    const y0 = pos === 'bottom' ? H - margin : pos === 'top' ? margin : Math.round(H / 2)
+    const tags: string[] = s.pos ? [`\\an${ASS_ALIGN[pos]}`] : []
+    if (s.anim === 'fade') tags.push('\\fad(250,250)')
+    else if (s.anim === 'pop') tags.push('\\fscx70\\fscy70\\t(0,220,\\fscx100\\fscy100)')
+    else if (s.anim === 'slideup') tags.push(`\\move(${Math.round(W / 2)},${y0 + Math.round(H * 0.04)},${Math.round(W / 2)},${y0},0,250)`)
+    lines.push(`Dialogue: 0,${assTime(s.start)},${assTime(s.end)},${s.look ? s.look : 'Default'},,0,0,0,,${tags.length ? `{${tags.join('')}}` : ''}${text}`)
   }
   return lines.join('\n') + '\n'
 }

@@ -999,6 +999,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A sebesség nem jó: 0,25 és 4 közötti szám (1 = normál).',
     en: 'The speed is not valid: a number between 0.25 and 4 (1 = normal).',
   },
+  timeline_bad_style: {
+    hu: 'A felirat stílusa nem jó: a kinézet, az animáció és a hely a listából választható.',
+    en: 'The subtitle style is not valid: the look, the animation and the position come from the list.',
+  },
   timeline_bad_transition: {
     hu: 'Az átmenet nem jó: két klip közé tehető (az utolsó klip után nincs következő), hossza 0,1 és 2 másodperc közötti, típusa a listából választható.',
     en: 'The transition is not valid: it sits between two clips (the last clip has no next one), is 0.1 to 2 seconds long, and its type comes from the list.',
