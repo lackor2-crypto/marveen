@@ -7873,6 +7873,35 @@
   }
 
   /** #668: a video's export is the rendered mp4 (download, the finished-files folder, send), not a PDF/DOCX/PNG. */
+  /** #670: is CapCut on this machine? Asked once; the button below shows only when it is (no CapCut: no button, nothing broken). */
+  function loadCapcutAvailable() {
+    WB.capcut = false
+    api('GET', '/api/workbench/capcut').then(function (r) {
+      WB.capcut = !!(r.ok && r.data && r.data.available)
+      if (WB.capcut) render()
+    })
+  }
+
+  function capcutRowHtml() {
+    if (WB.capcut === undefined) loadCapcutAvailable()
+    var last = WB.vt && WB.vt.last_render
+    if (!WB.capcut || !last || !last.url) return ''
+    return '<div class="wb-exp-row"><button type="button" class="btn-secondary" data-wb-act="open-capcut"' + (WB.capcutBusy ? ' disabled' : '') + '>'
+      + esc(t('workbench.capcut.btn')) + '</button> <span class="wb-hint">' + esc(t('workbench.capcut.hint')) + '</span></div>'
+  }
+
+  function openInCapcut() {
+    var id = WB.selectedId
+    if (!id || WB.capcutBusy) return
+    WB.capcutBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/open-in-capcut', {}).then(function (r) {
+      WB.capcutBusy = false
+      render()
+      window.showToast(r.ok ? t('workbench.capcut.done') : r.message)
+    })
+  }
+
   function videoExportPanelHtml() {
     var doc = vtDoc()
     var busy = WB.vtBusy || WB.vtRender || archived() || !doc || !(doc.clips || []).length
@@ -7882,6 +7911,7 @@
       + '<div class="wb-exp-row"><button type="button" class="btn-primary" data-wb-act="vt-render"' + (busy ? ' disabled' : '') + '>'
       + esc(WB.vtRender ? t('workbench.vt.rendering') : t('workbench.fr.vid.render')) + '</button></div>'
       + (vtResultHtml('exp') || '<p class="wb-muted">' + esc(t('workbench.exp.video_none')) + '</p>')
+      + capcutRowHtml()
       + sendHtml()
       + shareBoxHtml('item')
       + '</div>'
@@ -18952,6 +18982,7 @@
     else if (a === 'vt-undo' || a === 'vt-redo') vtStep(a === 'vt-undo' ? 'undo' : 'redo')
     else if (a === 'vt-version') vtVersion()
     else if (a === 'vt-render') vtRenderNow()
+    else if (a === 'open-capcut') openInCapcut()
     else if (a === 'vt-autosub') vtAutoSubtitle()
     else if (a === 'vt-aspect') vtOps([{ op: 'setAspect', aspect: act.getAttribute('data-wb-v') }])
     else if (a === 'vt-clip-add') vtAddClip()
