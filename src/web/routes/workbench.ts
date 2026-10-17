@@ -40,6 +40,7 @@ import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
+import { findCapcut, openInCapcut } from '../../open-in-capcut.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { APP_LANG, DASHBOARD_PUBLIC_URL, MAIN_AGENT_ID } from '../../config.js'
 import { executeTool, runTool } from '../../workbench-agent/execute.js'
@@ -1816,6 +1817,30 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A fájlkezelőt nem sikerült megnyitni ezen a gépen. Próbáld újra, vagy használd az Intéző gombot.',
     en: 'The file manager could not be opened on this machine. Try again, or use the Explorer button.',
   },
+  capcut_no_capcut: {
+    hu: 'Ezen a gépen nincs CapCut, ezért nem tudom megnyitni benne.',
+    en: 'CapCut is not installed on this machine, so it cannot be opened there.',
+  },
+  capcut_no_render: {
+    hu: 'Ehhez a videóhoz még nincs kész videófájl. Előbb készítsd el a „Videó összefűzése és letöltése" gombbal.',
+    en: 'This video has no finished video file yet. Make it first with the "Join clips and download the video" button.',
+  },
+  capcut_not_video: {
+    hu: 'Ez nem videó munkadarab.',
+    en: 'This is not a video work item.',
+  },
+  capcut_not_found: {
+    hu: 'A kész videófájl már nincs meg a lemezen. Készítsd el újra.',
+    en: 'The finished video file is no longer on the disk. Render it again.',
+  },
+  capcut_open_failed: {
+    hu: 'A CapCut indítása nem sikerült. Próbáld újra, vagy nyisd meg a CapCutot kézzel.',
+    en: 'CapCut could not be started. Try again, or open CapCut by hand.',
+  },
+  capcut_open_unconfirmed: {
+    hu: 'Elindítottam a CapCutot, de nem kaptam visszajelzést, hogy megnyílt-e. Nézd meg a tálcán.',
+    en: 'I started CapCut but got no confirmation that it opened. Look on the taskbar.',
+  },
   open_not_found: {
     hu: 'Ez a mappa már nincs meg a lemezen.',
     en: 'This folder no longer exists on the disk.',
@@ -3029,6 +3054,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     json(res, { kind: fileManagerKind() })
     return true
   }
+  // Is CapCut on this machine? The video panel shows its button only when so (#670).
+  if (path === '/api/workbench/capcut' && method === 'GET') {
+    json(res, { available: findCapcut() !== null })
+    return true
+  }
   if (path === '/api/workbench/open-folder' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
@@ -4237,6 +4267,21 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       ok: true, asset: r.asset, folder: r.folder, folder_created: r.folderCreated,
       renamed: r.renamed, name: r.asset.name, assets: assetsOut(item.id),
     }, 201)
+    return true
+  }
+  // CAPCUT-HID (#670): a kesz videot a gepen telepitett CapCut mellett mutatja (a CapCut indulaskor nem fogad fajlt, ezt
+  // MERTUK: ezert a CapCut elindul, a video mappaja pedig megnyilik, a fajl kijelolve). Csak ha van CapCut a gepen.
+  //   POST .../open-in-capcut
+  if (segs.length === 2 && segs[1] === 'open-in-capcut' && method === 'POST') {
+    if (item.type !== 'video') return fail(res, 409, 'capcut_not_video', lang)
+    if (!findCapcut()) return fail(res, 409, 'capcut_no_capcut', lang)
+    const last = lastRenderOf(item.id)
+    if (!last) return fail(res, 409, 'capcut_no_render', lang)
+    const abs = resolveLifePath(last.rel)
+    if (!abs) return fail(res, 404, 'capcut_not_found', lang)
+    const o = await openInCapcut(abs)
+    if (!o.ok) return fail(res, o.code === 'no_capcut' ? 409 : o.code === 'not_found' ? 404 : o.code === 'open_unconfirmed' ? 409 : 500, 'capcut_' + o.code, lang)
+    json(res, { ok: true, file_passed: o.file_passed, name: last.name })
     return true
   }
   // CHAT-HIVATKOZAS (Boss, 2026-10-16): a fajl CSAK az agentnek szol (pelda, "igy ertem"), nem anyag: a munkadarab

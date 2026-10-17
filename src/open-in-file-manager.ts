@@ -30,7 +30,7 @@ export function fileManagerKind(): FileManagerKind {
 
 export type OpenOutcome = { ok: true } | { ok: false; code: 'no_file_manager' | 'open_failed' | 'not_found' }
 
-function toWindowsPath(abs: string): Promise<string | null> {
+export function toWindowsPath(abs: string): Promise<string | null> {
   return new Promise(resolve => {
     execFile('wslpath', ['-w', abs], { timeout: 10_000 }, (err, stdout) => {
       const out = String(stdout ?? '').trim()
@@ -175,7 +175,7 @@ export type OpenFileOutcome = OpenOutcome | { ok: false; code: 'not_a_file' | 'n
 const OPEN_CONFIRM_MS = 10_000
 
 /** Wait (without blocking the event loop) for the result file; null when it never came. */
-async function readOpenResult(wslPath: string, timeoutMs: number): Promise<string | null> {
+export async function readOpenResult(wslPath: string, timeoutMs: number): Promise<string | null> {
   const until = Date.now() + timeoutMs
   while (Date.now() < until) {
     try {
