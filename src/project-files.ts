@@ -182,12 +182,13 @@ export function noteFolderMade(p: ProjectRow, rel: string): void {
 
 /** The existing one of `names` under `base` (noted as made), else a new one named `make` -- unless one of them was made
  *  before (then it is gone by the owner's hand and stays gone: null). */
-function onceFolderFor(p: ProjectRow, base: string, names: readonly string[], make: string): string | null {
+function onceFolderFor(p: ProjectRow, base: string, names: readonly string[], make: string, remake?: boolean): string | null {
   for (const n of names) {
     const have = projectFileTarget(p, `${base}/${n}`)
     if (have.ok) { noteFolderMade(p, `${base}/${n}`); return `${base}/${n}` }
   }
-  if (names.some((n) => folderWasMade(p, `${base}/${n}`))) return null
+  // `remake`: the owner's explicit upload carries content and needs this one folder (#681 B, Boss TG 9567).
+  if (!remake && names.some((n) => folderWasMade(p, `${base}/${n}`))) return null
   const r = makeProjectFolder(p, base, make)
   if (!r.ok) return null
   noteFolderMade(p, r.sub)
@@ -474,10 +475,10 @@ export function versionsFolderFor(p: ProjectRow, itemFolder: string | null | und
 
 /** #501 (Boss TG 2762): a file uploaded as an annex of a document goes into a "Mell\u00e9kletek" folder inside the item's
  *  own folder (made on demand), same naming rule as the versions folder. Null when the item has no usable folder. */
-export function attachmentsFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
+export function attachmentsFolderFor(p: ProjectRow, itemFolder: string | null | undefined, remake?: boolean): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  return onceFolderFor(p, base, ['Mell\u00e9kletek', 'Attachments'], ol('Mell\u00e9kletek', 'Attachments'))
+  return onceFolderFor(p, base, ['Mell\u00e9kletek', 'Attachments'], ol('Mell\u00e9kletek', 'Attachments'), remake)
 }
 
 /** #664 (Boss TG 9193): the folder of an item's finished files (a PDF twin, a rendered video, an exported deck) is called
@@ -496,10 +497,10 @@ export function finishedFolderFor(p: ProjectRow, itemFolder: string | null | und
 
 /** The "Feltöltések" / "Uploads" subfolder of an item's own folder (made on demand): what the owner uploads or attaches
  *  in the chat lands here (Boss TG 2872, 3025). Null when it cannot be made. */
-export function uploadsFolderFor(p: ProjectRow, itemFolder: string | null | undefined): string | null {
+export function uploadsFolderFor(p: ProjectRow, itemFolder: string | null | undefined, remake?: boolean): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  return onceFolderFor(p, base, ['Feltöltések', 'Uploads'], ol('Feltöltések', 'Uploads'))
+  return onceFolderFor(p, base, ['Feltöltések', 'Uploads'], ol('Feltöltések', 'Uploads'), remake)
 }
 
 /** Boss, 2026-10-16: a file the owner shows the agent in the chat ONLY as a reference ("this is what I mean, fix it like
@@ -508,10 +509,10 @@ export function uploadsFolderFor(p: ProjectRow, itemFolder: string | null | unde
  *  readable, so an item folder that has it keeps working (nothing is renamed or duplicated). Null when it cannot be made. */
 export const AGENT_REFS_FOLDER_NAMES = { hu: 'Agent', en: 'Agent' } as const
 export const AGENT_REFS_FOLDER_OLD_NAMES = ['Agentnek', 'For the agent'] as const
-export function agentRefsFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string): string | null {
+export function agentRefsFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string, remake?: boolean): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
-  return onceFolderFor(p, base, [AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES], lang === 'en' ? AGENT_REFS_FOLDER_NAMES.en : AGENT_REFS_FOLDER_NAMES.hu)
+  return onceFolderFor(p, base, [AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES], lang === 'en' ? AGENT_REFS_FOLDER_NAMES.en : AGENT_REFS_FOLDER_NAMES.hu, remake)
 }
 
 /** #676 (Boss TG 9372/9375): the "Vitáztatás" / "Debate" subfolder of an item's own folder: the debate report of the item

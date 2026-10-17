@@ -1491,8 +1491,8 @@ export function migrateWorkItemFolders(project: ProjectRow): FolderMigration {
  * A munkadarab mappaja; ha meg nincs (vagy a nyilvantartott mappa eltunt),
  * letrehozza a munkadarab nevevel es megjegyzi.
  */
-export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
-  const r = ensureWorkItemFolderCore(item)
+export function ensureWorkItemFolder(item: WorkItemRow, opts?: { remake?: boolean }): FolderOutcome {
+  const r = ensureWorkItemFolderCore(item, opts)
   // #618 (Boss TG 3515: "mindig hozza letre"): every work item folder always has its "Mellekletek" / "Attachments"
   // subfolder, so the annexes have their place before the first one arrives. An existing one (either name) is reused.
   if (r.ok) {
@@ -1504,7 +1504,7 @@ export function ensureWorkItemFolder(item: WorkItemRow): FolderOutcome {
   return r
 }
 
-function ensureWorkItemFolderCore(item: WorkItemRow): FolderOutcome {
+function ensureWorkItemFolderCore(item: WorkItemRow, opts?: { remake?: boolean }): FolderOutcome {
   ensureAssetTables()
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
@@ -1515,6 +1515,11 @@ function ensureWorkItemFolderCore(item: WorkItemRow): FolderOutcome {
     if (t.ok) return { ok: true, folder: known, created: false }
     // #681 (Boss TG 9548): the folder is gone (deleted or renamed by the owner). It is NEVER made again by opening,
     // syncing or writing: the item simply has no folder to write into until the owner picks one.
+    // #681 B (Boss TG 9567): only the owner's explicit upload (`remake`) makes the ONE folder it needs again.
+    if (opts?.remake) {
+      const again = makeProjectFolder(project, '', known)
+      if (again.ok) return { ok: true, folder: known, created: true }
+    }
     return { ok: false, code: 'unreachable' }
   }
   // #454: the folder the owner picked in the new-item form (must still exist
@@ -1683,7 +1688,7 @@ function sameFileInFolder(project: ProjectRow, dir: string, name: string, data: 
  */
 export function attachAsset(
   item: WorkItemRow, name: string, data: UploadData,
-  opts: { force?: boolean; createdBy?: string | null; uploads?: boolean; lang?: string; into?: 'attachments' | 'finished' | 'uploads' } = {},
+  opts: { force?: boolean; createdBy?: string | null; uploads?: boolean; lang?: string; into?: 'attachments' | 'finished' | 'uploads'; remake?: boolean } = {},
 ): AttachOutcome {
   ensureAssetTables()
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
@@ -1698,12 +1703,12 @@ export function attachAsset(
   if (!project) return { ok: false, code: 'not_found' }
   // Boss TG 3025: an uploaded or attached file goes to Uploads, an attachment of a document to Attachments, a finished
   // PDF to Finished materials; only a folder that cannot be made falls back to the item's own folder.
-  const f = ensureWorkItemFolder(item)
+  const f = ensureWorkItemFolder(item, { remake: opts.remake })
   if (!f.ok) return f
   const into = opts.into ?? 'uploads'
-  const dir = into === 'attachments' ? (attachmentsFolderFor(project, f.folder) ?? f.folder)
+  const dir = into === 'attachments' ? (attachmentsFolderFor(project, f.folder, opts.remake) ?? f.folder)
     : into === 'finished' ? (finishedFolderFor(project, f.folder) ?? f.folder)
-      : (uploadsFolderFor(project, f.folder) ?? f.folder)
+      : (uploadsFolderFor(project, f.folder, opts.remake) ?? f.folder)
   // The very same file (same name, same bytes) already stands in the folder -- put there by hand, so it is not one of the
   // materials yet: it is taken as it is, not copied again as "name (2)" (Boss TG 3481). A forced upload still makes a copy.
   const out: WriteOutcome | null = opts.force ? null : sameFileInFolder(project, dir, name, data)
@@ -1722,13 +1727,13 @@ export type ChatRefOutcome =
  * to the item's "Agent" folder and is NOT registered as an asset: it never shows among the materials and the
  * Uploads folder stays clean. The agent gets its project-relative path in the message and reads it from there.
  */
-export function attachChatReference(item: WorkItemRow, name: string, data: UploadData, opts: { lang?: string } = {}): ChatRefOutcome {
+export function attachChatReference(item: WorkItemRow, name: string, data: UploadData, opts: { lang?: string; remake?: boolean } = {}): ChatRefOutcome {
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
-  const f = ensureWorkItemFolder(item)
+  const f = ensureWorkItemFolder(item, { remake: opts.remake })
   if (!f.ok) return f
-  const dir = agentRefsFolderFor(project, f.folder, opts.lang) ?? f.folder
+  const dir = agentRefsFolderFor(project, f.folder, opts.lang, opts.remake) ?? f.folder
   // The same file attached to the chat again is the one already there, not a "name (2)" twin (Boss TG 3481).
   const out = sameFileInFolder(project, dir, name, data) ?? writeProjectFile(project, dir, name, data)
   if (!out.ok) return out

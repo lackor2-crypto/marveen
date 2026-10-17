@@ -3945,7 +3945,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       res.on('close', () => data.discard())
       if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
-      const up = attachAsset(item, url.searchParams.get('name') || '', data, { createdBy: actor(ctx), into: 'attachments' })
+      const up = attachAsset(item, url.searchParams.get('name') || '', data, { createdBy: actor(ctx), into: 'attachments', remake: true })
       let path = ''
       if (up.ok) path = up.asset.project_path
       else if (up.code === 'asset_duplicate') {
@@ -4265,6 +4265,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       createdBy: actor(ctx),
       uploads: url.searchParams.get('uploads') === '1',
       lang,
+      remake: true, // #681 B: an explicit upload brings content, so the one folder it needs is made again
     })
     if (!r.ok) {
       if (r.code === 'asset_duplicate') {
@@ -4315,7 +4316,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     res.on('close', () => data.discard())
     if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
-    const r = attachChatReference(item, url.searchParams.get('name') || '', data, { lang })
+    const r = attachChatReference(item, url.searchParams.get('name') || '', data, { lang, remake: true })
     if (!r.ok) {
       const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
       const status = r.code === 'write_failed' ? 500 : r.code === 'not_found' ? 404 : 400
