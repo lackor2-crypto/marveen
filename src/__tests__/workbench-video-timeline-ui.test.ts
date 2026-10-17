@@ -16,8 +16,8 @@ const TL = {
   history: { can_undo: true, can_redo: false }, orphans: [], last_render: null,
 }
 
-async function open(extra: Record<string, unknown> = {}) {
-  const h = workbenchHarness()
+async function open(extra: Record<string, unknown> = {}, storage?: Record<string, string>) {
+  const h = workbenchHarness(storage ? { storage } : {})
   h.respond((url, init) => {
     if (url.includes('/timeline/autosubtitle')) {
       return { status: 200, body: { ok: true, timeline: DOC, duration: 14, offsets: [0, 10], added: 2, skipped: ['x.mp4'], message: 'Kész az automatikus felirat.' } }
@@ -37,6 +37,15 @@ async function open(extra: Record<string, unknown> = {}) {
     return { status: 200, body: itemsBody([VIDEO]) }
   })
   h.win.MarvinWorkbench.open('p1', PROJECT.name)
+  if (storage) {
+    // the framed (simple) editor: the file list sits on the rail's Projects tab, the strip shows once the item is open
+    await vi.waitFor(() => expect(h.html()).toMatch(/wb-root-simple/))
+    h.click({ 'data-wb-act': 'fr-tab', 'data-wb-tab': 'projects' })
+    await vi.waitFor(() => expect(h.html()).toMatch(/data-wb-item="w1"/))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-tl-clip'))
+    return h
+  }
   await vi.waitFor(() => expect(h.html()).toMatch(/wb-items/))
   h.click({ 'data-wb-item': 'w1' })
   await vi.waitFor(() => expect(h.html()).toContain('workbench.vt.clips'))
@@ -85,6 +94,28 @@ describe('video timeline editor (phase 5)', () => {
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/timeline/ops'))).toBe(true))
     const call = h.fetchCalls.find((c) => c.url.includes('/timeline/ops'))!
     expect(JSON.parse(String(call.init!.body))).toEqual({ ops: [{ op: 'removeClip', id: 'c1' }] })
+  })
+
+  it('Split keeps the player on the cut after the redraw instead of jumping back to the clip start (#561)', async () => {
+    const h = await open({}, { 'marveen.workbench.view': 'simple' })
+    const video = { currentTime: 4.04, readyState: 4, addEventListener() {}, removeEventListener() {} }
+    h.inputs.wbVideo = video as never
+    const SPLIT = {
+      ...DOC, clips: [{ id: 'c1', src: 'Projektek/p1/a.mp4', start: 0, end: 4 }, { id: 'c3', src: 'Projektek/p1/a.mp4', start: 4, end: 10 }, DOC.clips[1]],
+    }
+    h.respond((url) => {
+      if (url.includes('/timeline/ops')) return { status: 200, body: { ok: true, timeline: SPLIT, summary: '', duration: 14, offsets: [0, 4, 10], created: false } }
+      if (url.includes('/timeline')) return { status: 200, body: TL }
+      return { status: 200, body: itemsBody([VIDEO]) }
+    })
+    h.click({ 'data-wb-act': 'fr-vt-split' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/timeline/ops'))).toBe(true))
+    const sent = JSON.parse(String(h.fetchCalls.filter((c) => c.url.includes('/timeline/ops')).pop()!.init!.body))
+    expect(sent.ops[0]).toMatchObject({ op: 'splitClip', id: 'c1', at: 4 })
+    // the rebuilt player starts at 0: the redraw after the answer must put it back on the cut
+    video.currentTime = 0
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-tl="c3"'))
+    expect(video.currentTime).toBe(4)
   })
 
   it('a text that is not a number is refused in plain words and nothing is sent', async () => {
