@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
-import { ensureWorkItemFolder, ensureAllAttachmentsFolders, makeWorkFolder, projectWorkItemsFolder, projectMaterialsFolder } from '../workbench-assets.js'
+import { attachAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders, makeWorkFolder, projectWorkItemsFolder, projectMaterialsFolder } from '../workbench-assets.js'
 import { attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, versionsFolderFor } from '../project-files.js'
 import { createReportDocument } from '../debate-export-doc.js'
 
@@ -78,6 +78,36 @@ describe('a deleted folder is never made again', () => {
     expect(again.ok).toBe(false)
     expect(existsSync(join(projDir(), folder))).toBe(false)
     expect(readdirSync(join(projDir(), 'Munkadarabok'))).not.toContain('Eltűnő (2)')
+  })
+
+  // #681 B (Boss TG 9567): an explicit upload carries content, so it makes the ONE folder it needs again; opening and
+  // syncing still make nothing.
+  it('an upload into a deleted item folder makes that one folder again (not an error); opening still does not', () => {
+    const { w, folder } = item('Feltöltős')
+    rmSync(join(projDir(), folder), { recursive: true })
+    expect(ensureWorkItemFolder(w).ok).toBe(false)
+    ensureAllAttachmentsFolders()
+    expect(existsSync(join(projDir(), folder))).toBe(false)
+    const up = attachAsset(w, 'jegyzet.md', Buffer.from('X'), { remake: true })
+    expect(up.ok).toBe(true)
+    expect(existsSync(join(projDir(), folder))).toBe(true)
+    expect(readdirSync(join(projDir(), 'Munkadarabok'))).not.toContain('Feltöltős (2)')
+    // only the folder the file needs: the empty standard subfolders do not come back with it
+    expect(dirs(folder)).not.toContain('Mellékletek')
+    expect(dirs(folder)).not.toContain('Vitáztatás')
+  })
+
+  it('an upload into a deleted Uploads folder makes just that folder; without the explicit flag the file lands in the item folder', () => {
+    const { w, folder } = item('Feltöltős2')
+    const first = attachAsset(w, 'a.md', Buffer.from('A'), { remake: true })
+    expect(first.ok).toBe(true)
+    rmSync(join(projDir(), folder, 'Feltöltések'), { recursive: true })
+    const auto = attachAsset(w, 'b.md', Buffer.from('B'))
+    expect(auto.ok).toBe(true)
+    expect(dirs(folder)).not.toContain('Feltöltések')
+    const up = attachAsset(w, 'c.md', Buffer.from('C'), { remake: true })
+    expect(up.ok).toBe(true)
+    expect(dirs(folder)).toContain('Feltöltések')
   })
 
   it('a deleted box is not made again; a new item goes into the project folder, and an upload target is refused', () => {
