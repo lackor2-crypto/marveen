@@ -47,8 +47,11 @@ export const TRANSITION_DEFAULT = 0.5
 export interface TimelineTransition { type: TimelineTransitionType; duration: number }
 export const SPEED_MIN = 0.25
 export const SPEED_MAX = 4
-/** `speed` is how fast the clip plays (1 = normal, absent = 1); the picture and the sound keep step. */
-export interface TimelineClip { id: string; src: string; start: number; end: number; transition?: TimelineTransition; speed?: number }
+/** Colour looks of one clip (#669 phase B): the first is "no look" and is never stored; the renderer maps each to an ffmpeg filter. */
+export const CLIP_LOOKS = ['none', 'bw', 'warm', 'cool', 'vivid', 'fade', 'vintage'] as const
+export type ClipLook = (typeof CLIP_LOOKS)[number]
+/** `speed` is how fast the clip plays (1 = normal, absent = 1); the picture and the sound keep step. `look` tints the picture only. */
+export interface TimelineClip { id: string; src: string; start: number; end: number; transition?: TimelineTransition; speed?: number; look?: ClipLook }
 /** Subtitle looks, entrance animations and places. The first of each list is the default and is never stored. */
 export const SUBTITLE_LOOKS = ['classic', 'bold', 'yellow', 'box', 'title'] as const
 export const SUBTITLE_ANIMS = ['none', 'fade', 'pop', 'slideup'] as const
@@ -132,6 +135,13 @@ function parseSubStyle(o: Record<string, unknown>): ({ ok: true } & { style: Sub
   const anim = pickStyle(o.anim, SUBTITLE_ANIMS, 'animation'); if (!anim.ok) return anim
   const pos = pickStyle(o.pos, SUBTITLE_POSITIONS, 'position'); if (!pos.ok) return pos
   return { ok: true, style: { ...(look.v ? { look: look.v } : {}), ...(anim.v ? { anim: anim.v } : {}), ...(pos.v ? { pos: pos.v } : {}) } }
+}
+
+/** A clip colour look from raw input (`undefined` = none), or a failure. */
+function parseClipLook(raw: unknown): { ok: true; look: ClipLook | undefined } | TimelineFail {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, look: undefined }
+  if (typeof raw !== 'string' || !CLIP_LOOKS.includes(raw as ClipLook)) return fail('timeline_bad_style', `the clip look must be one of: ${CLIP_LOOKS.join(', ')}`)
+  return { ok: true, look: raw === 'none' ? undefined : (raw as ClipLook) }
 }
 
 /** A clip speed from raw input (`undefined` = normal), or a failure. */
@@ -218,7 +228,9 @@ export function parseTimeline(raw: unknown): TimelineParse {
     if (!tr.ok) return tr
     const sp = parseSpeed(o.speed)
     if (!sp.ok) return sp
-    doc.clips.push({ id: id(o, 'c'), src: o.src.trim(), start: s.start, end: s.end, ...(tr.transition ? { transition: tr.transition } : {}), ...(sp.speed ? { speed: sp.speed } : {}) })
+    const lk = parseClipLook(o.look)
+    if (!lk.ok) return lk
+    doc.clips.push({ id: id(o, 'c'), src: o.src.trim(), start: s.start, end: s.end, ...(tr.transition ? { transition: tr.transition } : {}), ...(sp.speed ? { speed: sp.speed } : {}), ...(lk.look ? { look: lk.look } : {}) })
   }
   const subs = list('subtitles', TIMELINE_MAX_SUBTITLES)
   if (!Array.isArray(subs)) return subs
@@ -300,7 +312,7 @@ type Op = Record<string, unknown>
  *
  * Operations: addClip {src,start,end,at?}, trimClip {id,start?,end?}, moveClip {id,to},
  * splitClip {id,at} (at = source second), removeClip {id},
- * setSpeed {id,speed} (0.25 to 4, 1 = normal), setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
+ * setSpeed {id,speed} (0.25 to 4, 1 = normal), setClipLook {id,look} (none|bw|warm|cool|vivid|fade|vintage; "none" clears it), setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
  * addSubtitle {text,start,end,look?,anim?,pos?} (look classic|bold|yellow|box|title, anim none|fade|pop|slideup, pos bottom|middle|top),
  * updateSubtitle {id,text?,start?,end?,look?,anim?,pos?} ("" or the default clears a style field), removeSubtitle {id}, setMusic {src,volume?,duck?},
  * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?},
@@ -365,7 +377,7 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (doc.clips.length >= TIMELINE_MAX_CLIPS) return fail('timeline_too_many', `at most ${TIMELINE_MAX_CLIPS} clips`)
         const id = nextId('c', doc.clips.map((x) => x.id))
         // The change into the next clip belongs to the end of the cut, so the second half keeps it.
-        doc.clips.splice(idx + 1, 0, { id, src: c.src, start: round3(at), end: c.end, ...(c.transition ? { transition: c.transition } : {}), ...(c.speed ? { speed: c.speed } : {}) })
+        doc.clips.splice(idx + 1, 0, { id, src: c.src, start: round3(at), end: c.end, ...(c.transition ? { transition: c.transition } : {}), ...(c.speed ? { speed: c.speed } : {}), ...(c.look ? { look: c.look } : {}) })
         c.end = round3(at)
         delete c.transition
         applied.push({ op: name, id: c.id, note: `split into ${c.id} and ${id}` })
@@ -385,6 +397,15 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (!sp.ok) return sp
         if (sp.speed) c.speed = sp.speed; else delete c.speed
         applied.push({ op: name, id: c.id, note: `plays at ${sp.speed ?? 1}x` })
+        break
+      }
+      case 'setClipLook': {
+        const c = find(doc.clips, op.id, 'clip')
+        if (isFail(c)) return c
+        const lk = parseClipLook(op.look)
+        if (!lk.ok) return lk
+        if (lk.look) c.look = lk.look; else delete c.look
+        applied.push({ op: name, id: c.id, note: `look ${lk.look ?? 'none'}` })
         break
       }
       case 'setTransition': {

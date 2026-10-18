@@ -134,6 +134,19 @@ export function joinClips(doc: TimelineDoc, outV: string, outA: string): string[
   return out
 }
 
+/** The ffmpeg filter of each clip look (core libavfilter only, so it runs on every ffmpeg build). Empty for "none". */
+export const LOOK_FILTERS: Record<string, string> = {
+  bw: 'hue=s=0',
+  warm: 'colorbalance=rs=0.12:gs=0.03:bs=-0.12:rm=0.08:bm=-0.08,eq=saturation=1.1',
+  cool: 'colorbalance=rs=-0.12:bs=0.12:rm=-0.08:bm=0.08,eq=saturation=1.05',
+  vivid: 'eq=saturation=1.5:contrast=1.1',
+  fade: 'eq=contrast=0.85:brightness=0.05:saturation=0.8',
+  vintage: 'curves=preset=vintage',
+}
+export function lookFilter(look: string | undefined): string {
+  return look && LOOK_FILTERS[look] ? `,${LOOK_FILTERS[look]}` : ''
+}
+
 /** The `atempo` steps for a speed (one `atempo` only takes 0.5 to 2, so a bigger change is chained). */
 export function atempo(speed: number): string {
   if (speed === 1) return ''
@@ -165,7 +178,7 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   doc.clips.forEach((c, i) => {
     const n = clipIdx[i]
     f.push(
-      `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=(PTS-STARTPTS)/${fnum(c.speed ?? 1)},fps=${RENDER_FPS},split=2[bg${i}][fg${i}]`,
+      `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=(PTS-STARTPTS)/${fnum(c.speed ?? 1)},fps=${RENDER_FPS}${lookFilter(c.look)},split=2[bg${i}][fg${i}]`,
       `[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3[bb${i}]`,
       `[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease[ff${i}]`,
       `[bb${i}][ff${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p,settb=1/${RENDER_FPS}[v${i}]`,

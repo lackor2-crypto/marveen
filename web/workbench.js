@@ -16361,6 +16361,16 @@
   /** #669: how long a clip plays on the timeline (the cut divided by its speed). */
   function vtClipLen(c) { return (c.end - c.start) / (c.speed || 1) }
 
+  var VT_LOOKS = ['none', 'bw', 'warm', 'cool', 'vivid', 'fade', 'vintage']
+  /** #669 phase B: the colour look picker of the picked clip. Saved at once, undo works; shows in the finished video. */
+  function frVtLookHtml(sel) {
+    if (!sel || archived()) return ''
+    var cur = sel.look || 'none'
+    var opts = VT_LOOKS.map(function (v) { return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + esc(t('workbench.fr.vid.look.' + v)) + '</option>' }).join('')
+    return '<p class="wb-fr-speed" id="wbLookRow"><label>' + esc(t('workbench.fr.vid.look')) + ' <select id="wbVtLook" data-wb-id="' + escA(sel.id) + '"' + (WB.vtBusy || WB.vtRender ? ' disabled' : '') + '>' + opts + '</select></label> '
+      + '<span class="wb-hint">' + esc(t('workbench.fr.vid.look_hint')) + '</span></p>'
+  }
+
   /** The speed picker of the picked clip. Saved at once, undo works. */
   function frVtSpeedHtml(sel) {
     if (!sel || archived()) return ''
@@ -16408,6 +16418,7 @@
         ? '<div class="wb-tl-track" id="wbTlTrack">' + blocks + '</div>'
           + frVtTransPanelHtml(clips)
           + frVtSpeedHtml(sel)
+          + frVtLookHtml(sel)
           + (sel ? '<p class="wb-fr-tl-sel" id="wbTlSel">' + esc(t('workbench.fr.vid.selected', { name: sel.src.split('/').pop(), s: vtSecs(Math.max(0.1, sel.end - sel.start)) })) + '</p>' : '')
           + '<p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
         : '')
@@ -20162,6 +20173,7 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
     if (WB.img && /^wbImg(CapPos|CapColor|CapBand)$/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
+    if (e.target.id === 'wbVtLook') { vtOps([{ op: 'setClipLook', id: e.target.getAttribute('data-wb-id'), look: e.target.value }]); return }
     if (e.target.id === 'wbVtSpeed') { vtOps([{ op: 'setSpeed', id: e.target.getAttribute('data-wb-id'), speed: Number(e.target.value) }]); return }
     if (e.target.id === 'wbVtTransType' || e.target.id === 'wbVtTransDur') { frVtTransApply(); return }
     if (e.target.id === 'wbPostPlatform') { postState().platform = postPlatform(e.target.value).id; postState().more = false; render(); return }
