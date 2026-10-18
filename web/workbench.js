@@ -7364,12 +7364,12 @@
     if (!src) { window.showToast(t('workbench.vt.pick_file')); return }
     var f = vtOverlayFields('')
     if (!f) return
-    vtOps([{ op: 'addOverlay', src: src, start: f.start, end: f.end, x: f.x, y: f.y, width: f.width, opacity: 1 }])
+    vtOps([{ op: 'addOverlay', src: src, start: f.start, end: f.end, x: f.x, y: f.y, width: f.width, opacity: 1, key: vtText('key') }])
   }
   function vtSaveOverlay(id) {
     var f = vtOverlayFields(id)
     if (!f) return
-    vtOps([{ op: 'updateOverlay', id: id, start: f.start, end: f.end, x: f.x, y: f.y, width: f.width }])
+    vtOps([{ op: 'updateOverlay', id: id, start: f.start, end: f.end, x: f.x, y: f.y, width: f.width, key: vtText('key', id) }])
   }
 
   function vtSecs(n) { return String(Math.round(Number(n) * 10) / 10).replace('.', ',') }
@@ -7454,12 +7454,19 @@
       + '</p>'
   }
 
+  /** #669: the background-removal picker of an overlay picture (none = keep the picture as it is). */
+  var VT_OV_KEYS = ['none', 'green', 'blue', 'white', 'black']
+  function vtOverlayKeySelect(id, cur) {
+    return '<select class="wb-input" id="wbVt-key' + (id ? '-' + escA(id) : '') + '" aria-label="' + escA(t('workbench.vt.ov_key')) + '" title="' + escA(t('workbench.vt.ov_key')) + '">'
+      + VT_OV_KEYS.map(function (v) { return '<option value="' + v + '"' + (v === (cur || 'none') ? ' selected' : '') + '>' + esc(t('workbench.vt.ov_key_' + v)) + '</option>' }).join('') + '</select> '
+  }
   function vtOverlaysHtml(doc) {
     var pc = function (n) { return Math.round(n * 100) }
     var rows = doc.overlays.map(function (o) {
       return '<li class="wb-vt-row"><span>' + esc(o.src.split('/').pop()) + '</span> '
         + vtNumField('start', o.id, o.start, t('workbench.vt.from')) + vtNumField('end', o.id, o.end, t('workbench.vt.to'))
         + vtNumField('x', o.id, pc(o.x), 'x %') + vtNumField('y', o.id, pc(o.y), 'y %') + vtNumField('width', o.id, pc(o.width), t('workbench.vt.width_pct'))
+        + vtOverlayKeySelect(o.id, o.key)
         + vtBtn('vt-ov-save', t('workbench.vt.save'), o.id) + vtBtn('vt-ov-del', t('workbench.vt.remove'), o.id) + '</li>'
     }).join('')
     return '<h5>' + esc(t('workbench.vt.overlays')) + '</h5>'
@@ -7467,6 +7474,7 @@
       + '<p><select id="wbVt-ov-src">' + vtMediaOptions('image') + '</select> '
       + vtNumField('start', '', undefined, t('workbench.vt.from')) + vtNumField('end', '', undefined, t('workbench.vt.to'))
       + vtNumField('x', '', 70, 'x %') + vtNumField('y', '', 5, 'y %') + vtNumField('width', '', 25, t('workbench.vt.width_pct'))
+      + vtOverlayKeySelect('', '')
       + vtBtn('vt-ov-add', t('workbench.vt.add_overlay')) + '</p>'
   }
 

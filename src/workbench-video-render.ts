@@ -134,6 +134,9 @@ export function joinClips(doc: TimelineDoc, outV: string, outA: string): string[
   return out
 }
 
+/** The colour each overlay key removes (core `colorkey` filter: colour, similarity, blend). */
+const OVERLAY_KEY_HEX: Record<string, string> = { green: '0x00FF00', blue: '0x0000FF', white: '0xFFFFFF', black: '0x000000' }
+
 /** The ffmpeg filter of each clip look (core libavfilter only, so it runs on every ffmpeg build). Empty for "none". */
 export const LOOK_FILTERS: Record<string, string> = {
   bw: 'hue=s=0',
@@ -195,7 +198,7 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   let v = 'vc'
   doc.overlays.forEach((o, k) => {
     f.push(
-      `[${ovIdx[k]}:v]scale=${Math.max(2, Math.round(W * o.width))}:-1,format=rgba,colorchannelmixer=aa=${fnum(o.opacity)}[ov${k}]`,
+      `[${ovIdx[k]}:v]scale=${Math.max(2, Math.round(W * o.width))}:-1,format=rgba${o.key ? `,colorkey=${OVERLAY_KEY_HEX[o.key]}:0.3:0.1` : ''},colorchannelmixer=aa=${fnum(o.opacity)}[ov${k}]`,
       `[${v}][ov${k}]overlay=x=${Math.round(W * o.x)}:y=${Math.round(H * o.y)}:enable='between(t,${fnum(o.start)},${fnum(o.end)})':shortest=1[vo${k}]`,
     )
     v = `vo${k}`
