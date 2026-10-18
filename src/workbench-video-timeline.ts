@@ -658,7 +658,14 @@ export function timelineSummary(doc: TimelineDoc): string {
  *  whole-document patch is replayed in both directions without any per-operation inverse. */
 export interface TimelinePatch { b: TimelineDoc; a: TimelineDoc }
 
-const same = (x: unknown, y: unknown): boolean => JSON.stringify(x) === JSON.stringify(y)
+/** JSON text with the keys of every object sorted: two documents that only differ in key order (an edit that deletes and
+ *  re-adds a field leaves it last; the stored copy is re-parsed in the canonical order) are the same document. */
+function canon(v: unknown): string {
+  return JSON.stringify(v, (_k, val) => (val && typeof val === 'object' && !Array.isArray(val)
+    ? Object.fromEntries(Object.keys(val as Record<string, unknown>).sort().map((k) => [k, (val as Record<string, unknown>)[k]]))
+    : val))
+}
+const same = (x: unknown, y: unknown): boolean => canon(x) === canon(y)
 
 export const timelineKind: DraftKind<TimelineDoc, TimelinePatch> = {
   key: 'video',
