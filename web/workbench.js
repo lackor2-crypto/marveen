@@ -16624,7 +16624,9 @@
     return '<div class="wb-fr-vplayer" id="wbVPlayer" data-wb-clip="' + escA(c.id) + '">'
       + '<div class="wb-fr-vbox" id="wbVBox"><div class="wb-fr-vframe" id="wbVFrame">' + bg
       + layer('<video class="wb-fr-video" id="wbVideo" src="' + src + '" preload="metadata" playsinline></video>', 'wb-fr-vfg')
+      + '<div class="wb-fr-vovl" id="wbVOvl"></div><div class="wb-fr-vsub" id="wbVSub"></div>'
       + '</div></div>'
+      + (vtDoc().music && vtDoc().music.src ? '<audio id="wbVMusic" preload="auto" loop src="' + escA('/api/life/file?rel=' + encodeURIComponent(vtDoc().music.src) + '&lang=' + encodeURIComponent(window._lang || 'hu')) + '"></audio>' : '')
       + '<div class="wb-fr-vctl"><button type="button" class="wb-fr-tbtn2" id="wbVPlay" aria-label="' + escA(t('workbench.fr.vid.play')) + '" title="' + escA(t('workbench.fr.vid.play')) + '">\u25B6</button>'
       + '<input type="range" id="wbVSeek" min="0" max="1" step="0.01" value="0" aria-label="' + escA(t('workbench.fr.vid.seek')) + '">'
       + '<span class="wb-muted" id="wbVTime">0,0 s</span>'
@@ -16970,8 +16972,128 @@
     if (fin && at < fin) o = Math.min(o, at / fin)
     if (fout && at > len - fout) o = Math.min(o, (len - at) / fout)
     var kids = frame.children
-    for (var i = 0; i < kids.length; i += 1) kids[i].style.opacity = o.toFixed(3)
+    for (var i = 0; i < kids.length; i += 1) { if (kids[i].className.indexOf('wb-fr-vpic') >= 0) kids[i].style.opacity = o.toFixed(3) }
     v.volume = Math.max(0, Math.min(1, o))
+  }
+
+  /** Where each clip starts on the finished timeline: the clips back to back minus what each transition overlaps
+   *  (the same sums as clipOffsets in src/workbench-video-timeline.ts). */
+  function frVtClipStarts(clips) {
+    var out = []
+    var t0 = 0
+    for (var i = 0; i < clips.length; i += 1) {
+      out.push(t0)
+      var tr = clips[i].transition
+      var ov = 0
+      if (tr && clips[i + 1]) {
+        ov = Math.min(tr.duration, vtClipLen(clips[i]) / 2, vtClipLen(clips[i + 1]) / 2)
+        if (!(ov >= 0.1)) ov = 0
+      }
+      t0 += vtClipLen(clips[i]) - ov
+    }
+    return out
+  }
+
+  /** Where the playhead is on the TIMELINE (the output): the clip's start on the timeline + how far into the clip, at its speed. */
+  function frVtGlobalTime() {
+    var v = document.getElementById('wbVideo')
+    var c = frVtSelClip()
+    var doc = vtDoc()
+    if (!v || !c || !doc || typeof v.currentTime !== 'number') return 0
+    var at = 0
+    for (var i = 0; i < doc.clips.length; i += 1) if (doc.clips[i].id === c.id) at = i
+    var off = frVtClipStarts(doc.clips)[at] || 0
+    return off + Math.max(0, v.currentTime - c.start) / (c.speed || 1)
+  }
+
+  var VT_SUB_SCALE = { classic: 1, bold: 1.3, yellow: 1.1, box: 1, title: 1.8 }
+
+  /** Subtitles and picture overlays on the frame, from the timeline time (the sizes follow the render: ASS size = frame height / 20, or / 30 for 9:16). */
+  function frVtOverlaysUpdate() {
+    var frame = document.getElementById('wbVFrame')
+    var doc = vtDoc()
+    if (!frame || !doc || typeof frame.getBoundingClientRect !== 'function') return
+    var gt = frVtGlobalTime()
+    var fr = frame.getBoundingClientRect()
+    var fw = fr.width, fh = fr.height
+    if (!(fw > 0)) return
+    var tall = doc.aspect === '9:16'
+    // subtitle
+    var box = document.getElementById('wbVSub')
+    if (box) {
+      var cur = null
+      for (var i = 0; i < doc.subtitles.length; i += 1) if (doc.subtitles[i].start <= gt && gt < doc.subtitles[i].end) { cur = doc.subtitles[i]; break }
+      if (!cur) { box.style.display = 'none' } else {
+        var look = cur.look || 'classic'
+        var px = fh / (tall ? 30 : 20) * (VT_SUB_SCALE[look] || 1)
+        var pos = cur.pos || 'bottom'
+        var m = fh * (tall ? 0.14 : 0.06)
+        box.style.display = 'block'
+        if (box.getAttribute('data-wb-sub') !== cur.id + '|' + cur.text) {
+          box.setAttribute('data-wb-sub', cur.id + '|' + cur.text)
+          box.textContent = ''
+          var sp = document.createElement('span')
+          sp.textContent = cur.text
+          box.appendChild(sp)
+        }
+        box.className = 'wb-fr-vsub wb-fr-vsub-' + look
+        box.style.fontSize = px.toFixed(1) + 'px'
+        box.style.top = pos === 'top' ? m.toFixed(1) + 'px' : pos === 'middle' ? '50%' : 'auto'
+        box.style.bottom = pos === 'bottom' ? m.toFixed(1) + 'px' : 'auto'
+        var p = gt - cur.start, q = cur.end - gt
+        var op = 1, sc = 1, dy = 0
+        if (cur.anim === 'fade') op = Math.min(1, p / 0.25, q / 0.25)
+        else if (cur.anim === 'pop') sc = Math.min(1, 0.7 + 0.3 * (p / 0.22))
+        else if (cur.anim === 'slideup') dy = fh * 0.04 * Math.max(0, 1 - p / 0.25)
+        box.style.opacity = String(Math.max(0, op))
+        box.style.transform = (pos === 'middle' ? 'translateY(-50%) ' : '') + 'translateY(' + dy.toFixed(1) + 'px) scale(' + sc.toFixed(3) + ')'
+      }
+    }
+    // picture overlays: one element each, shown only inside its time window
+    var host = document.getElementById('wbVOvl')
+    if (host) {
+      for (var k = 0; k < doc.overlays.length; k += 1) {
+        var o = doc.overlays[k]
+        var el = host.querySelector('[data-wb-ov="' + o.id + '"]')
+        var isVid = /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(o.src)
+        if (!el) {
+          el = document.createElement(isVid ? 'video' : 'img')
+          el.setAttribute('data-wb-ov', o.id)
+          el.className = 'wb-fr-vov'
+          if (isVid) { el.muted = true; el.playsInline = true }
+          el.src = '/api/life/file?rel=' + encodeURIComponent(o.src) + '&lang=' + encodeURIComponent(window._lang || 'hu')
+          host.appendChild(el)
+        }
+        var on = o.start <= gt && gt < o.end
+        el.style.display = on ? 'block' : 'none'
+        if (!on) continue
+        el.style.left = (o.x * fw).toFixed(1) + 'px'
+        el.style.top = (o.y * fh).toFixed(1) + 'px'
+        el.style.width = (o.width * fw).toFixed(1) + 'px'
+        el.style.opacity = String(o.opacity === undefined ? 1 : o.opacity)
+        if (isVid && Math.abs((el.currentTime || 0) - (gt - o.start)) > 0.3) { try { el.currentTime = Math.max(0, gt - o.start) } catch (_e) { /* not loaded yet */ } }
+        if (isVid) { var vm = document.getElementById('wbVideo'); if (vm && vm.paused !== el.paused) { var pr = vm.paused ? el.pause() : el.play(); if (pr && pr.catch) pr.catch(function () { /* refused */ }) } }
+      }
+    }
+  }
+
+  /** The music track follows the player: started/stopped with it, put on the timeline time (it loops), lowered while the clip speaks (duck: a fixed lowering here, the render does the real side-chain). */
+  function frVtMusicSync(force) {
+    var au = document.getElementById('wbVMusic')
+    var v = document.getElementById('wbVideo')
+    var doc = vtDoc()
+    if (!au || !v || !doc || !doc.music) return
+    var vol = Math.max(0, Math.min(1, doc.music.volume === undefined ? 0.5 : doc.music.volume))
+    au.volume = doc.music.duck && doc.clip_volume > 0 ? vol * 0.4 : vol
+    au.muted = !!v.muted
+    var gt = frVtGlobalTime()
+    var dur = au.duration && isFinite(au.duration) ? au.duration : 0
+    var want = dur ? gt % dur : gt
+    if (force || Math.abs((au.currentTime || 0) - want) > 0.35) { try { au.currentTime = want } catch (_e) { /* not loaded yet */ } }
+    if (v.paused !== au.paused) {
+      if (v.paused) au.pause()
+      else { var pp = au.play(); if (pp && pp.catch) pp.catch(function () { /* refused */ }) }
+    }
   }
 
   /** The own control bar: button, scrubber and time follow the player; the cut [start,end] is the whole range. */
@@ -17011,6 +17133,8 @@
     var bg = document.getElementById('wbVBg')
     if (bg && Math.abs(bg.currentTime - v.currentTime) > 0.25) { try { bg.currentTime = v.currentTime } catch (_e) { /* ignore */ } }
     frVtApplyFade()
+    frVtOverlaysUpdate()
+    frVtMusicSync(false)
     frVtCtlSync()
     frVtPlayheadSync()
     if (!v.paused && typeof window.requestAnimationFrame === 'function') vtLive.raf = window.requestAnimationFrame(frVtTick)
@@ -17049,11 +17173,11 @@
     if (!v || !document.getElementById('wbVPlayer') || typeof v.addEventListener !== 'function') return
     var bg = document.getElementById('wbVBg')
     var c = frVtSelClip()
-    var relayout = function () { frVtLayout(); frVtApplyEffects(); frVtApplyFade(); frVtCtlSync() }
+    var relayout = function () { frVtLayout(); frVtApplyEffects(); frVtApplyFade(); frVtOverlaysUpdate(); frVtCtlSync() }
     v.addEventListener('loadedmetadata', relayout)
     v.addEventListener('play', function () { if (bg) { try { bg.currentTime = v.currentTime; bg.play() } catch (_e) { /* ignore */ } } frVtKick() })
     v.addEventListener('pause', function () { if (bg) { try { bg.pause() } catch (_e) { /* ignore */ } } frVtKick() })
-    v.addEventListener('seeked', function () { if (bg) { try { bg.currentTime = v.currentTime } catch (_e) { /* ignore */ } } frVtKick() })
+    v.addEventListener('seeked', function () { if (bg) { try { bg.currentTime = v.currentTime } catch (_e) { /* ignore */ } } frVtMusicSync(true); frVtKick() })
     v.addEventListener('timeupdate', frVtKick)
     var pb = document.getElementById('wbVPlay')
     if (pb) pb.addEventListener('click', function () {
@@ -17065,7 +17189,7 @@
     var vf = document.getElementById('wbVFrame')
     if (vf) vf.addEventListener('click', function () { if (pb) pb.click() })
     var mb = document.getElementById('wbVMute')
-    if (mb) mb.addEventListener('click', function () { v.muted = !v.muted; mb.textContent = v.muted ? '\uD83D\uDD07' : '\uD83D\uDD0A' })
+    if (mb) mb.addEventListener('click', function () { v.muted = !v.muted; mb.textContent = v.muted ? '\uD83D\uDD07' : '\uD83D\uDD0A'; frVtMusicSync(false) })
     var fb = document.getElementById('wbVFull')
     if (fb) fb.addEventListener('click', function () {
       var pl = document.getElementById('wbVPlayer')
