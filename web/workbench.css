@@ -2226,3 +2226,8 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 /* #680: on a phone the rail's Projektek panel showed an empty box, because the narrow-screen rule hides every
    .wb-panel that is not the "current" tab, and the tree panel lives inside the rail panel (no tab there). */
 .wb-fr-panel .wb-panel { display: flex; }
+
+/* #697 (Boss TG 9670, decision A): a link (🔗) wears its group colour, paler than a real file, so colour shows where it
+   belongs and the paleness plus the icon shows it is only a link. */
+.wb-grp.wb-linked-row { background: color-mix(in srgb, var(--wb-grp) calc(var(--wb-grp-a, 22%) * 0.45), transparent); border-left-color: color-mix(in srgb, var(--wb-grp) 55%, transparent); }
+.wb-grp.wb-linked-row.wb-item-active, .wb-grp.wb-linked-row:has(> .wb-item-active) { background: color-mix(in srgb, var(--wb-grp) calc(var(--wb-grp-a-on, 26%) * 0.45), transparent); }

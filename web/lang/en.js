@@ -6667,6 +6667,8 @@ window._i18n.en = {
   "workbench.filelink.pick_title": "Which file do you link into the folder?",
   "workbench.filelink.pick_help": "Step into the folder you want from the Explorer, then click the file. Nothing is copied or moved: the file shows up here too, but the original stays where it is.",
   "workbench.filelink.done": "Linked: {name}. The file stayed where it was.",
+  "workbench.filelink.remove": "Remove (link only)",
+  "workbench.filelink.removed": "Link removed: {name}. The original file stays where it was.",
   "workbench.filelink.badge": "Linked file: the original is elsewhere, only the link shows here",
   "workbench.filelink.unlink_confirm": "Take the link \"{name}\" off this place? Only the link goes, the original file stays where it is and does not go to the Trash.",
   "workbench.filelink.unlink_confirm_many": "Take the link off the {n} selected files? Only the links go, the original files stay where they are and do not go to the Trash.",

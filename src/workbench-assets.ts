@@ -319,7 +319,7 @@ export const WORK_FOLDER_MAX = 600
 
 /** A plain file lying in a work folder (not a work item): shown in the list with a preview link.
  *  `item`: the file lies directly in a live work item's own folder, so it belongs to that item (#492: copy only). */
-export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true; annex?: true; version?: true }
+export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true; annex?: true; version?: true; link?: { kind: 'annex' | 'asset'; item: string; id: string } }
 /** Same name as SNAPSHOT_FILE in workbench-snapshot.ts (not imported: that module imports this area). */
 const ITEM_SNAPSHOT_NAME = 'marveen-item.json'
 export const WORK_FOLDER_FILES_MAX = 200
@@ -506,9 +506,9 @@ export function listProjectFolderLevel(project: ProjectRow, folder: unknown, opt
  * it is listed there with the real path, flagged `linked` (the page offers no rename / move on it).
  */
 function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): void {
-  let rows: { folder: string; life_rel: string | null }[] = []
+  let rows: { folder: string; life_rel: string | null; id: string; item: string }[] = []
   try {
-    rows = getDb().prepare(`SELECT w.folder AS folder, a.life_rel AS life_rel FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id
+    rows = getDb().prepare(`SELECT w.folder AS folder, a.life_rel AS life_rel, a.id AS id, a.work_item_id AS item FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id
       WHERE w.project_id = ? AND w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != '' AND a.path LIKE 'doc:%' ORDER BY a.position`).all(project.id) as typeof rows
   } catch { return /* no annex table yet: nothing is linked */ }
   const have = new Set(folders)
@@ -523,7 +523,7 @@ function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<s
     if (!abs) continue
     let size = 0
     try { const st = statSync(abs); if (!st.isFile()) continue; size = st.size } catch { continue }
-    ;(files[key] = files[key] || []).push({ name, size, rel, linked: true, annex: true })
+    ;(files[key] = files[key] || []).push({ name, size, rel, linked: true, annex: true, link: { kind: 'annex', item: r.item, id: r.id } })
   }
 }
 
@@ -533,9 +533,9 @@ function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<s
  * annex links: the page offers no delete / rename / move on it (a delete would hit the real Life-tree file).
  */
 function linkedAssetRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): void {
-  let rows: { folder: string; path: string; name: string }[] = []
+  let rows: { folder: string; path: string; name: string; id: string; item: string }[] = []
   try {
-    rows = getDb().prepare(`SELECT w.folder AS folder, a.path AS path, a.name AS name FROM work_item_assets a JOIN work_items w ON w.id = a.work_item_id
+    rows = getDb().prepare(`SELECT w.folder AS folder, a.path AS path, a.name AS name, a.id AS id, a.work_item_id AS item FROM work_item_assets a JOIN work_items w ON w.id = a.work_item_id
       WHERE w.project_id = ? AND w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != '' AND a.removed_at IS NULL ORDER BY a.created_at`).all(project.id) as typeof rows
   } catch { return }
   const have = new Set(folders)
@@ -550,7 +550,7 @@ function linkedAssetRows(project: ProjectRow, folders: string[], files: Record<s
     if (!abs) continue
     let size = 0
     try { const st = statSync(abs); if (!st.isFile()) continue; size = st.size } catch { continue }
-    ;(files[key] = files[key] || []).push({ name, size, rel, linked: true, annex: true })
+    ;(files[key] = files[key] || []).push({ name, size, rel, linked: true, annex: true, link: { kind: 'asset', item: r.item, id: r.id } })
   }
 }
 

@@ -6741,6 +6741,8 @@ window._i18n.hu = {
   "workbench.filelink.pick_title": "Melyik fájlt linkeled be a mappába?",
   "workbench.filelink.pick_help": "Lépj be a kívánt mappába az Intézőből, aztán kattints a fájlra. Semmi nem másolódik és nem mozdul: a fájl itt is megjelenik, de az eredeti helyén marad.",
   "workbench.filelink.done": "Belinkelve: {name}. A fájl az eredeti helyén maradt.",
+  "workbench.filelink.remove": "Eltávolítás (csak a link)",
+  "workbench.filelink.removed": "Link eltávolítva: {name}. Az eredeti fájl a helyén maradt.",
   "workbench.filelink.badge": "Belinkelt fájl: az eredeti máshol van, itt csak a hivatkozás látszik",
   "workbench.filelink.unlink_confirm": "Eltávolítod a(z) \"{name}\" linkjét erről a helyről? Csak a hivatkozás szűnik meg, az eredeti fájl a helyén marad, nem kerül a Kukába.",
   "workbench.filelink.unlink_confirm_many": "Eltávolítod a kijelölt {n} fájl linkjét? Csak a hivatkozások szűnnek meg, az eredeti fájlok a helyükön maradnak, nem kerülnek a Kukába.",
