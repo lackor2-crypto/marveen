@@ -1345,7 +1345,10 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // task whose migration above found nobody). Never inject into it; after a
       // few attempts (at once when the non-start is provable) hand the row to a
       // working agent, otherwise hold it until the wall comes down.
-      if (!migrated && !taskDef.targetSession && isAgentQuotaBlocked(fireAgent, now)
+      // An 'all' task already runs on every working agent on its own rows, so
+      // moving a dead agent's row onto one of them would run it twice there --
+      // that row is only held until the wall comes down.
+      if (!migrated && !taskDef.targetSession && taskDef.agent !== 'all' && isAgentQuotaBlocked(fireAgent, now)
         && shouldReassignFromDeadAgent(row.attempt_count, row.last_reason)) {
         const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentQuotaBlocked)
         if (working && working !== fireAgent) {

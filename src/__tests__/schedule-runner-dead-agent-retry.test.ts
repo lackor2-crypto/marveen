@@ -119,6 +119,16 @@ describe('#702 retry on a quota-blocked agent', () => {
     expect(mocks.upd).toHaveBeenCalledWith(TASK.name, 'deadagent', expect.any(Number), 'quota-blocked')
   })
 
+  it("an 'all' task's row on the dead agent is held, not duplicated onto a working agent", async () => {
+    mocks.tasks = [{ ...TASK, agent: 'all' } as ScheduledTask]
+    mocks.rows = [row({ attempt_count: 1160, last_reason: 'agent-quota' })]
+    await tick()
+    expect(mocks.del).not.toHaveBeenCalled()
+    expect(mocks.ins).not.toHaveBeenCalled()
+    for (const c of mocks.send.mock.calls as unknown[][]) expect(String(c[0])).not.toContain('deadagent')
+    expect(mocks.upd).toHaveBeenCalledWith(TASK.name, 'deadagent', expect.any(Number), 'quota-blocked')
+  })
+
   it('a mid-work reclaim row (agent-quota) moves at once', async () => {
     mocks.rows = [row({ attempt_count: 1, last_reason: 'agent-quota' })]
     await tick()
