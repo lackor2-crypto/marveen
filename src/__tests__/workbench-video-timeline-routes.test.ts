@@ -248,12 +248,12 @@ describe.skipIf(!HAVE_FFMPEG)('video timeline: media and clip length (needs ffmp
     expect(r.body.timeline.clips[0].end).toBeLessThanOrEqual(3.1)
   })
 
-  it('a cut past the end of its file is refused with the length, not silently shortened', async () => {
-    await ops([{ op: 'addClip', src: 'Projektek/teszt/media/a.mp4', start: 1, end: 9 }])
+  it('a cut past the end of its file is pulled back to the real length when it is saved (#669), so the render does not fail', async () => {
+    const r0 = await ops([{ op: 'addClip', src: 'Projektek/teszt/media/a.mp4', start: 1, end: 9 }])
+    expect(r0.body.timeline.clips[0].start).toBe(1)
+    expect(r0.body.timeline.clips[0].end).toBeGreaterThan(2.9)
+    expect(r0.body.timeline.clips[0].end).toBeLessThanOrEqual(3.1)
     const r = await callWorkbench(url('/render'), 'POST')
-    expect(r.status).toBe(400)
-    expect(r.body.error).toBe('render_clip_beyond_end')
-    expect(r.body.detail).toMatch(/only 3(\.\d)?s long/)
-    expect(readdirSync(dir()).filter((n) => n.endsWith('.mp4'))).toEqual([])
+    expect(r.status).toBe(201)
   })
 })

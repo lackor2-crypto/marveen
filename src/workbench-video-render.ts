@@ -23,7 +23,7 @@ import { getWorkItem } from './workbench.js'
 import { itemOutputFolder } from './workbench-assets.js'
 import { finishedFolderFor } from './project-files.js'
 import { videoTool, videoTarget, videoRunTo, videoBusy, VIDEO_TRIM_TIMEOUT_MS, type VideoFail } from './workbench-video.js'
-import { ASPECT_SIZE, isVideoOverlaySrc, SUBTITLE_LOOKS, clipLen, effectiveTransition, timelineDuration, type SubtitleLook, type SubtitlePos, type TimelineDoc } from './workbench-video-timeline.js'
+import { ASPECT_SIZE, isVideoOverlaySrc, SUBTITLE_LOOKS, TIMELINE_MIN_CLIP, clipLen, effectiveTransition, timelineDuration, type SubtitleLook, type SubtitlePos, type TimelineDoc } from './workbench-video-timeline.js'
 
 export const RENDER_FPS = 30
 export const RENDER_TIMEOUT_MS = 4 * VIDEO_TRIM_TIMEOUT_MS
@@ -426,4 +426,48 @@ export async function fillClipEnds(project: ProjectRow, ops: unknown): Promise<{
     out.push({ ...o, end: Math.floor(p.duration * 1000) / 1000 })
   }
   return { ok: true, ops: out }
+}
+
+// #669: the real length of a source file as the server measures it (ffprobe), remembered per file version. The browser's
+// own video.duration is wrong for a variable-frame-rate phone video, and a dragged cut edge can run past the end.
+const lengthCache = new Map<string, number | null>()
+
+async function sourceLength(ffPath: string, abs: string): Promise<number | null> {
+  let key = abs
+  try { const st = statSync(abs); key = `${abs}|${st.mtimeMs}|${st.size}` } catch { return null }
+  if (lengthCache.has(key)) return lengthCache.get(key) ?? null
+  const p = await probe(ffPath, abs)
+  const len = p && p.duration !== null ? p.duration : null
+  if (lengthCache.size > 500) lengthCache.clear()
+  lengthCache.set(key, len)
+  return len
+}
+
+/**
+ * Pulls every clip's cut back inside the real length of its file (no clip may end past it, and a clip that would then be
+ * shorter than the minimum keeps a minimal piece at the end). Returns a copy; `changed` counts the clips that moved.
+ * A file that cannot be probed (no ffprobe, missing) leaves its clip alone: this is a correction, never a blocker.
+ */
+export async function clampClipLengths(project: ProjectRow, doc: TimelineDoc): Promise<{ doc: TimelineDoc; changed: number }> {
+  if (!doc.clips.length) return { doc, changed: 0 }
+  const ff = await videoTool()
+  if (!ff.ok) return { doc, changed: 0 }
+  const out: TimelineDoc = { ...doc, clips: doc.clips.map((c) => ({ ...c })) }
+  let changed = 0
+  const lens = new Map<string, number | null>()
+  for (const c of out.clips) {
+    if (!lens.has(c.src)) {
+      const r = resolveMedia(project, c.src)
+      lens.set(c.src, r.ok ? await sourceLength(ff.path, r.abs) : null)
+    }
+    const len = lens.get(c.src)
+    if (len === null || len === undefined) continue
+    const real = Math.floor(len * 1000) / 1000
+    if (c.end > real + 0.05) {
+      c.end = real
+      if (c.start > c.end - TIMELINE_MIN_CLIP) c.start = Math.max(0, Math.floor((c.end - TIMELINE_MIN_CLIP) * 1000) / 1000)
+      changed++
+    }
+  }
+  return { doc: changed ? out : doc, changed }
 }

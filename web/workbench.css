@@ -1638,6 +1638,11 @@
 .wb-tl-hr { right: 0; }
 .wb-fr-tl-hint { margin: 4px 0 0; }
 @media (max-width: 900px) { .wb-fr-vid { height: 40vh; flex: none; } }
+/* #669: the video middle column scrolls on its own (vertical), so the player AND every control below it (join, timeline,
+   transition, speed, look, stabilise) are reachable; the player keeps a fixed share instead of being squeezed to half. */
+.wb-fr-center.wb-fr-center-vid { overflow-x: hidden; overflow-y: auto; }
+.wb-fr-center-vid .wb-fr-vid { flex: 0 0 auto; height: clamp(220px, 46vh, 460px); }
+@media (max-width: 900px) { .wb-fr-center.wb-fr-center-vid { overflow: visible; } .wb-fr-center-vid .wb-fr-vid { height: 40vh; } }
 /* Same narrow-column fix inside the Technical details box (Simple view, step 6c). */
 .wb-sh-tech .wb-item-row { flex-wrap: wrap; }
 .wb-sh-tech .wb-item-row .wb-item { order: -1; flex: 1 1 100%; flex-wrap: wrap; }
