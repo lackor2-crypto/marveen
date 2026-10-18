@@ -7568,7 +7568,13 @@
   function vtAddSubtitle() {
     var s = vtNum('sub-start'), e = vtNum('sub-end')
     if (vtBad(s) || vtBad(e)) return
+    vtSubAfterEndWarn(s)
     vtOps([vtSubStyleOp({ op: 'addSubtitle', text: vtText('sub-text'), start: s, end: e }, '')])
+  }
+  /** A subtitle that starts after the finished video ends is saved (the video may grow later) but never shows: say so. */
+  function vtSubAfterEndWarn(start) {
+    var len = WB.vt && WB.vt.duration
+    if (typeof start === 'number' && typeof len === 'number' && len > 0 && start >= len) window.showToast(t('workbench.vt.sub_after_end', { s: vtSecs(len) }))
   }
   function vtSaveSubtitle(id) {
     var s = vtNum('start', id), e = vtNum('end', id)
@@ -7576,6 +7582,7 @@
     var op = { op: 'updateSubtitle', id: id, text: vtText('text', id) }
     if (s !== undefined) op.start = s
     if (e !== undefined) op.end = e
+    vtSubAfterEndWarn(s)
     vtOps([vtSubStyleOp(op, id)])
   }
   function vtMusicVolume() {
@@ -17197,6 +17204,12 @@
     })
     var sk = document.getElementById('wbVSeek')
     if (sk) sk.addEventListener('input', function () { try { v.currentTime = Number(sk.value) } catch (_e) { /* not loaded yet */ } frVtKick() })
+    // After a mouse click the button must not keep the focus: the editor keys (Space, arrows, M, F) ignore a focused button,
+    // so they would not work right after pressing Play. A keyboard activation (detail 0) keeps its focus.
+    ;['wbVPlay', 'wbVMute', 'wbVFull'].forEach(function (id) {
+      var b = document.getElementById(id)
+      if (b) b.addEventListener('click', function (e) { if (e.detail > 0 && typeof b.blur === 'function') b.blur() })
+    })
     relayout()
     // Arrived here by the end of the clip before: start at once (the owner's play click still counts as the gesture).
     if (c && WB.vtAutoplay === c.id) {
