@@ -21662,7 +21662,8 @@
 
   /** Remove the marked property from the elements that carry it, and unwrap what is left bare. */
   function dpStripMarks(el, kind) {
-    var nodes = el.querySelectorAll('span,font')
+    // The browser may put the marker on an element that is already there (<b style="font-size: xxx-large">), not only on a span / font.
+    var nodes = el.querySelectorAll('[style],font')
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i]
       var st = n.style
@@ -21682,10 +21683,18 @@
     }
     for (var k = nodes.length - 1; k >= 0; k--) {
       var b = nodes[k]
-      if (b.attributes.length || !b.parentNode) continue
+      if (b.attributes.length || !b.parentNode || !/^(SPAN|FONT)$/.test(b.tagName)) continue
       while (b.firstChild) b.parentNode.insertBefore(b.firstChild, b)
       b.parentNode.removeChild(b)
     }
+  }
+
+  /** Mark the selection with the browser's biggest size (7 = xxx-large = 36 pt), to be replaced by the real size. Text that is
+   *  ALREADY 36 pt looks "done" to the browser, which then changes nothing -- so the size is first moved to 1 (it never matches
+   *  a size we set), and only then to 7. Without this, once a size of 36 was applied no other size could be set (#711). */
+  function dpMarkSize() {
+    document.execCommand('fontSize', false, '1')
+    document.execCommand('fontSize', false, '7')
   }
 
   /** Take one inline property off the current selection. */
@@ -21700,7 +21709,7 @@
     if (kind === 'fore') document.execCommand('foreColor', false, DP_MARK_COLOR)
     else if (kind === 'hilite') { if (!document.execCommand('hiliteColor', false, DP_MARK_COLOR)) document.execCommand('backColor', false, DP_MARK_COLOR) }
     else if (kind === 'font') document.execCommand('fontName', false, DP_MARK_FONT)
-    else if (kind === 'size') document.execCommand('fontSize', false, '7')
+    else if (kind === 'size') dpMarkSize()
     document.execCommand('styleWithCSS', false, false)
     dpStripMarks(dpRoot() || el, kind) // the selection may run over several paragraphs
   }
@@ -21734,8 +21743,8 @@
       document.execCommand('styleWithCSS', false, true)
       if (kind === 'font') document.execCommand('fontName', false, value)
       else if (kind === 'size') {
-        document.execCommand('fontSize', false, '7')
-        var big = (dpRoot() || el).querySelectorAll('span[style*="xxx-large"], font[size="7"]') // every selected paragraph
+        dpMarkSize()
+        var big = (dpRoot() || el).querySelectorAll('[style*="xxx-large"], font[size="7"]') // every selected paragraph, on whatever element the browser used
         for (var i = 0; i < big.length; i++) { big[i].removeAttribute('size'); big[i].style.fontSize = value + 'pt' }
       } else if (kind === 'fore') document.execCommand('foreColor', false, value)
       else if (kind === 'hilite') { if (!document.execCommand('hiliteColor', false, value)) document.execCommand('backColor', false, value) }
