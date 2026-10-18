@@ -43,7 +43,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
-import { annotateMisplaced, type Misplaced } from './workbench-misplaced.js'
+import { annotateMisplaced, adviseUpload, type Misplaced, type UploadAdvice } from './workbench-misplaced.js'
 import { folderWasMade, noteFolderMade, noteItemStandardFoldersSeen, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
@@ -2942,4 +2942,18 @@ function projectNamedFolderIfExists(project: ProjectRow, key: 'workItems' | 'mor
 
 function tryRemoveEmptyDir(abs: string): void {
   try { if (!readdirSync(abs).length) rmdirSync(abs) } catch { /* left in place: harmless */ }
+}
+
+/** #700: where would each of these uploaded file names rather go than `folder`? Reads only; nothing is moved or refused. */
+export function adviseUploadPlaces(project: ProjectRow, folder: unknown, names: string[]): { ok: true; advice: Record<string, UploadAdvice> } | { ok: false; code: WorkFolderError | 'bad_folder' } {
+  const t = projectFileTarget(project, folder)
+  if (!t.ok) return t
+  const box = findWorkItemsBox(project)
+  const advice: Record<string, UploadAdvice> = {}
+  const rel = String(folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (!box) { for (const n of names) advice[n] = { ok: true }; return { ok: true, advice } }
+  const folders = listWorkFolders(project, { outside: false }).folders
+  const items = liveItemFolders(project)
+  for (const n of names) advice[n] = adviseUpload(box, rel, n, folders, items)
+  return { ok: true, advice }
 }

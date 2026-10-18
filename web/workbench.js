@@ -616,6 +616,140 @@
       + '</div>'
   }
 
+  /** #700 (Boss TG 9770): "upload a file" at the bottom of the left tree, above the Trash. The owner picks the files, then
+   *  the folder (any folder the tree shows, a linked one too: the file is written physically into it, never over a
+   *  file of the same name). Where the file's name says it belongs elsewhere (#698 classification), a question comes
+   *  first: "put it here anyway" or "to the suggested place". The owner's choice is never blocked. */
+  function treeUploadFolders() {
+    var wf = WB.workFolders || {}
+    var out = mergedOutside(wf)
+    var seen = {}
+    var list = []
+    function add(path, linked) {
+      if (path === '' || seen[path]) return
+      var b = baseOf(path)
+      if (b === 'Verziók' || b === 'Versions') return // the saved versions are system-managed
+      seen[path] = true
+      list.push({ path: path, linked: !!linked })
+    }
+    if (wf.box) add(wf.box)
+    ;(wf.folders || []).forEach(function (f) { add(f) })
+    ;(out.folders || []).forEach(function (f) { add(f, Object.prototype.hasOwnProperty.call(out.linked || {}, f)) })
+    list.sort(function (a, b) { return a.path.localeCompare(b.path, 'hu', { numeric: true }) })
+    return list
+  }
+
+  function treeUploadHtml() {
+    if (WB.items === null || archived()) return ''
+    var tu = WB.treeUp
+    var head = '<div class="wb-treeup">'
+      + '<label class="btn-secondary wb-treeup-btn" for="wbTreeUpload" title="' + escA(t('workbench.treeup.hint')) + '">⬆ ' + esc(t('workbench.treeup.button')) + '</label>'
+      + '<input type="file" id="wbTreeUpload" class="wb-file-input" multiple>'
+    if (!tu) return head + '</div>'
+    var n = tu.files.length
+    var names = tu.files.slice(0, 3).map(function (f) { return f.name }).join(', ') + (n > 3 ? ' …' : '')
+    var body
+    if (tu.stage === 'ask') {
+      body = '<h4 class="wb-treeup-h">' + esc(t('workbench.treeup.ask_title')) + '</h4>'
+        + '<ul class="wb-treeup-mism">' + tu.mism.map(function (m) {
+          return '<li><strong>' + esc(m.name) + '</strong> — ' + esc(t('workbench.treeup.why.' + m.code))
+            + (m.suggested ? '<br><span class="wb-muted">' + esc(t('workbench.treeup.suggested', { folder: m.suggested })) + '</span>' : '') + '</li>'
+        }).join('') + '</ul>'
+        + '<div class="wb-treeup-actions">'
+        + '<button type="button" class="btn-secondary" data-wb-act="treeup-here">' + esc(t('workbench.treeup.here')) + '</button>'
+        + (tu.mism.some(function (m) { return m.suggested })
+          ? '<button type="button" class="btn-primary" data-wb-act="treeup-suggested">' + esc(t('workbench.treeup.suggested_btn')) + '</button>' : '')
+        + '<button type="button" class="btn-secondary" data-wb-act="treeup-cancel">' + esc(t('workbench.treeup.cancel')) + '</button></div>'
+    } else {
+      var busy = tu.stage === 'busy' ? ' disabled' : ''
+      // '' = the project's own materials folder (the server picks and, on a fresh install, makes it).
+      var opts = '<option value=""' + (tu.dest === '' ? ' selected' : '') + '>' + esc(t('workbench.treeup.default')) + '</option>'
+        + treeUploadFolders().map(function (f) {
+          var depth = f.path.split('/').length - 1
+          var pad = new Array(Math.min(depth, 6) + 1).join(' ')
+          return '<option value="' + escA(f.path) + '"' + (tu.dest === f.path ? ' selected' : '') + '>' + pad + esc(baseOf(f.path)) + (f.linked ? ' 🔗' : '') + '</option>'
+        }).join('')
+      body = '<p class="wb-hint">' + esc(t('workbench.treeup.files', { n: n, names: names })) + '</p>'
+        + '<label class="wb-treeup-lbl" for="wbTreeUpDest">' + esc(t('workbench.treeup.where')) + '</label>'
+        + '<select id="wbTreeUpDest" class="wb-treeup-sel"' + busy + '>' + opts + '</select>'
+        + (tu.err ? '<p class="wb-hint wb-treeup-err" role="alert">' + esc(tu.err) + '</p>' : '')
+        + '<div class="wb-treeup-actions">'
+        + '<button type="button" class="btn-primary" data-wb-act="treeup-go"' + busy + '>' + esc(t(tu.stage === 'busy' ? 'workbench.treeup.busy' : 'workbench.treeup.go')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="treeup-cancel"' + busy + '>' + esc(t('workbench.treeup.cancel')) + '</button></div>'
+    }
+    return head + '<div class="wb-treeup-panel" role="dialog" aria-label="' + escA(t('workbench.treeup.button')) + '">' + body + '</div></div>'
+  }
+
+  function treeUploadStart(files) {
+    var list = []
+    for (var i = 0; files && i < files.length; i++) if (files[i]) list.push(files[i])
+    if (!list.length) return
+    WB.treeUp = { files: list, dest: '', stage: 'pick', mism: [], err: '' }
+    render()
+  }
+
+  /** Step 1 of the send: ask the server where each file would rather live; a mismatch shows the question. */
+  function treeUploadGo() {
+    var tu = WB.treeUp
+    if (!tu || tu.stage === 'busy') return
+    var sel = document.getElementById('wbTreeUpDest')
+    if (sel) tu.dest = sel.value
+    tu.err = ''
+    tu.stage = 'busy'
+    render()
+    api('POST', '/api/workbench/upload-advice', { project_id: WB.projectId, folder: tu.dest, names: tu.files.map(function (f) { return f.name }) }).then(function (r) {
+      if (!WB.treeUp || WB.treeUp !== tu) return
+      var mism = []
+      var soft = []
+      // Advice that cannot be had (an old server, a network blip) must not stop the upload: no advice = fine.
+      if (r.ok && r.data && r.data.advice) {
+        tu.files.forEach(function (f) {
+          var a = r.data.advice[f.name]
+          if (a && a.ok === false) (a.soft ? soft : mism).push({ name: f.name, code: a.code, suggested: a.suggested })
+        })
+      }
+      tu.soft = soft
+      if (mism.length) { tu.mism = mism; tu.stage = 'ask'; render(); return }
+      treeUploadSend({})
+    })
+  }
+
+  /** Step 2: write the files. `redirect`: name -> folder for the files the owner sent to the suggested place. */
+  function treeUploadSend(redirect) {
+    var tu = WB.treeUp
+    if (!tu) return
+    var projectId = WB.projectId
+    tu.stage = 'busy'
+    render()
+    var errors = []
+    var ok = 0
+    var chain = Promise.resolve()
+    tu.files.forEach(function (f) {
+      chain = chain.then(function () {
+        var dest = Object.prototype.hasOwnProperty.call(redirect, f.name) ? redirect[f.name] : tu.dest
+        var url = '/api/workbench/items/upload?project=' + encodeURIComponent(projectId)
+          + '&name=' + encodeURIComponent(f.name || 'fajl') + '&sub=' + encodeURIComponent(dest)
+          + '&lang=' + encodeURIComponent(window._lang || 'hu')
+        return postFile(url, f).then(function (r) {
+          if (r.ok) ok++
+          else errors.push((f.name ? f.name + ': ' : '') + r.message)
+        })
+      })
+    })
+    return chain.then(function () {
+      var soft = tu.soft || []
+      if (WB.treeUp === tu) {
+        if (errors.length) { tu.stage = 'pick'; tu.err = errors.join(' — '); tu.files = tu.files.filter(function (f) { return errors.some(function (e) { return e.indexOf(f.name + ': ') === 0 }) }) }
+        else WB.treeUp = null
+      }
+      if (ok) {
+        window.showToast(t('workbench.treeup.done', { n: ok }))
+        if (soft.length) window.showToast(t('workbench.treeup.soft_note', { names: soft.map(function (m) { return m.name }).join(', ') }))
+      }
+      if (WB.projectId === projectId) { render(); refreshTree(false) }
+    })
+  }
+
   /** #529 (Boss TG 8585: "Eltűnt a lomtár"): ONE trash at the bottom of the list, always there (empty too), holding the
    *  deleted work items AND the files deleted here (those lie in the Life tree's Kuka meanwhile), each with Restore. */
   function trashHtml() {
@@ -2705,7 +2839,7 @@
       hideSw = hideSwitchHtml()
       body = (WB.items.length ? '' : emptyHintHtml()) + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
-    var foot = trashHtml() + rescueHtml()
+    var foot = treeUploadHtml() + trashHtml() + rescueHtml()
     var newBtn = ''
     var rest = ''
     // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
@@ -18741,6 +18875,7 @@
     if (!projectId) return
     WB.open = true
     WB.projectId = projectId
+    WB.treeUp = null
     WB.fileSel = {}
     WB.selName = ''
     WB.shares = null; WB.sharesFor = null; WB.sharesError = null; WB.sharesLoading = null
@@ -19006,6 +19141,14 @@
     }
     else if (a === 'mkfolder') { makeFolder() }
     else if (a === 'item-restore') setTrashed(act.getAttribute('data-wb-id'), false)
+    else if (a === 'treeup-cancel') { WB.treeUp = null; render() }
+    else if (a === 'treeup-go') treeUploadGo()
+    else if (a === 'treeup-here') treeUploadSend({})
+    else if (a === 'treeup-suggested') {
+      var rd = {}
+      ;((WB.treeUp && WB.treeUp.mism) || []).forEach(function (m) { if (m.suggested) rd[m.name] = m.suggested })
+      treeUploadSend(rd)
+    }
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
     else if (a === 'rescue-toggle') { WB.rescueOpen = !WB.rescueOpen; render() }
     else if (a === 'rescue-restore') runRescue(false)
@@ -20273,6 +20416,12 @@
       loadCompareSide(e.target.value)
       return
     }
+    if (e.target.id === 'wbTreeUpload') {
+      treeUploadStart(e.target.files)
+      try { e.target.value = '' } catch (_e) { /* old browser: harmless */ }
+      return
+    }
+    if (e.target.id === 'wbTreeUpDest') { if (WB.treeUp) WB.treeUp.dest = e.target.value; return }
     if (e.target.id === 'wbUploadNew') {
       var picked = e.target.files
       if (picked && picked.length) uploadFiles(picked, 'new')

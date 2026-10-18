@@ -2235,3 +2235,14 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 /* #698: a gentle "may be in the wrong place" note on a file row: amber, never red; the soft kind is paler still. */
 .wb-misplaced { display: inline-block; margin-left: 4px; font-size: 0.85em; line-height: 1; padding: 1px 4px; border-radius: 4px; cursor: help; color: var(--warning, #b45309); border: 1px solid color-mix(in srgb, var(--warning, #b45309) 55%, transparent); background: color-mix(in srgb, var(--warning, #b45309) 10%, transparent); }
 .wb-misplaced-soft { opacity: 0.6; border-style: dashed; background: transparent; }
+
+/* #700: file upload at the bottom of the left tree, above the Trash. */
+.wb-treeup { margin-top: 10px; }
+.wb-treeup-btn { display: inline-block; cursor: pointer; }
+.wb-treeup-panel { margin-top: 8px; padding: 10px; border: 1px solid var(--border, #d0d5dd); border-radius: 8px; background: var(--card-bg, transparent); }
+.wb-treeup-h { margin: 0 0 6px; font-size: 0.95rem; }
+.wb-treeup-lbl { display: block; font-weight: 600; margin: 6px 0 4px; }
+.wb-treeup-sel { width: 100%; max-width: 100%; box-sizing: border-box; }
+.wb-treeup-mism { margin: 0 0 8px; padding-left: 18px; }
+.wb-treeup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.wb-treeup-err { color: var(--warning, #b45309); }
