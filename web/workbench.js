@@ -16531,7 +16531,22 @@
         + '<p class="wb-hint">' + esc(t('workbench.fr.vid.empty_hint')) + '</p>'
         + (archived() ? '' : '<p>' + frVtAddRowHtml() + '</p>') + '</div>'
     }
-    return '<video class="wb-fr-video" id="wbVideo" src="' + escA(frVtSrcUrl(c)) + '" controls preload="metadata" playsinline></video>'
+    // #669 live preview: the picture sits in a frame of the OUTPUT shape and gets the clip's look, speed, turn/mirror,
+    // zoom, fade and background as CSS, so the owner sees the result without rendering. The native controls would
+    // turn and fade with the picture, hence the own bar below the frame. The finished render stays the source of truth.
+    var src = escA(frVtSrcUrl(c))
+    var layer = function (vid, cls) {
+      return '<div class="wb-fr-vpic ' + cls + '"><div class="wb-fr-vstage">' + vid + '</div></div>'
+    }
+    var bg = (vtDoc().background || 'blur') === 'blur'
+      ? layer('<video class="wb-fr-video wb-fr-vbgvid" id="wbVBg" src="' + src + '" muted preload="metadata" playsinline tabindex="-1" aria-hidden="true"></video>', 'wb-fr-vbg') : ''
+    return '<div class="wb-fr-vplayer" id="wbVPlayer" data-wb-clip="' + escA(c.id) + '">'
+      + '<div class="wb-fr-vbox" id="wbVBox"><div class="wb-fr-vframe" id="wbVFrame">' + bg
+      + layer('<video class="wb-fr-video" id="wbVideo" src="' + src + '" preload="metadata" playsinline></video>', 'wb-fr-vfg')
+      + '</div></div>'
+      + '<div class="wb-fr-vctl"><button type="button" class="wb-fr-tbtn2" id="wbVPlay" aria-label="' + escA(t('workbench.fr.vid.play')) + '" title="' + escA(t('workbench.fr.vid.play')) + '">\u25B6</button>'
+      + '<input type="range" id="wbVSeek" min="0" max="1" step="0.01" value="0" aria-label="' + escA(t('workbench.fr.vid.seek')) + '">'
+      + '<span class="wb-muted" id="wbVTime">0,0 s</span></div></div>'
   }
 
   var VT_TRANSITIONS = ['fade', 'fadeblack', 'slideleft', 'slideright', 'wipeleft']
@@ -16766,6 +16781,177 @@
       if (e.target && e.target.id === 'wbVideo') frVtPlayheadSync()
     }, true)
   })
+
+  // ---- #669 live preview engine (CSS on the player; the ffmpeg render is the truth, this is a close preview) ----
+
+  /** The CSS twin of each look in LOOK_FILTERS (src/workbench-video-render.ts). Close, not pixel-identical. */
+  var VT_LOOK_CSS = {
+    bw: 'grayscale(1)',
+    warm: 'sepia(0.25) saturate(1.1) hue-rotate(-6deg)',
+    cool: 'saturate(1.05) hue-rotate(12deg)',
+    vivid: 'saturate(1.5) contrast(1.1)',
+    fade: 'contrast(0.85) brightness(1.1) saturate(0.8)',
+    vintage: 'sepia(0.45) contrast(0.92) saturate(0.85)',
+  }
+  var VT_ASPECT = { '16:9': [16, 9], '9:16': [9, 16], '1:1': [1, 1] }
+  var vtLive = { raf: 0, ro: null }
+
+  /** Where the picture goes: frame size fw x fh, the picture (rotated size rw x rh) fitted by `mode`, zoom z, pan. Pure. */
+  function frVtGeometry(fw, fh, vw, vh, c, mode) {
+    var odd = c.rot === 90 || c.rot === 270
+    var rw = odd ? vh : vw
+    var rh = odd ? vw : vh
+    var sc = mode === 'cover' || mode === 'bg' ? Math.max(fw / rw, fh / rh) : Math.min(fw / rw, fh / rh)
+    var pw = rw * sc
+    var ph = rh * sc
+    var z = mode === 'bg' ? 1 : Math.max(1, c.zoom || 1)
+    var sw = pw * z
+    var sh = ph * z
+    var px = (c.panX || 0)
+    var py = (c.panY || 0)
+    return {
+      picW: pw, picH: ph, picL: (fw - pw) / 2, picT: (fh - ph) / 2,
+      stW: sw, stH: sh, stL: -(sw - pw) * (1 + px) / 2, stT: -(sh - ph) * (1 + py) / 2,
+      vidW: odd ? sh : sw, vidH: odd ? sw : sh, vidL: odd ? (sw - sh) / 2 : 0, vidT: odd ? (sh - sw) / 2 : 0,
+    }
+  }
+
+  function frVtVidTransform(c) {
+    var rot = c.rot || 0
+    var f = c.flip === 'h' ? 'scaleX(-1) ' : c.flip === 'v' ? 'scaleY(-1) ' : ''
+    return (f + (rot ? 'rotate(' + rot + 'deg)' : '')).trim() || 'none'
+  }
+
+  /** Size the frame to the output shape and place both layers. Safe to call any time (no-op until the video knows its size). */
+  function frVtLayout() {
+    var box = document.getElementById('wbVBox')
+    var frame = document.getElementById('wbVFrame')
+    var v = document.getElementById('wbVideo')
+    var c = frVtSelClip()
+    var doc = vtDoc()
+    if (!box || !frame || !v || !c || !doc || typeof box.getBoundingClientRect !== 'function') return
+    var r = box.getBoundingClientRect()
+    var asp = VT_ASPECT[doc.aspect] || VT_ASPECT['16:9']
+    if (!(r.width > 0 && r.height > 0)) return
+    var fw = Math.min(r.width, r.height * asp[0] / asp[1])
+    var fh = fw * asp[1] / asp[0]
+    frame.style.width = fw.toFixed(1) + 'px'
+    frame.style.height = fh.toFixed(1) + 'px'
+    if (!(v.videoWidth > 0 && v.videoHeight > 0)) return
+    var bgMode = doc.background || 'blur'
+    var place = function (vid, mode) {
+      if (!vid) return
+      var stage = vid.parentNode
+      var pic = stage && stage.parentNode
+      if (!stage || !pic) return
+      var g = frVtGeometry(fw, fh, v.videoWidth, v.videoHeight, c, mode)
+      var set = function (el, l, t2, w, h) { el.style.left = l.toFixed(1) + 'px'; el.style.top = t2.toFixed(1) + 'px'; el.style.width = w.toFixed(1) + 'px'; el.style.height = h.toFixed(1) + 'px' }
+      set(pic, g.picL, g.picT, g.picW, g.picH)
+      set(stage, g.stL, g.stT, g.stW, g.stH)
+      set(vid, g.vidL, g.vidT, g.vidW, g.vidH)
+      vid.style.transform = frVtVidTransform(c)
+    }
+    place(v, bgMode === 'crop' ? 'cover' : 'contain')
+    place(document.getElementById('wbVBg'), 'bg')
+  }
+
+  /** Look + speed of the picked clip, onto the player (and its blurred twin). */
+  function frVtApplyEffects() {
+    var v = document.getElementById('wbVideo')
+    var c = frVtSelClip()
+    var frame = document.getElementById('wbVFrame')
+    if (!v || !c || !frame) return
+    var look = VT_LOOK_CSS[c.look] || ''
+    frame.style.filter = look || 'none'
+    var rate = c.speed || 1
+    ;[v, document.getElementById('wbVBg')].forEach(function (el) { if (el && el.playbackRate !== rate) { try { el.playbackRate = rate } catch (_e) { /* not ready */ } } })
+    var bg = document.getElementById('wbVBg')
+    if (bg && bg.parentNode && bg.parentNode.parentNode) bg.parentNode.parentNode.style.filter = 'blur(24px)'
+  }
+
+  /** The fade in / out as opacity of the layers, from the playhead's place on the timeline (the cut divided by its speed). */
+  function frVtApplyFade() {
+    var v = document.getElementById('wbVideo')
+    var c = frVtSelClip()
+    var frame = document.getElementById('wbVFrame')
+    if (!v || !c || !frame || typeof v.currentTime !== 'number') return
+    var sp = c.speed || 1
+    var len = (c.end - c.start) / sp
+    var at = Math.min(len, Math.max(0, (v.currentTime - c.start) / sp))
+    var half = Math.max(0.05, len / 2)
+    var fin = c.fadeIn ? Math.min(c.fadeIn, half) : 0
+    var fout = c.fadeOut ? Math.min(c.fadeOut, half) : 0
+    var o = 1
+    if (fin && at < fin) o = Math.min(o, at / fin)
+    if (fout && at > len - fout) o = Math.min(o, (len - at) / fout)
+    var kids = frame.children
+    for (var i = 0; i < kids.length; i += 1) kids[i].style.opacity = o.toFixed(3)
+    v.volume = Math.max(0, Math.min(1, o))
+  }
+
+  /** The own control bar: button, scrubber and time follow the player; the cut [start,end] is the whole range. */
+  function frVtCtlSync() {
+    var v = document.getElementById('wbVideo')
+    var c = frVtSelClip()
+    if (!v || !c || typeof v.currentTime !== 'number') return
+    var sk = document.getElementById('wbVSeek')
+    var tm = document.getElementById('wbVTime')
+    var pb = document.getElementById('wbVPlay')
+    if (sk) { sk.min = c.start; sk.max = c.end; sk.value = Math.min(c.end, Math.max(c.start, v.currentTime)) }
+    if (tm) tm.textContent = vtSecs(Math.max(0, v.currentTime - c.start)) + ' / ' + vtSecs(c.end - c.start) + ' s'
+    if (pb) pb.textContent = v.paused ? '▶' : '⏸'
+  }
+
+  function frVtTick() {
+    vtLive.raf = 0
+    var v = document.getElementById('wbVideo')
+    var c = frVtSelClip()
+    if (!v || !c) return
+    if (!v.paused && v.currentTime >= c.end - 0.03) { v.pause(); try { v.currentTime = c.end } catch (_e) { /* ignore */ } }
+    var bg = document.getElementById('wbVBg')
+    if (bg && Math.abs(bg.currentTime - v.currentTime) > 0.25) { try { bg.currentTime = v.currentTime } catch (_e) { /* ignore */ } }
+    frVtApplyFade()
+    frVtCtlSync()
+    frVtPlayheadSync()
+    if (!v.paused && typeof window.requestAnimationFrame === 'function') vtLive.raf = window.requestAnimationFrame(frVtTick)
+  }
+
+  function frVtKick() {
+    if (!vtLive.raf && typeof window.requestAnimationFrame === 'function') vtLive.raf = window.requestAnimationFrame(frVtTick)
+    else if (typeof window.requestAnimationFrame !== 'function') frVtTick()
+  }
+
+  /** After each redraw: wire the fresh player (new elements every time, so no listener piles up). */
+  function frVtPlayerMount() {
+    var v = document.getElementById('wbVideo')
+    if (!v || !document.getElementById('wbVPlayer') || typeof v.addEventListener !== 'function') return
+    var bg = document.getElementById('wbVBg')
+    var c = frVtSelClip()
+    var relayout = function () { frVtLayout(); frVtApplyEffects(); frVtApplyFade(); frVtCtlSync() }
+    v.addEventListener('loadedmetadata', relayout)
+    v.addEventListener('play', function () { if (bg) { try { bg.currentTime = v.currentTime; bg.play() } catch (_e) { /* ignore */ } } frVtKick() })
+    v.addEventListener('pause', function () { if (bg) { try { bg.pause() } catch (_e) { /* ignore */ } } frVtKick() })
+    v.addEventListener('seeked', function () { if (bg) { try { bg.currentTime = v.currentTime } catch (_e) { /* ignore */ } } frVtKick() })
+    v.addEventListener('timeupdate', frVtKick)
+    var pb = document.getElementById('wbVPlay')
+    if (pb) pb.addEventListener('click', function () {
+      if (!v.paused) { v.pause(); return }
+      if (c && v.currentTime >= c.end - 0.05) { try { v.currentTime = c.start } catch (_e) { /* ignore */ } }
+      var p = v.play()
+      if (p && typeof p.catch === 'function') p.catch(function () { /* the browser refused: stays paused */ })
+    })
+    var vf = document.getElementById('wbVFrame')
+    if (vf) vf.addEventListener('click', function () { if (pb) pb.click() })
+    var sk = document.getElementById('wbVSeek')
+    if (sk) sk.addEventListener('input', function () { try { v.currentTime = Number(sk.value) } catch (_e) { /* not loaded yet */ } frVtKick() })
+    relayout()
+    if (typeof window.ResizeObserver === 'function') {
+      if (vtLive.ro) vtLive.ro.disconnect()
+      vtLive.ro = new window.ResizeObserver(function () { frVtLayout() })
+      var box = document.getElementById('wbVBox')
+      if (box) vtLive.ro.observe(box)
+    }
+  }
 
   function frVtAddFromStrip() {
     var el = document.getElementById('wbFrVtSrc')
@@ -18619,6 +18805,7 @@
     docEditMount()
     pdfEditMount()
     if (vidKeep) videoRestore(vidKeep)
+    frVtPlayerMount()
     frVtApplySeek()
     frVtPlayheadSync()
     WB.rendering = false
