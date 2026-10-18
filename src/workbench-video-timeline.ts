@@ -29,6 +29,9 @@ export const TIMELINE_EXT = '.timeline.json'
 export { isTimelineFile }
 
 export const TIMELINE_ASPECTS = ['16:9', '9:16', '1:1'] as const
+/** What fills the frame when a clip's shape does not match the output: its own blurred copy (default), black bars, or the picture cropped to fill. */
+export const TIMELINE_BACKGROUNDS = ['blur', 'letterbox', 'crop'] as const
+export type TimelineBackground = (typeof TIMELINE_BACKGROUNDS)[number]
 export type TimelineAspect = (typeof TIMELINE_ASPECTS)[number]
 /** Output size per aspect ratio: the platform sizes the owner expects (1080p / Reels / square). */
 export const ASPECT_SIZE: Record<TimelineAspect, { width: number; height: number }> = {
@@ -94,6 +97,8 @@ export interface TimelineOverlay {
 export interface TimelineDoc {
   version: 1
   aspect: TimelineAspect
+  /** Left out = 'blur' (the old behaviour), so stored timelines stay exactly as they were. */
+  background?: Exclude<TimelineBackground, 'blur'>
   /** Original sound of the clips, 0..1. */
   clip_volume: number
   clips: TimelineClip[]
@@ -249,6 +254,10 @@ export function parseTimeline(raw: unknown): TimelineParse {
     if (!(TIMELINE_ASPECTS as readonly unknown[]).includes(r.aspect)) return fail('timeline_bad_aspect', 'aspect must be 16:9, 9:16 or 1:1')
     doc.aspect = r.aspect as TimelineAspect
   }
+  if ('background' in r) {
+    if (!(TIMELINE_BACKGROUNDS as readonly unknown[]).includes(r.background)) return fail('timeline_bad_value', 'background must be blur, letterbox or crop')
+    if (r.background !== 'blur') doc.background = r.background as Exclude<TimelineBackground, 'blur'>
+  }
   if ('clip_volume' in r) {
     const v = num(r.clip_volume)
     if (v === null || v < 0 || v > 1) return fail('timeline_bad_value', 'clip_volume must be between 0 and 1')
@@ -370,7 +379,7 @@ type Op = Record<string, unknown>
  * addSubtitle {text,start,end,look?,anim?,pos?} (look classic|bold|yellow|box|title, anim none|fade|pop|slideup, pos bottom|middle|top),
  * updateSubtitle {id,text?,start?,end?,look?,anim?,pos?} ("" or the default clears a style field), removeSubtitle {id}, setMusic {src,volume?,duck?},
  * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?,key? green|blue|white|black},
- * updateOverlay {id,...}, removeOverlay {id}, setAspect {aspect}, setClipVolume {volume}.
+ * updateOverlay {id,...}, removeOverlay {id}, setAspect {aspect}, setBackground {background} (blur|letterbox|crop: what fills the frame when a clip does not match the output shape), setClipVolume {volume}.
  */
 export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineOpsResult {
   if (!Array.isArray(rawOps) || !rawOps.length) return fail('timeline_bad_op', 'ops must be a non-empty list')
@@ -612,6 +621,13 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (!(TIMELINE_ASPECTS as readonly unknown[]).includes(op.aspect)) return fail('timeline_bad_aspect', 'aspect must be 16:9, 9:16 or 1:1')
         doc.aspect = op.aspect as TimelineAspect
         applied.push({ op: name, id: null, note: `output is now ${doc.aspect}` })
+        break
+      }
+      case 'setBackground': {
+        if (!(TIMELINE_BACKGROUNDS as readonly unknown[]).includes(op.background)) return fail('timeline_bad_value', 'background must be blur, letterbox or crop')
+        if (op.background === 'blur') delete doc.background
+        else doc.background = op.background as Exclude<TimelineBackground, 'blur'>
+        applied.push({ op: name, id: null, note: `background is now ${String(op.background)}` })
         break
       }
       case 'setClipVolume': {

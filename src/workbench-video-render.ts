@@ -188,6 +188,22 @@ export function atempo(speed: number): string {
   return steps.map((x) => `,atempo=${fnum(x)}`).join('')
 }
 
+/**
+ * How a clip fills the output frame (doc.background): the default is the picture on a blurred copy of itself, `letterbox`
+ * is the whole picture on black bars, `crop` is the picture enlarged until it fills the frame (its edges are cut off).
+ * Every variant ends in `[v<i>]` with the same size, pixel format and time base.
+ */
+export function fitFilters(doc: TimelineDoc, i: number, W: number, H: number): string[] {
+  const tail = `setsar=1,format=yuv420p,settb=1/${RENDER_FPS}[v${i}]`
+  if (doc.background === 'crop') return [`[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},${tail}`, `[bg${i}]nullsink`]
+  if (doc.background === 'letterbox') return [`[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,${tail}`, `[bg${i}]nullsink`]
+  return [
+    `[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3[bb${i}]`,
+    `[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease[ff${i}]`,
+    `[bb${i}][ff${i}]overlay=(W-w)/2:(H-h)/2,${tail}`,
+  ]
+}
+
 /** The ffmpeg arguments for a timeline. Throws nothing; the caller checks the inputs first. */
 export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   const { width: W, height: H } = ASPECT_SIZE[doc.aspect]
@@ -213,9 +229,7 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
     const n = clipIdx[i]
     f.push(
       `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=(PTS-STARTPTS)/${fnum(c.speed ?? 1)},fps=${RENDER_FPS}${c.stab ? ',deshake' : ''}${frameFilter(c)}${lookFilter(c.look)}${fadeFilter(c, clipLen(c), 'v')},split=2[bg${i}][fg${i}]`,
-      `[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3[bb${i}]`,
-      `[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease[ff${i}]`,
-      `[bb${i}][ff${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p,settb=1/${RENDER_FPS}[v${i}]`,
+      ...fitFilters(doc, i, W, H),
     )
     if (inp.hasAudio[c.src]) {
       f.push(`[${n}:a]atrim=start=${fnum(c.start)}:end=${fnum(c.end)},asetpts=PTS-STARTPTS${atempo(c.speed ?? 1)}${fadeFilter(c, clipLen(c), 'a')},aresample=48000,aformat=channel_layouts=stereo,volume=${fnum(doc.clip_volume)}[a${i}]`)
