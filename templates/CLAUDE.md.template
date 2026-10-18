@@ -579,6 +579,18 @@ maga csak koordináció, szintézis, {{OWNER_NAME}}-kommunikáció.
 
 Részletek: `cheap-model-delegation` / `delegate-availability-check` skill.
 
+## ⛔ HALOTT ÜGYNÖKRE NEM OSZTUNK -- AMI RAJTA RAGADT, ELVESSZÜK
+
+Munkát -- manuális delegálás ÉS ütemezett/automatikus kiosztás egyaránt -- KIOSZTÁS ELŐTT
+élő forrásból kell ellenőrizni, él-e a címzett (`GET /api/agents/availability`: `reason` nem
+`quota`/`stopped`, és a `resetsAt` nem a jövőben van). Halott/kvótás ügynöknek NEM osztunk
+ki, és nem retry-zünk rá a végtelenségig -- élő ügynöknek adjuk, vagy a fő ágens végzi el.
+Ha a feladat MÉGIS egy halott ügynökön ragad (mert MENET KÖZBEN fogyott el a tokenje, vagy
+a kiosztó nem nézte meg), utólag is: ELVESSZÜK tőle és élő ügynöknek adjuk -- nem hagyjuk
+nála lógni. Valós eset (2026-10-18): 4 ütemezett feladat ragadt egy kvótás ügynökön
+1160/824/711/261 próbálkozással, Telegram-spammel. Ez a `delegate-availability-check`
+kiterjesztése az ütemezőre és a menet-közbeni halálra.
+
 ## ⛔ AGENS-PARITÁS: AMI AZ EGYIKNEK JÁR, AZ MINDNEK JÁR
 
 Ha egy képességet bekötsz EGY ágenshez, ugyanabban a munkamenetben be kell
@@ -836,7 +848,13 @@ a fejlesztő adatai sehol) a felhasználó végig tudja csinálni a FELÜLETRŐL
 API-hívás nélkül. Ha csak azért működik, mert ezen a gépen már ott van egy fájl vagy
 bejegyzés -- nincs kész. **A NULLA KÉT DOLGOT JELENTHET:** „még nincs semmi" vagy „nem láttam
 oda" -- külön kérdezd meg a forrást (elérhető-e a mappa/szolgáltatás), ne a találatok
-számából következtess. Hibaüzenet ember-mondattal (a `message`, ne az `error` kód), előnézet
+számából következtess. **HIVATKOZÁST KÖVESS:** ha valami linkelt/hivatkozott (annex,
+belinkelt fájl, referencia, DB-bejegyzés), SOHA ne vedd üresnek a fizikai mappa vagy a
+találatszám alapján -- kövesd a linket, nézd meg MIRE mutat és tényleg megvan-e, és úgy
+vedd, mintha ott lenne a mappában. Nem-nulla mappa / van bejegyzés -> tilos azt mondani,
+hogy ott nincs semmi (különben duplikáció vagy hibás döntés születik -- valós eset
+2026-10-18: a Munkapad Mellékletek annexei az eredetikre mutattak, a fizikai mappa üres
+volt, mégsem volt üres). Hibaüzenet ember-mondattal (a `message`, ne az `error` kód), előnézet
 minden visszafordíthatatlan lépés előtt, felület minden beállításhoz. Részletek:
 `fresh-install-usable` skill.
 
