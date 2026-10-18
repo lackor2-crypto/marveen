@@ -103,6 +103,7 @@ import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbenc
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS } from '../../workbench-video-timeline.js'
 import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
+import { getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
@@ -5528,29 +5529,65 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return true
     }
 
-    if (segs.length === 3 && segs[2] === 'render' && method === 'POST') {
-      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+    // The render, in two ways. Waiting (the agent, old callers): one request until the file is there. As a JOB (the editor, `async: true`):
+    // starts at once and answers 202; GET /render-status tells how far it is and, when it is done, carries the same body the waiting call returns.
+    const renderStatusFor = (): { status: number; body: Record<string, unknown> } => {
+      const job = getRenderJob(item.id)
+      return { status: 200, body: { job: jobStatus(job), ...(job && job.state === 'done' ? { result: job.result } : {}) } }
+    }
+    type RenderFailure = { status: number; code: string; detail: string | null }
+    const runRender = async (onProgress?: (f: number) => void): Promise<{ ok: true; body: Record<string, unknown> } | ({ ok: false } & RenderFailure)> => {
       const project = getProject(item.project_id)
-      if (!project) return fail(res, 404, 'project_not_found', lang)
+      if (!project) return { ok: false, status: 404, code: 'project_not_found', detail: null }
       const cur = store.read(item.id)
-      if (!cur.ok) return failDetail(res, tlStatus(cur.code), cur.code, lang, cur.detail)
-      const r = await renderTimeline(project, item.id, item.title, cur.doc)
+      if (!cur.ok) return { ok: false, status: tlStatus(cur.code), code: cur.code, detail: cur.detail ?? null }
+      const r = await renderTimeline(project, item.id, item.title, cur.doc, onProgress)
       if (!r.ok) {
         const status = r.code === 'video_busy' ? 409
           : r.code === 'video_no_ffmpeg' || r.code === 'video_ffmpeg_check_failed' || r.code === 'render_no_subtitle_filter' ? 503
           : r.code === 'video_failed' || r.code === 'video_timeout' || r.code === 'write_failed' ? 500 : 400
-        return failDetail(res, status, r.code, lang, ('detail' in r && r.detail) || null)
+        return { ok: false, status, code: r.code, detail: ('detail' in r && r.detail) || null }
       }
       // The version that holds exactly the timeline that was rendered; the mp4 is recorded on it.
       const v = store.saveVersion(item, { reason: 'export', actor: actor(ctx), metadata: {} })
       const versionId = v.ok ? v.version.id : cur.version_id
       if (versionId) setWorkItemVersionMeta(versionId, { render: { rel: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes } })
       const last = lastRenderOf(item.id)
-      json(res, {
-        ok: true, file: r.file, seconds: r.seconds, item: getWorkItem(item.id) || item, versions: listWorkItemVersionsView(item.id),
-        last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: true } : null,
-        ...tlState(), message: msg('timeline_rendered', lang),
-      }, 201)
+      return {
+        ok: true,
+        body: {
+          ok: true, file: r.file, seconds: r.seconds, item: getWorkItem(item.id) || item, versions: listWorkItemVersionsView(item.id),
+          last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: true } : null,
+          ...tlState(), message: msg('timeline_rendered', lang),
+        },
+      }
+    }
+
+    if (segs.length === 3 && segs[2] === 'render-status' && method === 'GET') {
+      const st = renderStatusFor()
+      json(res, st.body, st.status)
+      return true
+    }
+
+    if (segs.length === 3 && segs[2] === 'render' && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const body = await readJson(req)
+      if (body && body['async'] === true) {
+        const cur = store.read(item.id)
+        if (!cur.ok) return failDetail(res, tlStatus(cur.code), cur.code, lang, cur.detail)
+        if (!cur.doc.clips.length) return fail(res, 400, 'render_empty', lang)
+        const job = startRenderJob(item.id, async (progress) => {
+          const out = await runRender(progress)
+          if (!out.ok) throw { status: out.status, code: out.code, detail: out.detail }
+          return out.body
+        })
+        if (!job) return fail(res, 409, 'video_busy', lang)
+        json(res, { job: jobStatus(job) }, 202)
+        return true
+      }
+      const out = await runRender()
+      if (!out.ok) return failDetail(res, out.status, out.code, lang, out.detail)
+      json(res, out.body, 201)
       return true
     }
   }
