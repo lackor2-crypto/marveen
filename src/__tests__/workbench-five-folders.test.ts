@@ -60,7 +60,9 @@ describe('the five standard folders of a work item', () => {
     if (!f.ok) throw new Error('folder')
     const r = createReportDocument(pid, { title: 'Vitáztatás jelentés: X', sections: [{ title: 'S', paragraphs: ['p'] }] } as never, 'test', { originItem: w.item.id })
     expect(r.ok).toBe(true)
-    expect(subs(`${f.folder}/Vitáztatás`)).toEqual([])
+    // #699: the report goes into the "jelentés" subfolder of the Debate folder, and nothing else is made in either
+    expect(subs(`${f.folder}/Vitáztatás`)).toEqual(['jelentés'])
+    expect(subs(`${f.folder}/Vitáztatás/jelentés`)).toEqual([])
   })
 
   it('an existing item folder is topped up with the missing EMPTY folders; content and the first-generation names stay', () => {

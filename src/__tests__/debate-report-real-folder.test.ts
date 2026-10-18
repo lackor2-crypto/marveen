@@ -40,7 +40,7 @@ describe('debate report folder, real folders', () => {
     if (!r.ok) throw new Error(r.code)
     const of = getWorkItem(o)!.folder
     expect(of).toBeTruthy()
-    expect(r.item.folder).toBe(`${of}/Vitáztatás`)
+    expect(r.item.folder).toBe(`${of}/Vitáztatás/jelentés`)
     expect(existsSync(join(dir, 'P', 'Hivatal', r.item.folder!))).toBe(true)
   })
   it('a second report goes into the same item folder (English name on an English install)', () => {
@@ -49,13 +49,42 @@ describe('debate report folder, real folders', () => {
     const second = createReportDocument(pid, report, null, { originItem: o, lang: 'en' })
     if (!first.ok || !second.ok) throw new Error('report')
     const of = getWorkItem(o)!.folder
-    expect(second.item.folder).toBe(`${of}/Vitáztatás`) // the item folder already has its debate folder (made with it); an English report reuses it, no twin
+    expect(second.item.folder).toBe(`${of}/Vitáztatás/jelentés`) // the item folder already has its debate folder (made with it); an English report reuses it, no twin
   })
   it('no origin: one shared Debate report folder of the box, never one per report', () => {
     const a = createReportDocument(pid, report, null, { originItem: null, lang: 'hu' })
     const b = createReportDocument(pid, report, null, { originItem: null, lang: 'hu' })
     if (!a.ok || !b.ok) throw new Error('report')
     expect(a.item.folder).toBe(b.item.folder)
-    expect(a.item.folder!.endsWith('/Vitáztatás')).toBe(true)
+    expect(a.item.folder!.endsWith('/Vitáztatás/jelentés')).toBe(true)
+  })
+})
+
+describe('#699 (Boss TG 9746): the report goes into the "jelentés" subfolder of the Debate folder', () => {
+  it('the Debate folder itself stays free for other material', () => {
+    const o = origin('Wohngeld 2026')
+    const r = createReportDocument(pid, report, null, { originItem: o, lang: 'hu' })
+    if (!r.ok) throw new Error(r.code)
+    const of = getWorkItem(o)!.folder!
+    expect(r.item.folder).toBe(`${of}/Vitáztatás/jelentés`)
+    expect(existsSync(join(dir, 'P', 'Hivatal', of, 'Vitáztatás'))).toBe(true)
+  })
+  it('an English install gets Debate/report', () => {
+    const o = origin('Wohngeld EN')
+    // the item folder already has its Hungarian-named debate folder? no: remove it so the English name is made
+    const r = createReportDocument(pid, report, null, { originItem: o, lang: 'en' })
+    if (!r.ok) throw new Error(r.code)
+    expect(/\/(Debate|Vitáztatás)\/(report|jelentés)$/.test(r.item.folder!)).toBe(true)
+  })
+  it('a "jelentés" folder the owner deleted is not made again: the report lands in the Debate folder', () => {
+    const o = origin('Wohngeld 2026')
+    const first = createReportDocument(pid, report, null, { originItem: o, lang: 'hu' })
+    if (!first.ok) throw new Error(first.code)
+    const of = getWorkItem(o)!.folder!
+    rmSync(join(dir, 'P', 'Hivatal', of, 'Vitáztatás', 'jelentés'), { recursive: true, force: true })
+    const second = createReportDocument(pid, report, null, { originItem: o, lang: 'hu' })
+    if (!second.ok) throw new Error(second.code)
+    expect(second.item.folder).toBe(`${of}/Vitáztatás`)
+    expect(existsSync(join(dir, 'P', 'Hivatal', of, 'Vitáztatás', 'jelentés'))).toBe(false)
   })
 })
