@@ -2231,3 +2231,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
    belongs and the paleness plus the icon shows it is only a link. */
 .wb-grp.wb-linked-row { background: color-mix(in srgb, var(--wb-grp) calc(var(--wb-grp-a, 22%) * 0.45), transparent); border-left-color: color-mix(in srgb, var(--wb-grp) 55%, transparent); }
 .wb-grp.wb-linked-row.wb-item-active, .wb-grp.wb-linked-row:has(> .wb-item-active) { background: color-mix(in srgb, var(--wb-grp) calc(var(--wb-grp-a-on, 26%) * 0.45), transparent); }
+
+/* #698: a gentle "may be in the wrong place" note on a file row: amber, never red; the soft kind is paler still. */
+.wb-misplaced { display: inline-block; margin-left: 4px; font-size: 0.85em; line-height: 1; padding: 1px 4px; border-radius: 4px; cursor: help; color: var(--warning, #b45309); border: 1px solid color-mix(in srgb, var(--warning, #b45309) 55%, transparent); background: color-mix(in srgb, var(--warning, #b45309) 10%, transparent); }
+.wb-misplaced-soft { opacity: 0.6; border-style: dashed; background: transparent; }

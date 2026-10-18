@@ -1732,6 +1732,16 @@
   var FAV_KEY = '*favorites*'
   var ROOT_KEY = '*root*'
 
+  /** #698: a gentle "this may be in the wrong place" mark on a file row. Never red (it is a note, not an error), and it
+   *  moves nothing: the title says why and what to do. `soft` marks only a note (an outside opinion, the Agent folder). */
+  function misplacedBadgeHtml(f) {
+    var m = f && f.misplaced
+    if (!m || !m.code) return ''
+    var key = 'workbench.misplaced.' + m.code + (m.soft && m.code === 'not_report_in_debate' ? '_soft' : '')
+    var tip = t(key)
+    return ' <span class="wb-misplaced' + (m.soft ? ' wb-misplaced-soft' : '') + '" role="img" tabindex="0" aria-label="' + escA(t('workbench.misplaced.badge') + ': ' + tip) + '" title="' + escA(tip) + '">\u21aa</span>'
+  }
+
   /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
   function plainFileRowHtml(f, depth, grp) {
     WB.linkedFiles = WB.linkedFiles || {}
@@ -1762,7 +1772,7 @@
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(f.name + ' \u2014 ' + t('workbench.file.open')) + '">'
-      + '<span class="wb-item-title">\ud83d\udcc4 ' + (f.linked ? '<span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' : '') + esc(f.name) + '</span>'
+      + '<span class="wb-item-title">\ud83d\udcc4 ' + (f.linked ? '<span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' : '') + esc(f.name) + misplacedBadgeHtml(f) + '</span>'
       + '<span class="wb-item-meta">' + esc(kb) + '</span></a>'
       + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="file-ctx" data-wb-rel="' + escA(f.rel) + '" aria-haspopup="menu"'
         + ' aria-label="' + escA(t('workbench.ctx.more_file')) + '" title="' + escA(t('workbench.ctx.more_file')) + '">&#8943;</button>')
