@@ -1430,12 +1430,14 @@
     // neighbouring items); the folders inside it are LIGHTER and vivid, with hues far apart (>= 90 degrees between ones
     // handed out one after the other) and lightness that differs too, so they also differ for colour-blind eyes. None sits
     // near the indigo. Slots restart for every work item, so its 5-6 standard folders always get the 6 distinct slots.
-    if (g < 0) return GRP_ITEM[(-g - 1) % GRP_ITEM.length]
+    if (g < 0) return 'hsl(' + Math.round((GRP_ITEM_HUE0 + (-g - 1) * 137.508) % 360) + ' ' + GRP_ITEM_SL[0] + '% ' + GRP_ITEM_SL[1] + '%)'
     var p = GRP_FOLDER[g % GRP_FOLDER.length]
     return 'hsl(' + p[0] + ' ' + p[1] + '% ' + (Math.floor(g / GRP_FOLDER.length) % 2 ? p[2] - 12 : p[2]) + '%)'
   }
-  var GRP_ITEM = ['hsl(232 62% 30%)', 'hsl(248 55% 32%)']
-  var GRP_FOLDER = [[25, 95, 52], [150, 70, 42], [325, 85, 62], [55, 95, 46], [180, 85, 52], [295, 70, 66]]
+  // #693 (Boss TG 9632): every work item gets its OWN dark hue (golden angle steps, so any 8 items are >= 30 degrees apart).
+  var GRP_ITEM_HUE0 = 232
+  var GRP_ITEM_SL = [60, 22]
+  var GRP_FOLDER = [[25, 95, 52], [150, 70, 48], [325, 85, 62], [55, 95, 48], [180, 85, 52], [295, 70, 66]]
   /** The inline style of a tinted row: the colour and how strongly it shows (the dark item tint is stronger). */
   function grpVars(g) { return '--wb-grp: ' + grpHsl(g) + '; --wb-grp-a: ' + (g < 0 ? '40%' : '24%') + '; --wb-grp-a-on: ' + (g < 0 ? '46%' : '30%') }
 
