@@ -336,7 +336,14 @@ export function resolveMedia(project: ProjectRow, src: string): { ok: true; abs:
   return { ok: true, abs }
 }
 
-export async function renderTimeline(project: ProjectRow, itemId: string, title: string, doc: TimelineDoc): Promise<RenderResult> {
+/** The seconds of finished output in a chunk of ffmpeg `-progress` text (the last `out_time_us` / `out_time_ms` line; both are microseconds). */
+export function progressSeconds(chunk: string): number | null {
+  let last: number | null = null
+  for (const m of chunk.matchAll(/^out_time_(?:us|ms)=(\d+)\s*$/gm)) last = Number(m[1]) / 1_000_000
+  return last
+}
+
+export async function renderTimeline(project: ProjectRow, itemId: string, title: string, doc: TimelineDoc, onProgress?: (fraction: number) => void): Promise<RenderResult> {
   if (!doc.clips.length) return { ok: false, code: 'render_empty' }
   if (videoBusy.has(itemId)) return { ok: false, code: 'video_busy' }
   videoBusy.add(itemId)
@@ -386,7 +393,19 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
     const out = videoTarget(project, (item && outFolder && outFolder === String(item.folder ?? '').trim() && finishedFolderFor(project, outFolder)) || outFolder, `${stem}.mp4`)
     if (!out.ok) return out
     const args = buildRender(doc, { abs, hasAudio, assPath, out: out.abs })
-    const r = await videoRunTo(ff.path, args, out.abs, RENDER_TIMEOUT_MS)
+    let tap: ((chunk: string) => void) | undefined
+    if (onProgress) {
+      // -progress writes key=value lines (one block per second) to stderr; the output length so far / the planned length is the progress.
+      args.splice(1, 0, '-progress', 'pipe:2', '-stats_period', '1')
+      const total = Math.max(0.1, timelineDuration(doc))
+      let rest = ''
+      tap = (chunk: string) => {
+        rest = (rest + chunk).slice(-2000)
+        const sec = progressSeconds(rest)
+        if (sec !== null) onProgress(Math.min(0.99, Math.max(0, sec / total)))
+      }
+    }
+    const r = await videoRunTo(ff.path, args, out.abs, RENDER_TIMEOUT_MS, tap)
     if (!r.ok) return r
     return { ok: true, file: { rel: out.rel, name: out.name, bytes: r.bytes }, seconds: timelineDuration(doc) }
   } finally {

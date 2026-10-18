@@ -7316,6 +7316,8 @@
         WB.vtError = { message: r.message, detail: (r.data && r.data.detail) || '' }
       } else {
         WB.vt = r.data && r.data.timeline ? r.data : null
+        // A render started before this page was (re)loaded may still be running: show its progress again.
+        if (WB.vt && !WB.vtRender) vtRenderResume(itemId)
       }
       render()
       loadVideoMedia()
@@ -7403,16 +7405,87 @@
   /** Making the mp4 takes a while: one at a time, and the button says so. */
   function vtRenderNow() {
     if (!WB.selectedId || WB.vtBusy || WB.vtRender || archived()) return
+    var itemId = WB.selectedId
     WB.vtRender = true
+    WB.vtRenderPct = 0
+    WB.vtRenderSecs = 0
     WB.vtError = null
     render()
-    api('POST', vtUrl('/render'), {}).then(function (r) {
+    // As a job: a render takes minutes, longer than one request is kept open (a phone, a proxy, a restart would lose it).
+    api('POST', vtUrl('/render'), { async: true }).then(function (r) {
+      if (r.ok || (r.data && r.data.error === 'video_busy')) { vtRenderPoll(itemId); return }
       WB.vtRender = false
-      if (!r.ok) { vtFail(r); render(); return }
-      vtTake(r.data)
-      window.showToast(r.data.message || t('workbench.vt.rendered'))
+      vtFail(r)
       render()
     })
+  }
+
+  /** A render that is already running (started before a reload, or in another window): follow it. */
+  function vtRenderResume(itemId) {
+    api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/timeline/render-status').then(function (r) {
+      if (!r.ok || WB.selectedId !== itemId || WB.vtRender) return
+      var job = r.data && r.data.job
+      if (job && job.state === 'running') {
+        WB.vtRender = true
+        WB.vtRenderPct = job.progress || 0
+        WB.vtRenderSecs = job.elapsed || 0
+        render()
+        vtRenderPoll(itemId)
+      }
+    })
+  }
+
+  var vtRenderTimer = null
+  /** Asks every two seconds how far the render is; the bar and the button text change in place (no redraw: the player keeps playing). */
+  function vtRenderPoll(itemId) {
+    if (vtRenderTimer) { clearTimeout(vtRenderTimer); vtRenderTimer = null }
+    vtRenderTimer = setTimeout(function () {
+      vtRenderTimer = null
+      api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/timeline/render-status').then(function (r) {
+        if (WB.selectedId !== itemId) { WB.vtRender = false; return }
+        var job = r.ok && r.data ? r.data.job : null
+        if (r.ok && job && job.state === 'running') {
+          WB.vtRenderPct = job.progress || 0
+          WB.vtRenderSecs = job.elapsed || 0
+          vtRenderPaint()
+          vtRenderPoll(itemId)
+          return
+        }
+        if (!r.ok) { vtRenderPoll(itemId); return }   // a network blip: keep asking
+        WB.vtRender = false
+        if (job && job.state === 'done' && r.data.result) {
+          vtTake(r.data.result)
+          window.showToast(r.data.result.message || t('workbench.vt.rendered'))
+        } else if (job && job.state === 'error' && job.error) {
+          WB.vtError = { message: t('workbench.vt.render_failed', { code: job.error.code }), detail: job.error.detail || '' }
+        } else {
+          // Nothing is running and nothing finished: the dashboard was restarted meanwhile.
+          WB.vtError = { message: t('workbench.vt.render_interrupted'), detail: '' }
+        }
+        render()
+      })
+    }, 2000)
+  }
+
+  function vtRenderLabel() {
+    var pct = Math.min(99, Math.floor((WB.vtRenderPct || 0) * 100))
+    var s = WB.vtRenderSecs || 0
+    return t('workbench.vt.rendering_pct', { pct: pct, time: Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2) })
+  }
+
+  function vtRenderPaint() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var label = vtRenderLabel()
+    var btns = document.querySelectorAll('[data-wb-act="vt-render"]')
+    for (var i = 0; i < btns.length; i += 1) btns[i].textContent = label
+    var bars = document.querySelectorAll('.wb-vt-progress > span')
+    for (var k = 0; k < bars.length; k += 1) bars[k].style.width = Math.min(99, Math.floor((WB.vtRenderPct || 0) * 100)) + '%'
+  }
+
+  function vtRenderBarHtml() {
+    if (!WB.vtRender) return ''
+    return '<div class="wb-vt-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + Math.floor((WB.vtRenderPct || 0) * 100) + '"><span style="width:' + Math.min(99, Math.floor((WB.vtRenderPct || 0) * 100)) + '%"></span></div>'
+      + '<p class="wb-hint">' + esc(t('workbench.vt.render_keep_going')) + '</p>'
   }
 
   /** Subtitles from the speech, by the recogniser on THIS machine: one request, takes about as long as the clips. */
@@ -7692,7 +7765,7 @@
       + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtOverlaysHtml(doc)
       + '<p>' + vtNumField('clip-volume', '', Math.round(doc.clip_volume * 100), t('workbench.vt.clip_volume')) + vtBtn('vt-volume', t('workbench.vt.save')) + '</p>'
       + '<p><button type="button" class="btn-primary" data-wb-act="vt-render"' + (WB.vtBusy || WB.vtRender || archived() || !doc.clips.length ? ' disabled' : '') + '>'
-      + esc(WB.vtRender ? t('workbench.vt.rendering') : t('workbench.vt.render')) + '</button></p>'
+      + esc(WB.vtRender ? vtRenderLabel() : t('workbench.vt.render')) + '</button></p>' + vtRenderBarHtml()
       + (last ? '<p class="wb-muted">' + esc(t(last.current ? 'workbench.vt.last_current' : 'workbench.vt.last_old')) + '</p>'
         + '<video controls preload="metadata" style="max-width:100%" src="' + escA(last.url) + '"></video>' : '')
       + '</div>'
@@ -16688,7 +16761,7 @@
       + btn('vt-clip-del', '🗑 ' + esc(t('workbench.vt.remove')), t('workbench.vt.remove_hint'), !sel, sel && sel.id)
       + '<span class="wb-fr-tl-sp"></span>'
       + (archived() ? '' : '<button type="button" class="btn-primary wb-fr-tl-render" data-wb-act="vt-render"' + (busy || !clips.length ? ' disabled' : '')
-        + ' title="' + escA(t('workbench.fr.vid.render_hint')) + '">' + esc(WB.vtRender ? t('workbench.vt.rendering') : t('workbench.fr.vid.render')) + '</button>')
+        + ' title="' + escA(t('workbench.fr.vid.render_hint')) + '">' + esc(WB.vtRender ? vtRenderLabel() : t('workbench.fr.vid.render')) + '</button>')
       + '<span class="wb-muted wb-fr-tl-len">' + esc(t('workbench.vt.length', { s: vtSecs((WB.vt && WB.vt.duration) || 0) })) + '</span>'
       + (archived() ? '' : frVtAddRowHtml())
       + '</div>'
@@ -16702,6 +16775,7 @@
           + (sel ? '<p class="wb-fr-tl-sel" id="wbTlSel">' + esc(t('workbench.fr.vid.selected', { name: sel.src.split('/').pop(), s: vtSecs(Math.max(0.1, sel.end - sel.start)) })) + '</p>' : '')
           + '<p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
         : '')
+      + vtRenderBarHtml()
       + vtResultHtml('fr')
       + '</div>'
   }
