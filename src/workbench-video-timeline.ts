@@ -67,6 +67,9 @@ export interface TimelineMusic {
   /** Lower the music while the clips speak (side-chain compression). */
   duck: boolean
 }
+/** Background colours an overlay picture can be keyed out of (#669 phase B); absent = no key. */
+export const OVERLAY_KEYS = ['green', 'blue', 'white', 'black'] as const
+export type OverlayKey = (typeof OVERLAY_KEYS)[number]
 export interface TimelineOverlay {
   id: string
   src: string
@@ -77,6 +80,8 @@ export interface TimelineOverlay {
   y: number
   width: number
   opacity: number
+  /** Make this background colour of the picture transparent (green screen, a logo on white, ...). */
+  key?: OverlayKey
 }
 export interface TimelineDoc {
   version: 1
@@ -263,7 +268,9 @@ export function parseTimeline(raw: unknown): TimelineParse {
     if (x === null || y === null || w === null || op === null || x < 0 || x > 1 || y < 0 || y > 1 || w < 0.02 || w > 1 || op < 0 || op > 1) {
       return fail('timeline_bad_value', 'overlay x, y, width and opacity must be shares between 0 and 1 (width at least 0.02)')
     }
-    doc.overlays.push({ id: id(o, 'o'), src: o.src.trim(), start: s.start, end: s.end, x: round3(x), y: round3(y), width: round3(w), opacity: round3(op) })
+    const keyRaw = o.key === undefined || o.key === null || o.key === '' || o.key === 'none' ? undefined : o.key
+    if (keyRaw !== undefined && !OVERLAY_KEYS.includes(keyRaw as OverlayKey)) return fail('timeline_bad_style', `the overlay key must be one of: none, ${OVERLAY_KEYS.join(', ')}`)
+    doc.overlays.push({ id: id(o, 'o'), src: o.src.trim(), start: s.start, end: s.end, x: round3(x), y: round3(y), width: round3(w), opacity: round3(op), ...(keyRaw ? { key: keyRaw as OverlayKey } : {}) })
   }
   return { ok: true, doc }
 }
@@ -315,7 +322,7 @@ type Op = Record<string, unknown>
  * setSpeed {id,speed} (0.25 to 4, 1 = normal), setClipLook {id,look} (none|bw|warm|cool|vivid|fade|vintage; "none" clears it), setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
  * addSubtitle {text,start,end,look?,anim?,pos?} (look classic|bold|yellow|box|title, anim none|fade|pop|slideup, pos bottom|middle|top),
  * updateSubtitle {id,text?,start?,end?,look?,anim?,pos?} ("" or the default clears a style field), removeSubtitle {id}, setMusic {src,volume?,duck?},
- * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?},
+ * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?,key? green|blue|white|black},
  * updateOverlay {id,...}, removeOverlay {id}, setAspect {aspect}, setClipVolume {volume}.
  */
 export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineOpsResult {
@@ -484,7 +491,7 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         break
       case 'addOverlay': {
         if (doc.overlays.length >= TIMELINE_MAX_OVERLAYS) return fail('timeline_too_many', `at most ${TIMELINE_MAX_OVERLAYS} overlays`)
-        const p = parseTimeline({ overlays: [{ src: op.src, start: op.start, end: op.end, x: op.x, y: op.y, width: op.width, opacity: op.opacity }] })
+        const p = parseTimeline({ overlays: [{ src: op.src, start: op.start, end: op.end, x: op.x, y: op.y, width: op.width, opacity: op.opacity, key: op.key }] })
         if (!p.ok) return p
         const id = nextId('o', doc.overlays.map((x) => x.id))
         doc.overlays.push({ ...p.doc.overlays[0], id })
@@ -497,10 +504,11 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         const p = parseTimeline({
           overlays: [{
             src: op.src ?? c.src, start: op.start ?? c.start, end: op.end ?? c.end,
-            x: op.x ?? c.x, y: op.y ?? c.y, width: op.width ?? c.width, opacity: op.opacity ?? c.opacity,
+            x: op.x ?? c.x, y: op.y ?? c.y, width: op.width ?? c.width, opacity: op.opacity ?? c.opacity, key: op.key === undefined ? c.key : op.key,
           }],
         })
         if (!p.ok) return p
+        delete c.key
         Object.assign(c, { ...p.doc.overlays[0], id: c.id })
         applied.push({ op: name, id: c.id, note: 'updated' })
         break
