@@ -93,3 +93,41 @@ export function annotateMisplaced(box: string, files: Record<string, FileLike[]>
     }
   }
 }
+
+/** #700: the verdict for a file about to be uploaded into `dest` (a project-relative folder), and the folder it would
+ *  rather go to. The folder chosen by the owner is never refused: `soft` advice is only a note after the upload, hard
+ *  advice a question ("put it here anyway / to the suggested place"). `suggested` is null when no better folder exists
+ *  (the name says nothing, or the item has no such standard subfolder). */
+export type UploadAdvice = { ok: true } | { ok: false; code: MisplacedCode; soft: boolean; suggested: string | null }
+
+const KIND_TARGET_ROLE: Record<FileKind, Exclude<FolderRole, 'box'>> = {
+  attachment: 'attachments', finished: 'finished', debate_report: 'debate', external_opinion: 'debate',
+}
+
+export function adviseUpload(box: string, dest: string, name: string, folders: readonly string[], itemFolders: ReadonlySet<string>): UploadAdvice {
+  const d = String(dest ?? '').replace(/^\/+|\/+$/g, '')
+  const cut = d.lastIndexOf('/')
+  const parent = cut > 0 ? d.slice(0, cut) : ''
+  let role: FolderRole | null = null
+  if (d === box) role = 'box'
+  else if (parent && itemFolders.has(parent)) role = roleOfFolderName(d.slice(cut + 1))
+  const verdict = misplacedFor(role, name)
+  if (!verdict) return { ok: true }
+  let suggested: string | null = null
+  const kind = fileKindGuess(name)
+  // Only a file we can place by name is moved on paper, and only within an item folder (the parent of a role folder).
+  if (kind && role && role !== 'box' && parent) {
+    const want = KIND_TARGET_ROLE[kind]
+    if (want !== role) {
+      const hit = folders.find((f) => f.startsWith(parent + '/') && !f.slice(parent.length + 1).includes('/') && roleOfFolderName(f.slice(parent.length + 1)) === want)
+      if (hit) {
+        // A debate report belongs in the report subfolder of the Debate folder when it exists (#699).
+        const sub = want === 'debate' && kind === 'debate_report'
+          ? folders.find((f) => f.startsWith(hit + '/') && !f.slice(hit.length + 1).includes('/') && /^(jelent[eé]s|report)$/i.test(f.slice(hit.length + 1)))
+          : undefined
+        suggested = sub ?? hit
+      }
+    }
+  }
+  return { ok: false, code: verdict.code, soft: !!verdict.soft, suggested }
+}

@@ -155,7 +155,7 @@ import {
   makeFreshFolder, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset, attachChatReference,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
-  workFolderTarget, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
+  workFolderTarget, adviseUploadPlaces, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder, findWorkItemsBox,
   renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
   folderNameFromTitle,
@@ -3411,7 +3411,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
-  if (path !== '/api/workbench/items' && !path.startsWith('/api/workbench/items/')) return false
+  if (path !== '/api/workbench/items' && path !== '/api/workbench/upload-advice' && !path.startsWith('/api/workbench/items/')) return false
 
   if (path === '/api/workbench/items' && method === 'GET') {
     const pid = (url.searchParams.get('project') || '').trim()
@@ -3600,6 +3600,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   // telefonrol is. A nyers bajtok jonnek, a nev a query-ben (ekezetes nev sem
   // torik el). A fajl a projekt mappajaba kerul, foglalt nevnel UJ nevet kap
   // (sosem ir felul), es egy uj munkadarab szuletik, aminek ez a forrasa.
+  // #700: before a file goes into a folder chosen in the tree, ask where it would rather live. Advice only: nothing is
+  // moved, written or refused here (the owner's choice stands).
+  if (path === '/api/workbench/upload-advice' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const project = getProject(String(body['project_id'] ?? '').trim())
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const names = (Array.isArray(body['names']) ? body['names'] : []).map((n) => String(n ?? '')).filter(Boolean).slice(0, 200)
+    const r = adviseUploadPlaces(project, body['folder'], names)
+    if (!r.ok) return fail(res, 400, r.code, lang)
+    json(res, { ok: true, advice: r.advice })
+    return true
+  }
+
   if (path === '/api/workbench/items/upload' && method === 'POST') {
     const pid = (url.searchParams.get('project') || '').trim()
     if (!pid) return fail(res, 400, 'project_required', lang)

@@ -15,7 +15,7 @@
  *     es a felulet megmondja, milyen neven mentettuk.
  */
 import { ol } from './owner-lang.js'
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { extname, join, sep } from 'node:path'
 import { getDb } from './db.js'
@@ -51,7 +51,17 @@ export function projectFileTarget(p: ProjectRow, sub: unknown): FileTarget {
   // A MOUNT (e.g. the repos under GIT_REPOS) really lives elsewhere on disk, but the
   // Explorer shows it here -- the project tree must follow it, so a mount is not "outside".
   const viaMount = !!subRel && !!resolveMount(`${p.folder_path}/${subRel}`)
-  if (!abs || (abs !== base && !abs.startsWith(base + sep) && !viaMount)) return { ok: false, code: 'bad_folder' }
+  // A folder link on the disk (a symlink inside the project, #700) also leads out of the project folder on purpose;
+  // resolveLifePath above already kept it inside the depot.
+  let viaLink = false
+  if (subRel && !viaMount) {
+    let cur = base
+    for (const seg of subRel.split('/')) {
+      cur = join(cur, seg)
+      try { if (lstatSync(cur).isSymbolicLink()) { viaLink = true; break } } catch { break }
+    }
+  }
+  if (!abs || (abs !== base && !abs.startsWith(base + sep) && !viaMount && !viaLink)) return { ok: false, code: 'bad_folder' }
   if (!existsSync(abs)) return { ok: false, code: 'bad_folder' }
   try { if (!statSync(abs).isDirectory()) return { ok: false, code: 'bad_folder' } } catch { return { ok: false, code: 'unreachable' } }
   return { ok: true, dirAbs: abs, dirRel: toLifeRel(abs) || (subRel ? `${p.folder_path}/${subRel}` : p.folder_path) }
