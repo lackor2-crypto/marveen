@@ -4,6 +4,8 @@ import {
   firstWorkingAgent,
   pickAnyTarget,
   decideVerifyStarted,
+  shouldReassignFromDeadAgent,
+  DEAD_AGENT_REASSIGN_AFTER,
   QUOTA_SNAPSHOT_MAX_AGE_MS,
   VERIFY_STARTED_WINDOW_MS,
 } from '../web/agent-availability.js'
@@ -98,5 +100,19 @@ describe('decideVerifyStarted', () => {
 
   it('re-fires only on a PROVABLE non-start: window elapsed, never busy, agent at its wall', () => {
     expect(decideVerifyStarted({ injectedAt: NOW, sawBusy: false, blockedNow: true }, NOW + VERIFY_STARTED_WINDOW_MS + 1)).toBe('refire')
+  })
+})
+
+describe('shouldReassignFromDeadAgent (#702)', () => {
+  it('waits a few attempts on a merely quota-blocked row', () => {
+    expect(shouldReassignFromDeadAgent(1, 'quota-blocked')).toBe(false)
+    expect(shouldReassignFromDeadAgent(DEAD_AGENT_REASSIGN_AFTER, 'quota-blocked')).toBe(true)
+  })
+  it('reassigns at once when the non-start is provable or the agent died mid-work', () => {
+    expect(shouldReassignFromDeadAgent(1, 'did-not-start')).toBe(true)
+    expect(shouldReassignFromDeadAgent(1, 'agent-quota')).toBe(true)
+  })
+  it('a 1000-attempt row always reassigns (the 1160x real case)', () => {
+    expect(shouldReassignFromDeadAgent(1160, 'busy')).toBe(true)
   })
 })

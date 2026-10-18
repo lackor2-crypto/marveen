@@ -92,6 +92,30 @@ export function pickAnyTarget(
   return awake ?? fallbackMain
 }
 
+// --- dead-agent retry policy (#702) ---
+//
+// 2026-10-18: four scheduled tasks stuck on a quota-exhausted lackor3 for hours
+// (1160 / 824 / 711 / 261 attempts, one per minute, owner-alert spam). A parked
+// quota session never turns 'busy', so the retry loop kept injecting into it.
+// Policy: never inject into a quota-blocked agent; after a few attempts (at
+// once when the non-start is provable) hand the row to an agent that can work.
+
+/** Retry attempts a task may spend on a quota-blocked agent before its row is
+ *  handed to a working agent (a pinned task keeps its agent only briefly). */
+export const DEAD_AGENT_REASSIGN_AFTER = 3
+
+/** Row reasons that PROVE the prompt never ran on the dead agent. */
+const PROVABLE_NON_START_REASONS = new Set(['did-not-start', 'agent-quota'])
+
+/** Pure: should a retry row sitting on a quota-blocked agent move to a working
+ *  one now? Yes once it has burned DEAD_AGENT_REASSIGN_AFTER attempts, or at
+ *  once when the reason proves the prompt never started / the agent died
+ *  mid-work. No working agent -> the caller holds the row (no injection). */
+export function shouldReassignFromDeadAgent(attemptCount: number, lastReason: string | null): boolean {
+  if (lastReason != null && PROVABLE_NON_START_REASONS.has(lastReason)) return true
+  return attemptCount >= DEAD_AGENT_REASSIGN_AFTER
+}
+
 // --- verify-started: did an injected prompt actually begin running? ---
 //
 // After a task fires, the post-fire watchdog (taskInflightMap) polls the pane.

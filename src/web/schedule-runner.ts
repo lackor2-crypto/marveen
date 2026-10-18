@@ -56,10 +56,11 @@ import {
   pickAnyTarget,
   firstWorkingAgent,
   decideVerifyStarted,
+  shouldReassignFromDeadAgent,
 } from './agent-availability.js'
 import { sendTelegramMessage } from './telegram.js'
 import { runCommandTask } from './command-task.js'
-import { detectsFirstRunGate, detectPaneState, type PaneState } from '../pane-state.js'
+import { detectsFirstRunGate, detectPaneState, paneShowsLimitBlock, type PaneState } from '../pane-state.js'
 
 // How many bare-Enter attempts the post-send resubmit tries before escalating
 // to a clear + re-inject, and the hard cap after which it gives up.
@@ -533,8 +534,15 @@ async function attemptFireTask(
   now: number,
   preCheckPrefix?: string,
   lateCatchUpMs?: number,
-): Promise<'fired' | 'busy' | 'missing' | 'starting' | 'error' | 'mcp-missing' | 'first-run'> {
+): Promise<'fired' | 'busy' | 'missing' | 'starting' | 'error' | 'mcp-missing' | 'first-run' | 'quota-blocked'> {
   const isMainAgent = agentName === MAIN_AGENT_ID
+  // #702: a quota-blocked agent cannot run anything, and its parked session
+  // never reads as busy -- injecting (or auto-starting it) only feeds an endless
+  // retry. Defer without touching the session; the caller queues / reassigns.
+  if (!task.targetSession && isAgentQuotaBlocked(agentName)) {
+    logger.warn({ task: task.name, agent: agentName }, 'Schedule target agent is at its usage wall, not injecting (deferred to retry queue / reassign)')
+    return 'quota-blocked'
+  }
   // Allow per-task session override via targetSession config field.
   // Falls back to the standard agent session name derivation.
   const session = task.targetSession
@@ -847,11 +855,17 @@ export function taskInjectionRank(t: Pick<ScheduledTask, 'forceSend' | 'type'>):
 // to the main agent", which is exactly what silently bound every task to Marvin.
 export function resolveScheduledTargets(agent: string | undefined): string[] {
   if (agent === 'all') {
-    return [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a))]
+    return [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a) && !isAgentQuotaBlocked(a))]
   }
   if (agent === 'any' || !agent) {
     const ordered = [MAIN_AGENT_ID, ...listAgentNames()]
     return [pickAnyTarget(ordered, isAgentRunning, isAgentQuotaBlocked, MAIN_AGENT_ID)]
+  }
+  // Pinned to one agent: a quota-blocked one cannot run it (#702), so hand it to
+  // whoever can; with nobody working keep the pin (the retry queue holds it).
+  if (isAgentQuotaBlocked(agent)) {
+    const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentQuotaBlocked)
+    if (working) return [working]
   }
   return [agent]
 }
@@ -893,7 +907,7 @@ export async function runScheduledTaskNow(
     // busy session both get a queued retry that lands once the session is
     // ready. We deliberately do NOT consult skipIfBusy here -- that flag trims
     // redundant cron ticks, but an explicit run-now must not be dropped.
-    if (result === 'starting' || result === 'busy' || result === 'mcp-missing' || result === 'first-run') {
+    if (result === 'starting' || result === 'busy' || result === 'mcp-missing' || result === 'first-run' || result === 'quota-blocked') {
       const reason = result === 'mcp-missing' ? mcpMissingReason(task.name, agentName) : result
       insertPendingTaskRetryIfNew(task.name, agentName, now, reason)
     }
@@ -1230,6 +1244,17 @@ export function startScheduleRunner(): NodeJS.Timeout {
         continue
       }
 
+      // #702 RECLAIM: the agent ran out of tokens WHILE working -- its pane now
+      // shows the usage-limit wall and the snapshot agrees. The task will not
+      // finish there; hand it back to the retry queue (reason 'agent-quota' =
+      // reassign at once) so a working agent picks it up.
+      if (blockedNow && entry.sawBusy && state !== 'busy' && pane != null && paneShowsLimitBlock(pane)) {
+        insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, 'agent-quota')
+        logger.warn({ task: entry.taskName, agent: entry.agentName }, 'Agent hit its usage wall mid-task -- work reclaimed to the retry queue')
+        taskInflightMap.delete(key)
+        continue
+      }
+
       const decision = decideTaskTimeout(entry, state, now, {
         graceMs: TASK_FIRE_GRACE_MS,
         timeoutMs: entry.timeoutMs,
@@ -1310,6 +1335,29 @@ export function startScheduleRunner(): NodeJS.Timeout {
           deletePendingTaskRetry(row.task_name, row.agent_name)
           insertPendingTaskRetryIfNew(row.task_name, working, now, row.last_reason ?? 'busy')
           pendingKeys.delete(key)
+          pendingKeys.add(`${row.task_name}@${working}`)
+          fireAgent = working
+          migrated = true
+        }
+      }
+
+      // #702: the row sits on a quota-blocked agent (a pinned task, or an 'any'
+      // task whose migration above found nobody). Never inject into it; after a
+      // few attempts (at once when the non-start is provable) hand the row to a
+      // working agent, otherwise hold it until the wall comes down.
+      if (!migrated && !taskDef.targetSession && isAgentQuotaBlocked(fireAgent, now)
+        && shouldReassignFromDeadAgent(row.attempt_count, row.last_reason)) {
+        const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentQuotaBlocked)
+        if (working && working !== fireAgent) {
+          logger.warn({ task: row.task_name, from: fireAgent, to: working, attempts: row.attempt_count },
+            'Pending retry reassigned off a quota-blocked agent')
+          deletePendingTaskRetry(row.task_name, fireAgent)
+          pendingKeys.delete(key)
+          if (pendingRows.some(r => r.task_name === row.task_name && r.agent_name === working)) {
+            pendingKeys.add(`${row.task_name}@${working}`)
+            continue
+          }
+          insertPendingTaskRetryIfNew(row.task_name, working, now, row.last_reason ?? 'agent-quota')
           pendingKeys.add(`${row.task_name}@${working}`)
           fireAgent = working
           migrated = true
@@ -1452,6 +1500,15 @@ export function startScheduleRunner(): NodeJS.Timeout {
           // pre-check exists to eliminate. The retry row keeps the task alive
           // until the server returns, and the alert names the dead server.
           insertPendingTaskRetryIfNew(task.name, agentName, now, mcpMissingReason(task.name, agentName))
+        } else if (result === 'quota-blocked') {
+          // The target agent is at its usage wall (#702). Same rule as busy for
+          // a short-cadence skipIfBusy task (the next tick is on its way);
+          // otherwise queue a row the retry loop reassigns or holds.
+          if (skipIfBusyMayDrop(task, now)) {
+            appendTaskRun(task.name, agentName, 'skipped')
+            continue
+          }
+          insertPendingTaskRetryIfNew(task.name, agentName, now, 'quota-blocked')
         } else if (result === 'first-run') {
           // Also exempt from skipIfBusy: a session parked on a first-run
           // dialog (fresh install) never frees up between ticks the way a
