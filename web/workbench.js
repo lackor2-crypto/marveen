@@ -7375,7 +7375,8 @@
   function vtSecs(n) { return String(Math.round(Number(n) * 10) / 10).replace('.', ',') }
 
   function vtMediaOptions(kind, chosen) {
-    var list = (WB.vtMedia || []).filter(function (f) { return f.kind === kind })
+    var kinds = kind === 'overlay' ? ['image', 'video'] : [kind]
+    var list = (WB.vtMedia || []).filter(function (f) { return kinds.indexOf(f.kind) >= 0 })
     return '<option value="">' + esc(t('workbench.vt.pick_file')) + '</option>'
       + list.map(function (f) {
         return '<option value="' + escA(f.path) + '"' + (f.path === chosen ? ' selected' : '') + '>' + esc(f.path.split('/').slice(-2).join('/')) + '</option>'
@@ -7471,7 +7472,7 @@
     }).join('')
     return '<h5>' + esc(t('workbench.vt.overlays')) + '</h5>'
       + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
-      + '<p><select id="wbVt-ov-src">' + vtMediaOptions('image') + '</select> '
+      + '<p><select id="wbVt-ov-src">' + vtMediaOptions('overlay') + '</select> '
       + vtNumField('start', '', undefined, t('workbench.vt.from')) + vtNumField('end', '', undefined, t('workbench.vt.to'))
       + vtNumField('x', '', 70, 'x %') + vtNumField('y', '', 5, 'y %') + vtNumField('width', '', 25, t('workbench.vt.width_pct'))
       + vtOverlayKeySelect('', '')
