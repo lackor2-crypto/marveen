@@ -320,7 +320,11 @@ export const WORK_FOLDER_MAX = 600
 
 /** A plain file lying in a work folder (not a work item): shown in the list with a preview link.
  *  `item`: the file lies directly in a live work item's own folder, so it belongs to that item (#492: copy only). */
-export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true; annex?: true; version?: true; misplaced?: Misplaced; link?: { kind: 'annex' | 'asset'; item: string; id: string } }
+export type WorkFolderFile = { name: string; size: number; /** #706: when the file came into being (ms): birth time, else the last change. */ at?: number; rel: string; item?: true; linked?: true; annex?: true; version?: true; misplaced?: Misplaced; link?: { kind: 'annex' | 'asset'; item: string; id: string } }
+/** #706: the time a file shows in the tree -- when it came into being (birth time), the last change where the disk has no birth time. */
+export function fileStamp(st: { birthtimeMs: number; mtimeMs: number }): number {
+  return Math.round(st.birthtimeMs > 0 ? st.birthtimeMs : st.mtimeMs)
+}
 /** Same name as SNAPSHOT_FILE in workbench-snapshot.ts (not imported: that module imports this area). */
 const ITEM_SNAPSHOT_NAME = 'marveen-item.json'
 export const WORK_FOLDER_FILES_MAX = 200
@@ -460,8 +464,9 @@ function walkOutside(projectRel: string, startAbs: string, startRel: string, box
       // Out of time or room in the middle of a folder: what is listed stays, opening it loads the rest.
       if (spent()) { out.truncated = true; out.lazy[rel] = null; break }
       let size = 0
-      try { size = statSync(join(abs, name)).size } catch { /* gone meanwhile */ }
-      ;(out.files[rel] = out.files[rel] || []).push({ name, size, rel: `${here}/${name}` })
+      let at: number | undefined
+      try { const st = statSync(join(abs, name)); size = st.size; at = fileStamp(st) } catch { /* gone meanwhile */ }
+      ;(out.files[rel] = out.files[rel] || []).push({ name, size, ...(at !== undefined ? { at } : {}), rel: `${here}/${name}` })
       fileTotal++
     }
     // #601: a linked FILE (a pointer to one file somewhere else) is listed like a file lying here, flagged `linked`.
@@ -471,8 +476,9 @@ function walkOutside(projectRel: string, startAbs: string, startRel: string, box
         if (fileNames.includes(name)) continue
         const real = resolveLifePath(m.rel)
         let size = 0
-        try { size = real ? statSync(real).size : 0 } catch { continue } // the file is gone from its place: shows nothing
-        ;(out.files[rel] = out.files[rel] || []).push({ name, size, rel: m.rel, linked: true })
+        let at: number | undefined
+        try { if (real) { const st = statSync(real); size = st.size; at = fileStamp(st) } } catch { continue } // the file is gone from its place: shows nothing
+        ;(out.files[rel] = out.files[rel] || []).push({ name, size, ...(at !== undefined ? { at } : {}), rel: m.rel, linked: true })
         fileTotal++
       }
     } catch { /* a broken mount list must not hide the rest */ }
@@ -549,8 +555,9 @@ function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<s
     const abs = resolveLifePath(rel)
     if (!abs) continue
     let size = 0
-    try { const st = statSync(abs); if (!st.isFile()) continue; size = st.size } catch { continue }
-    ;(files[key] = files[key] || []).push({ name, size, rel, linked: true, annex: true, link: { kind: 'annex', item: r.item, id: r.id } })
+    let at = 0
+    try { const st = statSync(abs); if (!st.isFile()) continue; size = st.size; at = fileStamp(st) } catch { continue }
+    ;(files[key] = files[key] || []).push({ name, size, at, rel, linked: true, annex: true, link: { kind: 'annex', item: r.item, id: r.id } })
   }
 }
 
@@ -576,8 +583,9 @@ function linkedAssetRows(project: ProjectRow, folders: string[], files: Record<s
     const abs = resolveLifePath(rel)
     if (!abs) continue
     let size = 0
-    try { const st = statSync(abs); if (!st.isFile()) continue; size = st.size } catch { continue }
-    ;(files[key] = files[key] || []).push({ name, size, rel, linked: true, annex: true, link: { kind: 'asset', item: r.item, id: r.id } })
+    let at = 0
+    try { const st = statSync(abs); if (!st.isFile()) continue; size = st.size; at = fileStamp(st) } catch { continue }
+    ;(files[key] = files[key] || []).push({ name, size, at, rel, linked: true, annex: true, link: { kind: 'asset', item: r.item, id: r.id } })
   }
 }
 
@@ -610,9 +618,10 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
       for (const f of plain) {
         if (fileTotal >= WORK_FILES_TOTAL_MAX || (files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { truncated = true; break }
         let size = 0
-        try { size = statSync(join(abs, f.name)).size } catch { /* gone meanwhile */ }
+        let at: number | undefined
+        try { const st = statSync(join(abs, f.name)); size = st.size; at = fileStamp(st) } catch { /* gone meanwhile */ }
         const lifeRel = `${t.dirRel}${rel.slice(box.length)}/${f.name}`
-        ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: lifeRel, ...(itemFolders.has(rel) ? { item: true as const } : {}), ...(isVersionsFolderKey(rel, itemFolders) ? { version: true as const } : {}) })
+        ;(files[rel] = files[rel] || []).push({ name: f.name, size, ...(at !== undefined ? { at } : {}), rel: lifeRel, ...(itemFolders.has(rel) ? { item: true as const } : {}), ...(isVersionsFolderKey(rel, itemFolders) ? { version: true as const } : {}) })
         fileTotal++
       }
     }

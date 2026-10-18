@@ -1724,6 +1724,8 @@
 /* #535: a loose file row is a COLUMN (name over size), so the 8ch basis #551 gives the name there would be a
    HEIGHT: every file row stood about 100px tall for a one-line name. In a column the name takes its own height. */
 .wb-file-link .wb-item-title { flex: 0 0 auto; }
+/* #706: the upload / creation time under the size */
+.wb-item-when { font-size: 0.72rem; }
 
 /* Markdown work item: editor and live preview side by side, the same height, each scrolling on its own (stacked on narrow screens). */
 .wb-md-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 12px; align-items: stretch; height: max(420px, calc(100vh - 330px)); }
