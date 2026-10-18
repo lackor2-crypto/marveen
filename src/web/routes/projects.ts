@@ -135,6 +135,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   bad_name: { hu: 'Adj meg egy érvényes fájlnevet.', en: 'Give a valid file name.' },
   repo_inside: { hu: 'Ez a hely egy git-repó belseje, ide nem teszek fájlt.', en: 'This place is inside a git repository; no file is put here.' },
   write_failed: { hu: 'Nem sikerült menteni a fájlt.', en: 'Could not save the file.' },
+  json_outside_item: { hu: 'Munkadarab-fájl (.deck.json, .canvas.json, .timeline.json) a projekt gyökerébe nem kerülhet. Tedd egy munkadarab mappájába.', en: 'A work item file (.deck.json, .canvas.json, .timeline.json) cannot go into the project root. Put it into a work item folder.' },
   starter_label_required: { hu: 'A kezdő kártyához címke kell: válassz alapértelmezett címkét, vagy vedd ki a pipát a „Kezdő kártya” elől.', en: 'The starter card needs a label: pick a default label, or untick "Starter card".' },
   create_failed: { hu: 'A projektet nem sikerült létrehozni (semmi nem maradt félkész). Próbáld újra.', en: 'The project could not be created (nothing was left half-done). Please try again.' },
   request_text_required: { hu: 'Írd le, miről szóljon.', en: 'Write down what it should be about.' },
