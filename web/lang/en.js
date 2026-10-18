@@ -6841,6 +6841,7 @@ window._i18n.en = {
   "workbench.fr.vid.fade_hint": "The start of the clip fades in from black and the end fades out to black, sound included. A fade can never be longer than half the clip. The choice is saved at once and undo works.",
   "workbench.fr.vid.look": "Colour look",
   "workbench.fr.vid.mute": "Sound on / off (M)",
+  "workbench.vt.sub_after_end": "The subtitle starts after the video ends ({s} s), so it will not show in the finished video. It is saved; adjust the start.",
   "workbench.fr.vid.fullscreen": "Full screen (F)",
   "workbench.fr.vid.play": "Play / pause (Space)",
   "workbench.fr.vid.seek": "Position in the clip",

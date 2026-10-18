@@ -6915,6 +6915,7 @@ window._i18n.hu = {
   "workbench.fr.vid.fade_hint": "A klip eleje feketéből úszik be, a vége feketébe úszik ki, a hanggal együtt. Egy fade sem lehet hosszabb a klip felénél. A választás azonnal mentődik, a visszavonás működik.",
   "workbench.fr.vid.look": "Szín-hangulat",
   "workbench.fr.vid.mute": "Hang be / ki (M)",
+  "workbench.vt.sub_after_end": "A felirat a videó vége ({s} mp) után kezdődik, ezért a kész videón nem fog látszani. Elmentettem, de igazítsd a kezdést.",
   "workbench.fr.vid.fullscreen": "Teljes képernyő (F)",
   "workbench.fr.vid.play": "Lejátszás / szünet (Szóköz)",
   "workbench.fr.vid.seek": "Pozíció a klipben",
