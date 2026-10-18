@@ -16907,7 +16907,22 @@
     var v = document.getElementById('wbVideo')
     var c = frVtSelClip()
     if (!v || !c) return
-    if (!v.paused && v.currentTime >= c.end - 0.03) { v.pause(); try { v.currentTime = c.end } catch (_e) { /* ignore */ } }
+    if (!v.paused && v.currentTime >= c.end - 0.03) {
+      v.pause()
+      try { v.currentTime = c.end } catch (_e) { /* ignore */ }
+      // Keep going: the next clip of the timeline takes over (the redraw builds its player, which starts itself).
+      var all = (vtDoc() || {}).clips || []
+      var at = -1
+      for (var k = 0; k < all.length; k += 1) if (all[k].id === c.id) at = k
+      if (at >= 0 && at < all.length - 1 && !WB.vtBusy) {
+        var nx = all[at + 1]
+        WB.vtSel = nx.id
+        WB.vtSeek = { id: nx.id, at: nx.start }
+        WB.vtAutoplay = nx.id
+        render()
+        return
+      }
+    }
     var bg = document.getElementById('wbVBg')
     if (bg && Math.abs(bg.currentTime - v.currentTime) > 0.25) { try { bg.currentTime = v.currentTime } catch (_e) { /* ignore */ } }
     frVtApplyFade()
@@ -16945,6 +16960,13 @@
     var sk = document.getElementById('wbVSeek')
     if (sk) sk.addEventListener('input', function () { try { v.currentTime = Number(sk.value) } catch (_e) { /* not loaded yet */ } frVtKick() })
     relayout()
+    // Arrived here by the end of the clip before: start at once (the owner's play click still counts as the gesture).
+    if (c && WB.vtAutoplay === c.id) {
+      WB.vtAutoplay = null
+      var start = function () { var p = v.play(); if (p && typeof p.catch === 'function') p.catch(function () { /* refused: stays paused */ }) }
+      if (v.readyState >= 1) start()
+      else v.addEventListener('loadedmetadata', start, { once: true })
+    }
     if (typeof window.ResizeObserver === 'function') {
       if (vtLive.ro) vtLive.ro.disconnect()
       vtLive.ro = new window.ResizeObserver(function () { frVtLayout() })
