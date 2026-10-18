@@ -1574,8 +1574,10 @@
 
 /* ---- A kozepso ablak FIX (Boss, 2026-10-02, TG 7393): nincs gorgetes, a lap felul kezdodik es alul er veget ------- */
 .wb-fr-body { height: 82vh; min-height: 520px; }
-.wb-fr-center { min-height: 0; overflow: hidden; }
-.wb-fr-fixed { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; container-type: size; padding: 14px; box-sizing: border-box; }
+/* #703: the middle column scrolls on its own (document, deck, table) when the note panel / page strip leave the page less room
+   than its minimum height; the page keeps fitting the view (cq units of .wb-fr-fixed) and is never squeezed to nothing. */
+.wb-fr-center { min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.wb-fr-fixed { flex: 1 1 0; min-height: 320px; overflow: hidden; display: flex; align-items: center; justify-content: center; container-type: size; padding: 14px; box-sizing: border-box; }
 .wb-fr-fixed .wb-fr-page {
   flex: none; margin: 0; background: #fff; box-shadow: 0 2px 14px rgba(0, 0, 0, 0.22); aspect-ratio: var(--ar, 1);
   width: calc(min(100cqw, 100cqh * var(--ar, 1)) * var(--wb-zoom, 1));
@@ -1649,7 +1651,7 @@
 .wb-sh-tech .wb-item-meta { margin-left: 0; white-space: normal; }
 
 /* Simple view: the table grid fills the fixed middle window; only the grid scrolls inside it. */
-.wb-fr-tbl { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 12px; overflow-y: auto; }
+.wb-fr-tbl { flex: 1 1 0; min-height: 320px; display: flex; flex-direction: column; padding: 8px 12px; overflow-y: auto; }
 .wb-fr-tbl .wb-table { flex: 1 0 auto; display: flex; flex-direction: column; gap: 8px; }
 .wb-fr-tbl .wb-table-scroll { flex: 1 1 0; min-height: 200px; max-height: none; }
 .wb-fr-tbl .wb-table-tools, .wb-fr-tbl .wb-table-tabs, .wb-fr-tbl .wb-form-actions { flex: 0 0 auto; flex-wrap: wrap; }
