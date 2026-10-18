@@ -43,6 +43,7 @@ import { OFFICE_CONVERTIBLE } from './office-convert.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
+import { annotateMisplaced, type Misplaced } from './workbench-misplaced.js'
 import { folderWasMade, noteFolderMade, noteItemStandardFoldersSeen, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
@@ -319,7 +320,7 @@ export const WORK_FOLDER_MAX = 600
 
 /** A plain file lying in a work folder (not a work item): shown in the list with a preview link.
  *  `item`: the file lies directly in a live work item's own folder, so it belongs to that item (#492: copy only). */
-export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true; annex?: true; version?: true; link?: { kind: 'annex' | 'asset'; item: string; id: string } }
+export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true; annex?: true; version?: true; misplaced?: Misplaced; link?: { kind: 'annex' | 'asset'; item: string; id: string } }
 /** Same name as SNAPSHOT_FILE in workbench-snapshot.ts (not imported: that module imports this area). */
 const ITEM_SNAPSHOT_NAME = 'marveen-item.json'
 export const WORK_FOLDER_FILES_MAX = 200
@@ -633,6 +634,8 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
     }
   }
   walk(t.dirAbs, box, 1)
+  // #698: a file that probably lies in the wrong place is only MARKED (nothing is moved or deleted).
+  annotateMisplaced(box, files, itemFolders)
   linkedAnnexRows(project, out, files)
   linkedAssetRows(project, out, files)
   return { box, folders: out, truncated, files, outside, root_name: rootName, own_folders: out.filter((f) => ownFolders.has(f)) }
