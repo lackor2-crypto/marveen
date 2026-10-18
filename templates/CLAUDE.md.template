@@ -944,3 +944,7 @@ próbáltál) kommentben a kártyára kell írni. Ha nem tudod megcsinálni, mon
 és a kártya marad. Eljárás: `browser-clickthrough-before-done` és
 `isolated-web-only-instance-browser-test` skill. A flotta minden ágense ugyanezt kapja
 (`ensureBrowserClickthroughSection`, `ensureGlobalBrowserClickthroughRule`).
+
+A hivatkozás-követés szabálya (linkelt/hivatkozott tartalmat sosem veszünk üresnek) ugyanígy minden ágenshez
+jut el (`ensureFollowReferenceSection`, `ensureGlobalFollowReferenceRule`); a szöveg fent, a „HIVATKOZÁST KÖVESS"
+mondatban áll.
