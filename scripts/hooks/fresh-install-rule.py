@@ -20,9 +20,13 @@ FRISSEN TELEPITETT MARVEENBEN IS MUKODJON. Amit epitesz, egy uj telepitesen
 menjen a FELULETROL, terminal es API-hivas nelkul. Ha csak azert mukodik,
 mert ezen a gepen mar ott van egy fajl vagy egy bejegyzes -- nincs kesz.
 A NULLA KET DOLGOT JELENTHET: "meg nincs semmi" vagy "nem lattam oda".
-Kulon kerdezd meg a forrast; a talalatok szamabol ne kovetkeztess. Es SOSE
-talalgasd a hiba okat -- a tenyleges hibauzenetbol olvasd ki, vagy mondd meg,
-hogy nem tudod.
+Kulon kerdezd meg a forrast; a talalatok szamabol ne kovetkeztess. HIVATKOZAST
+KOVESS: ha valami linkelt/hivatkozott (annex, belinkelt fajl, referencia,
+DB-bejegyzes), SOHA ne vedd uresnek a fizikai mappa vagy a talalatszam alapjan --
+kovesd a linket, nezd meg MIRE mutat es tenyleg megvan-e, es ugy vedd, mintha
+ott lenne a mappaban. Nem-nulla mappa / van bejegyzes -> tilos azt mondani,
+hogy ott nincs semmi. Es SOSE talalgasd a hiba okat -- a tenyleges
+hibauzenetbol olvasd ki, vagy mondd meg, hogy nem tudod.
 A zaro 5+1 pontos onellenorzest ird is le a valaszodban (`fresh-install-usable` skill).""")
 
 sys.exit(0)
