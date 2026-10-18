@@ -113,7 +113,7 @@ describe('video timeline editor (phase 5)', () => {
     const video = { currentTime: 4.04, readyState: 4, addEventListener() {}, removeEventListener() {} }
     h.inputs.wbVideo = video as never
     const SPLIT = {
-      ...DOC, clips: [{ id: 'c1', src: 'Projektek/p1/a.mp4', start: 0, end: 4 }, { id: 'c3', src: 'Projektek/p1/a.mp4', start: 4, end: 10 }, DOC.clips[1]],
+      ...DOC, clips: [{ id: 'c1', src: 'Projektek/p1/a.mp4', start: 0, end: 4.04 }, { id: 'c3', src: 'Projektek/p1/a.mp4', start: 4.04, end: 10 }, DOC.clips[1]],
     }
     h.respond((url) => {
       if (url.includes('/timeline/ops')) return { status: 200, body: { ok: true, timeline: SPLIT, summary: '', duration: 14, offsets: [0, 4, 10], created: false } }
@@ -123,11 +123,11 @@ describe('video timeline editor (phase 5)', () => {
     h.click({ 'data-wb-act': 'fr-vt-split' })
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/timeline/ops'))).toBe(true))
     const sent = JSON.parse(String(h.fetchCalls.filter((c) => c.url.includes('/timeline/ops')).pop()!.init!.body))
-    expect(sent.ops[0]).toMatchObject({ op: 'splitClip', id: 'c1', at: 4 })
+    expect(sent.ops[0]).toMatchObject({ op: 'splitClip', id: 'c1', at: 4.04 })
     // the rebuilt player starts at 0: the redraw after the answer must put it back on the cut
     video.currentTime = 0
     await vi.waitFor(() => expect(h.html()).toContain('data-wb-tl="c3"'))
-    expect(video.currentTime).toBe(4)
+    expect(video.currentTime).toBe(4.04)
   })
 
   it('a text that is not a number is refused in plain words and nothing is sent', async () => {

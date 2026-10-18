@@ -6884,6 +6884,7 @@ window._i18n.hu = {
   "workbench.vt.down": "Hátra",
   "workbench.vt.split": "Kettévág",
   "workbench.vt.remove": "Klip törlése",
+  "workbench.vt.remove_item": "Törlés",
   "workbench.vt.remove_hint": "Kiveszi a kijelölt klipet az idővonalról; a videófájl megmarad. A ↶ gombbal visszahozható.",
   "workbench.vt.remove_confirm": "Kiveszed a(z) „{name}” klipet az idővonalról? A videófájl megmarad, és a ↶ gombbal visszahozható.",
   "workbench.fr.vid.trans.chip": "Átmenet a két klip között",

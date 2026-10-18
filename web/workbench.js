@@ -7604,7 +7604,7 @@
       return '<li class="wb-vt-row"><input type="text" size="34" id="wbVt-text-' + escA(s.id) + '" value="' + escA(s.text) + '"> '
         + vtNumField('start', s.id, s.start, t('workbench.vt.from')) + vtNumField('end', s.id, s.end, t('workbench.vt.to'))
         + vtSubStyleSelects(s.id, s)
-        + vtBtn('vt-sub-save', t('workbench.vt.save'), s.id) + vtBtn('vt-sub-del', t('workbench.vt.remove'), s.id) + '</li>'
+        + vtBtn('vt-sub-save', t('workbench.vt.save'), s.id) + vtBtn('vt-sub-del', t('workbench.vt.remove_item'), s.id) + '</li>'
     }).join('')
     return '<h5>' + esc(t('workbench.vt.subtitles')) + '</h5>'
       + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
@@ -7627,7 +7627,7 @@
       + '<select id="wbVt-music-src"' + (m ? ' disabled' : '') + '>' + vtMediaOptions('audio', m && m.src) + '</select> '
       + vtNumField('music-volume', '', Math.round((m ? m.volume : 0.5) * 100), t('workbench.vt.volume_pct'))
       + '<label class="wb-muted"><input type="checkbox" id="wbVt-music-duck"' + (!m || m.duck ? ' checked' : '') + '> ' + esc(t('workbench.vt.duck')) + '</label> '
-      + (m ? vtBtn('vt-music-save', t('workbench.vt.save')) + vtBtn('vt-music-del', t('workbench.vt.remove')) : vtBtn('vt-music-set', t('workbench.vt.set_music')))
+      + (m ? vtBtn('vt-music-save', t('workbench.vt.save')) + vtBtn('vt-music-del', t('workbench.vt.remove_item')) : vtBtn('vt-music-set', t('workbench.vt.set_music')))
       + '</p>'
   }
 
@@ -7644,7 +7644,7 @@
         + vtNumField('start', o.id, o.start, t('workbench.vt.from')) + vtNumField('end', o.id, o.end, t('workbench.vt.to'))
         + vtNumField('x', o.id, pc(o.x), 'x %') + vtNumField('y', o.id, pc(o.y), 'y %') + vtNumField('width', o.id, pc(o.width), t('workbench.vt.width_pct'))
         + vtOverlayKeySelect(o.id, o.key)
-        + vtBtn('vt-ov-save', t('workbench.vt.save'), o.id) + vtBtn('vt-ov-del', t('workbench.vt.remove'), o.id) + '</li>'
+        + vtBtn('vt-ov-save', t('workbench.vt.save'), o.id) + vtBtn('vt-ov-del', t('workbench.vt.remove_item'), o.id) + '</li>'
     }).join('')
     return '<h5>' + esc(t('workbench.vt.overlays')) + '</h5>'
       + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
@@ -16724,7 +16724,8 @@
     var c = frVtSelClip()
     var v = document.getElementById('wbVideo')
     if (!c || !v || typeof v.currentTime !== 'number') return
-    var at = Math.round(v.currentTime * 10) / 10
+    // To the millisecond (the server keeps three decimals): a cut rounded to a tenth of a second lands up to 50 ms, one or two frames, off the playhead.
+    var at = Math.round(v.currentTime * 1000) / 1000
     if (!(at > c.start + 0.1 && at < c.end - 0.1)) { window.showToast(t('workbench.fr.vid.split_range')); return }
     // The player is rebuilt by the redraw: park it on the cut (the end of the left part, which keeps this id),
     // not back at the start of the clip -- so the cut stays visible where it happened.
