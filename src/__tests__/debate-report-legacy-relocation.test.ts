@@ -45,7 +45,7 @@ describe('legacy debate report relocation', () => {
   it('moves a box-level report into the Debate report folder of its origin item', () => {
     expect(relocateLegacyReports()).toBe(1)
     expect(made[0]).toEqual({ parent: 'Munkadarabok/Wohngeld 2026', name: 'Vitáztatás' })
-    expect(moves).toEqual([{ item: legacy, folder: 'Munkadarabok/Wohngeld 2026/Vitáztatás' }])
+    expect(moves).toEqual([{ item: legacy, folder: 'Munkadarabok/Wohngeld 2026/Vitáztatás/jelentés' }])
   })
   it('leaves a report whose debate is not in the log where it is', () => {
     origins = []
@@ -55,7 +55,7 @@ describe('legacy debate report relocation', () => {
   it('finds the origin of an older debate (no recorded work item) from the work item it attached', () => {
     origins = [{ question: QUESTION, project: pid, workItem: null, files: ['Wohngeld 2026'] }]
     expect(relocateLegacyReports()).toBe(1)
-    expect(moves[0].folder).toBe('Munkadarabok/Wohngeld 2026/Vitáztatás')
+    expect(moves[0].folder).toBe('Munkadarabok/Wohngeld 2026/Vitáztatás/jelentés')
   })
   it('does not guess when two work items carry the attached file name', () => {
     const t = createWorkItem({ project_id: pid, title: 'Wohngeld 2026', type: 'document' })

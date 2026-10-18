@@ -6,7 +6,7 @@
 
 import { getDb } from './db.js'
 import { getProject, type ProjectRow } from './projects.js'
-import { debateFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, folderWasMade, noteFolderMade, projectFileTarget } from './project-files.js'
+import { debateFolderFor, DEBATE_FOLDER_NAMES, DEBATE_REPORT_SUB_NAMES, DEBATE_FOLDER_OLD_NAMES, folderWasMade, noteFolderMade, projectFileTarget } from './project-files.js'
 import { logger } from './logger.js'
 import { createWorkItem, getWorkItem, setWorkItemDeleted, type WorkItemRow } from './workbench.js'
 import { replacePage, BLOCK_TEXT_MAX } from './workbench-docmodel.js'
@@ -54,6 +54,19 @@ function reportFolderIn(project: ProjectRow, parent: string, lang: string): stri
   return reportFolderName(lang)
 }
 
+/** #699 (Boss TG 9746): the folder a report is filed into: the "jelentés" / "report" subfolder of the Debate folder.
+ *  An existing one (either language) is reused; when the owner deleted it on purpose it is not made again and the report
+ *  lands in the Debate folder itself (#681 rule). */
+function reportSubFolder(project: ProjectRow, debateFolder: string, lang: string): string {
+  const names = [DEBATE_REPORT_SUB_NAMES.hu, DEBATE_REPORT_SUB_NAMES.en]
+  for (const n of names) if (projectFileTarget(project, `${debateFolder}/${n}`).ok) { noteFolderMade(project, `${debateFolder}/${n}`); return `${debateFolder}/${n}` }
+  if (names.some((n) => folderWasMade(project, `${debateFolder}/${n}`))) return debateFolder
+  const sub = makeWorkFolder(project, debateFolder, lang === 'en' ? DEBATE_REPORT_SUB_NAMES.en : DEBATE_REPORT_SUB_NAMES.hu)
+  if (!sub.ok) return debateFolder
+  noteFolderMade(project, sub.folder)
+  return sub.folder
+}
+
 export function createReportDocument(projectId: string, report: DebateReport, by: string | null, opts?: { originItem?: string | null; lang?: string }): ReportDocResult {
   const project = getProject(projectId)
   if (!project) return { ok: false, code: 'project_not_found' }
@@ -81,7 +94,7 @@ export function createReportDocument(projectId: string, report: DebateReport, by
   if (gone) folder = parent
   else {
     const mf = makeWorkFolder(project, originFolder, reportFolderIn(project, originFolder, lang))
-    folder = mf.ok ? mf.folder : null
+    folder = mf.ok ? reportSubFolder(project, mf.folder, lang) : null
     if (mf.ok) noteFolderMade(project, mf.folder)
   }
   const made = createWorkItem({ project_id: project.id, type: 'document', title, container_folder: folder, created_by: by })
@@ -143,7 +156,7 @@ export function relocateLegacyReports(): number {
       const lang = row.title.startsWith('Debate report') ? 'en' : 'hu'
       const mf = makeWorkFolder(project, origin.folder, reportFolderIn(project, origin.folder, lang))
       if (!mf.ok) continue
-      const r = moveWorkItemToFolder(item, mf.folder)
+      const r = moveWorkItemToFolder(item, reportSubFolder(project, mf.folder, lang))
       if (r.ok && r.moved) moved++
     } catch (err) {
       logger.warn({ item: row.id, err: String((err as Error)?.message || err) }, '[debate-report] legacy relocation skipped')

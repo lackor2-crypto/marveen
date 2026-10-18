@@ -519,6 +519,9 @@ export function agentRefsFolderFor(p: ProjectRow, itemFolder: string | null | un
  *  goes here. The first name ("Vitáztatás jelentés" / "Debate report") stays readable and is reused when it exists. */
 export const DEBATE_FOLDER_NAMES = { hu: 'Vitáztatás', en: 'Debate' } as const
 export const DEBATE_FOLDER_OLD_NAMES = ['Vitáztatás jelentés', 'Debate report'] as const
+/** #699 (Boss TG 9746, option B): the debate report is saved into a "jelentés" / "report" SUBFOLDER of the Debate folder
+ *  (Debate/report), so the Debate folder itself stays free for the other debate material (an outside opinion, notes). */
+export const DEBATE_REPORT_SUB_NAMES = { hu: 'jelentés', en: 'report' } as const
 export function debateFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string): string | null {
   const base = String(itemFolder ?? '').trim()
   if (!base) return null
@@ -532,7 +535,7 @@ export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | nu
   // A debate report is filed INTO the origin item's debate folder and shares it: five folders (with another "Debate"
   // inside "Debate") there would only be clutter.
   const last = String(itemFolder ?? '').split('/').pop() ?? ''
-  if ([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES].some(n => n === last)) return
+  if ([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, DEBATE_REPORT_SUB_NAMES.hu, DEBATE_REPORT_SUB_NAMES.en].some(n => n === last)) return
   for (const f of [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor]) {
     try { f(p, itemFolder) } catch { /* the folder is made on demand with its first file instead */ }
   }

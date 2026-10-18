@@ -6747,7 +6747,7 @@ window._i18n.hu = {
   "workbench.misplaced.finished_in_attachments": "Ez a fájl valószínűleg rossz helyen van: úgy néz ki, mint egy kész, végleges anyag, de a Mellékletek között áll. Nem mozdítottam el, te döntesz. Az Elkészített anyagok mappába való.",
   "workbench.misplaced.loose_beside_item": "Ez a fájl közvetlenül a munkadarabok mellett áll, egyik munkadarabhoz sem tartozik. Nem mozdítottam el, te döntesz. Húzd be annak a munkadarabnak a mappájába, amelyikhez tartozik.",
   "workbench.misplaced.in_agent_folder": "Ez a fájl az Agent mappában van. Ide azok a fájlok valók, amelyeket csak az agensnek mutattál meg. Ha nem ezért van itt, vidd át a megfelelő mappába. Nem mozdítottam el.",
-  "workbench.misplaced.report_elsewhere": "Ez egy vitáztatás jelentés, de nem a Vitáztatás mappában áll. Nem mozdítottam el, te döntesz.",
+  "workbench.misplaced.report_elsewhere": "Ez egy vitáztatás jelentés, de nem a Vitáztatás mappa jelentés almappájában áll. Nem mozdítottam el, te döntesz.",
   "workbench.misplaced.not_report_in_debate": "A Vitáztatás mappába a vitáztatás jelentése való, ez a fájl nem annak látszik. Nem mozdítottam el, te döntesz.",
   "workbench.misplaced.not_report_in_debate_soft": "Ez egy külső vélemény a Vitáztatás mappában. Ha szándékosan tetted ide, rendben van, csak jelzem. Nem mozdítottam el.",
   "workbench.misplaced.badge": "Lehet, hogy rossz helyen van",
