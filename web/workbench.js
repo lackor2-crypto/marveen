@@ -1426,12 +1426,18 @@
    *  it and its node are one blue (g < 0: -1, -2 ... alternate two blues so neighbouring items stay apart); every folder
    *  gets a colour of its own (g >= 0, never blue) and the files of an opened folder take that folder's colour. */
   function grpHsl(g) {
-    if (g < 0) return 'hsl(' + (210 + ((-g - 1) % 2) * 16) + ' 70% 50%)'
-    // #690: ordered so that colours handed out one after the other are far apart on the colour wheel (at least 105 degrees
-    // between neighbours in the tree), never two shades of one colour; none near the work item's blue (210/226).
-    var pal = [350, 128, 275, 42, 168, 318, 95]
-    return 'hsl(' + pal[g % pal.length] + ' 65% 48%)'
+    // #692 (Boss TG 9622/9624): the open work item and its direct files are a DARK indigo (two alternating shades for
+    // neighbouring items); the folders inside it are LIGHTER and vivid, with hues far apart (>= 90 degrees between ones
+    // handed out one after the other) and lightness that differs too, so they also differ for colour-blind eyes. None sits
+    // near the indigo. Slots restart for every work item, so its 5-6 standard folders always get the 6 distinct slots.
+    if (g < 0) return GRP_ITEM[(-g - 1) % GRP_ITEM.length]
+    var p = GRP_FOLDER[g % GRP_FOLDER.length]
+    return 'hsl(' + p[0] + ' ' + p[1] + '% ' + (Math.floor(g / GRP_FOLDER.length) % 2 ? p[2] - 12 : p[2]) + '%)'
   }
+  var GRP_ITEM = ['hsl(232 62% 30%)', 'hsl(248 55% 32%)']
+  var GRP_FOLDER = [[25, 95, 52], [150, 70, 42], [325, 85, 62], [55, 95, 46], [180, 85, 52], [295, 70, 66]]
+  /** The inline style of a tinted row: the colour and how strongly it shows (the dark item tint is stronger). */
+  function grpVars(g) { return '--wb-grp: ' + grpHsl(g) + '; --wb-grp-a: ' + (g < 0 ? '40%' : '24%') + '; --wb-grp-a-on: ' + (g < 0 ? '46%' : '30%') }
 
   function itemRowHtml(it, depth, grp) {
     var on = it.id === WB.selectedId
@@ -1439,7 +1445,7 @@
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (it.status === 'done' ? ' wb-item-done' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: ' + grpHsl(grp) + '"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (it.status === 'done' ? ' wb-item-done' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
@@ -1735,12 +1741,12 @@
     }
     // #691 (Boss TG 9610): a saved version is system-managed: readable, never ticked, renamed, deleted or dragged by hand.
     if (f.version) {
-      return '<li class="wb-item-row wb-file-row wb-version-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: ' + grpHsl(grp) + '"' : '') + '>'
+      return '<li class="wb-item-row wb-file-row wb-version-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + '>'
         + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.versions.file_hint', { name: f.name })) + '">'
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" aria-hidden="true">\ud83d\udd12</span> ' + esc(f.name) + '</span>'
         + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
     }
-    return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: ' + grpHsl(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
+    return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(f.name + ' \u2014 ' + t('workbench.file.open')) + '">'
@@ -2102,7 +2108,7 @@
     ;(wf.own_folders || []).forEach(function (f) { ownFold[f] = true })
     function groupStyle(g) {
       if (g == null) return ''
-      return ' style="--wb-grp: ' + grpHsl(g) + '"'
+      return ' style="' + grpVars(g) + '"'
     }
     function walk(path, depth, grp) {
       ;(kids[path] || []).forEach(function (f) {
@@ -2111,6 +2117,9 @@
         // its parent's (so folders inside one work item differ). What a folder holds wears that folder's colour, which is
         // how a file or work item dragged into it takes the target colour at once (#685).
         var g = ownFold[f] ? -(++topIdx) : folIdx++
+        // #692: a work item's folder hands out its own colour slots from the start, the outside counter carries on after it.
+        var outerFol = folIdx
+        if (ownFold[f]) folIdx = 0
         var collapsed = isShut(f)
         // #691: the versions folder is system-managed: no drop target, drag, menu or rename; it only folds open.
         if ((plainFiles[f] || []).some(function (x) { return x.version })) {
@@ -2129,6 +2138,7 @@
             + ' aria-label="' + escA(t('workbench.ctx.more_folder')) + '" title="' + escA(t('workbench.ctx.more_folder')) + '">&#8943;</button>')
           + folderMenuHtml(f) + '</li>')
         if (!collapsed) walk(f, depth + 1, g)
+        if (ownFold[f]) folIdx = outerFol
       })
       // TG 2642: same order as the Explorer: folders first, then the files (work items and plain files mixed) by name.
       var mixed = (byPlace[path] || []).filter(function (it) { return !itHidden(it) }).map(function (it) { return { name: it.source_path ? baseOf(it.source_path) : String(it.title || ''), it: it } })
