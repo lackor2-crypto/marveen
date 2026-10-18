@@ -37631,6 +37631,7 @@ async function loadDepoPage() {
   bind('depoPhotosGoBtn', () => switchPage('photos'))
   bind('depoSyncRunBtn', () => _depoRunSync())
   bind('depoRestoreFindBtn', () => _depoRestoreFind())
+  bind('depoGoIntezoBtn', () => switchPage('intezo'))
   bind('depoBackupPreviewBtn', () => _depoBackupMeasure())
   bind('depoBackupAddBtn', () => _depoBackupAdd())
   // A valasztas MEGVALTOZASA ervenytelenne teszi a merest: a gomb ilyenkor
@@ -37641,6 +37642,8 @@ async function loadDepoPage() {
     if (el && !el._depoBound) { el._depoBound = 1; el.addEventListener('change', () => _depoBackupGombAllapot()) }
   })
   bind('storagesGitAddBtn', () => _storagesAddGit())
+  var ovHost = document.getElementById('storagesOverview')
+  if (ovHost && !ovHost._ovBound) { ovHost._ovBound = 1; ovHost.addEventListener('click', _storagesOvClick) }
   bind('storagesGitSyncBtn', () => _storagesGitSync())
   // A tablazat gombjai delegalva: a sorok minden frissiteskor ujra keszulnek,
   // soronkent felkotott kezelo eseten az ujrarajzolas utan nemak lennenek.
@@ -38383,7 +38386,92 @@ function _storageStateText(r) {
   return 'aktív'
 }
 
+/** #714: per account, an Explorer-like tree of the folders marked for it (read-only; the marking is set in the Intezo). */
+function _storagesOvTree(entries, sizes) {
+  var root = { kids: {}, entry: null }
+  entries.forEach(function (e) {
+    var node = root
+    String(e.path || '').split('/').filter(Boolean).forEach(function (seg) {
+      node.kids[seg] = node.kids[seg] || { kids: {}, entry: null }
+      node = node.kids[seg]
+    })
+    node.entry = e
+  })
+  var line = function (name, e) {
+    if (!e) return '<span>📁 ' + escapeHtml(name) + '</span>'
+    var sz = sizes && sizes[e.path]
+    var szTxt = !sz ? '' : sz.missing ? ' <span class="subtitle">' + escapeHtml(t('storages.ov_missing')) + '</span>'
+      : ' <span class="subtitle">' + escapeHtml(t('storages.ov_entry_size', { files: String(sz.files), size: _depoBytes(sz.bytes) }) + (sz.truncated ? t('storages.ov_truncated') : '')) + '</span>'
+    var ex = e.exclude && e.exclude.length ? ' <span class="subtitle">' + escapeHtml(t('storages.ov_excl', { list: e.exclude.join(', ') })) + '</span>' : ''
+    return '<span><strong>📁 ' + escapeHtml(name) + '</strong></span>' + szTxt + ex
+  }
+  var walk = function (node, name) {
+    var kids = Object.keys(node.kids).sort(function (x, y) { return x.localeCompare(y, 'hu') })
+    return '<li>' + line(name, node.entry) + (kids.length ? '<ul>' + kids.map(function (k) { return walk(node.kids[k], k) }).join('') + '</ul>' : '') + '</li>'
+  }
+  var top = Object.keys(root.kids).sort(function (x, y) { return x.localeCompare(y, 'hu') })
+  return '<ul class="stor-ov-tree">'
+    + (root.entry ? '<li>' + line(t('storages.ov_whole'), root.entry) + '</li>' : '')
+    + top.map(function (k) { return walk(root.kids[k], k) }).join('') + '</ul>'
+}
+
+var _storagesOvSizes = {}
+
+async function _storagesOverview() {
+  var host = document.getElementById('storagesOverview')
+  if (!host) return
+  var d = null
+  try { d = await _depoGet('/api/storages/overview') } catch (e) {
+    host.innerHTML = '<p class="subtitle">' + escapeHtml(t('storages.ov_failed', { error: e && e.message ? e.message : String(e) })) + '</p>'
+    return
+  }
+  var accs = d.accounts || []
+  var head = '<h3 style="margin:14px 0 4px;font-size:15px">' + escapeHtml(t('storages.ov_title')) + '</h3>'
+    + '<p class="subtitle" style="margin:0 0 8px">' + escapeHtml(t('storages.ov_hint')) + ' '
+    + '<button class="btn-secondary btn-compact" data-stor-ov="explorer">' + escapeHtml(t('storages.ov_open_explorer')) + '</button></p>'
+  if (d.error) head += '<p class="subtitle" style="color:#c0392b">' + escapeHtml(d.error) + '</p>'
+  if (!accs.length) { host.innerHTML = head + '<p class="subtitle">' + escapeHtml(t('storages.ov_none')) + '</p>'; return }
+  host.innerHTML = head + accs.map(function (a) {
+    var key = a.kind + ':' + a.account
+    var sizes = _storagesOvSizes[key] || null
+    var total = ''
+    if (sizes) {
+      var f = 0, b = 0
+      Object.keys(sizes).forEach(function (p) { if (sizes[p].ok) { f += sizes[p].files || 0; b += sizes[p].bytes || 0 } })
+      total = ' <strong>' + escapeHtml(t('storages.ov_total', { files: String(f), size: _depoBytes(b) })) + '</strong>'
+    }
+    return '<div class="stor-ov-acc" style="border:1px solid var(--border,#ddd);border-radius:8px;padding:8px 12px;margin:8px 0">'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><strong>' + escapeHtml(a.kind === 'mega' ? t('storages.ov_kind_mega') : t('storages.ov_kind_drive')) + ' · ' + escapeHtml(a.name) + '</strong>'
+      + total
+      + '<button class="btn-secondary btn-compact" data-stor-ov="measure" data-kind="' + escapeHtml(a.kind) + '" data-account="' + escapeHtml(a.account) + '">' + escapeHtml(t('storages.ov_measure')) + '</button></div>'
+      + _storagesOvTree(a.entries, sizes) + '</div>'
+  }).join('')
+}
+
+async function _storagesOvClick(ev) {
+  var btn = ev.target && ev.target.closest ? ev.target.closest('[data-stor-ov]') : null
+  if (!btn) return
+  ev.preventDefault()
+  var act = btn.getAttribute('data-stor-ov')
+  if (act === 'explorer') { switchPage('intezo'); return }
+  if (act === 'measure') {
+    var kind = btn.getAttribute('data-kind'), account = btn.getAttribute('data-account')
+    btn.disabled = true
+    btn.textContent = t('storages.ov_measuring')
+    try {
+      var r = await _depoGet('/api/storages/overview/measure?kind=' + encodeURIComponent(kind) + '&account=' + encodeURIComponent(account))
+      var map = {}
+      ;(r.entries || []).forEach(function (e) { map[e.path] = e })
+      _storagesOvSizes[kind + ':' + account] = map
+    } catch (e) {
+      _storagesSay(t('storages.ov_failed', { error: e && e.message ? e.message : String(e) }))
+    }
+    await _storagesOverview()
+  }
+}
+
 async function _storagesRefresh() {
+  _storagesOverview()
   var tbl = document.getElementById('storagesTable')
   if (!tbl || _storagesLoading) return
   _storagesLoading = true
@@ -39449,9 +39537,11 @@ var _depoAccountsLoading = false
 async function _depoLoadSyncAccounts() {
   // The backup card and the restore box offer the SAME accounts: two separate
   // fetches would see two moments, and the two lists could differ.
+  // #714: the old "what to back up / which account" pickers are gone from the page (the marking is in the Intezo);
+  // the restore picker below is the one that needs the list.
   const sel = document.getElementById('depoBackupAccount')
   const sel2 = document.getElementById('depoRestoreAccount')
-  if (!sel || (sel.options.length && (!sel2 || sel2.options.length)) || _depoAccountsLoading) return
+  if (!sel2 || sel2.options.length || _depoAccountsLoading) return
   // A _depoRefresh tobb helyrol is jon (Frissítés gomb, munka-figyelo, mentes
   // utan). Ket EGYSZERRE futo toltes ujrarajzolna a legordulot, ami VISSZAALLITJA
   // a kivalasztott fiokot az elsore -- eppen amikor a user mar mast valasztott.
@@ -39461,8 +39551,8 @@ async function _depoLoadSyncAccounts() {
     const acc = await _depoGet('/api/drive/accounts')
     const lista = acc.accounts || []
     const opciok = lista.map((a) => '<option value="' + escapeHtml(a) + '">' + escapeHtml(a) + '</option>').join('')
-    sel.innerHTML = opciok
-    if (sel2) sel2.innerHTML = opciok
+    if (sel) sel.innerHTML = opciok
+    sel2.innerHTML = opciok
     // Ha egyetlen fiok sincs bekotve, azt KI KELL MONDANI: ures legordulovel a
     // user azt hinne, elromlott valami.
     if (note) note.textContent = lista.length ? '' : t('dsync.no_accounts')

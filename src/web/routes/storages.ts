@@ -32,6 +32,11 @@ import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRe
 import { syncAllRepos, lastSyncState, scanReposNeedingCommitPush } from '../../git-sync.js'
 import { dispatchCommitPush, readLastDispatch } from '../commit-push-job.js'
 import { displayLabelFor } from '../../life-labels.js'
+import { loadBackupRules, childExclusions, normRulePath } from '../../backup-rules.js'
+import { excludeRules } from '../../backup-exclude.js'
+import { merjMentendot, MAX_LOCAL_FILES } from './drive-sync.js'
+import { resolveLifePath } from '../../life-explorer.js'
+import { trashRelPath } from '../../life-tree.js'
 
 /**
  * A szinkron-eredmenyek sorait kiegesziti a MEGJELENITETT nevvel (ha van --
@@ -126,6 +131,50 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
       rows: currentRows(),
       hiddenRows: currentRowsAll().hiddenRows,
     })
+    return true
+  }
+
+  // FIOKONKENTI AT NEZET (kartya #714, Boss TG 9978/9981): mi van arra a fiokra KIJELOLVE az Intezoben. A jelolest
+  // (mappa -> fiok) az Intezo tarolja (backup-rules); ez csak OLVASSA. Csak azok a fiokok jonnek, amikre van jelolt mappa:
+  // az ures fiok nem kerul a listara.
+  if (path === '/api/storages/overview' && method === 'GET') {
+    const { rules, broken } = loadBackupRules()
+    const names = new Map<string, string>()
+    for (const row of currentRows()) names.set(row.kind + ':' + row.account, row.name)
+    const accounts = new Map<string, { kind: string; account: string; name: string; entries: Array<{ path: string; exclude: string[]; setAt: string }> }>()
+    for (const r of rules) {
+      if (!r.target) continue
+      const key = r.target.kind + ':' + r.target.account
+      let a = accounts.get(key)
+      if (!a) { a = { kind: r.target.kind, account: r.target.account, name: names.get(key) || r.target.account, entries: [] }; accounts.set(key, a) }
+      a.entries.push({ path: r.path, exclude: r.exclude || [], setAt: r.setAt })
+    }
+    const list = [...accounts.values()].sort((x, y) => (x.kind + x.name).localeCompare(y.kind + y.name, 'hu'))
+    for (const a of list) a.entries.sort((x, y) => x.path.localeCompare(y.path, 'hu'))
+    json(res, {
+      accounts: list,
+      ...(broken ? { error: L(lang, `A mentési szabályok fájlja nem olvasható, ezért most egy jelölést sem látok (${broken}).`, `The backup rules file cannot be read, so no marking is visible right now (${broken}).`), code: 'rules_unreadable' } : {}),
+    })
+    return true
+  }
+
+  // Egy fiok jelolt mappainak MERETE. Mereskor mindent atolvasunk (nagy mappanal percek): ezert csak gombnyomasra fut,
+  // fiokonkent, es kozben a tobbi keres is kiszolgalodik (merjMentendot adagonkent engedi at a vezerlest).
+  if (path === '/api/storages/overview/measure' && method === 'GET') {
+    const kind = String(ctx.url.searchParams.get('kind') || '')
+    const account = String(ctx.url.searchParams.get('account') || '')
+    const { rules } = loadBackupRules()
+    const mine = rules.filter((r) => r.target && r.target.kind === kind && r.target.account === account)
+    const out: Array<{ path: string; ok: boolean; files?: number; bytes?: number; truncated?: boolean; missing?: boolean }> = []
+    for (const r of mine) {
+      const abs = resolveLifePath(r.path)
+      // A rule on a folder that is gone must say so, not read as an empty folder ("0 files" would be a different statement).
+      if (!abs || !existsSync(abs)) { out.push({ path: r.path, ok: false, missing: true }); continue }
+      const ex = excludeRules([...(r.exclude || []), ...childExclusions(rules, r.path), ...(normRulePath(r.path) === '' ? [trashRelPath()] : [])])
+      const m = await merjMentendot(abs, MAX_LOCAL_FILES, new Set<string>(), ex)
+      out.push({ path: r.path, ok: true, files: m.files, bytes: m.bytes, truncated: m.csonkolt })
+    }
+    json(res, { kind, account, entries: out })
     return true
   }
 
