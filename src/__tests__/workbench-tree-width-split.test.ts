@@ -18,8 +18,11 @@ describe('folder column width handle', () => {
   })
   it('keeps the width in a CSS variable so the narrow layout keeps its own', () => {
     expect(js).toContain('--wb-tree-w')
-    expect(css).toMatch(/@media \(min-width: 901px\) \{ \.wb-fr-panel \{ flex-basis: var\(--wb-tree-w, 320px\); \} \}/)
+    expect(css).toMatch(/@media \(min-width: 901px\) \{ \.wb-fr-panel \{ flex-basis: min\(var\(--wb-tree-w, 320px\), max\(320px, calc\(100% - 620px\)\)\); \} \}/)
     expect(css).toMatch(/\.wb-grid-aside \{ grid-template-columns: var\(--wb-tree-w, /)
+  })
+  it('clamps a saved width at render time, so a narrower window than when it was saved keeps the other columns', () => {
+    expect(css).toMatch(/\.wb-grid-aside\[style\*="--wb-tree-w"\] \{ grid-template-columns: min\(var\(--wb-tree-w\), max\(200px, calc\(100% - 380px\)\)\)/)
   })
   it('has the tooltip in both languages', () => {
     expect(hu).toContain('"workbench.tree.width_hint"')
