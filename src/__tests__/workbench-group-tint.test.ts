@@ -21,19 +21,36 @@ describe('workbench list group tint', () => {
     expect(js).toContain('function grpHsl(g)')
     expect(js).toContain('var g = ownFold[f] ? -(++topIdx) : folIdx++')
     expect(js).not.toContain('subIdx')
-    expect(js).toContain('var pal = [350, 128, 275, 42, 168, 318, 95]')
+    expect(js).toContain('var GRP_FOLDER = ')
     expect(js).toContain('var g = outIdx++')
     expect(css).toMatch(/\.wb-sec-box\s*\{[^}]*10%, transparent[^}]*background: transparent/)
   })
 })
 
-describe('palette order (#690)', () => {
-  it('neighbouring colours are at least 100 degrees apart on the wheel, never two shades of one hue', () => {
-    const js = readFileSync(join(process.cwd(), 'web/workbench.js'), 'utf-8')
-    const m = /var pal = \[([0-9, ]+)\]/.exec(js)
-    const pal = m![1].split(',').map((x) => Number(x.trim()))
-    const dist = (a: number, b: number) => { const x = Math.abs(a - b) % 360; return Math.min(x, 360 - x) }
-    for (let i = 0; i < pal.length; i++) expect(dist(pal[i], pal[(i + 1) % pal.length])).toBeGreaterThanOrEqual(100)
-    for (const h of pal) expect(dist(h, 210)).toBeGreaterThanOrEqual(40)
+describe('palette (#690, #692)', () => {
+  const js = readFileSync(join(process.cwd(), 'web/workbench.js'), 'utf-8')
+  const dist = (a: number, b: number) => { const x = Math.abs(a - b) % 360; return Math.min(x, 360 - x) }
+  const folders = JSON.parse((/var GRP_FOLDER = (\[\[[0-9, \[\]]+\]\])/.exec(js))![1]) as number[][]
+  const items = [...(/var GRP_ITEM = \[([^\]]+)\]/.exec(js))![1].matchAll(/hsl\((\d+) (\d+)% (\d+)%\)/g)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3])])
+  it('the 6 folders of one work item are far apart: neighbours >= 90 degrees, and any two differ in hue by 30+ or lightness by 15+', () => {
+    expect(folders.length).toBeGreaterThanOrEqual(6)
+    for (let i = 0; i < folders.length; i++) expect(dist(folders[i][0], folders[(i + 1) % folders.length][0])).toBeGreaterThanOrEqual(90)
+    for (let i = 0; i < folders.length; i++) for (let j = i + 1; j < folders.length; j++) {
+      expect(dist(folders[i][0], folders[j][0]) >= 30 || Math.abs(folders[i][2] - folders[j][2]) >= 15).toBe(true)
+    }
+  })
+  it('the work item is a DARK indigo and every folder is lighter and away from it in hue or lightness (Boss TG 9624)', () => {
+    for (const it of items) {
+      expect(it[2]).toBeLessThanOrEqual(36)
+      for (const f of folders) {
+        expect(f[2] - it[2]).toBeGreaterThanOrEqual(6)
+        expect(dist(f[0], it[0]) >= 45 || f[2] - it[2] >= 25).toBe(true)
+      }
+    }
+  })
+  it('every work item restarts the folder slots, and the item tint is stronger than the folder tint', () => {
+    expect(js).toContain('if (ownFold[f]) folIdx = 0')
+    expect(js).toContain('if (ownFold[f]) folIdx = outerFol')
+    expect(js).toContain("(g < 0 ? '40%' : '24%')")
   })
 })
