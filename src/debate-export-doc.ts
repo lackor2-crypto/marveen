@@ -4,9 +4,10 @@
 // document gets its own folder in the project's work items box, the same way a work item made from the intake does,
 // and is made by the owner's hand (the debate only fills it).
 
+import { readdirSync, rmdirSync } from 'node:fs'
 import { getDb } from './db.js'
 import { getProject, type ProjectRow } from './projects.js'
-import { debateFolderFor, DEBATE_FOLDER_NAMES, DEBATE_REPORT_SUB_NAMES, DEBATE_FOLDER_OLD_NAMES, folderWasMade, noteFolderMade, projectFileTarget } from './project-files.js'
+import { debateFolderFor, DEBATE_FOLDER_NAMES, DEBATE_REPORT_SUB_NAMES, DEBATE_FOLDER_OLD_NAMES, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, folderWasMade, noteFolderMade, projectFileTarget } from './project-files.js'
 import { logger } from './logger.js'
 import { createWorkItem, getWorkItem, setWorkItemDeleted, type WorkItemRow } from './workbench.js'
 import { replacePage, BLOCK_TEXT_MAX } from './workbench-docmodel.js'
@@ -166,8 +167,51 @@ export function relocateLegacyReports(): number {
   return moved
 }
 
+/** The names of the five standard subfolders of a work item folder (every generation of the names). */
+const STANDARD_SUBFOLDER_NAMES: string[] = [
+  FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES,
+  'Mellékletek', 'Attachments', 'Feltöltések', 'Uploads',
+  AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES,
+  DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES,
+]
+
+/**
+ * #656: a debate report made before the fix may sit in a folder that holds EMPTY standard subfolders (Finished, Attachments,
+ * Uploads ...) it never needed. Each one is removed, and only while it is really empty (rmdir refuses anything with even a
+ * hidden file in it). Only a report's own debate / report folder is touched: a report that fell back into its origin item's
+ * folder shares the item's real subfolders, which stay. Returns how many folders were removed.
+ */
+export function removeEmptyReportScaffoldFolders(): number {
+  const db = getDb()
+  const rows = db.prepare("SELECT id, project_id, folder FROM work_items WHERE deleted_at IS NULL AND folder IS NOT NULL AND folder != '' AND (title LIKE 'Vitáztatás jelentés: %' OR title LIKE 'Debate report: %')").all() as { id: string; project_id: string; folder: string }[]
+  const own = new Set<string>([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, DEBATE_REPORT_SUB_NAMES.hu, DEBATE_REPORT_SUB_NAMES.en])
+  const seen = new Set<string>()
+  let removed = 0
+  for (const row of rows) {
+    try {
+      if (!own.has(row.folder.split('/').pop() ?? '')) continue
+      const project = getProject(row.project_id)
+      if (!project || project.archived_at != null) continue
+      const key = `${row.project_id}|${row.folder}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const t = projectFileTarget(project, row.folder)
+      if (!t.ok) continue
+      for (const name of STANDARD_SUBFOLDER_NAMES) {
+        const sub = projectFileTarget(project, `${row.folder}/${name}`)
+        if (!sub.ok || readdirSync(sub.dirAbs).length > 0) continue
+        try { rmdirSync(sub.dirAbs); removed++ } catch { /* not empty after all, or in use: left alone */ }
+      }
+    } catch (err) {
+      logger.warn({ item: row.id, err: String((err as Error)?.message || err) }, '[debate-report] empty scaffold folder cleanup skipped')
+    }
+  }
+  if (removed) logger.info({ removed }, '[debate-report] empty standard subfolders of debate reports removed')
+  return removed
+}
+
 /** Runs once shortly after start-up (the dashboard restarts on every deploy), so no report waits for the next debate. */
 export function startLegacyReportRelocation(): void {
   if (process.env['VITEST']) return
-  setTimeout(() => { try { relocateLegacyReports() } catch { /* retried at the next start */ } }, 30_000).unref?.()
+  setTimeout(() => { try { relocateLegacyReports(); removeEmptyReportScaffoldFolders() } catch { /* retried at the next start */ } }, 30_000).unref?.()
 }
