@@ -18068,7 +18068,7 @@
     // The zoom bar is no longer inside this column: it sits slim at the very bottom of the frame
     // (frameHtml), so the content above gets the room (Boss, TG 2252/2258).
     WB.frShowBar = !(isVid || tbl)
-    return '<div class="wb-fr-center">' + noteFinalPanelHtml() + main + strip + '</div>'
+    return '<div class="wb-fr-center' + (isVid ? ' wb-fr-center-vid' : '') + '">' + noteFinalPanelHtml() + main + strip + '</div>'
   }
 
   /** Alul: nagyitas, oldalszam. */

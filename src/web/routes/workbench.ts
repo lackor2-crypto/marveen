@@ -101,7 +101,7 @@ import { saveEditedImage } from '../../workbench-image-edit.js'
 import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS } from '../../workbench-video-timeline.js'
-import { renderTimeline, lastRenderOf, fillClipEnds, listProjectMedia } from '../../workbench-video-render.js'
+import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
@@ -5395,10 +5395,23 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const tlStatus = (code: string): number => (/_(not_found|orphan_not_found)$/.test(code) ? 404 : 409)
 
     if (segs.length === 2 && method === 'GET') {
-      const r = store.read(item.id, url.searchParams.get('version'))
+      let r = store.read(item.id, url.searchParams.get('version'))
       if (!r.ok) return failDetail(res, tlStatus(r.code), r.code, lang, r.detail)
       const fresh = getWorkItem(item.id) || item
       const onCurrent = !r.version_id || r.version_id === fresh.current_version_id
+      // #669: a timeline saved with a cut past the real end of its file (the old browser-measured length) is corrected
+      // on open, and saved, so the track, the player and the render agree.
+      const owner0 = getProject(item.project_id)
+      if (owner0 && r.exists) {
+        const fixed = await clampClipLengths(owner0, r.doc)
+        if (fixed.changed) {
+          if (onCurrent && !tlArchived()) {
+            const c = store.commit(item, fixed.doc, { source: 'owner', grp: null, label: 'clip length corrected', actor: actor(ctx), name: r.name, prompt: undefined })
+            if (c.ok) { const again = store.read(item.id, url.searchParams.get('version')); if (again.ok) r = again }
+          }
+          if (r.ok && r.doc !== fixed.doc && r.doc.clips.some((x, i) => x.end !== fixed.doc.clips[i]?.end)) r = { ...r, doc: fixed.doc }
+        }
+      }
       const last = lastRenderOf(item.id)
       json(res, {
         timeline: r.doc, exists: r.exists, rel: r.rel, name: r.name, version_id: r.version_id, version_no: r.version_no,
@@ -5425,6 +5438,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       const applied = applyTimelineOps(current.doc, filled.ops)
       if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
+      // #669: no cut may run past the real end of its file (a dragged edge, or a browser that mis-measured a phone video)
+      if (owner) applied.doc = (await clampClipLengths(owner, applied.doc)).doc
       const group = typeof body['group'] === 'string' ? body['group'].trim().slice(0, 80) : ''
       const commit = store.commit(item, applied.doc, {
         source: 'owner', grp: group ? `ui:${group}` : null, label: opsLabel(body['ops']),
