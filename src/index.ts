@@ -38,7 +38,6 @@ import { startWorkbenchSnapshots, stopWorkbenchSnapshots } from './workbench-sna
 import { startWorkbenchRelocate, stopWorkbenchRelocate } from './workbench-relocate.js'
 import { startItemContexts, stopItemContexts } from './workbench-item-context.js'
 import { startLegacyReportRelocation } from './debate-export-doc.js'
-import { startCredentialForensics } from './web/credential-forensics.js'
 import { startLifeFolderIds, stopLifeFolderIds } from './life-folder-ids.js'
 import { AGENTS_BASE_DIR } from './web/agent-config.js'
 import {
@@ -654,8 +653,6 @@ async function main(): Promise<void> {
   startWorkbenchRelocate()
   startItemContexts()
   startLegacyReportRelocation()
-  // Temporary (card #653): logs every change to the Claude login files; stops itself on 2027-01-16.
-  startCredentialForensics()
 
   // #510: folders a registry knows by path (link target, backup rule, project folder, Drive backup pair) get a
   // hidden id, so a rename done outside Marveen (Windows Explorer) is found again and the registries follow.
