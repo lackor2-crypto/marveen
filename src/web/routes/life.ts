@@ -42,6 +42,7 @@ import { dupStatus, startDupIndex, stopDupIndex, duplicatesIn, matchCloudFiles }
 import { logger } from '../../logger.js'
 import { openWithDefaultApp, openableWithDefaultApp, fileManagerKind } from '../../open-in-file-manager.js'
 import { linkedUsesUnder } from '../../workbench-doc-links.js'
+import { isVersionsLifePath } from '../../workbench-assets.js'
 import {
   ensureLifeTree, lifeTreeStatus, restoreLifeFolders, loadLifeConfig, saveLifeConfig, mediaTargets,
   inboxCount, safeLifeName, newLifeId, lifeName, trashRelPath, lifeConfigExists, inboxDir,
@@ -714,6 +715,14 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // #691: a work item's saved versions (its "Verziók"/"Versions" folder) are protected in the Explorer tree too:
+  // nothing is deleted, renamed, moved out of it or put into it by hand (a restore would break).
+  const versionsGuard = (lang: string, ...rels: string[]): { code: string; message: string } | null => {
+    if (!rels.some((r) => isVersionsLifePath(r))) return null
+    return { code: 'folder_versions_protected', message: T(lang,
+      'Ez a munkadarab mentett verzióinak mappája (vagy egy verziófájl): védett. Megnézheted, de nem törölhető, nem nevezhető át, nem mozgatható, és nem lehet bele semmit tenni. A verziót a Verziók listából állíthatod vissza.',
+      'This is the folder of a work item\'s saved versions (or one of its files): it is protected. You can look at it, but it cannot be deleted, renamed or moved, and nothing can be put into it. Restore a version from the Versions list.') }
+  }
   if (path === '/api/life/mkdir' && method === 'POST') {
     const body = await readJson(req)
     // Egy git-repo munkapeldanyaba kezzel uj mappat tenni: a git kovetkezo
@@ -724,6 +733,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
       return true
     }
+    const verBaj = versionsGuard(uiLang(url), String(body?.parent ?? ''))
+    if (verBaj) { send(res, 400, { ok: false, rel: '', ...verBaj }); return true }
     const result = mkdirLife(String(body?.parent ?? ''), String(body?.name ?? ''), uiLang(url))
     send(res, result.ok ? 200 : 400, result)
     return true
@@ -875,6 +886,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const fromKey = from.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
     const opts = pasteOpts(body)
+    const verBaj = versionsGuard(lang, from, String(body?.to ?? ''))
+    if (verBaj) { send(res, 400, { ok: false, rel: '', ...verBaj }); return true }
     if (listMounts().some((m) => m.rel === fromKey)) {
       // #510: a BEKOTOTT mappa athelyezheto -- de csak a HELYE megy at, ahol
       // latszik (moveMountPoint); a `pasteLife` a mogotte allo tarolot vinne el.
@@ -913,6 +926,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const body = await readJson(req)
     const from = String(body?.from ?? '')
     const to = String(body?.to ?? '')
+    const verBaj = versionsGuard(lang, to)
+    if (verBaj) { send(res, 400, { ok: false, rel: '', ...verBaj }); return true }
     const blocked = intoRepoReason(to, lang)
     if (blocked) {
       send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
@@ -956,6 +971,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const lang = uiLang(url)
     const body = await readJson(req)
     const rel = String(body?.rel ?? '')
+    const verBaj = versionsGuard(lang, rel)
+    if (verBaj) { send(res, 400, { ok: false, rel: '', ...verBaj }); return true }
     const blocked = writeBlockReason(rel)
     if (blocked) {
       send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
@@ -1049,6 +1066,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const lang = uiLang(url)
     const body = await readJson(req)
     const rel = String(body?.rel ?? '')
+    const verBaj = versionsGuard(lang, rel)
+    if (verBaj) { send(res, 400, { ok: false, rel: '', ...verBaj }); return true }
     const blocked = writeBlockReason(rel)
     if (blocked) {
       send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })

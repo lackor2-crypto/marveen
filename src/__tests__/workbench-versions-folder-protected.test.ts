@@ -10,7 +10,7 @@ import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import {
   ensureWorkItemFolder, listWorkFolders, deleteLooseFiles, renameLooseFile, moveLooseFiles, copyLooseFiles,
-  deleteWorkFolder, renameWorkFolder, moveWorkFolder, makeWorkFolder, moveWorkItemToFolder,
+  deleteWorkFolder, renameWorkFolder, moveWorkFolder, makeWorkFolder, moveWorkItemToFolder, isVersionsLifePath,
 } from '../workbench-assets.js'
 import { saveCanvas } from '../workbench-canvas-store.js'
 
@@ -149,5 +149,28 @@ describe('versions folder: shown only with a version, protected', () => {
     const routes = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf8')
     expect(routes).toContain('folder_versions_protected: {')
     expect(routes).toContain('file_version_protected: {')
+  })
+
+  it('the Explorer tree (Életfa) protects the same paths: the versions folder and its files, nothing above or beside them', () => {
+    const id = drawing('Rajz')
+    save(id, 1)
+    save(id, 2)
+    const vf = versionFolder()!
+    const file = (listWorkFolders(project(), { outside: false }).files[vf] ?? [])[0]!
+    const folderRel = 'Projektek/Iroda/' + vf
+    expect(isVersionsLifePath(folderRel)).toBe(true)
+    expect(isVersionsLifePath(folderRel + '/')).toBe(true)
+    expect(isVersionsLifePath(file.rel)).toBe(true)
+    // the item's own folder, its parent and an unrelated "Versions" folder stay free
+    expect(isVersionsLifePath(folderRel.slice(0, folderRel.lastIndexOf('/')))).toBe(false)
+    expect(isVersionsLifePath('Projektek/Iroda')).toBe(false)
+    expect(isVersionsLifePath('Projektek/Iroda/Egyeb/Versions')).toBe(false)
+    expect(isVersionsLifePath('')).toBe(false)
+    const src = readFileSync(join(__dirname, '..', 'web', 'routes', 'life.ts'), 'utf8')
+    for (const route of ['mkdir', 'move', 'copy', 'rename', 'trash']) {
+      const at = src.indexOf(`path === '/api/life/${route}' && method === 'POST'`)
+      expect(at).toBeGreaterThan(0)
+      expect(src.slice(at, at + 900)).toContain('versionsGuard(')
+    }
   })
 })

@@ -351,6 +351,32 @@ export function isVersionsFolder(project: ProjectRow, folder: unknown): boolean 
   return c.ok && isVersionsFolderKey(c.folder, liveItemFolders(project))
 }
 
+/**
+ * #691: the same protection for the Explorer tree (Életfa / Intéző), which has its own move / rename / trash / copy /
+ * new-folder routes working on library paths. True when `rel` is the versions folder of a live work item or lies
+ * inside one. (The work item's own folder, or a folder above it, is not protected: only the versions are.)
+ */
+export function isVersionsLifePath(rel: unknown): boolean {
+  const clean = String(rel ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (!clean) return false
+  const segs = clean.split('/')
+  if (!segs.some((s) => VERSIONS_FOLDER_NAMES.includes(s))) return false
+  try {
+    const rows = getDb().prepare("SELECT p.id AS pid, w.folder AS folder FROM work_items w JOIN projects p ON p.id = w.project_id WHERE w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != '' AND p.folder_path IS NOT NULL AND p.folder_path != ''").all() as { pid: string; folder: string }[]
+    const low = clean.toLowerCase()
+    for (const r of rows) {
+      const project = getProject(r.pid)
+      if (!project?.folder_path) continue
+      const itemRel = `${project.folder_path}/${r.folder}`.replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase()
+      for (const n of VERSIONS_FOLDER_NAMES) {
+        const v = `${itemRel}/${n}`.toLowerCase()
+        if (low === v || low.startsWith(v + '/')) return true
+      }
+    }
+  } catch { /* no table yet: nothing to protect */ }
+  return false
+}
+
 /** The library paths (no trailing slash) of the versions folders of the live work items. */
 function versionDirRels(project: ProjectRow): Set<string> {
   const out = new Set<string>()
