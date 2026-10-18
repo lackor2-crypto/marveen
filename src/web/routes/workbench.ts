@@ -101,7 +101,7 @@ import { docEditExt, docToEditableHtml, htmlToDocBytes, htmlToExportBytes, DOC_E
 import { saveEditedImage } from '../../workbench-image-edit.js'
 import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
-import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS } from '../../workbench-video-timeline.js'
+import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS } from '../../workbench-video-timeline.js'
 import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
@@ -5430,7 +5430,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       json(res, {
         timeline: r.doc, exists: r.exists, rel: r.rel, name: r.name, version_id: r.version_id, version_no: r.version_no,
         summary: timelineSummary(r.doc), duration: timelineDuration(r.doc), offsets: clipOffsets(r.doc),
-        limits: { clips: TIMELINE_MAX_CLIPS, subtitles: TIMELINE_MAX_SUBTITLES, overlays: TIMELINE_MAX_OVERLAYS, text: TIMELINE_TEXT_MAX, min_clip: TIMELINE_MIN_CLIP, aspects: TIMELINE_ASPECTS },
+        limits: { clips: TIMELINE_MAX_CLIPS, subtitles: TIMELINE_MAX_SUBTITLES, overlays: TIMELINE_MAX_OVERLAYS, text: TIMELINE_TEXT_MAX, min_clip: TIMELINE_MIN_CLIP, aspects: TIMELINE_ASPECTS, backgrounds: TIMELINE_BACKGROUNDS },
         current: onCurrent, draft: r.draft,
         history: onCurrent ? store.history(item.id) : null, orphans: store.orphans(item.id),
         last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: !!r.version_id && last.version_id === r.version_id && !(r.draft && r.draft.since_version) } : null,

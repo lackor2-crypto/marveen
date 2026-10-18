@@ -6,7 +6,7 @@
 import type { ProjectRow } from '../projects.js'
 import { getWorkItem, setWorkItemVersionMeta } from '../workbench.js'
 import {
-  timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_ASPECTS,
+  timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS,
   type TimelineDoc,
 } from '../workbench-video-timeline.js'
 import { opsLabel } from '../workbench-draft-store.js'
@@ -35,7 +35,7 @@ export function timelineGet(project: ProjectRow, ctx: ToolContext, input: Record
   return {
     ok: true,
     data: {
-      ...view(r.doc), exists: r.exists, aspects: TIMELINE_ASPECTS,
+      ...view(r.doc), exists: r.exists, aspects: TIMELINE_ASPECTS, backgrounds: TIMELINE_BACKGROUNDS,
       lastRender: last ? { path: last.rel, seconds: last.seconds, upToDate: last.version_id === r.version_id && !(r.draft && r.draft.since_version) } : null,
       note: r.exists ? '' : 'there is no timeline yet on this work item; this is an empty one to start from. Clips are video files of the project folder: use file.list to find their paths (the path starts with the project folder).',
     },

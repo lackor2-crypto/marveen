@@ -7666,6 +7666,11 @@
       return '<button type="button" class="wb-btn' + (doc.aspect === a ? ' wb-on' : '') + '" data-wb-act="vt-aspect" data-wb-v="' + escA(a) + '"'
         + (WB.vtBusy || archived() ? ' disabled' : '') + '>' + esc(a) + '</button>'
     }).join(' ')
+    var bgNow = doc.background || 'blur'
+    var backgrounds = ((WB.vt.limits && WB.vt.limits.backgrounds) || ['blur', 'letterbox', 'crop']).map(function (b) {
+      return '<button type="button" class="wb-btn' + (bgNow === b ? ' wb-on' : '') + '" aria-pressed="' + (bgNow === b) + '" data-wb-act="vt-background" data-wb-v="' + escA(b) + '"'
+        + ' title="' + escA(t('workbench.vt.bg.' + b + '_hint')) + '"' + (WB.vtBusy || archived() ? ' disabled' : '') + '>' + esc(t('workbench.vt.bg.' + b)) + '</button>'
+    }).join(' ')
     var last = WB.vt.last_render
     return headOf('<span class="wb-muted">' + esc(t('workbench.vt.length', { s: vtSecs(WB.vt.duration || 0) })) + '</span>')
       + '<p class="wb-hint">' + esc(t('workbench.vt.intro')) + '</p>'
@@ -7674,6 +7679,8 @@
       + vtBtn('vt-undo', t('workbench.vt.undo'), '', h.can_undo ? '' : ' disabled')
       + vtBtn('vt-redo', t('workbench.vt.redo'), '', h.can_redo ? '' : ' disabled')
       + vtBtn('vt-version', t('workbench.vt.version')) + '</p>'
+      + '<p class="wb-vt-bg"><span class="wb-muted">' + esc(t('workbench.vt.bg.label')) + '</span> ' + backgrounds + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.vt.bg.' + bgNow + '_hint')) + '</p>'
       + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtOverlaysHtml(doc)
       + '<p>' + vtNumField('clip-volume', '', Math.round(doc.clip_volume * 100), t('workbench.vt.clip_volume')) + vtBtn('vt-volume', t('workbench.vt.save')) + '</p>'
       + '<p><button type="button" class="btn-primary" data-wb-act="vt-render"' + (WB.vtBusy || WB.vtRender || archived() || !doc.clips.length ? ' disabled' : '') + '>'
@@ -19495,6 +19502,7 @@
     else if (a === 'open-capcut') openInCapcut()
     else if (a === 'vt-autosub') vtAutoSubtitle()
     else if (a === 'vt-aspect') vtOps([{ op: 'setAspect', aspect: act.getAttribute('data-wb-v') }])
+    else if (a === 'vt-background') vtOps([{ op: 'setBackground', background: act.getAttribute('data-wb-v') }])
     else if (a === 'vt-clip-add') vtAddClip()
     else if (a === 'vt-clip-trim') vtTrimClip(act.getAttribute('data-wb-id'))
     else if (a === 'vt-clip-up' || a === 'vt-clip-down') vtMoveClip(act.getAttribute('data-wb-id'), a === 'vt-clip-up' ? -1 : 1)

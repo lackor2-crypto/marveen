@@ -73,6 +73,18 @@ describe('video timeline editor (phase 5)', () => {
     expect(JSON.parse(String(call.init!.body))).toEqual({ ops: [{ op: 'setAspect', aspect: '9:16' }] })
   })
 
+  it('#669: the background buttons show the choice and send setBackground', async () => {
+    const h = await open()
+    const html = h.html()
+    expect(html).toContain('data-wb-act="vt-background" data-wb-v="letterbox"')
+    expect(html).toContain('data-wb-act="vt-background" data-wb-v="crop"')
+    expect(html).toMatch(/wb-on" aria-pressed="true" data-wb-act="vt-background" data-wb-v="blur"/)
+    h.click({ 'data-wb-act': 'vt-background', 'data-wb-v': 'crop' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/timeline/ops'))).toBe(true))
+    const call = h.fetchCalls.find((c) => c.url.includes('/timeline/ops'))!
+    expect(JSON.parse(String(call.init!.body))).toEqual({ ops: [{ op: 'setBackground', background: 'crop' }] })
+  })
+
   it('moving a clip down sends its new position', async () => {
     const h = await open()
     h.click({ 'data-wb-act': 'vt-clip-down', 'data-wb-id': 'c1' })
