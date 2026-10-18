@@ -8,6 +8,7 @@ vi.mock('../workbench-docmirror.js', () => ({ scheduleOutlineMirror: () => {} })
 import { initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
+import { ensureWorkItemFolder } from '../workbench-assets.js'
 import { createReportDocument } from '../debate-export-doc.js'
 
 const report = { title: 'Vitáztatás jelentés: teszt', sections: [{ title: 'Összegzés', paragraphs: ['Szöveg.'] }] } as never
@@ -86,5 +87,20 @@ describe('#699 (Boss TG 9746): the report goes into the "jelentés" subfolder of
     if (!second.ok) throw new Error(second.code)
     expect(second.item.folder).toBe(`${of}/Vitáztatás`)
     expect(existsSync(join(dir, 'P', 'Hivatal', of, 'Vitáztatás', 'jelentés'))).toBe(false)
+  })
+})
+
+describe('#699: an item that only has the old-name folder', () => {
+  it('the report goes straight into "Vitáztatás jelentés", no "jelentés" inside it', () => {
+    const o = origin('Wohngeld 2026')
+    const f = ensureWorkItemFolder(getWorkItem(o)!)
+    if (!f.ok) throw new Error('folder')
+    const base = join(dir, 'P', 'Hivatal', f.folder)
+    rmSync(join(base, 'Vitáztatás'), { recursive: true, force: true })
+    mkdirSync(join(base, 'Vitáztatás jelentés'), { recursive: true })
+    const r = createReportDocument(pid, report, null, { originItem: o, lang: 'hu' })
+    if (!r.ok) throw new Error(r.code)
+    expect(r.item.folder).toBe(`${f.folder}/Vitáztatás jelentés`)
+    expect(existsSync(join(base, 'Vitáztatás jelentés', 'jelentés'))).toBe(false)
   })
 })

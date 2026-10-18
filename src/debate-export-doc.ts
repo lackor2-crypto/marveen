@@ -62,6 +62,8 @@ function reportSubFolder(project: ProjectRow, debateFolder: string, lang: string
   const names = [DEBATE_REPORT_SUB_NAMES.hu, DEBATE_REPORT_SUB_NAMES.en]
   for (const n of names) if (projectFileTarget(project, `${debateFolder}/${n}`).ok) { noteFolderMade(project, `${debateFolder}/${n}`); return `${debateFolder}/${n}` }
   if (names.some((n) => folderWasMade(project, `${debateFolder}/${n}`))) return debateFolder
+  // An old-name folder ("Vitáztatás jelentés" / "Debate report") already IS the report folder by its name: no "jelentés" inside it.
+  if ((DEBATE_FOLDER_OLD_NAMES as readonly string[]).includes(debateFolder.split('/').pop() ?? '')) return debateFolder
   const sub = makeWorkFolder(project, debateFolder, lang === 'en' ? DEBATE_REPORT_SUB_NAMES.en : DEBATE_REPORT_SUB_NAMES.hu)
   if (!sub.ok) return debateFolder
   noteFolderMade(project, sub.folder)
