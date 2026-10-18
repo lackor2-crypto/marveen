@@ -86,6 +86,8 @@ export interface StorageRegistryFile {
   names: Record<string, string>
   /** `<kind>:<account>` -> ki van-e kapcsolva. Csak a true-k szamitanak. */
   disabled: Record<string, boolean>
+  /** `<kind>:<account>` -> a sor le van venve a listarol (Eltavolitas). Csak elrejtes: a fiok es a fajlok erintetlenek. */
+  hidden?: Record<string, boolean>
   /** A Git-fiokok -- ezeknek nincs Google-tokenjuk, csak itt leteznek. */
   gitAccounts: string[]
   /**
@@ -129,6 +131,7 @@ export function readStorageRegistry(file = storageRegistryPath()): StorageRegist
       ids: pick<number>(raw?.ids, (v) => typeof v === 'number' && v > 0),
       names: pick<string>(raw?.names, (v) => typeof v === 'string' && !!String(v).trim()),
       disabled: pick<boolean>(raw?.disabled, (v) => v === true),
+      hidden: pick<boolean>(raw?.hidden, (v) => v === true),
       gitAccounts: Array.isArray(raw?.gitAccounts)
         ? raw.gitAccounts.filter((a: unknown) => typeof a === 'string' && !!a.trim()).map((a: string) => a.trim())
         : [],
@@ -203,7 +206,7 @@ export function listStorages(opts: {
   megaAccounts?: string[]
   root?: string | null
   registry?: StorageRegistryFile
-}): { rows: StorageRow[]; registry: StorageRegistryFile; changed: boolean } {
+}): { rows: StorageRow[]; hiddenRows: StorageRow[]; registry: StorageRegistryFile; changed: boolean } {
   const root = opts.root === undefined ? depotRoot() : opts.root
   let reg = opts.registry ?? readStorageRegistry()
   const before = JSON.stringify(reg.ids)
@@ -216,6 +219,7 @@ export function listStorages(opts: {
   }
 
   const rows: StorageRow[] = []
+  const hiddenRows: StorageRow[] = []
   for (const kind of STORAGE_KINDS) {
     const kindRel = storageKindRoot(kind)
     const kindAbs = root ? join(root, kindRel) : null
@@ -239,7 +243,7 @@ export function listStorages(opts: {
       const rel = kindRel + '/' + safeDepotName(account)
       const abs = root ? join(root, kindRel, safeDepotName(account)) : null
       const st = abs ? safeStat(abs) : null
-      rows.push({
+      ;(reg.hidden?.[key] === true ? hiddenRows : rows).push({
         id: r.id,
         kind,
         account,
@@ -255,7 +259,7 @@ export function listStorages(opts: {
     }
   }
 
-  return { rows, registry: reg, changed: JSON.stringify(reg.ids) !== before }
+  return { rows, hiddenRows, registry: reg, changed: JSON.stringify(reg.ids) !== before }
 }
 
 /**
@@ -378,6 +382,24 @@ export function setStorageActive(
   if (active) delete disabled[key]
   else disabled[key] = true
   return { ...reg, disabled }
+}
+
+/**
+ * Eltavolitas / visszahozas. Csak a LISTA valtozik: a fiok, a kulcs es a fajlok erintetlenek.
+ * Elrejteskor a sor ki is kapcsol, hogy a lathatatlan tarolora ne fusson szinkron; visszahozaskor kikapcsolva marad,
+ * es a felhasznalo maga kapcsolja be -- igy egy visszahozas sem indit el magatol semmit.
+ */
+export function setStorageHidden(
+  reg: StorageRegistryFile,
+  kind: StorageKind,
+  account: string,
+  hidden: boolean,
+): StorageRegistryFile {
+  const key = storageKey(kind, account)
+  const h = { ...(reg.hidden || {}) }
+  const disabled = { ...reg.disabled }
+  if (hidden) { h[key] = true; disabled[key] = true } else delete h[key]
+  return { ...reg, hidden: h, disabled }
 }
 
 /** Egy fajta aktiv fiokjai -- ezt kerdezi a szinkron, mielott dolgozna. */
