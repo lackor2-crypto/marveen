@@ -19,4 +19,9 @@ describe('video live preview (#669)', () => {
       expect(src).toContain(f)
     }
   })
+
+  it('moves on to the next clip by itself when a clip ends while playing', () => {
+    expect(src).toContain('WB.vtAutoplay = nx.id')
+    expect(src).toContain('WB.vtAutoplay === c.id')
+  })
 })
