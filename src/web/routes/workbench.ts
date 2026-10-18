@@ -709,6 +709,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ebben a mappában már van ilyen nevű fájl. Válassz másik nevet, nem írom felül.',
     en: 'A file with this name already exists in this folder. Choose another name, I will not overwrite it.',
   },
+  folder_versions_protected: {
+    hu: 'Ez a munkadarab mentett verzióinak mappája: védett. Megnézheted, de nem törölhető, nem nevezhető át, nem mozgatható, és nem lehet bele semmit tenni. A verziót a Verziók listából állíthatod vissza.',
+    en: 'This is the folder of the work item\'s saved versions: it is protected. You can look at it, but it cannot be deleted, renamed or moved, and nothing can be put into it. Restore a version from the Versions list.',
+  },
+  file_version_protected: {
+    hu: 'Ez egy mentett verzió: védett, nem nevezhető át. A verziót a Verziók listából állíthatod vissza.',
+    en: 'This is a saved version: it is protected and cannot be renamed. Restore a version from the Versions list.',
+  },
   file_not_loose: {
     hu: 'Ez a fájl már nincs a listán (átnevezték, áthelyezték vagy törölték). Frissítsd az oldalt.',
     en: 'This file is no longer on the list (renamed, moved or deleted). Refresh the page.',

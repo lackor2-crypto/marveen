@@ -296,7 +296,7 @@ export function findWorkItemsBox(project: ProjectRow): string | null {
 }
 
 /** A folder for a new work item may only be the box itself or a folder inside it. */
-export type WorkFolderError = FileErrorCode | 'no_box'
+export type WorkFolderError = FileErrorCode | 'no_box' | 'folder_versions_protected'
 
 export function workFolderTarget(project: ProjectRow, folder: unknown): { ok: true; folder: string } | { ok: false; code: WorkFolderError } {
   const box = findWorkItemsBox(project)
@@ -319,7 +319,7 @@ export const WORK_FOLDER_MAX = 600
 
 /** A plain file lying in a work folder (not a work item): shown in the list with a preview link.
  *  `item`: the file lies directly in a live work item's own folder, so it belongs to that item (#492: copy only). */
-export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true; annex?: true }
+export type WorkFolderFile = { name: string; size: number; rel: string; item?: true; linked?: true; annex?: true; version?: true }
 /** Same name as SNAPSHOT_FILE in workbench-snapshot.ts (not imported: that module imports this area). */
 const ITEM_SNAPSHOT_NAME = 'marveen-item.json'
 export const WORK_FOLDER_FILES_MAX = 200
@@ -331,6 +331,35 @@ function liveItemFolders(project: ProjectRow): Set<string> {
     const rows = getDb().prepare("SELECT folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND folder IS NOT NULL AND folder != ''").all(project.id) as { folder: string }[]
     return new Set(rows.map((r) => r.folder))
   } catch { return new Set() }
+}
+
+/** #691 (Boss TG 9607/9610): the saved versions of a work item live in a "Verziók"/"Versions" folder inside the item's
+ *  own folder. It is system-managed: the owner sees it and restores from it, but its files and the folder itself are
+ *  never deleted, renamed or moved by hand (a restore would break), and nothing is dropped into it. */
+const VERSIONS_FOLDER_NAMES = ['Verzi\u00f3k', 'Versions']
+
+/** Is the project-relative folder key `key` the versions folder of a live work item's own folder? */
+export function isVersionsFolderKey(key: string, itemFolders: Set<string>): boolean {
+  const clean = String(key ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const i = clean.lastIndexOf('/')
+  return i > 0 && VERSIONS_FOLDER_NAMES.includes(clean.slice(i + 1)) && itemFolders.has(clean.slice(0, i))
+}
+
+/** Is `folder` (anything workFolderTarget accepts) a work item's versions folder? */
+export function isVersionsFolder(project: ProjectRow, folder: unknown): boolean {
+  const c = workFolderTarget(project, folder)
+  return c.ok && isVersionsFolderKey(c.folder, liveItemFolders(project))
+}
+
+/** The library paths (no trailing slash) of the versions folders of the live work items. */
+function versionDirRels(project: ProjectRow): Set<string> {
+  const out = new Set<string>()
+  for (const f of liveItemFolders(project)) {
+    const t = projectFileTarget(project, f)
+    if (!t.ok) continue
+    for (const n of VERSIONS_FOLDER_NAMES) out.add(`${t.dirRel.replace(/\/+$/, '')}/${n}`)
+  }
+  return out
 }
 
 /** Every folder inside the work items box, project-relative, parents before children.
@@ -556,7 +585,7 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
         let size = 0
         try { size = statSync(join(abs, f.name)).size } catch { /* gone meanwhile */ }
         const lifeRel = `${t.dirRel}${rel.slice(box.length)}/${f.name}`
-        ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: lifeRel, ...(itemFolders.has(rel) ? { item: true as const } : {}) })
+        ;(files[rel] = files[rel] || []).push({ name: f.name, size, rel: lifeRel, ...(itemFolders.has(rel) ? { item: true as const } : {}), ...(isVersionsFolderKey(rel, itemFolders) ? { version: true as const } : {}) })
         fileTotal++
       }
     }
@@ -567,6 +596,12 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
       const childAbs = join(abs, d.name)
       if (existsSync(join(childAbs, '.git'))) continue
       const childRel = `${rel}/${d.name}`
+      // #691: a versions folder with no file in it is never shown (only a saved version makes it worth seeing).
+      if (isVersionsFolderKey(childRel, itemFolders)) {
+        let any = false
+        try { any = readdirSync(childAbs).some((n) => n !== FOLDER_MARKER) } catch { /* unreadable: hidden */ }
+        if (!any) continue
+      }
       out.push(childRel)
       walk(childAbs, childRel, depth + 1)
     }
@@ -591,6 +626,7 @@ export function makeWorkFolder(project: ProjectRow, parent: unknown, name: unkno
     else parentRel = box.folder
   } else {
     const c = workFolderTarget(project, raw)
+    if (c.ok && isVersionsFolderKey(c.folder, liveItemFolders(project))) return { ok: false, code: 'folder_versions_protected' }
     if (c.ok) parentRel = c.folder
     else {
       // #681 (Boss TG 9548): a picked parent that vanished from the disk was deleted by the owner and is NOT made again
@@ -672,6 +708,7 @@ export function deleteWorkFolder(project: ProjectRow, folder: unknown, opts: { t
   if (!c.ok) return c
   const box = findWorkItemsBox(project)
   if (!box || c.folder === box) return { ok: false, code: 'folder_is_box' }
+  if (isVersionsFolderKey(c.folder, liveItemFolders(project))) return { ok: false, code: 'folder_versions_protected' }
   const t = projectFileTarget(project, c.folder)
   if (!t.ok) return t
   let entries: import('node:fs').Dirent[] = []
@@ -723,6 +760,7 @@ export function renameWorkFolder(project: ProjectRow, folder: unknown, newName: 
   if (!c.ok) return c
   const box = findWorkItemsBox(project)
   if (!box || c.folder === box) return { ok: false, code: 'folder_is_box' }
+  if (isVersionsFolderKey(c.folder, liveItemFolders(project))) return { ok: false, code: 'folder_versions_protected' }
   const seg = String(newName ?? '').trim()
   const clean = safeLifeName(seg)
   if (!seg || seg.includes('/') || seg.includes('\\') || !clean || clean === '_' || clean.startsWith('.') || clean.length > 120 || clean !== seg) return { ok: false, code: 'folder_name' }
@@ -788,6 +826,8 @@ export function moveWorkFolder(project: ProjectRow, folder: unknown, parent: unk
   if (!box || c.folder === box) return { ok: false, code: 'folder_is_box' }
   const p = workFolderTarget(project, parent)
   if (!p.ok) return p
+  const itemFolders = liveItemFolders(project)
+  if (isVersionsFolderKey(c.folder, itemFolders) || isVersionsFolderKey(p.folder, itemFolders)) return { ok: false, code: 'folder_versions_protected' }
   if (p.folder === c.folder || p.folder.startsWith(c.folder + '/')) return { ok: false, code: 'folder_into_itself' }
   const curParent = c.folder.slice(0, c.folder.lastIndexOf('/'))
   if (curParent === p.folder) return { ok: true, folder: c.folder, moved: false }
@@ -815,7 +855,7 @@ export function moveWorkFolder(project: ProjectRow, folder: unknown, parent: unk
   return { ok: true, folder: newFolder, moved: true }
 }
 
-export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' | 'name_taken' | 'in_use' | 'item_file' | 'failed' }
+export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' | 'name_taken' | 'in_use' | 'item_file' | 'version_file' | 'failed' }
 
 /**
  * #486: a loose file that a work item references -- typically a deck's slide picture, whose Depot-relative
@@ -976,6 +1016,8 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
   if (!want.length) return { ok: false, code: 'no_files' }
   const c = workFolderTarget(project, folder)
   if (!c.ok) return c
+  const itemFolders = liveItemFolders(project)
+  if (isVersionsFolderKey(c.folder, itemFolders)) return { ok: false, code: 'folder_versions_protected' }
   const target = projectFileTarget(project, c.folder)
   if (!target.ok) return target
   const wf = listWorkFolders(project, { outside: false })
@@ -993,6 +1035,8 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     const from = loose.get(rel)
     if (from === undefined) { skipped.push({ name, reason: 'not_loose' }); continue }
     if (from === c.folder) { skipped.push({ name, reason: 'same_place' }); continue }
+    // #691: a saved version stays where the restore expects it.
+    if (isVersionsFolderKey(from, itemFolders)) { skipped.push({ name, reason: 'version_file' }); continue }
     // #492: a file in a work item's own folder belongs to that item: it is never taken away, only copied.
     // Boss TG 3001/3016: the owner may explicitly move a file out of an item's folder (`allowItem`); a file the
     // registry names (a material, a finalised version's attachment) moves too, its references follow below.
@@ -1034,6 +1078,7 @@ export async function copyLooseFiles(project: ProjectRow, rels: unknown, folder:
   if (!want.length) return { ok: false, code: 'no_files' }
   const c = workFolderTarget(project, folder)
   if (!c.ok) return c
+  if (isVersionsFolderKey(c.folder, liveItemFolders(project))) return { ok: false, code: 'folder_versions_protected' }
   const target = projectFileTarget(project, c.folder)
   if (!target.ok) return target
   const wf = listWorkFolders(project, { outside: false })
@@ -1121,11 +1166,14 @@ export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFile
   const deleted: string[] = []
   const skipped: MoveFilesSkip[] = []
   const trash: string[] = []
+  const versionDirs = versionDirRels(project)
   for (const rel of want) {
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     // #601: a linked file is only a pointer: "delete" takes the link off, the original stays where it is (never trashed).
     if (isFileMount(rel)) { if (removeMount(rel).ok) deleted.push(name); else skipped.push({ name, reason: 'failed' }); continue }
     if (!loose.has(rel)) { skipped.push({ name, reason: 'not_loose' }); continue }
+    // #691: a saved version file is never deleted by hand (the versions list restores from it).
+    if (versionDirs.has(rel.slice(0, rel.lastIndexOf('/')))) { skipped.push({ name, reason: 'version_file' }); continue }
     const src = resolveLifePath(rel)
     if (!src || writeBlockReason(rel)) { skipped.push({ name, reason: 'failed' }); continue }
     // #529: what the delete takes off the file is read first, so the Workbench trash can give it back.
@@ -1147,7 +1195,7 @@ export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFile
 
 export type RenameFileResult =
   | { ok: true; name: string; renamed: boolean }
-  | { ok: false; code: 'file_name' | 'file_not_loose' | 'file_name_taken' | 'write_failed' | 'no_box'; message?: string }
+  | { ok: false; code: 'file_name' | 'file_not_loose' | 'file_name_taken' | 'write_failed' | 'no_box' | 'file_version_protected'; message?: string }
 
 /**
  * #483: rename a loose file in place (same folder, never overwrites). A file a work item references (a deck
@@ -1164,6 +1212,7 @@ export function renameLooseFile(project: ProjectRow, rel: unknown, newName: unkn
   let folder: string | null = null
   for (const k of Object.keys(wf.files)) if ((wf.files[k] ?? []).some((f) => f.rel === from)) { folder = k; break }
   if (folder === null) return { ok: false, code: 'file_not_loose' }
+  if (isVersionsFolderKey(folder, liveItemFolders(project))) return { ok: false, code: 'file_version_protected' }
   const oldName = from.slice(from.lastIndexOf('/') + 1)
   if (clean === oldName) return { ok: true, name: clean, renamed: false }
   const src = resolveLifePath(from)
@@ -2223,6 +2272,7 @@ export function moveWorkItemToFolder(item: WorkItemRow, folder: unknown): MoveIt
   if (!project) return { ok: false, code: 'not_found' as WorkFolderError }
   const c = workFolderTarget(project, folder)
   if (!c.ok) return c
+  if (isVersionsFolderKey(c.folder, liveItemFolders(project))) return { ok: false, code: 'folder_versions_protected' }
   const own = workItemFolder(item.id)
   if (!own) {
     // Boss TG 2516: moving never makes a folder. The item has none of its own, so it only gets its new place.
