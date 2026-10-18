@@ -11,6 +11,12 @@ import { RequestBodyTooLargeError } from '../web/http-helpers.js'
 let server: http.Server | null = null
 let dir = ''
 
+// The staging dir is shared with every other test file running in parallel, so "no staging file left" means "no NEW
+// one from this test", not "the dir holds none at all".
+const partFiles = (): string[] => {
+  try { return readdirSync(join(STORE_DIR, 'upload-tmp')).filter((n) => n.endsWith('.part')) } catch { return [] }
+}
+
 afterEach(() => {
   server?.close()
   server = null
@@ -60,20 +66,22 @@ function post(port: number, size: number, declare: boolean): Promise<{ status: n
 
 describe('streamBodyToStage over a real connection', () => {
   it('a multi-MB body arrives byte-exact and leaves no staging file', async () => {
+    const before = new Set(partFiles())
     const port = await start(0)
     const size = 6 * 1024 * 1024 + 5
     const r = await post(port, size, true)
     expect(r.status).toBe(201)
     expect(JSON.parse(r.body).bytes).toBe(size)
     expect(readFileSync(join(dir, 'out.bin')).length).toBe(size)
-    expect(readdirSync(join(STORE_DIR, 'upload-tmp')).filter((n) => n.endsWith('.part'))).toEqual([])
+    expect(partFiles().filter((n) => !before.has(n))).toEqual([])
   })
 
   it('a body over the limit WITHOUT a Content-Length still gets the 413 answer, not a dropped connection', async () => {
+    const before = new Set(partFiles())
     const port = await start(1024 * 1024)
     const r = await post(port, 8 * 1024 * 1024, false)
     expect(r.status).toBe(413)
     expect(JSON.parse(r.body).error).toBe('upload_too_large')
-    expect(readdirSync(join(STORE_DIR, 'upload-tmp')).filter((n) => n.endsWith('.part'))).toEqual([])
+    expect(partFiles().filter((n) => !before.has(n))).toEqual([])
   })
 })
