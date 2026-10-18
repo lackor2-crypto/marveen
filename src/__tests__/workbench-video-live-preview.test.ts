@@ -24,4 +24,13 @@ describe('video live preview (#669)', () => {
     expect(src).toContain('WB.vtAutoplay = nx.id')
     expect(src).toContain('WB.vtAutoplay === c.id')
   })
+
+  it('the delete buttons of a subtitle, the music and a picture say "Delete", not "Delete clip"', () => {
+    for (const k of ["vt-sub-del', t('workbench.vt.remove_item')", "vt-music-del', t('workbench.vt.remove_item')", "vt-ov-del', t('workbench.vt.remove_item')"]) expect(src).toContain(k)
+    expect(src).toContain("vt-clip-del', t('workbench.vt.remove')")
+  })
+
+  it('the split at the playhead keeps the playhead to the millisecond', () => {
+    expect(src).toContain('var at = Math.round(v.currentTime * 1000) / 1000')
+  })
 })

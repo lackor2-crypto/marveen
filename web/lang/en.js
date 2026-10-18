@@ -6810,6 +6810,7 @@ window._i18n.en = {
   "workbench.vt.down": "Later",
   "workbench.vt.split": "Split",
   "workbench.vt.remove": "Delete clip",
+  "workbench.vt.remove_item": "Delete",
   "workbench.vt.remove_hint": "Takes the picked clip off the timeline; the video file stays. Undo brings it back (↶).",
   "workbench.vt.remove_confirm": "Take the clip {name} off the timeline? The video file stays, and undo (↶) brings it back.",
   "workbench.fr.vid.trans.chip": "Transition between the two clips",
