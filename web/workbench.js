@@ -2113,6 +2113,12 @@
       return ' style="' + grpVars(g) + '"'
     }
     function walk(path, depth, grp) {
+      // #696 (Boss TG 9643/9650): a work item's own files/sub-items come FIRST, right under it, then its folders -- no
+      // folder sits between the work item and its files. (Was: folders first, then the files, TG 2642.)
+      var mixed = (byPlace[path] || []).filter(function (it) { return !itHidden(it) }).map(function (it) { return { name: it.source_path ? baseOf(it.source_path) : String(it.title || ''), it: it } })
+        .concat((looseShown(path) ? (plainFiles[path] || []) : []).map(function (f) { return { name: String(f.name || ''), f: f } }))
+      mixed.sort(function (a, b) { return (a.it ? 0 : 1) - (b.it ? 0 : 1) || nameCmp(a, b) })
+      mixed.forEach(function (m) { rows.push(m.it ? itemRowHtml(m.it, depth, grp) : plainFileRowHtml(m.f, depth, grp)) })
       ;(kids[path] || []).forEach(function (f) {
         if (folderGone(f)) return
         // #684 (Boss TG 9585): the item's own folder is blue, EVERY other folder has a colour of its own from the palette, never
@@ -2140,12 +2146,6 @@
           + folderMenuHtml(f) + '</li>')
         if (!collapsed) walk(f, depth + 1, g)
       })
-      // TG 2642: same order as the Explorer: folders first, then the files (work items and plain files mixed) by name.
-      var mixed = (byPlace[path] || []).filter(function (it) { return !itHidden(it) }).map(function (it) { return { name: it.source_path ? baseOf(it.source_path) : String(it.title || ''), it: it } })
-        .concat((looseShown(path) ? (plainFiles[path] || []) : []).map(function (f) { return { name: String(f.name || ''), f: f } }))
-      // Boss TG 2747: the work item is always the top row of its folder; its older versions (plain files) follow by name.
-      mixed.sort(function (a, b) { return (a.it ? 0 : 1) - (b.it ? 0 : 1) || nameCmp(a, b) })
-      mixed.forEach(function (m) { rows.push(m.it ? itemRowHtml(m.it, depth, grp) : plainFileRowHtml(m.f, depth, grp)) })
     }
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
     var favsAll = items.filter(function (it) { return it.pinned_at != null })
@@ -2213,6 +2213,8 @@
       var kidsHere = (outKids[path] || []).map(function (f) { return { name: baseOf(f), f: f } })
       if (path === '' && box) kidsHere.push({ name: baseOf(box), box: true })
       kidsHere.sort(nameCmp)
+      // #696 (Boss TG 9643/9650): the files and work items come FIRST, then the folders -- no folder between a group and its files.
+      ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(outItemByRel[f.rel] ? itemRowHtml(outItemByRel[f.rel], depth, grp) : plainFileRowHtml(f, depth, grp)) })
       kidsHere.forEach(function (e) {
         if (e.box) { renderBox(); return }
         var f = e.f
@@ -2235,7 +2237,6 @@
         }
         walkOutside(f, depth + 1, g)
       })
-      ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(outItemByRel[f.rel] ? itemRowHtml(outItemByRel[f.rel], depth, grp) : plainFileRowHtml(f, depth, grp)) })
     }
     if (box) walkOutside('', 1, null)
     else { walk(box, 1, null); walkOutside('', 1, null) }
