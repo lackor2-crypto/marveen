@@ -1428,7 +1428,7 @@
   function grpHsl(g) {
     // #692 (Boss TG 9622/9624): the open work item and its direct files are a DARK indigo (two alternating shades for
     // neighbouring items); the folders inside it are LIGHTER and vivid, with hues far apart (>= 90 degrees between ones
-    // handed out one after the other) and lightness that differs too, so they also differ for colour-blind eyes. None sits
+    // handed out one after the other, the 6th -> 7th hand-out too: the counter runs on, so the palette order is a closed loop) and lightness that differs too, so they also differ for colour-blind eyes. None sits
     // near the indigo. Slots restart for every work item, so its 5-6 standard folders always get the 6 distinct slots.
     if (g < 0) return 'hsl(' + Math.round(GRP_ITEM_BAND[0] + (((-g - 1) * 0.618034) % 1) * GRP_ITEM_BAND[1]) + ' ' + GRP_ITEM_SL[0] + '% ' + GRP_ITEM_SL[1] + '%)'
     var p = GRP_FOLDER[g % GRP_FOLDER.length]
@@ -1439,7 +1439,7 @@
   // (350..175 degrees), so a folder can never be mistaken for a work item.
   var GRP_ITEM_BAND = [195, 140]
   var GRP_ITEM_SL = [60, 22]
-  var GRP_FOLDER = [[55, 95, 48], [175, 85, 50], [25, 95, 52], [140, 70, 48], [355, 85, 62], [95, 75, 46]]
+  var GRP_FOLDER = [[355, 85, 62], [175, 85, 50], [55, 95, 48], [145, 70, 48], [25, 95, 52], [115, 75, 46]]
   /** The inline style of a tinted row: the colour and how strongly it shows (the dark item tint is stronger). */
   function grpVars(g) { return '--wb-grp: ' + grpHsl(g) + '; --wb-grp-a: ' + (g < 0 ? '40%' : '24%') + '; --wb-grp-a-on: ' + (g < 0 ? '46%' : '30%') }
 
