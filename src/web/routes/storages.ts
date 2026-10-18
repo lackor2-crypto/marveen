@@ -23,7 +23,7 @@ import { logger } from '../../logger.js'
 import { depotRoot } from '../../depot.js'
 import {
   listStorages, ensureStorageFolders, readStorageRegistry, writeStorageRegistry, addGitAccount,
-  renameStorage, setStorageActive, storageKindRoot, STORAGE_KINDS,
+  renameStorage, setStorageActive, setStorageHidden, storageKindRoot, STORAGE_KINDS,
   type StorageKind,
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
@@ -67,7 +67,9 @@ function accountSources(): { drive: string[]; photos: string[]; mega: string[] }
 }
 
 /** A lista + a kiosztott azonositok lemezre irasa, ha uj sor keletkezett. */
-function currentRows() {
+function currentRows() { return currentRowsAll().rows }
+
+function currentRowsAll() {
   const src = accountSources()
   const r = listStorages({ driveAccounts: src.drive, photosAccounts: src.photos, megaAccounts: src.mega })
   // A kiosztas CSAK akkor kerul lemezre, ha tenyleg uj szam szuletett. Igy egy
@@ -96,11 +98,12 @@ function currentRows() {
   } catch (e) {
     logger.warn({ err: String(e) }, '[storages] a fiok-mappak potlasa nem sikerult')
   }
-  return r.rows.map((row) => {
+  const withToken = (row: (typeof r.rows)[number]) => {
     if (row.kind !== 'git') return row
     const t = gitTokenInfo(row.account)
     return { ...row, connected: t.has, tokenSource: t.source, tokenLogin: t.login }
-  })
+  }
+  return { rows: r.rows.map(withToken), hiddenRows: r.hiddenRows.map(withToken) }
 }
 
 function parseKind(v: unknown): StorageKind | null {
@@ -121,6 +124,29 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
       // hogy egy ures tablazat mellett hallgatna.
       message: root ? null : 'Még nincs beállítva raktár — a Raktár oldalon válaszd ki, hova kerüljenek a fájlok.',
       rows: currentRows(),
+      hiddenRows: currentRowsAll().hiddenRows,
+    })
+    return true
+  }
+
+  // ELTAVOLITAS / VISSZAHOZAS: csak a lista valtozik, a fiok, a kulcs es a fajlok erintetlenek (Boss, TG 9963/9967).
+  if (path === '/api/storages/hide' && method === 'POST') {
+    const b = await readJson(req)
+    const kind = parseKind(b?.kind)
+    const account = String(b?.account || '').trim()
+    if (!kind || !account) { json(res, { error: L(lang, 'Hiányzik a tároló azonosítója.', 'The storage ID is missing.') }, 400); return true }
+    const hide = b?.hidden !== false
+    writeStorageRegistry(setStorageHidden(readStorageRegistry(), kind, account, hide))
+    const all = currentRowsAll()
+    json(res, {
+      ok: true,
+      message: hide
+        ? L(lang, 'Eltávolítva a listáról. A fiók és a fájlok a helyükön maradnak, de szinkron nem fut rá többé. Az „Elrejtett tárolók” alatt visszahozhatod.',
+          'Removed from the list. The account and the files stay where they are, but nothing syncs to it any more. You can bring it back under “Hidden storages”.')
+        : L(lang, 'Visszahozva, kikapcsolt állapotban. Ha szinkronizálni akarod, kapcsold be.',
+          'Brought back, switched off. Switch it on if you want it to sync.'),
+      rows: all.rows,
+      hiddenRows: all.hiddenRows,
     })
     return true
   }

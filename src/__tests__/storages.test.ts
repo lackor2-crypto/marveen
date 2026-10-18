@@ -16,6 +16,7 @@ import {
   addGitAccount,
   renameStorage,
   setStorageActive,
+  setStorageHidden,
   activeAccounts,
   readStorageRegistry,
   storageKindRoot,
@@ -224,3 +225,28 @@ describe('ensureStorageFolders -- ures fiok-mappat NEM gyart (#513)', () => {
     expect(ensureStorageFolders(r.rows).filter((x) => x.startsWith(DEPOT_PROJECTS))).toEqual([])
   })
 })
+
+describe('Eltavolitas (setStorageHidden)', () => {
+  it('a sor lekerul a listarol es kikapcsol; a fajlok es a fiok erintetlenek; visszahozva kikapcsolva marad', () => {
+    mk(storageKindRoot('mega') + '/volmeres')
+    const before = listStorages({ driveAccounts: [], photosAccounts: [], megaAccounts: ['volmeres'], root, registry: EMPTY })
+    expect(before.rows.map((r) => r.account)).toEqual(['volmeres'])
+
+    const hid = setStorageHidden(before.registry, 'mega', 'volmeres', true)
+    const after = listStorages({ driveAccounts: [], photosAccounts: [], megaAccounts: ['volmeres'], root, registry: hid })
+    expect(after.rows).toHaveLength(0)
+    expect(after.hiddenRows.map((r) => r.account)).toEqual(['volmeres'])
+    expect(after.hiddenRows[0].active).toBe(false)
+    expect(activeAccounts(after.rows, 'mega')).toEqual([])
+    expect(existsSync(join(root, storageKindRoot('mega'), 'volmeres'))).toBe(true)
+    // the number stays the same: no new ID when it comes back
+    expect(after.hiddenRows[0].id).toBe(before.rows[0].id)
+
+    const back = setStorageHidden(after.registry, 'mega', 'volmeres', false)
+    const again = listStorages({ driveAccounts: [], photosAccounts: [], megaAccounts: ['volmeres'], root, registry: back })
+    expect(again.rows.map((r) => r.account)).toEqual(['volmeres'])
+    expect(again.rows[0].active).toBe(false)
+    expect(again.hiddenRows).toHaveLength(0)
+  })
+})
+

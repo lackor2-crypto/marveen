@@ -38402,7 +38402,18 @@ async function _storagesRefresh() {
     return
   }
   var rows = d.rows || []
+  var hiddenRows = d.hiddenRows || []
+  var hiddenHtml = hiddenRows.length
+    ? '<div class="stor-hidden"><p class="subtitle"><strong>' + escapeHtml(t('storages.hidden_title')) + '</strong> ' + escapeHtml(t('storages.hidden_hint')) + '</p>'
+      + hiddenRows.map(function (h) {
+        var hk = _STORAGE_KINDS[h.kind] || { label: h.kind, icon: '' }
+        return '<p><code>' + escapeHtml(h.id) + '</code> ' + hk.icon + ' ' + escapeHtml(h.name) + ' '
+          + '<button class="btn-secondary btn-compact" data-stor-act="unhide" data-kind="' + escapeHtml(h.kind)
+          + '" data-account="' + escapeHtml(h.account) + '">' + escapeHtml(t('storages.btn_restore')) + '</button></p>'
+      }).join('') + '</div>'
+    : ''
   if (!rows.length) {
+    if (hiddenHtml) { tbl.innerHTML = '<p class="subtitle">' + escapeHtml(t('storages.all_hidden')) + '</p>' + hiddenHtml; return }
     tbl.innerHTML = '<p class="subtitle">Még nincs egyetlen tároló sem. '
       + 'Google-fiókot a Fiókok oldalon köss be; Git-fiókot lent tudsz felvenni.</p>'
     return
@@ -38438,7 +38449,9 @@ async function _storagesRefresh() {
         + '" data-account="' + escapeHtml(r.account) + '" data-active="' + (r.active ? '1' : '0') + '">'
         + (r.active ? 'Kikapcsolás' : 'Bekapcsolás') + '</button> '
         + '<button class="btn-secondary btn-compact" data-stor-act="check" data-kind="' + escapeHtml(r.kind)
-        + '" data-account="' + escapeHtml(r.account) + '">Ellenőrzés</button>'
+        + '" data-account="' + escapeHtml(r.account) + '">Ellenőrzés</button> '
+        + '<button class="btn-secondary btn-compact" data-stor-act="hide" data-kind="' + escapeHtml(r.kind)
+        + '" data-account="' + escapeHtml(r.account) + '" title="' + escapeHtml(t('storages.btn_remove_hint')) + '">' + escapeHtml(t('storages.btn_remove')) + '</button>'
         // A git-fiok nem kesz a nevfelvetellel: kell hozza kulcs, es le kell
         // huzni a repoit. Mindketto ITT, a soraban erheto el.
         + (r.kind === 'git'
@@ -38454,7 +38467,7 @@ async function _storagesRefresh() {
           : '')
         + '</div></td></tr>'
     }).join('')
-    + '</tbody></table></div>'
+    + '</tbody></table></div>' + hiddenHtml
 }
 
 function _storagesSay(msg) {
@@ -38486,6 +38499,10 @@ async function _storagesClick(ev) {
       var aktiv = btn.getAttribute('data-active') === '1'
       var r = await _depoPost('/api/storages/active', { kind: kind, account: account, active: !aktiv })
       _storagesSay(r.message || '')
+    } else if (act === 'hide' || act === 'unhide') {
+      // Csak a LISTA valtozik (a szerver uzenete ezt ki is mondja): fiok, kulcs, fajlok erintetlenek.
+      var hr = await _depoPost('/api/storages/hide', { kind: kind, account: account, hidden: act === 'hide' })
+      _storagesSay(hr.message || '')
     } else if (act === 'check') {
       var c = await _depoPost('/api/storages/check', { kind: kind, account: account })
       _storagesSay(c.message || '')
