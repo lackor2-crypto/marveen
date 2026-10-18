@@ -3134,15 +3134,15 @@ window._i18n.hu = {
   'ddel.err_drive_failed': 'A Drive nem fogadta a törlést (a fájl marad, a tétel a listában marad, próbáld újra később).',
   'ddel.err_trash_failed': 'Nem sikerült a Kukába tenni (a fájl a helyén maradt).',
   'dsync.brake_warn':            '⚠ Vészfék: {n} fájl hiányzik a gépedről a {tracked}-ból. Ennyit nem törlök a Drive-on magamtól — ellenőrizd, hogy a raktár lemeze a helyén van-e, aztán indítsd újra.',
-  'storages.lead':               'Minden fiókod, aminek fájljai a gépeden vannak: a <strong>Google Drive</strong> és a <strong>Google Fotók</strong> fiókjai, valamint a <strong>Git</strong>-fiókjaid. Mindegyik a saját mappájába dolgozik a raktáron belül, így két fiók tartalma soha nem keveredik össze. Az azonosító (<code>DRIVE_01</code>) azé a fióké marad akkor is, ha átnevezed — a mappát az átnevezés nem mozdítja meg.',
+  'storages.lead':               'Minden fiókod, amihez tartozik valami a gépeden: a <strong>Google Drive</strong>, a <strong>Google Fotók</strong>, a <strong>MEGA</strong> és a <strong>Git</strong> fiókjai. Ez a lista a fiókok kezelésére való (átnevezés, ki- és bekapcsolás, eltávolítás). Hogy melyik mappa melyik fiókra megy, azt az Intézőben jelölöd, lejjebb fiókonként látod. Az azonosító (például <code>MEGA_01</code>) azé a fióké marad átnevezés után is.',
   // A ket veszelyes kapcsolo. Azt mondjuk el, MI TORTENIK, nem azt, hogy mi a
   // funkcio neve: a felmeno ag ir a Drive-ra, a torles-atvitel torol odafent.
   'dsync.upload_label':          'A gépemen készült változás menjen fel a Drive-ra',
   'dsync.delete_up_label':       'Amit a gépemen törlök, az fent is kerüljön a Kukába',
 
   // A gepem mentese a Drive-ra (#47). A masik irany: itt a GEP a forras.
-  'dbackup.title':               'A gépem mentése a Drive-ra',
-  'dbackup.what_html':           '<strong>Mire jó ez?</strong> Az Életfádat tölti fel a Drive-ra, biztonsági mentésnek. Amit bekötöttél, arról <strong>minden éjjel</strong> felmegy, ami új vagy módosult.<br><strong>Egy irányban működik:</strong> a gépedről felfelé. Magától a Drive-ról <strong>soha nem tölt le ide semmit</strong> — így ha valaki feltöri a Drive-odat, a munkamappáidba nem tud fájlt beírni. Visszahozni csak te tudod, lent, a „Helyreállítás a felhőből” résznél. Amit a gépeden törölsz, az a Drive-on a <strong>Kukába</strong> kerül, ahonnan 30 napig visszahozható.',
+  'dbackup.title':               'A gépem mentése a felhőbe (Drive, MEGA)',
+  'dbackup.what_html':           '<strong>Mire jó ez?</strong> Az Életfádat tölti fel a felhőbe (Google Drive vagy MEGA), biztonsági mentésnek. Amit bekötöttél, arról <strong>minden éjjel</strong> felmegy, ami új vagy módosult.<br><strong>Egy irányban működik:</strong> a gépedről felfelé. Magától a Drive-ról <strong>soha nem tölt le ide semmit</strong> — így ha valaki feltöri a Drive-odat, a munkamappáidba nem tud fájlt beírni. Visszahozni csak te tudod, lent, a „Helyreállítás a felhőből” résznél. Amit a gépeden törölsz, az a Drive-on a <strong>Kukába</strong> kerül, ahonnan 30 napig visszahozható.',
   'dbackup.step1':               'Mit mentsünk?',
   'dbackup.step2':               'Melyik fiók Drive-jára?',
   'dbackup.preview_btn':         'Megnézem, mekkora',
@@ -5311,6 +5311,7 @@ window._i18n.hu = {
   'storages.btn_remove_hint': 'Leveszi a sort a listáról. A fiók és a fájlok a helyükön maradnak, de szinkron nem fut rá többé.',
   'storages.btn_restore': 'Visszahozás',
   'storages.hidden_title': 'Elrejtett tárolók.',
+  'storages.hidden_summary': 'Elrejtett tárolók ({n}) — kattints a megnyitáshoz',
   'storages.hidden_hint': 'Ezek nincsenek a listán, a fájlok a helyükön vannak. Visszahozva kikapcsolt állapotban jönnek.',
   'storages.all_hidden': 'Minden tároló le van véve a listáról.',
   'storages.dest_title': 'Hova kerüljenek a(z) {account} új tárolói?',

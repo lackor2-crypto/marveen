@@ -38492,13 +38492,14 @@ async function _storagesRefresh() {
   var rows = d.rows || []
   var hiddenRows = d.hiddenRows || []
   var hiddenHtml = hiddenRows.length
-    ? '<div class="stor-hidden"><p class="subtitle"><strong>' + escapeHtml(t('storages.hidden_title')) + '</strong> ' + escapeHtml(t('storages.hidden_hint')) + '</p>'
+    ? '<details class="stor-hidden" style="margin:8px 0"><summary style="cursor:pointer"><strong>' + escapeHtml(t('storages.hidden_summary', { n: String(hiddenRows.length) })) + '</strong></summary>'
+      + '<p class="subtitle">' + escapeHtml(t('storages.hidden_hint')) + '</p>'
       + hiddenRows.map(function (h) {
         var hk = _STORAGE_KINDS[h.kind] || { label: h.kind, icon: '' }
         return '<p><code>' + escapeHtml(h.id) + '</code> ' + hk.icon + ' ' + escapeHtml(h.name) + ' '
           + '<button class="btn-secondary btn-compact" data-stor-act="unhide" data-kind="' + escapeHtml(h.kind)
           + '" data-account="' + escapeHtml(h.account) + '">' + escapeHtml(t('storages.btn_restore')) + '</button></p>'
-      }).join('') + '</div>'
+      }).join('') + '</details>'
     : ''
   if (!rows.length) {
     if (hiddenHtml) { tbl.innerHTML = '<p class="subtitle">' + escapeHtml(t('storages.all_hidden')) + '</p>' + hiddenHtml; return }
