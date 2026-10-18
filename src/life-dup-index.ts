@@ -287,6 +287,16 @@ export function duplicatesIn(folderRel: string): { checked: boolean; copies: Rec
   return { checked: !st.neverFinished, copies }
 }
 
+/**
+ * #706: files of the Life tree with exactly this size, as the finished index knows them: path + md5 of those whose hash is
+ * still current. The first filter of "is this upload already in the tree?" -- no md5 is worth computing when nothing has the size.
+ */
+export function indexedFilesOfSize(size: number): Array<{ rel: string; md5: string | null }> {
+  ensureTables()
+  const rows = getDb().prepare(`SELECT rel, md5, (${FRESH}) AS fresh FROM life_file_index WHERE size = ? ORDER BY rel LIMIT 200`).all(Number(size)) as Array<{ rel: string; md5: string | null; fresh: number }>
+  return rows.map((r) => ({ rel: r.rel, md5: r.fresh ? r.md5 : null }))
+}
+
 export type CloudMatchState = 'present' | 'probable' | 'absent' | 'unknown'
 export interface CloudMatch { state: CloudMatchState; where: string[] }
 

@@ -714,6 +714,13 @@
     })
   }
 
+  /** #706: tell which uploaded files were NOT copied because the tree already holds them (where, and that a link was made). */
+  function linkedUploadToast(linked) {
+    if (!linked || !linked.length) return
+    var key = linked.every(function (l) { return l.already }) ? 'workbench.upload.dup_already' : 'workbench.upload.dup_linked'
+    window.showToast(t(key, { names: linked.map(function (l) { return l.name + (l.where ? ' (' + l.where + ')' : '') }).join(', ') }))
+  }
+
   /** Step 2: write the files. `redirect`: name -> folder for the files the owner sent to the suggested place. */
   function treeUploadSend(redirect) {
     var tu = WB.treeUp
@@ -723,15 +730,18 @@
     render()
     var errors = []
     var ok = 0
+    var linked = []
     var chain = Promise.resolve()
     tu.files.forEach(function (f) {
       chain = chain.then(function () {
         var dest = Object.prototype.hasOwnProperty.call(redirect, f.name) ? redirect[f.name] : tu.dest
         var url = '/api/workbench/items/upload?project=' + encodeURIComponent(projectId)
           + '&name=' + encodeURIComponent(f.name || 'fajl') + '&sub=' + encodeURIComponent(dest)
-          + '&lang=' + encodeURIComponent(window._lang || 'hu')
+          + '&dedupe=1&lang=' + encodeURIComponent(window._lang || 'hu')
         return postFile(url, f).then(function (r) {
-          if (r.ok) ok++
+          // #706: the same content is already in the tree -> nothing was copied, the project links to it.
+          if (r.ok && r.data && r.data.linked) linked.push({ name: f.name || '', where: r.data.existing || '', already: !!r.data.already_linked })
+          else if (r.ok) ok++
           else errors.push((f.name ? f.name + ': ' : '') + r.message)
         })
       })
@@ -746,6 +756,7 @@
         window.showToast(t('workbench.treeup.done', { n: ok }))
         if (soft.length) window.showToast(t('workbench.treeup.soft_note', { names: soft.map(function (m) { return m.name }).join(', ') }))
       }
+      linkedUploadToast(linked)
       if (WB.projectId === projectId) { render(); refreshTree(false) }
     })
   }
@@ -1876,6 +1887,16 @@
     return ' <span class="wb-misplaced' + (m.soft ? ' wb-misplaced-soft' : '') + '" role="img" tabindex="0" aria-label="' + escA(t('workbench.misplaced.badge') + ': ' + tip) + '" title="' + escA(tip) + '">\u21aa</span>'
   }
 
+  /** #706 (Boss TG 9855): under the size, the time the file was uploaded / made, so the newly arrived one can be told apart.
+   *  Display only (no sorting). Nothing is shown when the server sent no time (a file it could not read). */
+  function fileWhenHtml(f) {
+    if (!f || !(f.at > 0)) return ''
+    var d = new Date(f.at)
+    if (isNaN(d.getTime())) return ''
+    var txt = d.toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { dateStyle: 'short', timeStyle: 'short' })
+    return '<span class="wb-item-meta wb-item-when" title="' + escA(t('workbench.file.when_title')) + '">' + esc(txt) + '</span>'
+  }
+
   /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
   function plainFileRowHtml(f, depth, grp) {
     WB.linkedFiles = WB.linkedFiles || {}
@@ -1890,7 +1911,7 @@
       return '<li class="wb-item-row wb-file-row wb-linked-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (lk ? ' data-wb-ctx-link="' + escA(f.link.id) + '"' : '') + '>'
         + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.annexlink.hint', { path: f.rel })) + '">'
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' + esc(f.name) + '</span>'
-        + '<span class="wb-item-meta">' + esc(kb) + '</span></a>'
+        + '<span class="wb-item-meta">' + esc(kb) + '</span>' + fileWhenHtml(f) + '</a>'
         + (lk ? '<button type="button" class="wb-item-more" data-wb-act="link-ctx" data-wb-link="' + escA(f.link.id) + '" aria-haspopup="menu"'
           + ' aria-label="' + escA(t('workbench.ctx.more_file')) + '" title="' + escA(t('workbench.ctx.more_file')) + '">&#8943;</button>' + linkMenuHtml(f) : '')
         + '</li>'
@@ -1900,14 +1921,14 @@
       return '<li class="wb-item-row wb-file-row wb-version-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + '>'
         + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.versions.file_hint', { name: f.name })) + '">'
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" aria-hidden="true">\ud83d\udd12</span> ' + esc(f.name) + '</span>'
-        + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
+        + '<span class="wb-item-meta">' + esc(kb) + '</span>' + fileWhenHtml(f) + '</a></li>'
     }
     return '<li class="wb-item-row wb-file-row' + (f.linked ? ' wb-linked-row' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(f.name + ' \u2014 ' + t('workbench.file.open')) + '">'
       + '<span class="wb-item-title">\ud83d\udcc4 ' + (f.linked ? '<span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' : '') + esc(f.name) + misplacedBadgeHtml(f) + '</span>'
-      + '<span class="wb-item-meta">' + esc(kb) + '</span></a>'
+      + '<span class="wb-item-meta">' + esc(kb) + '</span>' + fileWhenHtml(f) + '</a>'
       + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="file-ctx" data-wb-rel="' + escA(f.rel) + '" aria-haspopup="menu"'
         + ' aria-label="' + escA(t('workbench.ctx.more_file')) + '" title="' + escA(t('workbench.ctx.more_file')) + '">&#8943;</button>')
       + fileMenuHtml(f.rel)
@@ -2938,6 +2959,7 @@
     var skipped = 0
     var toAssets = 0
     var toRefs = 0
+    var dupLinked = []
     var chain = Promise.resolve()
     files.forEach(function (f) {
       chain = chain.then(function () {
@@ -2954,7 +2976,7 @@
             + '/parts/image?new_version=1&name=' + name + '&type=' + type + '&lang=' + lang
         } else {
           url = '/api/workbench/items/upload?project=' + encodeURIComponent(projectId)
-            + '&name=' + name + '&type=' + type + '&lang=' + lang
+            + '&dedupe=1&name=' + name + '&type=' + type + '&lang=' + lang
         }
         return postFile(url, f).then(function (r) {
           // Ugyanez a tartalom mar az anyagok kozott van (K-0.18): megkerdezzuk.
@@ -2970,6 +2992,7 @@
           if (WB.upload) WB.upload.done++
           if (!r.ok) errors.push((f.name ? f.name + ': ' : '') + r.message)
           else if (r.skipped) skipped++
+          else if (r.data && r.data.linked && !intoItem) dupLinked.push({ name: f.name || '', where: r.data.existing || '', already: !!r.data.already_linked })
           else if (refOnly) {
             toRefs++
             attachedList(intoItem).push({ name: (r.data && r.data.name) || f.name || '', ref: true, rel: (r.data && r.data.rel) || '' })
@@ -2986,7 +3009,8 @@
     return chain.then(function () {
       WB.upload = null
       if (WB.projectId !== projectId) return
-      var ok = files.length - errors.length - skipped
+      var ok = files.length - errors.length - skipped - dupLinked.length
+      linkedUploadToast(dupLinked)
       if (errors.length) window.showToast(errors.join(' \u2014 '))
       if (ok) {
         window.showToast(!intoItem

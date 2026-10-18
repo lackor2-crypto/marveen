@@ -85,6 +85,7 @@ import { addProjectPlace, removeProjectPlace } from '../../project-places.js'
 import { projectPlacesView } from '../../project-places-auto.js'
 import { projectItemFiles } from '../../project-item-files.js'
 import { addRelatedProject, listRelatedProjects, projectCloseCheck, relatableProjects, removeRelatedProject } from '../../workbench-project-close.js'
+import { findLifeCopy } from '../../life-upload-dup.js'
 import { addProjectDoc, getProjectAiAccess, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, setProjectAiAccess, tendLinkedAnnexes, updateProjectDoc, PROJECT_AI_ACCESS_MODES, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
@@ -3647,6 +3648,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         return failDetail(res, m.code === 'write_failed' ? 500 : 400, code, lang, 'message' in m ? (m.message || null) : null)
       }
       folder = m.folder
+    }
+    // #706 (owner TG 9859): the same content is already in the Life tree -> no second copy, the project links to the one
+    // that is there. Opt-in per request (`dedupe=1`), so only the uploads that show this outcome ask for it.
+    if (url.searchParams.get('dedupe') === '1') {
+      const existing = await findLifeCopy(data)
+      if (existing) {
+        const l = await addProjectDoc(project.id, existing, { role: 'reference' }, actor(ctx))
+        if (l.ok || l.code === 'duplicate') {
+          json(res, { ok: true, item: null, versions: [], file: null, folder, renamed: false, name, linked: true, already_linked: !l.ok, existing }, 200)
+          return true
+        }
+        // The link could not be made (e.g. the project holds its maximum): fall through and write the file as usual.
+      }
     }
     const out = writeProjectFile(project, folder ?? explicitSub, name, data)
     if (!out.ok) {
