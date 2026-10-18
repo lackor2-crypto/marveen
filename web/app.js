@@ -1458,11 +1458,14 @@ function callPageLoader(name) {
 const sidebarEl = document.querySelector('.sidebar')
 const sidebarBackdrop = document.getElementById('sidebarBackdrop')
 // Menusav elrejtese (Boss, 2026-10-02, TG 7362): a bal oldali menu balra becsukhato, a szelen marado fule
-// visszanyitja. A valasztas ebben a bongeszoben megmarad.
+// visszanyitja. Boss, 2026-10-18 (TG 9820, #705): a menu ALAPBOL NYITVA van es FRISSITES UTAN IS nyitva marad --
+// az osszecsukas csak az aktualis oldalbetoltesre ervenyes, nem kerul a bongeszo taraba. Az regebbi verzio altal
+// eltarolt "osszecsukva" jelzest (egyetlen veletlen kattintas utan minden frissitesnel ra-ragadt) induláskor eldobjuk.
 ;(() => {
   const btn = document.getElementById('sidebarCollapseBtn')
   if (!btn) return
   const KEY = 'marveen.sidebar.collapsed'
+  try { window.localStorage.removeItem(KEY) } catch (_e) { /* nincs tar: nincs mit torolni */ }
   const apply = (collapsed) => {
     document.body.classList.toggle('sidebar-collapsed', collapsed)
     btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
@@ -1473,11 +1476,9 @@ const sidebarBackdrop = document.getElementById('sidebarBackdrop')
     if (arrow) arrow.textContent = collapsed ? '\u203A' : '\u2039'
   }
   let collapsed = false
-  try { collapsed = window.localStorage.getItem(KEY) === '1' } catch (_e) { collapsed = false }
   apply(collapsed)
   btn.addEventListener('click', () => {
     collapsed = !collapsed
-    try { window.localStorage.setItem(KEY, collapsed ? '1' : '0') } catch (_e) { /* nem baj: csak most ervenyes */ }
     apply(collapsed)
   })
 })()
