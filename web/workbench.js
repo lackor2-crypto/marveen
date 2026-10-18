@@ -16569,6 +16569,30 @@
       + '<span class="wb-hint">' + esc(t('workbench.fr.vid.stab_hint')) + '</span></p>'
   }
 
+  /** #669 phase B: zoom/pan, turn/mirror and fade in/out of the picked clip. Each change is saved at once, undo works. */
+  var VT_FADES = [0, 0.5, 1, 1.5, 2, 3]
+  function frVtFrameHtml(sel) {
+    if (!sel || archived()) return ''
+    var dis = (WB.vtBusy || WB.vtRender ? ' disabled' : '')
+    var idA = ' data-wb-id="' + escA(sel.id) + '"'
+    var zoom = sel.zoom || 1
+    var rng = function (id, label, min, max, val) {
+      return '<label>' + esc(label) + ' <input type="range" id="' + id + '" min="' + min + '" max="' + max + '" step="0.05" value="' + val + '"' + idA + dis + '></label> '
+    }
+    var rot = [0, 90, 180, 270].map(function (v) { return '<option value="' + v + '"' + (v === (sel.rot || 0) ? ' selected' : '') + '>' + v + '\u00B0</option>' }).join('')
+    var flip = ['none', 'h', 'v'].map(function (v) { return '<option value="' + v + '"' + (v === (sel.flip || 'none') ? ' selected' : '') + '>' + esc(t('workbench.fr.vid.flip.' + v)) + '</option>' }).join('')
+    var fade = function (cur) { return VT_FADES.map(function (v) { return '<option value="' + v + '"' + (v === (cur || 0) ? ' selected' : '') + '>' + (v ? esc(String(v).replace('.', ',')) + ' s' : esc(t('workbench.fr.vid.fade.none'))) + '</option>' }).join('') }
+    return '<p class="wb-fr-speed" id="wbZoomRow">' + rng('wbVtZoom', t('workbench.fr.vid.zoom'), 1, 4, zoom)
+      + (zoom > 1 ? rng('wbVtPanX', t('workbench.fr.vid.panx'), -1, 1, sel.panX || 0) + rng('wbVtPanY', t('workbench.fr.vid.pany'), -1, 1, sel.panY || 0) : '')
+      + '<span class="wb-hint">' + esc(t('workbench.fr.vid.zoom_hint')) + '</span></p>'
+      + '<p class="wb-fr-speed" id="wbOrientRow"><label>' + esc(t('workbench.fr.vid.rot')) + ' <select id="wbVtRot"' + idA + dis + '>' + rot + '</select></label> '
+      + '<label>' + esc(t('workbench.fr.vid.flip')) + ' <select id="wbVtFlip"' + idA + dis + '>' + flip + '</select></label> '
+      + '<span class="wb-hint">' + esc(t('workbench.fr.vid.orient_hint')) + '</span></p>'
+      + '<p class="wb-fr-speed" id="wbFadeRow"><label>' + esc(t('workbench.fr.vid.fadein')) + ' <select id="wbVtFadeIn"' + idA + dis + '>' + fade(sel.fadeIn) + '</select></label> '
+      + '<label>' + esc(t('workbench.fr.vid.fadeout')) + ' <select id="wbVtFadeOut"' + idA + dis + '>' + fade(sel.fadeOut) + '</select></label> '
+      + '<span class="wb-hint">' + esc(t('workbench.fr.vid.fade_hint')) + '</span></p>'
+  }
+
   /** The speed picker of the picked clip. Saved at once, undo works. */
   function frVtSpeedHtml(sel) {
     if (!sel || archived()) return ''
@@ -16618,6 +16642,7 @@
           + frVtSpeedHtml(sel)
           + frVtLookHtml(sel)
           + frVtStabHtml(sel)
+          + frVtFrameHtml(sel)
           + (sel ? '<p class="wb-fr-tl-sel" id="wbTlSel">' + esc(t('workbench.fr.vid.selected', { name: sel.src.split('/').pop(), s: vtSecs(Math.max(0.1, sel.end - sel.start)) })) + '</p>' : '')
           + '<p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
         : '')
@@ -20386,6 +20411,20 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
     if (WB.img && /^wbImg(CapPos|CapColor|CapBand)$/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
+    if (/^wbVt(Zoom|PanX|PanY)$/.test(String(e.target.id || ''))) {
+      var zv = function (id, d) { var el = document.getElementById(id); return el ? Number(el.value) : d }
+      var zz = zv('wbVtZoom', 1)
+      vtOps([{ op: 'setClipFrame', id: e.target.getAttribute('data-wb-id'), zoom: zz, panX: zz > 1 ? zv('wbVtPanX', 0) : 0, panY: zz > 1 ? zv('wbVtPanY', 0) : 0 }])
+      return
+    }
+    if (e.target.id === 'wbVtRot' || e.target.id === 'wbVtFlip') {
+      vtOps([{ op: 'setClipOrient', id: e.target.getAttribute('data-wb-id'), rotate: Number(document.getElementById('wbVtRot').value), flip: document.getElementById('wbVtFlip').value }])
+      return
+    }
+    if (e.target.id === 'wbVtFadeIn' || e.target.id === 'wbVtFadeOut') {
+      vtOps([{ op: 'setClipFade', id: e.target.getAttribute('data-wb-id'), in: Number(document.getElementById('wbVtFadeIn').value), out: Number(document.getElementById('wbVtFadeOut').value) }])
+      return
+    }
     if (e.target.id === 'wbVtStab') { vtOps([{ op: 'setStabilize', id: e.target.getAttribute('data-wb-id'), on: !!e.target.checked }]); return }
     if (e.target.id === 'wbVtLook') { vtOps([{ op: 'setClipLook', id: e.target.getAttribute('data-wb-id'), look: e.target.value }]); return }
     if (e.target.id === 'wbVtSpeed') { vtOps([{ op: 'setSpeed', id: e.target.getAttribute('data-wb-id'), speed: Number(e.target.value) }]); return }

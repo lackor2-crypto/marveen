@@ -150,6 +150,33 @@ export function lookFilter(look: string | undefined): string {
   return look && LOOK_FILTERS[look] ? `,${LOOK_FILTERS[look]}` : ''
 }
 
+/** Orientation and zoom of a clip picture: turn, mirror, then crop into the middle (pan slides the cut). Empty when untouched. */
+export function frameFilter(c: { rot?: number; flip?: string; zoom?: number; panX?: number; panY?: number }): string {
+  const parts: string[] = []
+  if (c.rot === 90) parts.push('transpose=1')
+  else if (c.rot === 180) parts.push('hflip', 'vflip')
+  else if (c.rot === 270) parts.push('transpose=2')
+  if (c.flip === 'h') parts.push('hflip')
+  else if (c.flip === 'v') parts.push('vflip')
+  if (c.zoom && c.zoom > 1) {
+    const z = fnum(c.zoom)
+    parts.push(`crop=w=trunc(iw/${z}/2)*2:h=trunc(ih/${z}/2)*2:x=(iw-ow)*(1+${fnum(c.panX ?? 0)})/2:y=(ih-oh)*(1+${fnum(c.panY ?? 0)})/2`)
+  }
+  return parts.length ? `,${parts.join(',')}` : ''
+}
+
+/** Fade from/to black over a clip of `len` seconds (a fade never runs longer than half the clip). `kind` v = picture, a = sound. */
+export function fadeFilter(c: { fadeIn?: number; fadeOut?: number }, len: number, kind: 'v' | 'a'): string {
+  const half = Math.max(0.05, len / 2)
+  const parts: string[] = []
+  const fin = c.fadeIn ? Math.min(c.fadeIn, half) : 0
+  const fout = c.fadeOut ? Math.min(c.fadeOut, half) : 0
+  const head = kind === 'v' ? 'fade=t=' : 'afade=t='
+  if (fin) parts.push(`${head}in:st=0:d=${fnum(fin)}`)
+  if (fout) parts.push(`${head}out:st=${fnum(Math.max(0, len - fout))}:d=${fnum(fout)}`)
+  return parts.length ? `,${parts.join(',')}` : ''
+}
+
 /** The `atempo` steps for a speed (one `atempo` only takes 0.5 to 2, so a bigger change is chained). */
 export function atempo(speed: number): string {
   if (speed === 1) return ''
@@ -185,13 +212,13 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   doc.clips.forEach((c, i) => {
     const n = clipIdx[i]
     f.push(
-      `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=(PTS-STARTPTS)/${fnum(c.speed ?? 1)},fps=${RENDER_FPS}${c.stab ? ',deshake' : ''}${lookFilter(c.look)},split=2[bg${i}][fg${i}]`,
+      `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=(PTS-STARTPTS)/${fnum(c.speed ?? 1)},fps=${RENDER_FPS}${c.stab ? ',deshake' : ''}${frameFilter(c)}${lookFilter(c.look)}${fadeFilter(c, clipLen(c), 'v')},split=2[bg${i}][fg${i}]`,
       `[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3[bb${i}]`,
       `[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease[ff${i}]`,
       `[bb${i}][ff${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p,settb=1/${RENDER_FPS}[v${i}]`,
     )
     if (inp.hasAudio[c.src]) {
-      f.push(`[${n}:a]atrim=start=${fnum(c.start)}:end=${fnum(c.end)},asetpts=PTS-STARTPTS${atempo(c.speed ?? 1)},aresample=48000,aformat=channel_layouts=stereo,volume=${fnum(doc.clip_volume)}[a${i}]`)
+      f.push(`[${n}:a]atrim=start=${fnum(c.start)}:end=${fnum(c.end)},asetpts=PTS-STARTPTS${atempo(c.speed ?? 1)}${fadeFilter(c, clipLen(c), 'a')},aresample=48000,aformat=channel_layouts=stereo,volume=${fnum(doc.clip_volume)}[a${i}]`)
     } else {
       f.push(`anullsrc=r=48000:cl=stereo,atrim=0:${fnum(clipLen(c))},asetpts=PTS-STARTPTS[a${i}]`)
     }

@@ -50,8 +50,14 @@ export const SPEED_MAX = 4
 /** Colour looks of one clip (#669 phase B): the first is "no look" and is never stored; the renderer maps each to an ffmpeg filter. */
 export const CLIP_LOOKS = ['none', 'bw', 'warm', 'cool', 'vivid', 'fade', 'vintage'] as const
 export type ClipLook = (typeof CLIP_LOOKS)[number]
+/** Picture framing of one clip (#669 phase B): `zoom` 1 to 4 (absent = 1) crops into the middle, `panX`/`panY` -1 to 1 slide the cut (absent = 0), `rot` turns the picture clockwise, `flip` mirrors it, `fadeIn`/`fadeOut` fade the clip's start/end from/to black (picture and sound). */
+export const ZOOM_MAX = 4
+export const CLIP_ROTATIONS = [90, 180, 270] as const
+export const CLIP_FLIPS = ['h', 'v'] as const
+export const FADE_MAX = 3
+export interface ClipFx { zoom?: number; panX?: number; panY?: number; rot?: 90 | 180 | 270; flip?: 'h' | 'v'; fadeIn?: number; fadeOut?: number }
 /** `speed` is how fast the clip plays (1 = normal, absent = 1); the picture and the sound keep step. `look` tints the picture only. `stab` steadies a shaky picture (#669 phase B). */
-export interface TimelineClip { id: string; src: string; start: number; end: number; transition?: TimelineTransition; speed?: number; look?: ClipLook; stab?: true }
+export interface TimelineClip extends ClipFx { id: string; src: string; start: number; end: number; transition?: TimelineTransition; speed?: number; look?: ClipLook; stab?: true }
 /** Subtitle looks, entrance animations and places. The first of each list is the default and is never stored. */
 export const SUBTITLE_LOOKS = ['classic', 'bold', 'yellow', 'box', 'title'] as const
 export const SUBTITLE_ANIMS = ['none', 'fade', 'pop', 'slideup'] as const
@@ -101,6 +107,12 @@ export function emptyTimeline(): TimelineDoc {
 }
 
 const round3 = (n: number): number => Math.round(n * 1000) / 1000
+/** The framing/fade fields of a clip (only those set). */
+function pickFx(c: ClipFx): ClipFx {
+  const o: ClipFx = {}
+  for (const k of ['zoom', 'panX', 'panY', 'rot', 'flip', 'fadeIn', 'fadeOut'] as const) if (c[k] !== undefined) (o as Record<string, unknown>)[k] = c[k]
+  return o
+}
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
 
 /** A project-relative path of a media file: no `..`, no scheme, no absolute path. */
@@ -157,6 +169,37 @@ function parseSpeed(raw: unknown): { ok: true; speed: number | undefined } | Tim
   const n = num(raw)
   if (n === null || n < SPEED_MIN || n > SPEED_MAX) return fail('timeline_bad_speed', `the speed must be between ${SPEED_MIN} and ${SPEED_MAX}`)
   return { ok: true, speed: n === 1 ? undefined : round3(n) }
+}
+
+/** The framing/fade fields of a stored clip from raw input (unknown or default values are dropped), or a failure. */
+function parseClipFx(o: Record<string, unknown>): { ok: true; fx: ClipFx } | TimelineFail {
+  const fx: ClipFx = {}
+  if (o.zoom !== undefined && o.zoom !== null) {
+    const z = num(o.zoom)
+    if (z === null || z < 1 || z > ZOOM_MAX) return fail('timeline_bad_value', `the zoom must be between 1 and ${ZOOM_MAX}`)
+    if (z !== 1) fx.zoom = round3(z)
+  }
+  for (const k of ['panX', 'panY'] as const) {
+    if (o[k] === undefined || o[k] === null) continue
+    const n = num(o[k])
+    if (n === null || n < -1 || n > 1) return fail('timeline_bad_value', `${k} must be between -1 and 1`)
+    if (n !== 0) fx[k] = round3(n)
+  }
+  if (o.rot !== undefined && o.rot !== null && o.rot !== 0) {
+    if (!CLIP_ROTATIONS.includes(o.rot as 90)) return fail('timeline_bad_value', 'the rotation must be 0, 90, 180 or 270')
+    fx.rot = o.rot as 90 | 180 | 270
+  }
+  if (o.flip !== undefined && o.flip !== null && o.flip !== '' && o.flip !== 'none') {
+    if (!CLIP_FLIPS.includes(o.flip as 'h')) return fail('timeline_bad_value', 'the flip must be h, v or none')
+    fx.flip = o.flip as 'h' | 'v'
+  }
+  for (const k of ['fadeIn', 'fadeOut'] as const) {
+    if (o[k] === undefined || o[k] === null) continue
+    const n = num(o[k])
+    if (n === null || n < 0 || n > FADE_MAX) return fail('timeline_bad_value', `${k} must be between 0 and ${FADE_MAX} seconds`)
+    if (n > 0) fx[k] = round3(n)
+  }
+  return { ok: true, fx }
 }
 
 /** A transition from raw input, or a failure; `undefined` raw = none. */
@@ -237,7 +280,9 @@ export function parseTimeline(raw: unknown): TimelineParse {
     if (!sp.ok) return sp
     const lk = parseClipLook(o.look)
     if (!lk.ok) return lk
-    doc.clips.push({ id: id(o, 'c'), src: o.src.trim(), start: s.start, end: s.end, ...(tr.transition ? { transition: tr.transition } : {}), ...(sp.speed ? { speed: sp.speed } : {}), ...(lk.look ? { look: lk.look } : {}), ...(o.stab === true ? { stab: true as const } : {}) })
+    const fxp = parseClipFx(o)
+    if (!fxp.ok) return fxp
+    doc.clips.push({ id: id(o, 'c'), src: o.src.trim(), start: s.start, end: s.end, ...fxp.fx, ...(tr.transition ? { transition: tr.transition } : {}), ...(sp.speed ? { speed: sp.speed } : {}), ...(lk.look ? { look: lk.look } : {}), ...(o.stab === true ? { stab: true as const } : {}) })
   }
   const subs = list('subtitles', TIMELINE_MAX_SUBTITLES)
   if (!Array.isArray(subs)) return subs
@@ -321,7 +366,7 @@ type Op = Record<string, unknown>
  *
  * Operations: addClip {src,start,end,at?}, trimClip {id,start?,end?}, moveClip {id,to},
  * splitClip {id,at} (at = source second), removeClip {id},
- * setSpeed {id,speed} (0.25 to 4, 1 = normal), setStabilize {id,on} (true steadies a shaky clip), setClipLook {id,look} (none|bw|warm|cool|vivid|fade|vintage; "none" clears it), setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
+ * setSpeed {id,speed} (0.25 to 4, 1 = normal), setClipFrame {id,zoom?,panX?,panY?} (zoom 1 to 4 crops into the middle, pan -1 to 1; no fields = reset), setClipOrient {id,rotate?,flip?} (rotate 0|90|180|270 clockwise, flip h|v|none), setClipFade {id,in?,out?} (seconds 0 to 3, picture and sound), setStabilize {id,on} (true steadies a shaky clip), setClipLook {id,look} (none|bw|warm|cool|vivid|fade|vintage; "none" clears it), setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
  * addSubtitle {text,start,end,look?,anim?,pos?} (look classic|bold|yellow|box|title, anim none|fade|pop|slideup, pos bottom|middle|top),
  * updateSubtitle {id,text?,start?,end?,look?,anim?,pos?} ("" or the default clears a style field), removeSubtitle {id}, setMusic {src,volume?,duck?},
  * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?,key? green|blue|white|black},
@@ -386,9 +431,12 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (doc.clips.length >= TIMELINE_MAX_CLIPS) return fail('timeline_too_many', `at most ${TIMELINE_MAX_CLIPS} clips`)
         const id = nextId('c', doc.clips.map((x) => x.id))
         // The change into the next clip belongs to the end of the cut, so the second half keeps it.
-        doc.clips.splice(idx + 1, 0, { id, src: c.src, start: round3(at), end: c.end, ...(c.transition ? { transition: c.transition } : {}), ...(c.speed ? { speed: c.speed } : {}), ...(c.look ? { look: c.look } : {}), ...(c.stab ? { stab: true as const } : {}) })
+        // Framing is shared; the fade-in belongs to the first half, the fade-out to the second.
+        const { fadeIn: _fi, ...sharedFx } = pickFx(c)
+        doc.clips.splice(idx + 1, 0, { id, src: c.src, start: round3(at), end: c.end, ...sharedFx, ...(c.transition ? { transition: c.transition } : {}), ...(c.speed ? { speed: c.speed } : {}), ...(c.look ? { look: c.look } : {}), ...(c.stab ? { stab: true as const } : {}) })
         c.end = round3(at)
         delete c.transition
+        delete c.fadeOut
         applied.push({ op: name, id: c.id, note: `split into ${c.id} and ${id}` })
         break
       }
@@ -423,6 +471,36 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (typeof op.on !== 'boolean') return fail('timeline_bad_value', 'setStabilize needs on: true or false')
         if (op.on) c.stab = true; else delete c.stab
         applied.push({ op: name, id: c.id, note: op.on ? 'stabilised' : 'not stabilised' })
+        break
+      }
+      case 'setClipFrame': {
+        const c = find(doc.clips, op.id, 'clip')
+        if (isFail(c)) return c
+        const fx = parseClipFx({ zoom: op.zoom ?? 1, panX: op.panX ?? 0, panY: op.panY ?? 0 })
+        if (!fx.ok) return fx
+        delete c.zoom; delete c.panX; delete c.panY
+        Object.assign(c, fx.fx)
+        applied.push({ op: name, id: c.id, note: c.zoom ? `zoom ${c.zoom}x` : 'no zoom' })
+        break
+      }
+      case 'setClipOrient': {
+        const c = find(doc.clips, op.id, 'clip')
+        if (isFail(c)) return c
+        const fx = parseClipFx({ rot: op.rotate ?? 0, flip: op.flip })
+        if (!fx.ok) return fx
+        delete c.rot; delete c.flip
+        Object.assign(c, fx.fx)
+        applied.push({ op: name, id: c.id, note: `rotate ${c.rot ?? 0}, flip ${c.flip ?? 'none'}` })
+        break
+      }
+      case 'setClipFade': {
+        const c = find(doc.clips, op.id, 'clip')
+        if (isFail(c)) return c
+        const fx = parseClipFx({ fadeIn: op.in ?? 0, fadeOut: op.out ?? 0 })
+        if (!fx.ok) return fx
+        delete c.fadeIn; delete c.fadeOut
+        Object.assign(c, fx.fx)
+        applied.push({ op: name, id: c.id, note: `fade in ${c.fadeIn ?? 0}s, out ${c.fadeOut ?? 0}s` })
         break
       }
       case 'setTransition': {
