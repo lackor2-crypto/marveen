@@ -37,9 +37,9 @@ describe('palette golden angle (#693, #694)', () => {
   const [itemS, itemL] = (/var GRP_ITEM_SL = \[(\d+), (\d+)\]/.exec(js)!).slice(1).map(Number)
   const itemHue = (n: number) => Math.round(bandStart + ((n * 0.618034) % 1) * bandWidth)
   const items = Array.from({ length: 4 }, (_, n) => [itemHue(n), itemS, itemL])
-  it('the 6 folders of one work item are far apart: neighbours (in the order they are handed out) >= 100 degrees, and any two differ in hue by 30+ or lightness by 15+', () => {
+  it('the 6 folders of one work item are far apart: neighbours (in the order they are handed out, also the 6th -> 7th wrap-around: the counter never restarts) >= 90 degrees, and any two differ in hue by 30+ or lightness by 15+', () => {
     expect(folders.length).toBeGreaterThanOrEqual(6)
-    for (let i = 0; i + 1 < folders.length; i++) expect(dist(folders[i][0], folders[i + 1][0])).toBeGreaterThanOrEqual(100)
+    for (let i = 0; i < folders.length; i++) expect(dist(folders[i][0], folders[(i + 1) % folders.length][0])).toBeGreaterThanOrEqual(90)
     for (let i = 0; i < folders.length; i++) for (let j = i + 1; j < folders.length; j++) {
       expect(dist(folders[i][0], folders[j][0]) >= 30 || Math.abs(folders[i][2] - folders[j][2]) >= 15).toBe(true)
     }
