@@ -1426,18 +1426,20 @@
    *  it and its node are one blue (g < 0: -1, -2 ... alternate two blues so neighbouring items stay apart); every folder
    *  gets a colour of its own (g >= 0, never blue) and the files of an opened folder take that folder's colour. */
   function grpHsl(g) {
-    // #692/#694 (Boss TG 9622/9624/9639): the open work item and its direct files are a DARK hue; EVERY folder is LIGHTER
-    // and vivid, with its OWN hue stepped by the golden angle so neighbours stay far apart, none repeats, and a folder
-    // (e.g. Feltoltesek) never lands on the pink/indigo family of a work item. The lightness steps too, for colour-blind
-    // eyes. One continuous folder counter (no per-item restart), so two folders never share a colour.
-    if (g < 0) return 'hsl(' + Math.round((GRP_ITEM_HUE0 + (-g - 1) * 137.508) % 360) + ' ' + GRP_ITEM_SL[0] + '% ' + GRP_ITEM_SL[1] + '%)'
-    return 'hsl(' + Math.round((GRP_FOLDER_HUE0 + g * 137.508) % 360) + ' 82% ' + (g % 2 ? 66 : 56) + '%)'
+    // #692 (Boss TG 9622/9624): the open work item and its direct files are a DARK indigo (two alternating shades for
+    // neighbouring items); the folders inside it are LIGHTER and vivid, with hues far apart (>= 90 degrees between ones
+    // handed out one after the other) and lightness that differs too, so they also differ for colour-blind eyes. None sits
+    // near the indigo. Slots restart for every work item, so its 5-6 standard folders always get the 6 distinct slots.
+    if (g < 0) return 'hsl(' + Math.round(GRP_ITEM_BAND[0] + (((-g - 1) * 0.618034) % 1) * GRP_ITEM_BAND[1]) + ' ' + GRP_ITEM_SL[0] + '% ' + GRP_ITEM_SL[1] + '%)'
+    var p = GRP_FOLDER[g % GRP_FOLDER.length]
+    return 'hsl(' + p[0] + ' ' + p[1] + '% ' + (Math.floor(g / GRP_FOLDER.length) % 2 ? p[2] - 12 : p[2]) + '%)'
   }
-  // #693 (Boss TG 9632): every work item gets its OWN dark hue; #694 (TG 9639): every folder its OWN light hue -- both by
-  // golden-angle steps, so neighbours are far apart and a folder never looks like a work item.
-  var GRP_ITEM_HUE0 = 232
+  // #693/#694 (Boss TG 9632/9639): work items take dark hues from their OWN band (blue to violet to magenta, 195..335 degrees,
+  // golden-ratio steps so the first 4 open items are >= 30 degrees apart); folders live in the warm/green band outside it
+  // (350..175 degrees), so a folder can never be mistaken for a work item.
+  var GRP_ITEM_BAND = [195, 140]
   var GRP_ITEM_SL = [60, 22]
-  var GRP_FOLDER_HUE0 = 40
+  var GRP_FOLDER = [[55, 95, 48], [175, 85, 50], [25, 95, 52], [140, 70, 48], [355, 85, 62], [95, 75, 46]]
   /** The inline style of a tinted row: the colour and how strongly it shows (the dark item tint is stronger). */
   function grpVars(g) { return '--wb-grp: ' + grpHsl(g) + '; --wb-grp-a: ' + (g < 0 ? '40%' : '24%') + '; --wb-grp-a-on: ' + (g < 0 ? '46%' : '30%') }
 
@@ -2118,9 +2120,11 @@
         // #684 (Boss TG 9585): the item's own folder is blue, EVERY other folder has a colour of its own from the palette, never
         // its parent's (so folders inside one work item differ). What a folder holds wears that folder's colour, which is
         // how a file or work item dragged into it takes the target colour at once (#685).
-        // #694: one continuous folder counter across the whole tree (no per-item restart), so two folders -- even the
-        // "Feltoltesek" of two different work items -- never land on the same colour.
         var g = ownFold[f] ? -(++topIdx) : folIdx++
+        // #692: a work item's folder hands out its own colour slots from the start, the outside counter carries on after it,
+        // so the 5-6 standard folders of every work item always get the 6 distinct, band-separated slots (#694).
+        var outerFol = folIdx
+        if (ownFold[f]) folIdx = 0
         var collapsed = isShut(f)
         // #691: the versions folder is system-managed: no drop target, drag, menu or rename; it only folds open.
         if ((plainFiles[f] || []).some(function (x) { return x.version })) {
@@ -2129,6 +2133,7 @@
             + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
             + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span> <span class="wb-linked" aria-hidden="true">\ud83d\udd12</span></button></li>')
           if (!collapsed) walk(f, depth + 1, g)
+        if (ownFold[f]) folIdx = outerFol
           return
         }
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'

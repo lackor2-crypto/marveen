@@ -33,27 +33,42 @@ describe('workbench list group tint', () => {
 describe('palette golden angle (#693, #694)', () => {
   const js = readFileSync(join(process.cwd(), 'web/workbench.js'), 'utf-8')
   const dist = (a: number, b: number) => { const x = Math.abs(a - b) % 360; return Math.min(x, 360 - x) }
-  const itemHue0 = Number(/var GRP_ITEM_HUE0 = (\d+)/.exec(js)![1])
-  const itemL = Number((/var GRP_ITEM_SL = \[(\d+), (\d+)\]/.exec(js)!)[2])
-  const folHue0 = Number(/var GRP_FOLDER_HUE0 = (\d+)/.exec(js)![1])
-  const itemHue = (n: number) => Math.round((itemHue0 + n * 137.508) % 360)
-  const folHue = (n: number) => Math.round((folHue0 + n * 137.508) % 360)
-  const items = Array.from({ length: 8 }, (_, n) => ({ h: itemHue(n), l: itemL }))
-  const folders = Array.from({ length: 12 }, (_, n) => ({ h: folHue(n), l: n % 2 ? 66 : 56 }))
-
-  it('neighbouring items, and neighbouring folders, are far apart on the wheel (>= 90 deg)', () => {
-    for (let i = 0; i + 1 < items.length; i++) expect(dist(items[i].h, items[i + 1].h)).toBeGreaterThanOrEqual(90)
-    for (let i = 0; i + 1 < folders.length; i++) expect(dist(folders[i].h, folders[i + 1].h)).toBeGreaterThanOrEqual(90)
+  const folders = JSON.parse((/var GRP_FOLDER = (\[\[[0-9, \[\]]+\]\])/.exec(js))![1]) as number[][]
+  const [bandStart, bandWidth] = (/var GRP_ITEM_BAND = \[(\d+), (\d+)\]/.exec(js)!).slice(1).map(Number)
+  const [itemS, itemL] = (/var GRP_ITEM_SL = \[(\d+), (\d+)\]/.exec(js)!).slice(1).map(Number)
+  const itemHue = (n: number) => Math.round(bandStart + ((n * 0.618034) % 1) * bandWidth)
+  const items = Array.from({ length: 4 }, (_, n) => [itemHue(n), itemS, itemL])
+  it('the 6 folders of one work item are far apart: neighbours (in the order they are handed out) >= 100 degrees, and any two differ in hue by 30+ or lightness by 15+', () => {
+    expect(folders.length).toBeGreaterThanOrEqual(6)
+    for (let i = 0; i + 1 < folders.length; i++) expect(dist(folders[i][0], folders[i + 1][0])).toBeGreaterThanOrEqual(100)
+    for (let i = 0; i < folders.length; i++) for (let j = i + 1; j < folders.length; j++) {
+      expect(dist(folders[i][0], folders[j][0]) >= 30 || Math.abs(folders[i][2] - folders[j][2]) >= 15).toBe(true)
+    }
   })
-  it('any two of 8 open items, and any two of the first 6 folders, differ by >= 30 deg (#693/#694)', () => {
-    expect(js).toContain('(-g - 1) * 137.508')
-    expect(js).toContain('g * 137.508')
-    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) expect(dist(items[i].h, items[j].h)).toBeGreaterThanOrEqual(30)
-    for (let i = 0; i < 6; i++) for (let j = i + 1; j < 6; j++) expect(dist(folders[i].h, folders[j].h)).toBeGreaterThanOrEqual(30)
+  it('the work item is DARK and every folder is lighter and away from it in hue or lightness (Boss TG 9624)', () => {
+    for (const it of items) {
+      expect(it[2]).toBeLessThanOrEqual(36)
+      for (const f of folders) {
+        expect(f[2] - it[2]).toBeGreaterThanOrEqual(6)
+        expect(dist(f[0], it[0]) >= 45 || f[2] - it[2] >= 25).toBe(true)
+      }
+    }
   })
-  it('work items are DARK, folders LIGHT, so a folder (e.g. Feltoltesek) never looks like a work item (Boss TG 9624/9639)', () => {
-    expect(itemL).toBeLessThanOrEqual(36)
-    for (const f of folders) expect(f.l).toBeGreaterThanOrEqual(50)
-    for (const f of folders) expect(f.l - itemL).toBeGreaterThanOrEqual(14)
+  it('every work item gets its own hue: any two of the first 4 open items differ by >= 30 degrees (#693, Boss TG 9632)', () => {
+    expect(js).toContain('((-g - 1) * 0.618034) % 1')
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) expect(dist(items[i][0], items[j][0])).toBeGreaterThanOrEqual(30)
+  })
+  it('folder hues and work item hues are in SEPARATE bands: a folder never looks like a work item, none is violet or pink (#694, Boss TG 9639)', () => {
+    const lo = bandStart, hi = bandStart + bandWidth
+    for (const f of folders) {
+      expect(f[0] < lo - 15 || f[0] > hi + 15 || (f[0] < lo && lo - f[0] >= 15)).toBe(true)
+      expect(f[0] >= lo && f[0] <= hi).toBe(false)
+    }
+    for (const it of items) expect(it[0] >= lo && it[0] <= hi).toBe(true)
+  })
+  it('every work item restarts the folder slots, and the item tint is stronger than the folder tint', () => {
+    expect(js).toContain('if (ownFold[f]) folIdx = 0')
+    expect(js).toContain('if (ownFold[f]) folIdx = outerFol')
+    expect(js).toContain("(g < 0 ? '40%' : '24%')")
   })
 })
