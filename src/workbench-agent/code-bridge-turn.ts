@@ -26,6 +26,7 @@
  */
 import type { OrchestratorEvent } from './orchestrator.js'
 import { msg, type Lang } from './messages.js'
+import { documentLanguageRule } from './doc-language.js'
 import { PROMPT_MAX_CHARS } from '../web/code-bridge-store.js'
 import { detectsUsageLimit } from '../model-fallback.js'
 
@@ -167,6 +168,7 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
     `Work item: ${input.workItem ? `${input.workItem.title} (type: ${input.workItem.type})` : '(none -- project-level chat)'}`,
     ...workItemFileLines(input.workItem),
     `Answer in ${language}, in plain sentences for a non-programmer.${input.lang === 'en' ? '' : ' Address the owner informally (tegezés: "te"), never with "Ön" or "Maga".'}`,
+    documentLanguageRule(input.lang === 'en' ? 'en' : 'hu'),
     `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do. If you were cut off, ran out of steps, hit an error, or only finished a part, do NOT write the marker: the dashboard will then automatically have you continue the work. NEVER ask the owner which part to do first, whether to continue, or for permission to do what the request already covers: decide yourself and do ALL of it. Ask only when you are truly blocked on something only the owner can give (a secret, a payment, a choice that cannot be undone). The owner never sees the marker; it is removed from your answer.`,
   ]
   const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]
