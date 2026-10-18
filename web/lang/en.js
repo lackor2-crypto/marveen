@@ -6791,6 +6791,8 @@ window._i18n.en = {
   "workbench.fr.vid.trans.hint": "A transition overlaps the two clips, so the finished video is shorter by the length of the transition. Your choice is saved at once, and undo works.",
   "workbench.fr.vid.speed": "Speed",
   "workbench.fr.vid.speed_hint": "How fast the clip plays: 1× is normal, 2× twice as fast, 0.5× slow motion. The sound follows and the finished video's length adapts. The player preview runs at normal speed; the change shows in the finished video. Your choice is saved at once, and undo works.",
+  "workbench.fr.vid.stab": "Steady the picture (reduce shake)",
+  "workbench.fr.vid.stab_hint": "Calms a shaky, hand-held clip in the finished video. Only the picture is affected. The preview player shows the original picture. The tick is saved at once and undo works.",
   "workbench.fr.vid.look": "Colour look",
   "workbench.fr.vid.look_hint": "The colour feel of the clip: black and white, warm, cool, vivid, faded or retro. It changes the picture only, not the sound. The player preview shows the original colours; the change shows in the finished video. Your choice is saved at once, and undo works.",
   "workbench.fr.vid.look.none": "Original",

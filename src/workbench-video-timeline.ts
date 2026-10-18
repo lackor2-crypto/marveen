@@ -50,8 +50,8 @@ export const SPEED_MAX = 4
 /** Colour looks of one clip (#669 phase B): the first is "no look" and is never stored; the renderer maps each to an ffmpeg filter. */
 export const CLIP_LOOKS = ['none', 'bw', 'warm', 'cool', 'vivid', 'fade', 'vintage'] as const
 export type ClipLook = (typeof CLIP_LOOKS)[number]
-/** `speed` is how fast the clip plays (1 = normal, absent = 1); the picture and the sound keep step. `look` tints the picture only. */
-export interface TimelineClip { id: string; src: string; start: number; end: number; transition?: TimelineTransition; speed?: number; look?: ClipLook }
+/** `speed` is how fast the clip plays (1 = normal, absent = 1); the picture and the sound keep step. `look` tints the picture only. `stab` steadies a shaky picture (#669 phase B). */
+export interface TimelineClip { id: string; src: string; start: number; end: number; transition?: TimelineTransition; speed?: number; look?: ClipLook; stab?: true }
 /** Subtitle looks, entrance animations and places. The first of each list is the default and is never stored. */
 export const SUBTITLE_LOOKS = ['classic', 'bold', 'yellow', 'box', 'title'] as const
 export const SUBTITLE_ANIMS = ['none', 'fade', 'pop', 'slideup'] as const
@@ -235,7 +235,7 @@ export function parseTimeline(raw: unknown): TimelineParse {
     if (!sp.ok) return sp
     const lk = parseClipLook(o.look)
     if (!lk.ok) return lk
-    doc.clips.push({ id: id(o, 'c'), src: o.src.trim(), start: s.start, end: s.end, ...(tr.transition ? { transition: tr.transition } : {}), ...(sp.speed ? { speed: sp.speed } : {}), ...(lk.look ? { look: lk.look } : {}) })
+    doc.clips.push({ id: id(o, 'c'), src: o.src.trim(), start: s.start, end: s.end, ...(tr.transition ? { transition: tr.transition } : {}), ...(sp.speed ? { speed: sp.speed } : {}), ...(lk.look ? { look: lk.look } : {}), ...(o.stab === true ? { stab: true as const } : {}) })
   }
   const subs = list('subtitles', TIMELINE_MAX_SUBTITLES)
   if (!Array.isArray(subs)) return subs
@@ -319,7 +319,7 @@ type Op = Record<string, unknown>
  *
  * Operations: addClip {src,start,end,at?}, trimClip {id,start?,end?}, moveClip {id,to},
  * splitClip {id,at} (at = source second), removeClip {id},
- * setSpeed {id,speed} (0.25 to 4, 1 = normal), setClipLook {id,look} (none|bw|warm|cool|vivid|fade|vintage; "none" clears it), setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
+ * setSpeed {id,speed} (0.25 to 4, 1 = normal), setStabilize {id,on} (true steadies a shaky clip), setClipLook {id,look} (none|bw|warm|cool|vivid|fade|vintage; "none" clears it), setTransition {id,type,duration?} (the change from clip `id` into the next one; type "none" clears it),
  * addSubtitle {text,start,end,look?,anim?,pos?} (look classic|bold|yellow|box|title, anim none|fade|pop|slideup, pos bottom|middle|top),
  * updateSubtitle {id,text?,start?,end?,look?,anim?,pos?} ("" or the default clears a style field), removeSubtitle {id}, setMusic {src,volume?,duck?},
  * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?,key? green|blue|white|black},
@@ -384,7 +384,7 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (doc.clips.length >= TIMELINE_MAX_CLIPS) return fail('timeline_too_many', `at most ${TIMELINE_MAX_CLIPS} clips`)
         const id = nextId('c', doc.clips.map((x) => x.id))
         // The change into the next clip belongs to the end of the cut, so the second half keeps it.
-        doc.clips.splice(idx + 1, 0, { id, src: c.src, start: round3(at), end: c.end, ...(c.transition ? { transition: c.transition } : {}), ...(c.speed ? { speed: c.speed } : {}), ...(c.look ? { look: c.look } : {}) })
+        doc.clips.splice(idx + 1, 0, { id, src: c.src, start: round3(at), end: c.end, ...(c.transition ? { transition: c.transition } : {}), ...(c.speed ? { speed: c.speed } : {}), ...(c.look ? { look: c.look } : {}), ...(c.stab ? { stab: true as const } : {}) })
         c.end = round3(at)
         delete c.transition
         applied.push({ op: name, id: c.id, note: `split into ${c.id} and ${id}` })
@@ -413,6 +413,14 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         if (!lk.ok) return lk
         if (lk.look) c.look = lk.look; else delete c.look
         applied.push({ op: name, id: c.id, note: `look ${lk.look ?? 'none'}` })
+        break
+      }
+      case 'setStabilize': {
+        const c = find(doc.clips, op.id, 'clip')
+        if (isFail(c)) return c
+        if (typeof op.on !== 'boolean') return fail('timeline_bad_value', 'setStabilize needs on: true or false')
+        if (op.on) c.stab = true; else delete c.stab
+        applied.push({ op: name, id: c.id, note: op.on ? 'stabilised' : 'not stabilised' })
         break
       }
       case 'setTransition': {

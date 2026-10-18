@@ -16417,6 +16417,13 @@
       + '<span class="wb-hint">' + esc(t('workbench.fr.vid.look_hint')) + '</span></p>'
   }
 
+  /** #669 phase B: the "steady the picture" tick of the picked clip. Saved at once, undo works. */
+  function frVtStabHtml(sel) {
+    if (!sel || archived()) return ''
+    return '<p class="wb-fr-speed" id="wbStabRow"><label><input type="checkbox" id="wbVtStab" data-wb-id="' + escA(sel.id) + '"' + (sel.stab ? ' checked' : '') + (WB.vtBusy || WB.vtRender ? ' disabled' : '') + '> ' + esc(t('workbench.fr.vid.stab')) + '</label> '
+      + '<span class="wb-hint">' + esc(t('workbench.fr.vid.stab_hint')) + '</span></p>'
+  }
+
   /** The speed picker of the picked clip. Saved at once, undo works. */
   function frVtSpeedHtml(sel) {
     if (!sel || archived()) return ''
@@ -16465,6 +16472,7 @@
           + frVtTransPanelHtml(clips)
           + frVtSpeedHtml(sel)
           + frVtLookHtml(sel)
+          + frVtStabHtml(sel)
           + (sel ? '<p class="wb-fr-tl-sel" id="wbTlSel">' + esc(t('workbench.fr.vid.selected', { name: sel.src.split('/').pop(), s: vtSecs(Math.max(0.1, sel.end - sel.start)) })) + '</p>' : '')
           + '<p class="wb-hint wb-fr-tl-hint">' + esc(t('workbench.fr.vid.hint')) + '</p>'
         : '')
@@ -20224,6 +20232,7 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
     if (WB.img && /^wbImg(CapPos|CapColor|CapBand)$/.test(String(e.target.id || '')) && imgField(e.target.id, e.target)) return
+    if (e.target.id === 'wbVtStab') { vtOps([{ op: 'setStabilize', id: e.target.getAttribute('data-wb-id'), on: !!e.target.checked }]); return }
     if (e.target.id === 'wbVtLook') { vtOps([{ op: 'setClipLook', id: e.target.getAttribute('data-wb-id'), look: e.target.value }]); return }
     if (e.target.id === 'wbVtSpeed') { vtOps([{ op: 'setSpeed', id: e.target.getAttribute('data-wb-id'), speed: Number(e.target.value) }]); return }
     if (e.target.id === 'wbVtTransType' || e.target.id === 'wbVtTransDur') { frVtTransApply(); return }
