@@ -737,6 +737,8 @@
   .wb-split-divider { align-self: stretch; }
 }
 .wb-grid-aside { grid-template-columns: var(--wb-tree-w, minmax(200px, 1fr)) 10px minmax(200px, 1fr); gap: 0 8px; }
+/* A saved width is clamped at render time too: a window narrower than when it was saved must not squeeze the other column out. */
+.wb-grid-aside[style*="--wb-tree-w"] { grid-template-columns: min(var(--wb-tree-w), max(200px, calc(100% - 380px))) 10px minmax(200px, 1fr); }
 .wb-grid-aside > .wb-tree-split-grid { margin: 0 -3px; align-self: start; position: sticky; top: 8px; height: min(60vh, 480px); }
 .wb-split-pick { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 900px) {
@@ -2089,7 +2091,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-tree-split { flex: 0 0 10px; cursor: col-resize; touch-action: none; display: flex; align-items: center; justify-content: center; margin: 0 -3px; z-index: 2; }
 @media (max-width: 900px) { .wb-fr-chatsplit, .wb-tree-split { display: none; } }
 /* Folder column width (#686): the Simple view's left panel takes the stored width; the narrow layout keeps its own. */
-@media (min-width: 901px) { .wb-fr-panel { flex-basis: var(--wb-tree-w, 320px); } }
+@media (min-width: 901px) { .wb-fr-panel { flex-basis: min(var(--wb-tree-w, 320px), max(320px, calc(100% - 620px))); } }
 
 /* ---- Vitaztatas: a panel that covers the work piece while its toolbar button is on ---- */
 .wb-fr-center-db { overflow: auto; background: var(--bg-card); }

@@ -17969,9 +17969,12 @@
   // grid and its first column (the folder tree) in the Manual split.
   function treeWidthTarget() { return document.querySelector('.wb-fr-panel') || document.querySelector('.wb-grid-aside') }
   function treeWidthPane() { return document.querySelector('.wb-fr-panel') || document.querySelector('.wb-grid-aside > :first-child') }
+  // What the widest folder column leaves free: the Manual grid keeps two 200 px columns, the Simple frame keeps the rail, the
+  // chat with its handle and a 200 px work area. The CSS clamp in workbench.css uses the same numbers.
   function treeWidthMax() {
-    var body = document.querySelector('.wb-fr-body, .wb-grid-aside')
-    return Math.max(TREE_WIDTH_MIN, (body ? body.getBoundingClientRect().width : 1200) - 380)
+    var frame = document.querySelector('.wb-fr-body')
+    var body = frame || document.querySelector('.wb-grid-aside')
+    return Math.max(TREE_WIDTH_MIN, (body ? body.getBoundingClientRect().width : 1200) - (frame ? 620 : 380))
   }
   function applyTreeWidth(w, save) {
     var tgt = treeWidthTarget()
