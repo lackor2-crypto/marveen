@@ -7466,6 +7466,14 @@
   function vtTrimClip(id) {
     var s = vtNum('start', id), e = vtNum('end', id)
     if (vtBad(s) || vtBad(e)) return
+    // The fields show the seconds rounded to one decimal: a field left as it was shown keeps the exact stored value,
+    // so pressing the button on an untouched clip does not nudge its cut (121.37 -> 121.4, past the end of the file).
+    var cur = ((vtDoc() || {}).clips || []).filter(function (x) { return x.id === id })[0]
+    if (cur) {
+      if (s !== undefined && vtText('start', id).trim() === vtSecs(cur.start)) s = undefined
+      if (e !== undefined && vtText('end', id).trim() === vtSecs(cur.end)) e = undefined
+    }
+    if (s === undefined && e === undefined) return
     var op = { op: 'trimClip', id: id }
     if (s !== undefined) op.start = s
     if (e !== undefined) op.end = e
@@ -16546,7 +16554,9 @@
       + '</div></div>'
       + '<div class="wb-fr-vctl"><button type="button" class="wb-fr-tbtn2" id="wbVPlay" aria-label="' + escA(t('workbench.fr.vid.play')) + '" title="' + escA(t('workbench.fr.vid.play')) + '">\u25B6</button>'
       + '<input type="range" id="wbVSeek" min="0" max="1" step="0.01" value="0" aria-label="' + escA(t('workbench.fr.vid.seek')) + '">'
-      + '<span class="wb-muted" id="wbVTime">0,0 s</span></div></div>'
+      + '<span class="wb-muted" id="wbVTime">0,0 s</span>'
+      + '<button type="button" class="wb-fr-tbtn2" id="wbVMute" aria-label="' + escA(t('workbench.fr.vid.mute')) + '" title="' + escA(t('workbench.fr.vid.mute')) + '">\uD83D\uDD0A</button>'
+      + '<button type="button" class="wb-fr-tbtn2" id="wbVFull" aria-label="' + escA(t('workbench.fr.vid.fullscreen')) + '" title="' + escA(t('workbench.fr.vid.fullscreen')) + '">\u26F6</button></div></div>'
   }
 
   var VT_TRANSITIONS = ['fade', 'fadeblack', 'slideleft', 'slideright', 'wipeleft']
@@ -16936,6 +16946,28 @@
     else if (typeof window.requestAnimationFrame !== 'function') frVtTick()
   }
 
+  /** Editor keys, as in every video editor: Space / K play-pause, left / right one frame (Shift: one second), M mute, F full screen.
+   *  Only while the player is on screen and the focus is not in a field or on a button. */
+  document.addEventListener('keydown', function (e) {
+    var pl = document.getElementById('wbVPlayer')
+    var v = document.getElementById('wbVideo')
+    if (!pl || !v || e.ctrlKey || e.metaKey || e.altKey) return
+    var tg = e.target
+    var tag = tg && tg.tagName ? tg.tagName.toLowerCase() : ''
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'button' || (tg && tg.isContentEditable)) return
+    var k = e.key
+    if (k === ' ' || k === 'k' || k === 'K') { e.preventDefault(); var pb = document.getElementById('wbVPlay'); if (pb) pb.click() }
+    else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      e.preventDefault()
+      var c = frVtSelClip()
+      var step = (k === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 1 : 1 / 25)
+      if (!v.paused) v.pause()
+      try { v.currentTime = Math.min(c ? c.end : v.duration, Math.max(c ? c.start : 0, v.currentTime + step)) } catch (_e) { /* not loaded yet */ }
+      frVtKick()
+    } else if (k === 'm' || k === 'M') { var mb = document.getElementById('wbVMute'); if (mb) mb.click() }
+    else if (k === 'f' || k === 'F') { var fb = document.getElementById('wbVFull'); if (fb) fb.click() }
+  })
+
   /** After each redraw: wire the fresh player (new elements every time, so no listener piles up). */
   function frVtPlayerMount() {
     var v = document.getElementById('wbVideo')
@@ -16957,6 +16989,13 @@
     })
     var vf = document.getElementById('wbVFrame')
     if (vf) vf.addEventListener('click', function () { if (pb) pb.click() })
+    var mb = document.getElementById('wbVMute')
+    if (mb) mb.addEventListener('click', function () { v.muted = !v.muted; mb.textContent = v.muted ? '\uD83D\uDD07' : '\uD83D\uDD0A' })
+    var fb = document.getElementById('wbVFull')
+    if (fb) fb.addEventListener('click', function () {
+      var pl = document.getElementById('wbVPlayer')
+      if (document.fullscreenElement) { document.exitFullscreen() } else if (pl && typeof pl.requestFullscreen === 'function') { pl.requestFullscreen().catch(function () { /* refused */ }) }
+    })
     var sk = document.getElementById('wbVSeek')
     if (sk) sk.addEventListener('input', function () { try { v.currentTime = Number(sk.value) } catch (_e) { /* not loaded yet */ } frVtKick() })
     relayout()
