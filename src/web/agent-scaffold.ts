@@ -3209,6 +3209,88 @@ export function ensureGlobalBrowserClickthroughRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+// --- Follow-the-reference rule (kanban #701, owner 2026-10-18) ----------------
+//
+// A physically empty folder was reported as "nothing there" although its
+// contents were registered annexes pointing at the originals elsewhere. A
+// zero count or an empty folder says nothing about linked/referenced content:
+// follow the link, check what it points at, and treat it as if it were there.
+const REF_FOLLOW_BEGIN = '<!-- BEGIN GENERATED: follow-reference-rule (auto-generated, do not edit by hand) -->'
+const REF_FOLLOW_END = '<!-- END GENERATED: follow-reference-rule -->'
+const REF_FOLLOW_BLOCK_RE = new RegExp(
+  `${REF_FOLLOW_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${REF_FOLLOW_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildFollowReferenceBody(): string {
+  return [
+    '## LINKELT / HIVATKOZOTT TARTALMAT SOHA NE VEDD URESNEK -- KOVESD A LINKET',
+    '',
+    'A NULLA ket dolgot jelentheti: "meg nincs semmi" vagy "nem lattam oda". Ha valami',
+    'linkelt/hivatkozott (annex, belinkelt fajl, referencia, DB-bejegyzes), SOHA ne vedd',
+    'uresnek a fizikai mappa vagy a talalatszam alapjan: kovesd a linket, nezd meg MIRE',
+    'mutat es tenyleg megvan-e, es ugy vedd, mintha ott lenne a mappaban. Nem-nulla mappa',
+    'vagy van bejegyzes -> tilos azt mondani, hogy ott nincs semmi (kulonben duplikacio vagy',
+    'hibas dontes szuletik). Valos eset: a Munkapad Mellekletek annexei az eredetikre',
+    'mutattak, a fizikai mappa ures volt, megsem volt ures. Reszletek: `marveen-learned-rules` R13.',
+  ].join('\n')
+}
+
+/** Beviszi a hivatkozas-kovetes szabalyt egy agens sajat CLAUDE.md-jebe. */
+export function ensureFollowReferenceSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${REF_FOLLOW_BEGIN}\n${buildFollowReferenceBody()}\n${REF_FOLLOW_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = REF_FOLLOW_BLOCK_RE.test(existing)
+    ? existing.replace(REF_FOLLOW_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalFollowReferenceRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${REF_FOLLOW_BEGIN}\n${buildFollowReferenceBody()}\n${REF_FOLLOW_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = REF_FOLLOW_BLOCK_RE.test(existing)
+    ? existing.replace(REF_FOLLOW_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 // --- statusLine: the rate-limit snapshot producer ---------------------------
 //
 // scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;
