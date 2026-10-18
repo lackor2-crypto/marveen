@@ -72,7 +72,7 @@ describe('listProjectOutside follows mounts and links (#502)', () => {
     const r = listProjectFolderLevel(getProject(p.id)!, 'Fejlesztes/GIT_REPOS')
     if (!r.ok) throw new Error(r.code)
     expect(r.outside.folders).toContain('Fejlesztes/GIT_REPOS/src')
-    expect(r.outside.files['Fejlesztes/GIT_REPOS']).toEqual([{ name: 'README.md', size: 2, rel: `${p.folder}/Fejlesztes/GIT_REPOS/README.md` }])
+    expect(r.outside.files['Fejlesztes/GIT_REPOS']).toEqual([{ name: 'README.md', size: 2, at: expect.any(Number), rel: `${p.folder}/Fejlesztes/GIT_REPOS/README.md` }])
     expect(r.outside.files['Fejlesztes/GIT_REPOS/src'].map((f) => f.name)).toEqual(['index.ts'])
   })
 
