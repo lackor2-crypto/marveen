@@ -1664,9 +1664,10 @@
       var why = { name_taken: 0, in_use: 0, same_place: 0, not_loose: 0, item_file: 0, failed: 0 }
       sk.forEach(function (s) { why[s.reason] = (why[s.reason] || 0) + 1 })
       var msg = t('workbench.files.moved', { n: (d.moved || []).length })
-      var other = sk.length - why.item_file
+      var other = sk.length - why.item_file - (why.version_file || 0)
       if (other) msg += ' ' + t('workbench.files.skipped', { n: other, taken: why.name_taken, used: why.in_use, same: why.same_place, other: why.not_loose + why.failed })
       if (why.item_file) msg += ' ' + t('workbench.files.item_kept', { n: why.item_file })
+      if (why.version_file) msg += ' ' + t('workbench.versions.kept', { n: why.version_file })
       notes.push(msg)
     })
   }
@@ -1730,6 +1731,13 @@
       return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '">'
         + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.annexlink.hint', { path: f.rel })) + '">'
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' + esc(f.name) + '</span>'
+        + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
+    }
+    // #691 (Boss TG 9610): a saved version is system-managed: readable, never ticked, renamed, deleted or dragged by hand.
+    if (f.version) {
+      return '<li class="wb-item-row wb-file-row wb-version-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: ' + grpHsl(grp) + '"' : '') + '>'
+        + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.versions.file_hint', { name: f.name })) + '">'
+        + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" aria-hidden="true">\ud83d\udd12</span> ' + esc(f.name) + '</span>'
         + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
     }
     return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="--wb-grp: ' + grpHsl(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
@@ -1828,8 +1836,10 @@
       var delIds = Array.isArray(d.trash) ? d.trash : []
       reloadIfOwnFile((d.file_trash || []).filter(function (e) { return delIds.indexOf(e.id) >= 0 }))
       var sk = d.skipped || []
+      var skVer = sk.filter(function (s) { return s.reason === 'version_file' }).length
       var msg = t('workbench.file.deleted', { n: (d.deleted || []).length })
-      if (sk.length) msg += ' ' + t('workbench.file.delete_skipped', { n: sk.length })
+      if (sk.length - skVer) msg += ' ' + t('workbench.file.delete_skipped', { n: sk.length - skVer })
+      if (skVer) msg += ' ' + t('workbench.versions.kept', { n: skVer })
       var ids = Array.isArray(d.trash) ? d.trash : []
       window.showToast(msg, ids.length ? { action: { label: t('workbench.trash.undo'), onClick: function () { restoreFiles(ids) } } } : undefined)
     })
@@ -2102,6 +2112,15 @@
         // how a file or work item dragged into it takes the target colour at once (#685).
         var g = ownFold[f] ? -(++topIdx) : folIdx++
         var collapsed = isShut(f)
+        // #691: the versions folder is system-managed: no drop target, drag, menu or rename; it only folds open.
+        if ((plainFiles[f] || []).some(function (x) { return x.version })) {
+          rows.push('<li class="wb-folder-row wb-version-folder' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' title="' + escA(t('workbench.versions.folder_hint')) + '">'
+            + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
+            + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
+            + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span> <span class="wb-linked" aria-hidden="true">\ud83d\udd12</span></button></li>')
+          if (!collapsed) walk(f, depth + 1, g)
+          return
+        }
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
