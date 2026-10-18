@@ -2121,10 +2121,8 @@
         // its parent's (so folders inside one work item differ). What a folder holds wears that folder's colour, which is
         // how a file or work item dragged into it takes the target colour at once (#685).
         var g = ownFold[f] ? -(++topIdx) : folIdx++
-        // #692: a work item's folder hands out its own colour slots from the start, the outside counter carries on after it,
-        // so the 5-6 standard folders of every work item always get the 6 distinct, band-separated slots (#694).
-        var outerFol = folIdx
-        if (ownFold[f]) folIdx = 0
+        // #694: one continuous folder counter across the whole tree (no per-item restart); the 6 band-separated folder colours
+        // cycle, and every second cycle is darker, so the standard folders of one work item always differ from each other.
         var collapsed = isShut(f)
         // #691: the versions folder is system-managed: no drop target, drag, menu or rename; it only folds open.
         if ((plainFiles[f] || []).some(function (x) { return x.version })) {
@@ -2133,7 +2131,6 @@
             + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
             + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span> <span class="wb-linked" aria-hidden="true">\ud83d\udd12</span></button></li>')
           if (!collapsed) walk(f, depth + 1, g)
-        if (ownFold[f]) folIdx = outerFol
           return
         }
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'

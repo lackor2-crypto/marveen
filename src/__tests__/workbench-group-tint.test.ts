@@ -16,13 +16,12 @@ describe('workbench list group tint', () => {
     expect(css).toMatch(/\.wb-grp\s*\{[^}]*var\(--wb-grp\)/)
   })
 
-  // #693/#694 (Boss TG 9632/9639): every group gets its own golden-angle hue; the old fixed folder palette (GRP_FOLDER)
-  // and the per-item folder restart made different groups share a colour (two work items, every item's "Feltoltesek").
-  it('uses one golden-angle hue per group, no fixed folder palette and no per-item restart', () => {
+  // #693/#694 (Boss TG 9632/9639): every work item gets its own golden-ratio hue in the item band; the folders use a fixed
+  // palette in a SEPARATE band (a folder never looks like a work item); one continuous folder counter, no per-item restart.
+  it('items use golden-ratio hues in their own band, folders a fixed band-separated palette, no per-item restart', () => {
     expect(js).toContain('function grpHsl(g)')
     expect(js).toContain('var g = ownFold[f] ? -(++topIdx) : folIdx++')
     expect(js).toContain('var g = outIdx++')
-    expect(js).not.toContain('var GRP_FOLDER =')
     expect(js).not.toContain('if (ownFold[f]) folIdx = 0')
     expect(js).not.toContain('outerFol')
     // #684 (Boss TG 9503): the background colour carries the grouping; the frames are faded.
@@ -66,9 +65,7 @@ describe('palette golden angle (#693, #694)', () => {
     }
     for (const it of items) expect(it[0] >= lo && it[0] <= hi).toBe(true)
   })
-  it('every work item restarts the folder slots, and the item tint is stronger than the folder tint', () => {
-    expect(js).toContain('if (ownFold[f]) folIdx = 0')
-    expect(js).toContain('if (ownFold[f]) folIdx = outerFol')
+  it('the item tint is stronger than the folder tint', () => {
     expect(js).toContain("(g < 0 ? '40%' : '24%')")
   })
 })
