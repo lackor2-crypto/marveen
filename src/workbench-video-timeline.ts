@@ -70,6 +70,8 @@ export interface TimelineMusic {
 /** Background colours an overlay picture can be keyed out of (#669 phase B); absent = no key. */
 export const OVERLAY_KEYS = ['green', 'blue', 'white', 'black'] as const
 export type OverlayKey = (typeof OVERLAY_KEYS)[number]
+/** An overlay can be a moving picture (picture-in-picture): it plays from its start at the overlay's start, without sound. */
+export const isVideoOverlaySrc = (src: string): boolean => VIDEO_EXT.test(src)
 export interface TimelineOverlay {
   id: string
   src: string
@@ -260,7 +262,7 @@ export function parseTimeline(raw: unknown): TimelineParse {
   if (!Array.isArray(ovs)) return ovs
   for (const c of ovs) {
     const o = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>
-    if (!isMediaPath(o.src) || !IMAGE_EXT.test(o.src)) return fail('timeline_bad_media', 'an overlay needs a picture inside the project')
+    if (!isMediaPath(o.src) || !(IMAGE_EXT.test(o.src) || VIDEO_EXT.test(o.src))) return fail('timeline_bad_media', 'an overlay needs a picture or a video inside the project')
     const s = span(o.start, o.end, 'overlay')
     if (!s.ok) return s
     const x = o.x === undefined ? 0.05 : num(o.x), y = o.y === undefined ? 0.05 : num(o.y)

@@ -23,7 +23,7 @@ import { getWorkItem } from './workbench.js'
 import { itemOutputFolder } from './workbench-assets.js'
 import { finishedFolderFor } from './project-files.js'
 import { videoTool, videoTarget, videoRunTo, videoBusy, VIDEO_TRIM_TIMEOUT_MS, type VideoFail } from './workbench-video.js'
-import { ASPECT_SIZE, SUBTITLE_LOOKS, clipLen, effectiveTransition, timelineDuration, type SubtitleLook, type SubtitlePos, type TimelineDoc } from './workbench-video-timeline.js'
+import { ASPECT_SIZE, isVideoOverlaySrc, SUBTITLE_LOOKS, clipLen, effectiveTransition, timelineDuration, type SubtitleLook, type SubtitlePos, type TimelineDoc } from './workbench-video-timeline.js'
 
 export const RENDER_FPS = 30
 export const RENDER_TIMEOUT_MS = 4 * VIDEO_TRIM_TIMEOUT_MS
@@ -174,7 +174,11 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   let musicIdx = -1
   if (doc.music) { args.push('-stream_loop', '-1', '-i', inp.abs[doc.music.src]); musicIdx = idx++ }
   const ovIdx: number[] = []
-  for (const o of doc.overlays) { args.push('-loop', '1', '-framerate', String(RENDER_FPS), '-t', fnum(total), '-i', inp.abs[o.src]); ovIdx.push(idx++) }
+  for (const o of doc.overlays) {
+    if (isVideoOverlaySrc(o.src)) args.push('-i', inp.abs[o.src])
+    else args.push('-loop', '1', '-framerate', String(RENDER_FPS), '-t', fnum(total), '-i', inp.abs[o.src])
+    ovIdx.push(idx++)
+  }
 
   // Every clip: cut, fill the frame (the picture sits on a blurred copy of itself, so a
   // 16:9 clip in a 9:16 video has no black bars), same frame rate and sound format.
@@ -197,9 +201,12 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   // Picture overlays, each only between its start and end.
   let v = 'vc'
   doc.overlays.forEach((o, k) => {
+    const moving = isVideoOverlaySrc(o.src)
+    // A moving overlay is shifted to start at the overlay's own start; the base picture sets the length (no `shortest`), and a clip shorter than the window just disappears (eof_action=pass).
+    const lead = moving ? `fps=${RENDER_FPS},setpts=PTS-STARTPTS+${fnum(o.start)}/TB,` : ''
     f.push(
-      `[${ovIdx[k]}:v]scale=${Math.max(2, Math.round(W * o.width))}:-1,format=rgba${o.key ? `,colorkey=${OVERLAY_KEY_HEX[o.key]}:0.3:0.1` : ''},colorchannelmixer=aa=${fnum(o.opacity)}[ov${k}]`,
-      `[${v}][ov${k}]overlay=x=${Math.round(W * o.x)}:y=${Math.round(H * o.y)}:enable='between(t,${fnum(o.start)},${fnum(o.end)})':shortest=1[vo${k}]`,
+      `[${ovIdx[k]}:v]${lead}scale=${Math.max(2, Math.round(W * o.width))}:-2,format=rgba${o.key ? `,colorkey=${OVERLAY_KEY_HEX[o.key]}:0.3:0.1` : ''},colorchannelmixer=aa=${fnum(o.opacity)}[ov${k}]`,
+      `[${v}][ov${k}]overlay=x=${Math.round(W * o.x)}:y=${Math.round(H * o.y)}:enable='between(t,${fnum(o.start)},${fnum(o.end)})':${moving ? 'eof_action=pass' : 'shortest=1'}[vo${k}]`,
     )
     v = `vo${k}`
   })
