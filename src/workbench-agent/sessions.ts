@@ -179,6 +179,20 @@ export function openSessionForWorkItem(projectId: string, workItemId: string, la
   return createAgentSession({ project_id: projectId, work_item_id: workItemId, language })
 }
 
+/**
+ * The owner may have switched the dashboard language since the conversation began. A new MESSAGE carries the
+ * language the owner has NOW (the switch at the bottom left), so the session follows it: every later reader of
+ * `session.language` (code-bridge continuation, approved runs, delivery) then writes documents in that language,
+ * not the one from the first message. Only the message handler calls this: a plain read of the history may come
+ * without a language and must not flip it back to the install default.
+ */
+export function followUiLanguage(sessionId: string, language: 'hu' | 'en'): boolean {
+  ensureAgentTables()
+  const r = getDb().prepare('UPDATE workbench_agent_sessions SET language = ? WHERE id = ? AND language <> ?')
+    .run(language, sessionId, language)
+  return r.changes > 0
+}
+
 export function endAgentSession(id: string): boolean {
   ensureAgentTables()
   const r = getDb().prepare("UPDATE workbench_agent_sessions SET status = 'ended', ended_at = ? WHERE id = ? AND status = 'active'")
