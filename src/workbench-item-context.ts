@@ -14,7 +14,7 @@
 // Runs as a periodic pass (all creation paths, legacy items and fresh installs are covered the same way) and is
 // kicked right after a Workbench write so a new item gets its file within seconds.
 
-import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { getDb } from './db.js'
 import { logger } from './logger.js'
@@ -27,7 +27,9 @@ import { projectFileTarget, safeFileName } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { resolveLifePath } from './life-explorer.js'
 import { listMounts } from './life-mounts.js'
-import { ensureItemTodoFile, isTodoFileName } from './workbench-item-todos.js'
+import { ensureItemTodoFile, isTodoFileName, todoFileText } from './workbench-item-todos.js'
+import { listItemTodos } from './workbench-todos.js'
+import { isDebateReportTitle } from './debate-report-title.js'
 
 export const CONTEXT_PREFIX_HU = 'Kontextus'
 export const CONTEXT_PREFIX_EN = 'Context'
@@ -185,6 +187,8 @@ export interface ItemContextOutcome { rel: string | null; created: boolean; rena
 /** Makes sure the item's context file exists in its folder and carries the item's current name. */
 export function ensureItemContext(item: WorkItemRow, project: ProjectRow): ItemContextOutcome {
   ensureTable()
+  // #656: a debate report is a finished output: no context file for it.
+  if (isDebateReportTitle(item.title)) return { rel: null, created: false, renamed: false }
   const owner = contextOwner(item)
   if (owner.id !== item.id) {
     // A language version shares its original's file: never make one of its own.
@@ -290,6 +294,7 @@ export function healContextAsSource(item: WorkItemRow): WorkItemRow {
 /** One item: context file, JSON names, materials list. */
 export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { created: boolean; renamed: boolean; json: number } {
   ensureTable()
+  if (isDebateReportTitle(item.title)) { removeReportScaffolding(item); return { created: false, renamed: false, json: 0 } }
   item = healContextAsSource(item)
   const before = readRow(item.id)
   const oldStem = before?.stem || ''
@@ -305,6 +310,45 @@ export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { 
   // The to-do file lives beside the context file (Boss TG 3462); a failure there never stops the context pass.
   try { ensureItemTodoFile(item, project) } catch (err: any) { logger.warn({ item: item.id, err: String(err?.message || err) }, '[item-context] to-do file skipped') }
   return { created: r.created, renamed: r.renamed, json }
+}
+
+/**
+ * #656: a debate report made before the fix may carry a generated "Kontextus - ...md" and "Teendő - ...md". They go away
+ * ONLY while they are still exactly what the app generated (an untouched template, an empty to-do list): anything the
+ * owner or the chat wrote into them keeps the file. Idempotent; runs in every context pass and does nothing once clean.
+ */
+export function removeReportScaffolding(item: WorkItemRow): number {
+  ensureTable()
+  const db = getDb()
+  let removed = 0
+  const ctx = readRow(item.id)
+  if (ctx && ctx.rel) {
+    const abs = resolveLifePath(ctx.rel)
+    if (!abs || !existsSync(abs)) { db.prepare('DELETE FROM work_item_context WHERE item_id = ?').run(item.id) }
+    else {
+      let text = ''
+      try { text = readFileSync(abs, 'utf8') } catch { /* unreadable: keep it */ }
+      const plain = (t: string): string => withBlock(t, '').trim()
+      if (text && plain(template(item.title)) === plain(text) && !writeBlockReason(ctx.rel)) {
+        try { unlinkSync(abs); db.prepare('DELETE FROM work_item_context WHERE item_id = ?').run(item.id); removed++ } catch { /* retried at the next pass */ }
+      }
+    }
+  }
+  let todo: { rel: string } | undefined
+  try { todo = db.prepare('SELECT rel FROM work_item_todo_file WHERE item_id = ?').get(item.id) as { rel: string } | undefined } catch { /* no table yet: nothing generated */ }
+  if (todo && todo.rel) {
+    const abs = resolveLifePath(todo.rel)
+    if (!abs || !existsSync(abs)) db.prepare('DELETE FROM work_item_todo_file WHERE item_id = ?').run(item.id)
+    else if (listItemTodos(item.id).length === 0) {
+      let text = ''
+      try { text = readFileSync(abs, 'utf8') } catch { /* unreadable: keep it */ }
+      if (text && text === todoFileText(item.title, []) && !writeBlockReason(todo.rel)) {
+        try { unlinkSync(abs); db.prepare('DELETE FROM work_item_todo_file WHERE item_id = ?').run(item.id); removed++ } catch { /* retried at the next pass */ }
+      }
+    }
+  }
+  if (removed) logger.info({ item: item.id, removed }, '[item-context] generated context / to-do file of a debate report removed')
+  return removed
 }
 
 let running = false

@@ -16,6 +16,7 @@ import type { ProjectRow } from './projects.js'
 import type { WorkItemRow } from './workbench.js'
 import { listItemTodos, type TodoRow } from './workbench-todos.js'
 import { contextOwner, ensureItemContext } from './workbench-item-context.js'
+import { isDebateReportTitle } from './debate-report-title.js'
 import { followDepotFolderMove } from './workbench-assets.js'
 import { safeFileName } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
@@ -65,6 +66,7 @@ export function todoFileText(title: string, todos: Pick<TodoRow, 'text' | 'due_d
  */
 export function ensureItemTodoFile(item: WorkItemRow, project: ProjectRow): string | null {
   ensureTable()
+  if (isDebateReportTitle(item.title)) return null // #656: a finished report gets no to-do file
   const owner = contextOwner(item)
   if (owner.id !== item.id) return ensureItemTodoFile(owner, project)
   const ctx = ensureItemContext(item, project)
