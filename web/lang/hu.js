@@ -6865,6 +6865,8 @@ window._i18n.hu = {
   "workbench.fr.vid.trans.hint": "Az átmenet a két klipet egymásra csúsztatja, ezért a kész videó az átmenet hosszával rövidebb lesz. A választásod azonnal mentődik, a visszavonás működik.",
   "workbench.fr.vid.speed": "Sebesség",
   "workbench.fr.vid.speed_hint": "A klip lejátszási sebessége: 1× normál, 2× kétszer gyorsabb, 0,5× lassított. A hang is követi, és a kész videó hossza ehhez igazodik. A lejátszó előnézete normál sebességen megy, a változás a kész videóban látszik. A választásod azonnal mentődik, a visszavonás működik.",
+  "workbench.fr.vid.stab": "Képstabilizálás (remegés csökkentése)",
+  "workbench.fr.vid.stab_hint": "A kézből felvett, remegő klipet nyugodtabbá teszi a kész videóban. Csak a képet érinti. Az előnézeti lejátszó eredeti képet mutat. A jelölés azonnal mentődik, és a visszavonás működik.",
   "workbench.fr.vid.look": "Szín-hangulat",
   "workbench.fr.vid.look_hint": "A klip színvilága: fekete-fehér, meleg, hideg, élénk, fakó vagy retró. Csak a képet érinti, a hangot nem. Az előnézeti lejátszó eredeti színekkel megy, a változás a kész videóban látszik. A választás azonnal mentődik, és a visszavonás működik.",
   "workbench.fr.vid.look.none": "Eredeti",

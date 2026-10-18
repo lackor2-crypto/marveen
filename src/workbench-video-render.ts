@@ -181,7 +181,7 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
   doc.clips.forEach((c, i) => {
     const n = clipIdx[i]
     f.push(
-      `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=(PTS-STARTPTS)/${fnum(c.speed ?? 1)},fps=${RENDER_FPS}${lookFilter(c.look)},split=2[bg${i}][fg${i}]`,
+      `[${n}:v]trim=start=${fnum(c.start)}:end=${fnum(c.end)},setpts=(PTS-STARTPTS)/${fnum(c.speed ?? 1)},fps=${RENDER_FPS}${c.stab ? ',deshake' : ''}${lookFilter(c.look)},split=2[bg${i}][fg${i}]`,
       `[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3[bb${i}]`,
       `[fg${i}]scale=${W}:${H}:force_original_aspect_ratio=decrease[ff${i}]`,
       `[bb${i}][ff${i}]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p,settb=1/${RENDER_FPS}[v${i}]`,
