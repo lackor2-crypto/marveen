@@ -353,6 +353,16 @@ export function gitEnvFor(account: string): NodeJS.ProcessEnv {
   if (token) {
     env.MARVEEN_GIT_TOKEN = token
     env.GIT_ASKPASS = ensureAskpass()
+    // A machine-wide `credential.https://github.com.helper = gh auth git-credential` is asked BEFORE the askpass and hands
+    // out the key of gh's ACTIVE account -- whichever one is active right now, not this account's. After an account switch
+    // that is the wrong account, and the private repos answer "Repository not found". An empty value resets the helper list
+    // for this one command, so the key chosen above is the one git uses.
+    const n = Number(env.GIT_CONFIG_COUNT) || 0
+    env.GIT_CONFIG_COUNT = String(n + 2)
+    env[`GIT_CONFIG_KEY_${n}`] = 'credential.https://github.com.helper'
+    env[`GIT_CONFIG_VALUE_${n}`] = ''
+    env[`GIT_CONFIG_KEY_${n + 1}`] = 'credential.helper'
+    env[`GIT_CONFIG_VALUE_${n + 1}`] = ''
   }
   return env
 }
