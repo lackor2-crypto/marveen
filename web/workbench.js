@@ -1515,10 +1515,12 @@
     var row = e.target.closest('[data-wb-ctx-item]')
     var frow = row ? null : e.target.closest('[data-wb-ctx-folder]')
     var xrow = row || frow ? null : e.target.closest('[data-wb-ctx-file]')
-    if (!row && !frow && !xrow) return
+    var lrow = row || frow || xrow ? null : e.target.closest('[data-wb-ctx-link]')
+    if (!row && !frow && !xrow && !lrow) return
     e.preventDefault()
     WB.ctx = row ? { id: row.getAttribute('data-wb-ctx-item'), x: e.clientX || 0, y: e.clientY || 0 }
       : frow ? { folder: frow.getAttribute('data-wb-ctx-folder'), x: e.clientX || 0, y: e.clientY || 0 }
+      : lrow ? { link: lrow.getAttribute('data-wb-ctx-link'), x: e.clientX || 0, y: e.clientY || 0 }
       : { file: xrow.getAttribute('data-wb-ctx-file'), x: e.clientX || 0, y: e.clientY || 0 }
     render()
   })
@@ -1738,10 +1740,16 @@
     // Boss TG 3025: a Life-tree document linked as an annex shows in the Attachments folder as a plain link: it is
     // managed in the document's annex list, so no tick box, menu or drag here (a delete would hit the real file).
     if (f.annex) {
-      return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '">'
+      // #697 (Boss TG 9674, 9670): the link has a right-click / "..." menu with one entry, Remove (it takes the link off,
+      // never the original), and carries its group colour, paler than a real file's.
+      var lk = f.link && !archived()
+      return '<li class="wb-item-row wb-file-row wb-linked-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (lk ? ' data-wb-ctx-link="' + escA(f.link.id) + '"' : '') + '>'
         + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.annexlink.hint', { path: f.rel })) + '">'
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' + esc(f.name) + '</span>'
-        + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
+        + '<span class="wb-item-meta">' + esc(kb) + '</span></a>'
+        + (lk ? '<button type="button" class="wb-item-more" data-wb-act="link-ctx" data-wb-link="' + escA(f.link.id) + '" aria-haspopup="menu"'
+          + ' aria-label="' + escA(t('workbench.ctx.more_file')) + '" title="' + escA(t('workbench.ctx.more_file')) + '">&#8943;</button>' + linkMenuHtml(f) : '')
+        + '</li>'
     }
     // #691 (Boss TG 9610): a saved version is system-managed: readable, never ticked, renamed, deleted or dragged by hand.
     if (f.version) {
@@ -1750,7 +1758,7 @@
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" aria-hidden="true">\ud83d\udd12</span> ' + esc(f.name) + '</span>'
         + '<span class="wb-item-meta">' + esc(kb) + '</span></a></li>'
     }
-    return '<li class="wb-item-row wb-file-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
+    return '<li class="wb-item-row wb-file-row' + (f.linked ? ' wb-linked-row' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(f.name + ' \u2014 ' + t('workbench.file.open')) + '">'
@@ -1764,6 +1772,19 @@
 
   /** #601: is this file only a link to a file somewhere else (set while the rows are drawn)? */
   function isLinkedFile(rel) { return !!(WB.linkedFiles && WB.linkedFiles[rel]) }
+
+  /** #697: the menu of a linked row (an attachment / upload that lives elsewhere): Open, and Remove (the link only, never the
+   *  original). Keyed by the link's own id, not the path: the same file may also stand in the tree as a plain file. */
+  function linkMenuHtml(f) {
+    var c = WB.ctx
+    if (!c || !f.link || c.link !== f.link.id || archived()) return ''
+    var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - 214))
+    var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - 120))
+    return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
+      + '<a role="menuitem" class="wb-ctx-link" data-wb-file-open="1" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener">' + esc(t('workbench.file.open')) + '</a>'
+      + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="file-unlink-annex" data-wb-kind="' + escA(f.link.kind) + '" data-wb-owner="' + escA(f.link.item) + '" data-wb-link="' + escA(f.link.id) + '" data-wb-name="' + escA(f.name) + '"' + (WB.fileBusy ? ' disabled' : '') + '>' + esc(t('workbench.filelink.remove')) + '</button>'
+      + '</div>'
+  }
 
   /** The loose file's menu (right-click / the "..." button): open, download, make it a work item (Boss, TG 7626), move, rename, delete. */
   function fileMenuHtml(rel, extra) {
@@ -1852,6 +1873,23 @@
       if (skVer) msg += ' ' + t('workbench.versions.kept', { n: skVer })
       var ids = Array.isArray(d.trash) ? d.trash : []
       window.showToast(msg, ids.length ? { action: { label: t('workbench.trash.undo'), onClick: function () { restoreFiles(ids) } } } : undefined)
+    })
+  }
+
+  /** #697: take an attachment / upload link off (never the original file): asks, then reloads the tree. */
+  function unlinkAnnexFile(btn) {
+    var kind = btn.getAttribute('data-wb-kind'), item = btn.getAttribute('data-wb-owner'), id = btn.getAttribute('data-wb-link'), name = btn.getAttribute('data-wb-name') || ''
+    if (!item || !id || WB.fileBusy || archived()) return
+    if (!window.confirm(t('workbench.filelink.unlink_confirm', { name: name }))) { WB.ctx = null; render(); return }
+    WB.fileBusy = true
+    WB.ctx = null
+    render()
+    var url = '/api/workbench/items/' + encodeURIComponent(item) + (kind === 'annex' ? '/outline/annexes/' : '/assets/') + encodeURIComponent(id)
+    api('DELETE', url).then(function (r) {
+      WB.fileBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      window.showToast(t('workbench.filelink.removed', { name: name }))
+      refreshTree().then(function () { if (WB.selectedId) loadDetail(WB.selectedId) })
     })
   }
 
@@ -18888,11 +18926,13 @@
     else if (a === 'tr-mode') trSetMode(act.getAttribute('data-wb-mode'))
     else if (a === 'tr-run') trRun()
     else if (a === 'tr-swap') trSwap()
+    else if (a === 'link-ctx') { var lr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { link: act.getAttribute('data-wb-link'), x: lr.left, y: lr.bottom }; render() }
     else if (a === 'file-ctx') { var fr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { file: act.getAttribute('data-wb-rel'), x: fr.left, y: fr.bottom }; render() }
     else if (a === 'folder-ctx') { var dr = act.getBoundingClientRect ? act.getBoundingClientRect() : { left: 8, bottom: 8 }; WB.ctx = { folder: act.getAttribute('data-wb-folder'), x: dr.left, y: dr.bottom }; render() }
     else if (a === 'file-open-item') { if (!(e.ctrlKey || e.metaKey || e.shiftKey)) { e.preventDefault(); fileToItem(act.getAttribute('data-wb-rel'), '') } }
     else if (a === 'file-to-item') fileToItem(act.getAttribute('data-wb-rel'), act.getAttribute('data-wb-kind') || '')
     else if (a === 'file-delete') deleteFiles(act.getAttribute('data-wb-rel'))
+    else if (a === 'file-unlink-annex') unlinkAnnexFile(act)
     else if (a === 'file-rename') renameFile(act.getAttribute('data-wb-rel'))
     else if (a === 'file-sel') toggleFileSel(act.getAttribute('data-wb-rel'), !!(e && e.shiftKey))
     else if (a === 'sel-to-deck') selectionToDeck()
