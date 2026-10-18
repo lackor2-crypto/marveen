@@ -112,4 +112,22 @@ describe('resolveScheduledTargets', () => {
     mockState.blocked = new Set(['lackor3', 'usalackor'])
     expect(resolveScheduledTargets('any')).toEqual(['lackor3'])
   })
+
+  it('#702: a pinned agent at its usage wall hands the task to a working agent', () => {
+    mockState.running = new Set([MAIN_AGENT_ID, 'lackor3'])
+    mockState.blocked = new Set(['lackor3'])
+    expect(resolveScheduledTargets('lackor3')).toEqual([MAIN_AGENT_ID])
+  })
+
+  it('#702: a pinned blocked agent with nobody else working stays pinned (the retry queue holds it)', () => {
+    mockState.running = new Set(['lackor3'])
+    mockState.blocked = new Set(['lackor3', MAIN_AGENT_ID])
+    expect(resolveScheduledTargets('lackor3')).toEqual(['lackor3'])
+  })
+
+  it("#702: 'all' skips a quota-blocked sub-agent", () => {
+    mockState.running = new Set(['lackor3', 'lagunas'])
+    mockState.blocked = new Set(['lackor3'])
+    expect(resolveScheduledTargets('all')).toEqual([MAIN_AGENT_ID, 'lagunas'])
+  })
 })
