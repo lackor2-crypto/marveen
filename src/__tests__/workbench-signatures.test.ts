@@ -39,6 +39,13 @@ beforeEach(() => {
 })
 
 describe('listSignatures', () => {
+  it('finds a .webp signature in the identity folder (owner TG 3783: "anyu alairasa.webp")', async () => {
+    writeFileSync(join(root, 'Emberek', 'Laszlo', 'identitas', 'anyu alairasa.webp'), 'x')
+    writeFileSync(join(root, 'Emberek', 'Laszlo', 'identitas', 'alairas scan.bmp'), 'x')
+    const r = await listSignatures('hu')
+    expect(r.signatures.map((s) => s.name).sort()).toEqual(['alairas scan.bmp', 'anyu alairasa.webp'])
+  })
+
   it('collects signature pictures from the whole tree and ignores other files', async () => {
     writeFileSync(join(root, 'Emberek', 'Nagymama', 'alairas.png'), 'x')
     writeFileSync(join(root, 'Emberek', 'Laszlo', 'identitas', 'Aláírás Laszlo.PNG'), 'x')
