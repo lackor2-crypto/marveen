@@ -12,7 +12,8 @@
  *      ilyen" vagy "nem latok oda" -- a tool SOSE ad vissza ures listat
  *      magyarazat nelkul.
  */
-import { appendItemContext, rewriteItemContext, isContextSection } from '../workbench-item-context.js'
+import { appendItemContext, rewriteItemContext, isContextSection, markPlainItem } from '../workbench-item-context.js'
+import { resolveLifePath } from '../life-explorer.js'
 import { closeSync, lstatSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs'
 import { getTool } from './tools.js'
 import { dirname, join, sep } from 'node:path'
@@ -666,6 +667,26 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     }
 
     case 'workItem.create': {
+      // #717 (Boss TG 3759): "make this existing file a work item" = a plain item on the file where it lies; nothing is generated.
+      const src = asString(input.source_path).trim().replace(/\\/g, '/').replace(/^\/+/, '')
+      if (src) {
+        const base = String(project.folder_path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+        const abs = base && src.startsWith(base + '/') ? resolveLifePath(src) : null
+        let isFile = false
+        try { isFile = !!abs && statSync(abs).isFile() } catch { /* not there */ }
+        if (!isFile) return { ok: false, code: 'bad_input', detail: 'source_path must be the Life-relative path of an existing file inside the project folder' }
+        const name = src.slice(src.lastIndexOf('/') + 1)
+        const made = createWorkItem({
+          project_id: project.id,
+          title: asString(input.title).trim() || name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || name,
+          type: input.type,
+          source_path: src,
+          created_by: 'workbench-agent',
+        })
+        if (!made.ok) return { ok: false, code: made.code, detail: `the work item was not created: ${made.code}` }
+        markPlainItem(made.item.id)
+        return { ok: true, data: { item: getWorkItem(made.item.id) ?? made.item, version: made.version } }
+      }
       const r = createWorkItem({
         project_id: project.id,
         title: input.title,

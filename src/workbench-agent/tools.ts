@@ -95,7 +95,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'workItem.create',
     description: 'Create a new work item in the project (a first version is created with it).',
-    input: 'title: the name of the work item; type: one of document, image, graphic, video, note, composite (pick composite when it will hold text AND images together). The type is only a label: parts can be added to any work item.',
+    input: 'title: the name of the work item; type: one of document, image, graphic, video, note, composite (pick composite when it will hold text AND images together). The type is only a label: parts can be added to any work item. source_path (optional): when the owner says "make this EXISTING file a work item", pass the file\'s Life-relative path here: the item points at the file where it lies and NOTHING is generated (no folder, no context file, no to-do file).',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   // #406, 11. pont: sablonok. Ugyanaz, mint a workItem.create, csak a reszek

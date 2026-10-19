@@ -44,6 +44,25 @@ function ensureTable(): void {
   getDb().exec('CREATE TABLE IF NOT EXISTS work_item_context (item_id TEXT PRIMARY KEY, rel TEXT NOT NULL, stem TEXT NOT NULL DEFAULT \'\')')
 }
 
+function ensurePlainTable(): void {
+  getDb().exec('CREATE TABLE IF NOT EXISTS work_item_plain (item_id TEXT PRIMARY KEY)')
+}
+
+/**
+ * #717 (Boss TG 3759): an item made from a file that already exists (right click, "Munkadarabba tétel") is a plain item:
+ * the file stays where it is and NOTHING is generated for it (no folder, no context file, no to-do file). Only an
+ * explicit action (the agent writing context, an annex upload) makes any of that, on demand.
+ */
+export function markPlainItem(itemId: string): void {
+  ensurePlainTable()
+  getDb().prepare('INSERT OR IGNORE INTO work_item_plain (item_id) VALUES (?)').run(itemId)
+}
+
+export function isPlainItem(itemId: string): boolean {
+  ensurePlainTable()
+  return !!getDb().prepare('SELECT 1 FROM work_item_plain WHERE item_id = ?').get(itemId)
+}
+
 /** "Kontextus - <name>.md": the name of the context file for an item title. */
 export function contextFileName(title: string): string {
   const prefix = ol(CONTEXT_PREFIX_HU, CONTEXT_PREFIX_EN)
@@ -295,6 +314,7 @@ export function healContextAsSource(item: WorkItemRow): WorkItemRow {
 export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { created: boolean; renamed: boolean; json: number } {
   ensureTable()
   if (isDebateReportTitle(item.title)) { removeReportScaffolding(item); return { created: false, renamed: false, json: 0 } }
+  if (isPlainItem(item.id)) return { created: false, renamed: false, json: 0 }
   item = healContextAsSource(item)
   const before = readRow(item.id)
   const oldStem = before?.stem || ''
