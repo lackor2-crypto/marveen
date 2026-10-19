@@ -13220,3 +13220,8 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 
 /* #603: the subtasks that live in another column, listed under the count on the parent card */
 .kanban-subtask-refs { margin-top: 6px; padding-top: 6px; }
+
+.stor-ov-tree, .stor-ov-tree ul { list-style: none; padding-left: 18px; margin: 2px 0; }
+.stor-ov-tog { background: none; border: 0; cursor: pointer; padding: 0 4px; font-size: 13px; color: inherit; }
+.stor-ov-off { opacity: .5; }
+.stor-ov-file { font-size: 13px; }

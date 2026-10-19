@@ -38387,7 +38387,7 @@ function _storageStateText(r) {
 }
 
 /** #714: per account, an Explorer-like tree of the folders marked for it (read-only; the marking is set in the Intezo). */
-function _storagesOvTree(entries, sizes) {
+function _storagesOvTree(entries, sizes, accKey) {
   var root = { kids: {}, entry: null }
   entries.forEach(function (e) {
     var node = root
@@ -38397,6 +38397,7 @@ function _storagesOvTree(entries, sizes) {
     })
     node.entry = e
   })
+  var byName = function (x, y) { return x.localeCompare(y, 'hu') }
   var line = function (name, e) {
     if (!e) return '<span>📁 ' + escapeHtml(name) + '</span>'
     var sz = sizes && sizes[e.path]
@@ -38405,15 +38406,62 @@ function _storagesOvTree(entries, sizes) {
     var ex = e.exclude && e.exclude.length ? ' <span class="subtitle">' + escapeHtml(t('storages.ov_excl', { list: e.exclude.join(', ') })) + '</span>' : ''
     return '<span><strong>📁 ' + escapeHtml(name) + '</strong></span>' + szTxt + ex
   }
-  var walk = function (node, name) {
-    var kids = Object.keys(node.kids).sort(function (x, y) { return x.localeCompare(y, 'hu') })
-    return '<li>' + line(name, node.entry) + (kids.length ? '<ul>' + kids.map(function (k) { return walk(node.kids[k], k) }).join('') + '</ul>' : '') + '</li>'
+  // A folder is clickable once it is inside a marked folder: its real content (what the upload covers) loads on open.
+  // `base` = the marked folder's path, `excl` = its leave-out list, so a left-out sub-folder / file type is shown greyed.
+  var isLeftOut = function (rel, name, base, excl) {
+    var inner = base && rel.indexOf(base + '/') === 0 ? rel.slice(base.length + 1) : rel
+    return (excl || []).some(function (x) {
+      var s = String(x || '').toLowerCase()
+      if (/^\*?\.[a-z0-9_-]+$/.test(s)) return name.toLowerCase().slice(-(s.replace('*', '').length)) === s.replace('*', '')
+      return s === inner.toLowerCase()
+    })
   }
-  var top = Object.keys(root.kids).sort(function (x, y) { return x.localeCompare(y, 'hu') })
+  var walk = function (node, name, path, covered, base, excl) {
+    var cov = covered || !!node.entry
+    if (node.entry) { base = node.entry.path; excl = node.entry.exclude || [] }
+    var ok = accKey + '|' + path
+    var open = cov && _storagesOvOpen[ok]
+    var tog = cov
+      ? '<button class="stor-ov-tog" data-stor-ov="toggle" data-key="' + escapeHtml(ok) + '" data-path="' + escapeHtml(path) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button> '
+      : ''
+    var kids = ''
+    if (open) {
+      var d = _storagesOvDirs[path]
+      var names = Object.keys(node.kids)
+      var files = []
+      var note = ''
+      if (!d || d.loading) note = '<li class="subtitle">' + escapeHtml(t('storages.ov_loading')) + '</li>'
+      else if (d.error) note = '<li class="subtitle">' + escapeHtml(t('storages.ov_failed', { error: d.error })) + '</li>'
+      else {
+        d.folders.forEach(function (f) { if (names.indexOf(f) < 0) names.push(f) })
+        files = d.files
+        if (!names.length && !files.length) note = '<li class="subtitle">' + escapeHtml(t('storages.ov_empty')) + '</li>'
+      }
+      names.sort(byName)
+      kids = '<ul>' + names.map(function (k) {
+        var rel = path ? path + '/' + k : k
+        if (isLeftOut(rel, k, base, excl)) return '<li class="stor-ov-off"><span>📁 ' + escapeHtml(k) + '</span> <span class="subtitle">' + escapeHtml(t('storages.ov_left_out')) + '</span></li>'
+        return walk(node.kids[k] || { kids: {}, entry: null }, k, rel, true, base, excl)
+      }).join('') + files.slice().sort(byName).map(function (f) {
+        var off = isLeftOut(path ? path + '/' + f : f, f, base, excl)
+        return '<li class="stor-ov-file' + (off ? ' stor-ov-off' : '') + '"><span>📄 ' + escapeHtml(f) + '</span>' + (off ? ' <span class="subtitle">' + escapeHtml(t('storages.ov_left_out')) + '</span>' : '') + '</li>'
+      }).join('') + note
+        + (d && d.truncated ? '<li class="subtitle">' + escapeHtml(t('storages.ov_list_truncated')) + '</li>' : '') + '</ul>'
+    } else if (Object.keys(node.kids).length) {
+      kids = '<ul>' + Object.keys(node.kids).sort(byName).map(function (k) {
+        return walk(node.kids[k], k, path ? path + '/' + k : k, cov, base, excl)
+      }).join('') + '</ul>'
+    }
+    return '<li>' + tog + line(name, node.entry) + kids + '</li>'
+  }
+  var top = Object.keys(root.kids).sort(byName)
   return '<ul class="stor-ov-tree">'
-    + (root.entry ? '<li>' + line(t('storages.ov_whole'), root.entry) + '</li>' : '')
-    + top.map(function (k) { return walk(root.kids[k], k) }).join('') + '</ul>'
+    + (root.entry ? walk({ kids: {}, entry: root.entry }, t('storages.ov_whole'), '', true, '', root.entry.exclude || []) : '')
+    + top.map(function (k) { return walk(root.kids[k], k, k, !!root.entry, root.entry ? '' : '', root.entry ? root.entry.exclude : []) }).join('') + '</ul>'
 }
+
+var _storagesOvOpen = {}
+var _storagesOvDirs = {}
 
 var _storagesOvSizes = {}
 
@@ -38444,7 +38492,7 @@ async function _storagesOverview() {
       + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><strong>' + escapeHtml(a.kind === 'mega' ? t('storages.ov_kind_mega') : t('storages.ov_kind_drive')) + ' · ' + escapeHtml(a.name) + '</strong>'
       + total
       + '<button class="btn-secondary btn-compact" data-stor-ov="measure" data-kind="' + escapeHtml(a.kind) + '" data-account="' + escapeHtml(a.account) + '">' + escapeHtml(t('storages.ov_measure')) + '</button></div>'
-      + _storagesOvTree(a.entries, sizes) + '</div>'
+      + _storagesOvTree(a.entries, sizes, key) + '</div>'
   }).join('')
 }
 
@@ -38454,6 +38502,25 @@ async function _storagesOvClick(ev) {
   ev.preventDefault()
   var act = btn.getAttribute('data-stor-ov')
   if (act === 'explorer') { switchPage('intezo'); return }
+  if (act === 'toggle') {
+    var tk = btn.getAttribute('data-key'), tp = btn.getAttribute('data-path') || ''
+    if (_storagesOvOpen[tk]) { delete _storagesOvOpen[tk]; await _storagesOverview(); return }
+    _storagesOvOpen[tk] = true
+    if (!_storagesOvDirs[tp] || _storagesOvDirs[tp].error) {
+      _storagesOvDirs[tp] = { loading: true }
+      await _storagesOverview()
+      try {
+        var l = await _depoGet('/api/life/list?content=0&path=' + encodeURIComponent(tp))
+        _storagesOvDirs[tp] = {
+          folders: (l.folders || []).map(function (f) { return f.name }),
+          files: (l.files || []).map(function (f) { return f.name }),
+          truncated: !!l.truncated,
+        }
+      } catch (e) { _storagesOvDirs[tp] = { error: e && e.message ? e.message : String(e) } }
+    }
+    await _storagesOverview()
+    return
+  }
   if (act === 'measure') {
     var kind = btn.getAttribute('data-kind'), account = btn.getAttribute('data-account')
     btn.disabled = true
