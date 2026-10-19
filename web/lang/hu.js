@@ -7967,6 +7967,7 @@ window._i18n.hu = {
   "workbench.docedit.t_justifyFull": "Sorkizárt",
   "workbench.docedit.t_foreColor": "Betűszín",
   "workbench.docedit.t_hiliteColor": "Kiemelő szín",
+  "workbench.docedit.sign_failed": "A aláírás képét nem sikerült beilleszteni. Próbáld újra.",
   "workbench.docedit.t_removeFormat": "Formázás törlése a kijelölésről",
   "workbench.pdfedit.open": "Ráírás a PDF-re",
   "workbench.pdfedit.open_hint": "Ráírás: szöveget írhatsz a lapra, kiemelhetsz és kitakarhatsz; a kinézet megmarad. Átalakítás: a PDF-ből szerkeszthető Word-dokumentum lesz, a szöveg szabadon átírható, de a kinézet elcsúszhat. Mindkettő új verzió, a mostani PDF megmarad.",

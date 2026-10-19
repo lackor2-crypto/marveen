@@ -7893,6 +7893,7 @@ window._i18n.en = {
   "workbench.docedit.t_justifyFull": "Justify",
   "workbench.docedit.t_foreColor": "Text color",
   "workbench.docedit.t_hiliteColor": "Highlight color",
+  "workbench.docedit.sign_failed": "Could not insert the signature picture. Try again.",
   "workbench.docedit.t_removeFormat": "Clear formatting of the selection",
   "workbench.pdfedit.open": "Mark up the PDF",
   "workbench.pdfedit.open_hint": "Mark up: write text on the page, highlight and black out; the layout is kept. Convert: the PDF becomes an editable Word document, the text can be freely rewritten but the layout may shift. Both create a new version, the current PDF is kept.",

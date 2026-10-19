@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { docEditExt, looksLikePdf, pdfHtmlToParagraphs, sanitizeDocHtml } from '../workbench-docedit.js'
 
@@ -38,5 +39,15 @@ describe('workbench docedit (#444)', () => {
     expect(looksLikePdf(Buffer.from('%PDF-1.4\n1 0 obj\n%%EOF\n'))).toBe(true)
     expect(looksLikePdf(Buffer.from('%PDF-1.4 truncated'))).toBe(false)
     expect(looksLikePdf(Buffer.from('<html>%%EOF</html>'))).toBe(false)
+  })
+
+  it('the docx editor ribbon carries the court-document formatting options (#718)', () => {
+    const js = readFileSync(new URL('../../web/workbench.js', import.meta.url), 'utf8')
+    const m = /var DOC_TOOLS = \[([\s\S]*?)\n  \]/.exec(js)
+    expect(m).not.toBeNull()
+    for (const tool of ['font', 'size', 'linesp', 'spaceafter', 'sign', 'block', 'foreColor', 'hiliteColor']) expect(m![1]).toContain("'" + tool + "'")
+    expect(js).toContain('function docSetSize')
+    expect(js).toContain('function docParaStyle')
+    expect(js).toContain('function docSignInsert')
   })
 })
