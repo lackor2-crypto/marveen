@@ -2259,6 +2259,18 @@ function failDetail(res: RouteContext['res'], status: number, code: string, lang
 
 /** Az atalakito (LibreOffice / Poppler) hibaja a dokumentum-szerkesztonel
  *  (#444): a kodot a MERES adja, a `detail` a valodi hibauzenet. */
+/** #719: the HTML of a Word / OpenDocument item (its source file), for the printable page; undefined for anything else. */
+async function officeExportHtml(itemId: string, version: unknown): Promise<string | undefined> {
+  try {
+    const p = buildPreview(itemId, version)
+    if (p.kind !== 'office' || !p.rel || !docEditExt(p.name || p.rel)) return undefined
+    const abs = resolveLifePath(p.rel)
+    if (!abs) return undefined
+    const r = await docToEditableHtml(abs)
+    return r.ok ? r.html : undefined
+  } catch { return undefined }
+}
+
 function docEditFail(res: RouteContext['res'], r: { code: string; detail: string | null }, lang: 'hu' | 'en'): true {
   const status = r.code === 'not_installed' || r.code === 'check_failed' ? 501 : r.code === 'timeout' ? 504 : 500
   return failDetail(res, status, 'docedit_' + r.code, lang, r.detail)
@@ -4846,6 +4858,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const download = url.searchParams.get('download') === '1'
     const page = buildExportPage(item, url.searchParams.get('version'), lang, {
       toolbar: !download, autoPrint: !download && url.searchParams.get('print') === '1',
+      docHtml: await officeExportHtml(item.id, url.searchParams.get('version')),
     })
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -4863,7 +4876,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const fmt = (url.searchParams.get('fmt') || '').toLowerCase()
     const spec = Object.prototype.hasOwnProperty.call(DOC_EXPORT_FORMATS, fmt) ? DOC_EXPORT_FORMATS[fmt] : null
     if (!spec) return fail(res, 400, 'docexport_bad_format', lang)
-    const page = buildExportPage(item, url.searchParams.get('version'), lang, { toolbar: false })
+    const page = buildExportPage(item, url.searchParams.get('version'), lang, { toolbar: false, docHtml: await officeExportHtml(item.id, url.searchParams.get('version')) })
     const r = await htmlToExportBytes(page.html, fmt)
     if (!r.ok) {
       const status = r.code === 'not_installed' || r.code === 'check_failed' ? 501 : r.code === 'timeout' ? 504 : 500

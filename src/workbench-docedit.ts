@@ -22,6 +22,7 @@
  * hibat a hivo EMBERI mondatra forditja; a kod (`not_installed` /
  * `check_failed`) a meres eredmenye, nem talalgatas.
  */
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { probeCommand, runVersion, type CommandProbe } from './capability-probe.js'
@@ -73,7 +74,50 @@ export function sanitizeDocHtml(html: string): string {
 export async function docToEditableHtml(abs: string): Promise<{ ok: true; html: string } | DocEditFail> {
   const r = await sofficeConvertFile(abs, HTML_EXPORT, { outExt: 'html' })
   if (!r.ok) return r
-  return { ok: true, html: sanitizeDocHtml(r.data.toString('utf-8')) }
+  return { ok: true, html: restoreFreePictures(sanitizeDocHtml(r.data.toString('utf-8')), abs) }
+}
+
+/**
+ * #719 (Boss TG 3834): LibreOffice's Word -> HTML export drops the place of a freely placed picture (a `wp:anchor` with
+ * `wrapNone`): it comes back as a plain left-aligned image at the top of its paragraph, so a signature the owner had placed
+ * jumped to the top-left corner after "Save as a new version" and a reopen. The place is still in the .docx (`posOffset`:
+ * left from the text column, top from the paragraph, in EMU); this puts it back on the images, in the same document order
+ * (the editor reads `position:absolute; left; top` in cm). When the counts of pictures differ, nothing is touched.
+ */
+export function freePictureOffsets(docXml: string): ({ left: number; top: number } | null)[] {
+  const out: ({ left: number; top: number } | null)[] = []
+  const re = /<w:drawing>([\s\S]*?)<\/w:drawing>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(docXml))) {
+    const d = m[1]
+    const h = /<wp:positionH relativeFrom="column">\s*<wp:posOffset>(-?\d+)<\/wp:posOffset>/.exec(d)
+    const v = /<wp:positionV relativeFrom="paragraph">\s*<wp:posOffset>(-?\d+)<\/wp:posOffset>/.exec(d)
+    out.push(/<wp:anchor\b/.test(d) && /<wp:wrapNone\b/.test(d) && h && v
+      ? { left: Math.round(Number(h[1]) / 3600) / 100, top: Math.round(Number(v[1]) / 3600) / 100 } : null)
+  }
+  return out
+}
+
+export function applyFreePictures(html: string, offsets: ({ left: number; top: number } | null)[]): string {
+  const imgs = html.match(/<img\b[^>]*>/gi) || []
+  if (!imgs.length || imgs.length !== offsets.length || !offsets.some(Boolean)) return html
+  let i = 0
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    const o = offsets[i++]
+    if (!o) return tag
+    const pos = `position:absolute; left:${o.left}cm; top:${o.top}cm; margin:0`
+    let t = tag.replace(/\salign\s*=\s*("[^"]*"|'[^']*'|[^\s>/]+)/i, '')
+    t = /\sstyle\s*=\s*"/i.test(t) ? t.replace(/\sstyle\s*=\s*"/i, ` style="${pos}; `) : t.replace(/<img\b/i, `<img style="${pos}"`)
+    return t
+  })
+}
+
+function restoreFreePictures(html: string, abs: string): string {
+  if (!/\.docx$/i.test(abs)) return html
+  try {
+    const xml = execFileSync('unzip', ['-p', abs, 'word/document.xml'], { maxBuffer: 64 * 1024 * 1024, timeout: 20_000 }).toString('utf-8')
+    return applyFreePictures(html, freePictureOffsets(xml))
+  } catch { return html }
 }
 
 /** Egy ideiglenes munkamappa a `store/` alatt (sosem a felhasznalo mappajaban). */
