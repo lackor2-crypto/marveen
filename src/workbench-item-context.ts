@@ -314,7 +314,9 @@ export function healContextAsSource(item: WorkItemRow): WorkItemRow {
 export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { created: boolean; renamed: boolean; json: number } {
   ensureTable()
   if (isDebateReportTitle(item.title)) { removeReportScaffolding(item); return { created: false, renamed: false, json: 0 } }
-  if (isPlainItem(item.id)) return { created: false, renamed: false, json: 0 }
+  // #717: a plain item generates nothing; a context / to-do file made for it before it was marked goes away while it is
+  // still exactly what the app generated (anything written into it keeps the file).
+  if (isPlainItem(item.id)) { removeReportScaffolding(item); return { created: false, renamed: false, json: 0 } }
   item = healContextAsSource(item)
   const before = readRow(item.id)
   const oldStem = before?.stem || ''
