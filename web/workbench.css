@@ -1883,6 +1883,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-fr-tile-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: transparent; }
 .wb-fr-tile-ext { position: absolute; bottom: 4px; left: 4px; padding: 0 5px; border-radius: 4px; background: rgba(0,0,0,.6); color: #fff; font-size: .68rem; font-weight: 700; letter-spacing: .03em; }
 .wb-fr-tile-name { font-size: .78rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-fr-tile-link { display: block; font-size: .7rem; line-height: 1.2; margin-top: 2px; word-break: break-word; }
 .wb-fr-tilewrap .wb-fr-thumb-more { top: 4px; right: 4px; }
 /* A picture block on a document's page (TG 2901). */
 .wb-dp-img { margin: 6px 0; text-align: center; }

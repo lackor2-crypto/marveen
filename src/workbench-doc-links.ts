@@ -30,6 +30,8 @@ import { resolveLifePath } from './life-explorer.js'
 import { documentById, ensureDocumentId, ensureLifeDocTables, hashDocument, relocateDocument } from './life-doc-ids.js'
 import { LINKED_PREFIX, linkAnnex, linkedAnnexRows, listAnnexes, rememberLinkedRel, type AnnexResult, type AnnexView, type FileResolver } from './workbench-docannex.js'
 import { ensureWorkbenchTables } from './workbench.js'
+import { projectRelative } from './workbench-assets.js'
+import type { ProjectRow } from './projects.js'
 
 const norm = (rel: string): string => String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
 
@@ -49,6 +51,36 @@ export async function linkLifeFileAsAnnex(
   // It reads the whole file from a possibly slow disk, so it does not hold the answer up.
   if (r.ok) void hashDocument(docId).catch((err) => logger.warn({ err: String(err?.message || err), docId }, '[doc-links] hashing a linked document failed'))
   return r
+}
+
+/**
+ * #716 (Boss TG 10015): a file that was an annex BY ITS PLACE IN THE PROJECT FOLDER (an upload) has just been moved
+ * into the Life tree. The annex must not point at the empty old place: it becomes a LINKED annex (the document's
+ * stable id), in the same position with the same number, title and text references. Returns how many annexes
+ * were re-pointed. Rows of other projects, and rows that already are linked, are never touched.
+ */
+export async function relinkMovedAnnexes(project: ProjectRow, moved: Array<{ oldRel: string; newRel: string }>): Promise<number> {
+  if (!moved.length) return 0
+  ensureWorkbenchTables()
+  const db = getDb()
+  let n = 0
+  for (const m of moved) {
+    const oldPath = norm(projectRelative(project, norm(m.oldRel)))
+    if (!oldPath) continue
+    const rows = db.prepare(`SELECT a.id AS id, a.work_item_id AS item FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id
+      WHERE w.project_id = ? AND a.path = ? AND a.path NOT LIKE 'doc:%'`).all(project.id, oldPath) as Array<{ id: string; item: string }>
+    if (!rows.length) continue
+    const docId = await ensureDocumentId(norm(m.newRel))
+    if (!docId) continue
+    for (const r of rows) {
+      const dup = db.prepare('SELECT 1 FROM wb_doc_annexes WHERE work_item_id = ? AND path = ?').get(r.item, LINKED_PREFIX + docId)
+      if (dup) continue
+      db.prepare('UPDATE wb_doc_annexes SET path = ?, life_rel = ? WHERE id = ?').run(LINKED_PREFIX + docId, norm(m.newRel), r.id)
+      n++
+    }
+    void hashDocument(docId).catch((err) => logger.warn({ err: String(err?.message || err), docId }, '[doc-links] hashing a re-linked document failed'))
+  }
+  return n
 }
 
 const looking = new Set<string>()

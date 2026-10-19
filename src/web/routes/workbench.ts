@@ -35,7 +35,7 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { kickItemContextSweep } from '../../workbench-item-context.js'
-import { lifeMoveCandidates, moveItemFilesToLife, suggestLifeTargets } from '../../workbench-life-move.js'
+import { lifeMoveCandidates, moveItemFilesToLife, movedPairs, suggestLifeTargets } from '../../workbench-life-move.js'
 import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
 import { createHash } from 'node:crypto'
@@ -86,7 +86,7 @@ import { projectPlacesView } from '../../project-places-auto.js'
 import { projectItemFiles } from '../../project-item-files.js'
 import { addRelatedProject, listRelatedProjects, projectCloseCheck, relatableProjects, removeRelatedProject } from '../../workbench-project-close.js'
 import { findLifeCopy } from '../../life-upload-dup.js'
-import { addProjectDoc, getProjectAiAccess, linkLifeFileAsAnnex, listProjectDocs, removeProjectDoc, setProjectAiAccess, tendLinkedAnnexes, updateProjectDoc, PROJECT_AI_ACCESS_MODES, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
+import { addProjectDoc, getProjectAiAccess, linkLifeFileAsAnnex, listProjectDocs, relinkMovedAnnexes, removeProjectDoc, setProjectAiAccess, tendLinkedAnnexes, updateProjectDoc, PROJECT_AI_ACCESS_MODES, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
@@ -4515,7 +4515,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const owner = getProject(item.project_id)
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (method === 'GET') {
-      const c = lifeMoveCandidates(owner, item)
+      // #716: the button lists everything including the uploads; `scope=uploads` is the list right after an upload.
+      const c = lifeMoveCandidates(owner, item, url.searchParams.get('scope') === 'uploads' ? 'only' : 'include')
       if (!c.ok) return fail(res, 404, 'life_move_no_folder', lang)
       const sug = await suggestLifeTargets(c.files, lang)
       json(res, { ok: true, files: c.files.map((f) => ({ ...f, ...(sug.get(f.rel) || {}) })), folder_rel: c.folder_rel })
@@ -4525,9 +4526,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
-    const r = moveItemFilesToLife(owner, item, body['moves'], lang)
+    const r = moveItemFilesToLife(owner, item, body['moves'], lang, 'include')
     if (!r.ok) return fail(res, r.code === 'no_folder' ? 404 : 400, r.code === 'no_folder' ? 'life_move_no_folder' : 'life_move_bad_input', lang)
-    json(res, { ok: true, results: r.results, assets: assetsOut(item.id) })
+    // #716: an annex that stood on the old place becomes a link to the document in the Life tree.
+    const relinked = await relinkMovedAnnexes(owner, movedPairs(r.results)).catch(() => 0)
+    json(res, { ok: true, results: r.results, relinked, assets: assetsOut(item.id) })
     return true
   }
   if (segs.length === 2 && segs[1] === 'tidy' && method === 'POST') {
