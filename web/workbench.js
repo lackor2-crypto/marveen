@@ -169,6 +169,8 @@
     shFinal: false,     // egyszeru nezet, dokumentum: a veglesites lepesei nyitva
     noteFinal: null,    // #667: a szoveges fajlu munkadarab (.md/.txt) veglesites-panelje nyitva: a munkadarab azonositoja
     noteFinalBusy: false,
+    docxMailFor: null,
+    docxMail: null,
     noteFinalLang: '',  // #671: '' = the file's own language, else the code of the language the PDF is translated into
     liveTimer: null,
     // --- projekt-idovonal (#406, 7. pont) ---
@@ -12477,6 +12479,7 @@
     var busy = WB.approvalBusy ? ' disabled' : ''
     if (it.status === 'done') {
       return '<span class="wb-fr-final-done" role="status" title="' + escA(t('workbench.finalize.done_tip')) + '">\u2713 ' + esc(t('workbench.finalize.done')) + '</span>'
+        + (isDocxDoneItem(it) ? '<button type="button" class="' + cls + '" data-wb-act="docx-mail-open"' + busy + ' aria-expanded="' + (WB.docxMailFor === it.id) + '">\u2709 ' + esc(t('workbench.docxfinal.mail_button')) + '</button>' : '')
         + '<button type="button" class="' + cls + '" data-wb-act="item-reopen"' + busy + ' title="' + escA(t('workbench.finalize.reopen_tip')) + '">' + esc(t('workbench.finalize.reopen')) + '</button>'
     }
     if (it.type === 'document' && !it.source_path) {
@@ -12488,7 +12491,7 @@
         + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>'
     }
     return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="item-finalize"' + busy
-      + (isTextFinalItem(it) || isTableFinalItem(it) ? ' aria-expanded="' + (WB.noteFinal === it.id) + '"' : '')
+      + (isTextFinalItem(it) || isTableFinalItem(it) || isDocxFinalItem(it) ? ' aria-expanded="' + (WB.noteFinal === it.id) + '"' : '')
       + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
   }
 
@@ -12497,6 +12500,15 @@
    *  A table has its own panel (#674); a presentation keeps the bare confirm. */
   function isTextFinalItem(it) {
     return !!(it && it.source_path && /\.(md|markdown|txt)$/i.test(it.source_path) && it.status !== 'done')
+  }
+
+  /** #719: an uploaded Word file: its Finalize opens a panel too (PDF next to the file, then an e-mail draft). */
+  function isDocxName(n) { return /\.docx$/i.test(n || '') }
+  function isDocxFinalItem(it) {
+    return !!(it && it.source_path && isDocxName(it.source_path) && it.status !== 'done')
+  }
+  function isDocxDoneItem(it) {
+    return !!(it && it.source_path && isDocxName(it.source_path) && it.status === 'done')
   }
 
   /** #674: a spreadsheet (xlsx / csv) item: its Finalize opens the panel too (the workbook goes to Finished materials). */
@@ -12553,9 +12565,23 @@
 
   function noteFinalPanelHtml() {
     var it = WB.detail && WB.detail.item
-    if (!it || WB.noteFinal !== it.id || !(isTextFinalItem(it) || isTableFinalItem(it)) || archived()) return ''
+    if (it && WB.docxMailFor === it.id && isDocxDoneItem(it) && !archived()) return docxMailPanelHtml(it)
+    if (!it || WB.noteFinal !== it.id || !(isTextFinalItem(it) || isTableFinalItem(it) || isDocxFinalItem(it)) || archived()) return ''
     var name = baseOf(it.source_path)
     var busy = WB.noteFinalBusy ? ' disabled' : ''
+    if (isDocxFinalItem(it)) {
+      return '<div class="wb-note-final wb-docx-final" role="region" aria-label="' + escA(t('workbench.docxfinal.title')) + '">'
+        + '<h4>' + esc(t('workbench.docxfinal.title')) + '</h4>'
+        + '<p class="wb-hint">' + esc(t('workbench.docxfinal.intro', { name: name })) + '</p>'
+        + '<ol class="wb-note-final-steps"><li>' + esc(t('workbench.docxfinal.step_pdf', { folder: docxFolderLabel(it) })) + '</li>'
+        + '<li>' + esc(t('workbench.docxfinal.step_status')) + '</li>'
+        + '<li>' + esc(t('workbench.docxfinal.step_mail')) + '</li></ol>'
+        + '<p class="wb-hint">' + esc(t('workbench.docxfinal.safe')) + '</p>'
+        + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="note-final-go"' + busy + '>'
+        + esc(t(WB.noteFinalBusy ? 'workbench.docxfinal.working' : 'workbench.docxfinal.go')) + '</button> '
+        + '<button type="button" class="btn-secondary" data-wb-act="note-final-close"' + busy + '>' + esc(t('workbench.notefinal.cancel')) + '</button></p>'
+        + '</div>'
+    }
     if (isTableFinalItem(it)) {
       return '<div class="wb-note-final wb-table-final" role="region" aria-label="' + escA(t('workbench.tablefinal.title')) + '">'
         + '<h4>' + esc(t('workbench.tablefinal.title')) + '</h4>'
@@ -12581,6 +12607,74 @@
       + esc(t(WB.noteFinalBusy ? 'workbench.notefinal.working' : 'workbench.notefinal.go')) + '</button> '
       + '<button type="button" class="btn-secondary" data-wb-act="note-final-close"' + busy + '>' + esc(t('workbench.notefinal.cancel')) + '</button></p>'
       + '</div>'
+  }
+
+  /** #719: the folder the Word file (and so its PDF and e-mail draft) is in, for the panel text. */
+  function docxFolderLabel(it) {
+    var p = String(it.source_path || '')
+    var i = p.lastIndexOf('/')
+    return i > 0 ? p.slice(0, i) : t('workbench.docxfinal.folder_root')
+  }
+
+  /** #719: finalize a Word item: the server makes the PDF next to the Word file. The e-mail draft panel opens after it. */
+  function docxFinalGo(it) {
+    if (WB.docEdit && WB.docEdit.itemId === it.id && WB.docEdit.dirty) { window.showToast(t('workbench.docxfinal.unsaved')); return }
+    var id = it.id
+    WB.noteFinalBusy = true
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', { action: 'finalize', pdf: true }).then(function (r) {
+      WB.noteFinalBusy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      WB.noteFinal = null
+      if (WB.detail && WB.detail.item.id === id) {
+        if (r.data && r.data.item) WB.detail.item = r.data.item
+        WB.detail.approval = (r.data && r.data.approval) || null
+      }
+      var f = (r.data && r.data.final) || {}
+      window.showToast(t('workbench.docxfinal.done', { pdf: f.pdf_name || '', folder: docxFolderLabel(WB.detail ? WB.detail.item : it) }))
+      WB.docxMailFor = id; WB.docxMail = { busy: false, done: null }
+      render()
+      load(WB.projectId)
+    })
+  }
+
+  /** #719: the e-mail draft panel of a finalized Word item (an .eml next to the Word file, the final PDF attached). */
+  function docxMailPanelHtml(it) {
+    var m = WB.docxMail || {}
+    var busy = m.busy ? ' disabled' : ''
+    var v = m.form || {}
+    var out = '<div class="wb-note-final wb-docx-mail" role="region" aria-label="' + escA(t('workbench.docxfinal.mail_title')) + '">'
+      + '<h4>\u2709 ' + esc(t('workbench.docxfinal.mail_title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) })) + '</p>'
+    if (m.done) {
+      out += '<p class="wb-ok" role="status">\u2713 ' + esc(t('workbench.docxfinal.mail_done', { eml: m.done.eml_name, pdf: m.done.pdf_name, folder: docxFolderLabel(it) })) + '</p>'
+        + '<p class="wb-hint">' + esc(t('workbench.docxfinal.mail_open_hint')) + '</p>'
+    }
+    out += '<div class="wb-form-grid">'
+      + '<label>' + esc(t('workbench.docxfinal.mail_to')) + '<input type="text" id="wbDocxMailTo" class="wb-input" autocomplete="off" value="' + escA(v.to || '') + '" placeholder="' + escA(t('workbench.docxfinal.mail_to_ph')) + '"></label>'
+      + '<label>' + esc(t('workbench.docxfinal.mail_cc')) + '<input type="text" id="wbDocxMailCc" class="wb-input" autocomplete="off" value="' + escA(v.cc || '') + '"></label>'
+      + '<label>' + esc(t('workbench.docxfinal.mail_subject')) + '<input type="text" id="wbDocxMailSubject" class="wb-input" autocomplete="off" value="' + escA(v.subject != null ? v.subject : it.title) + '"></label>'
+      + '<label>' + esc(t('workbench.docxfinal.mail_body')) + '<textarea id="wbDocxMailBody" class="wb-input" rows="6">' + esc(v.body || '') + '</textarea></label>'
+      + '</div>'
+      + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="docx-mail-save"' + busy + '>' + esc(t(m.busy ? 'workbench.docxfinal.mail_working' : 'workbench.docxfinal.mail_save')) + '</button> '
+      + '<button type="button" class="btn-secondary" data-wb-act="docx-mail-close"' + busy + '>' + esc(t('workbench.docxfinal.mail_close')) + '</button></p>'
+      + '</div>'
+    return out
+  }
+  function docxMailSave() {
+    if (!WB.detail || !WB.docxMail || WB.docxMail.busy) return
+    var it = WB.detail.item
+    function val(id) { var e = document.getElementById(id); return e ? e.value : '' }
+    var form = { to: val('wbDocxMailTo'), cc: val('wbDocxMailCc'), subject: val('wbDocxMailSubject'), body: val('wbDocxMailBody') }
+    WB.docxMail.busy = true; WB.docxMail.form = form
+    render()
+    api('POST', '/api/workbench/items/' + encodeURIComponent(it.id) + '/docx-mail', form).then(function (r) {
+      WB.docxMail.busy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      WB.docxMail.done = r.data
+      render()
+      load(WB.projectId)
+    })
   }
 
   /** #674: finalize a spreadsheet item: the server puts the workbook (and a PDF, when LibreOffice is there) into Finished materials. */
@@ -12610,6 +12704,7 @@
     if (!WB.detail || WB.noteFinalBusy) return
     var it = WB.detail.item
     if (isTableFinalItem(it)) { tableFinalGo(it); return }
+    if (isDocxFinalItem(it)) { docxFinalGo(it); return }
     if (!isTextFinalItem(it)) return
     var id = it.id
     WB.noteFinalBusy = true
@@ -20159,10 +20254,13 @@
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
     // #667: a text-file item opens its finalize panel (what happens, then one clear button) instead of the browser confirm.
-    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item))) { WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() && noteVariantFor(WB.tr.dst) ? WB.tr.dst : ''; render(); if (WB.noteFinal) { noteFinalScrollIn(); noteLangsRefresh() } } else approvalAction('finalize') }
+    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item) || isDocxFinalItem(WB.detail.item))) { WB.docxMailFor = null; WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() && noteVariantFor(WB.tr.dst) ? WB.tr.dst : ''; render(); if (WB.noteFinal) { noteFinalScrollIn(); noteLangsRefresh() } } else approvalAction('finalize') }
     else if (a === 'note-final-go') noteFinalGo()
     else if (a === 'tr-save-version') trSaveVersion()
     else if (a === 'note-final-close') { WB.noteFinal = null; render() }
+    else if (a === 'docx-mail-open') { WB.docxMailFor = WB.docxMailFor === (WB.detail && WB.detail.item.id) ? null : (WB.detail && WB.detail.item.id); WB.docxMail = { busy: false, done: null }; render() }
+    else if (a === 'docx-mail-save') docxMailSave()
+    else if (a === 'docx-mail-close') { WB.docxMailFor = null; render() }
     else if (a === 'item-reopen') approvalAction('reopen')
     else if (a === 'approval-submit') approvalAction('submit')
     else if (a === 'approval-withdraw') approvalAction('withdraw')

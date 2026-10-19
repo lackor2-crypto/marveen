@@ -150,3 +150,13 @@ describe('#719 the Word editor moves a picture with its own mouse drag', () => {
     expect(js).toContain("ArrowLeft: [-step, 0]")
   })
 })
+
+describe('#719 Word item finalize panel', () => {
+  it('only a .docx item gets the panel; the PDF goes to Finished materials, not next to the file', () => {
+    const src = readFileSync(join(__dirname, '..', 'workbench-docxfinal.ts'), 'utf8')
+    expect(src).toContain("into: 'finished'")
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain('function isDocxFinalItem(it)')
+    expect(js).toContain("'/docx-mail'")
+  })
+})
