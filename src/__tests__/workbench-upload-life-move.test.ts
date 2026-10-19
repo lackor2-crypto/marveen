@@ -126,3 +126,76 @@ describe('#716: feltoltes -> Eletfa', () => {
     expect(annexRows(w2.item.id)[0].path).toBe(projRel)
   })
 })
+
+// #716: "Mellékletet CSAK az Életfából csatolunk." A file inside a work item's own folder is not an annex candidate.
+import { annexNeedsLifeMove } from '../workbench-annex-guard.js'
+import { callWorkbench } from './helpers/workbench-route-call.js'
+import { executeTool } from '../workbench-agent/execute.js'
+
+describe('#716: a melleklet csak az Eletfabol', () => {
+  let depot = ''
+  let pid = ''
+  let project: ProjectRow
+  let itemId = ''
+  let folder = ''
+  const projDir = () => join(depot, 'Projektek', 'Iroda')
+
+  beforeEach(() => {
+    initDatabase(':memory:')
+    depot = mkdtempSync(join(tmpdir(), 'marveen-annex-life-'))
+    mkdirSync(join(projDir(), 'Iratok'), { recursive: true })
+    process.env['MARVEEN_DEPOT'] = depot
+    const p = createProject({ name: 'Iroda' })
+    if (!p.ok) throw new Error('projekt')
+    pid = p.project.id
+    updateProject(pid, { folder_path: 'Projektek/Iroda' })
+    project = getProject(pid) as ProjectRow
+    const w = createWorkItem({ project_id: pid, title: 'Valaszbeadvany', type: 'document' })
+    if (!w.ok) throw new Error('munkadarab')
+    itemId = w.item.id
+    const f = ensureWorkItemFolder(w.item)
+    if (!f.ok) throw new Error('mappa')
+    folder = f.folder
+    mkdirSync(join(projDir(), folder, 'Feltöltések'), { recursive: true })
+    writeFileSync(join(projDir(), folder, 'Feltöltések', 'aok.jpg'), 'jpg')
+    writeFileSync(join(projDir(), 'Iratok', 'szerzodes.pdf'), 'pdf')
+  })
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  it('a munkadarab mappajan belul allo fajl nem mellekletjelolt, a projekt mas helyen allo igen', () => {
+    expect(annexNeedsLifeMove(project, `${folder}/Feltöltések/aok.jpg`)).toBe(true)
+    expect(annexNeedsLifeMove(project, `${folder}/kesz.pdf`)).toBe(true)
+    expect(annexNeedsLifeMove(project, 'Iratok/szerzodes.pdf')).toBe(false)
+    expect(annexNeedsLifeMove(project, '')).toBe(false)
+  })
+
+  it('az utvonal a feltoltesbeli fajlt 409-cel elutasitja, a projekt masik fajljat felveszi', async () => {
+    const base = `/api/workbench/items/${itemId}/outline`
+    const bad = await callWorkbench(`${base}/annexes`, 'POST', { path: `${folder}/Feltöltések/aok.jpg`, title: 'AOK' })
+    expect(bad.status).toBe(409)
+    expect(bad.body.error).toBe('outline_annex_not_in_life')
+    expect(bad.body.message).toContain('Életfába')
+    const ok = await callWorkbench(`${base}/annexes`, 'POST', { path: 'Iratok/szerzodes.pdf', title: 'Szerződés' })
+    expect(ok.status).toBe(201)
+  })
+
+  it('az agent doc.addAnnex a feltoltesbeli fajlt not_in_life koddal utasitja el', () => {
+    const ctx = { projectId: pid, workItemId: itemId, lang: 'hu' as const }
+    const bad: any = executeTool('doc.addAnnex', { path: `${folder}/Feltöltések/aok.jpg`, title: 'AOK' }, ctx)
+    expect(bad.ok).toBe(false)
+    expect(bad.code).toBe('not_in_life')
+    expect(executeTool('doc.addAnnex', { path: 'Iratok/szerzodes.pdf', title: 'Szerződés' }, ctx).ok).toBe(true)
+  })
+
+  it('a gepről csatolt melleklet a Feltoltesekbe kerul es MEG NEM melleklet: a felulet az Eletfaba koltoztetes utan koti be', async () => {
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/outline/annexes/upload?name=${encodeURIComponent('levél.pdf')}`, 'POST', Buffer.from('%PDF-1'), { 'content-type': 'application/octet-stream' })
+    expect(r.status).toBe(201)
+    expect(r.body.needs_move).toBe(true)
+    expect(r.body.rel).toContain('Feltöltések')
+    expect((getDb().prepare('SELECT COUNT(*) AS n FROM wb_doc_annexes WHERE work_item_id = ?').get(itemId) as { n: number }).n).toBe(0)
+    expect(existsSync(join(depot, r.body.rel))).toBe(true)
+  })
+})

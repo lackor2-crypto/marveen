@@ -160,8 +160,9 @@ import {
   workFolderTarget, adviseUploadPlaces, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder, findWorkItemsBox,
   renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
-  folderNameFromTitle,
+  folderNameFromTitle, projectRelative,
 } from '../../workbench-assets.js'
+import { annexNeedsLifeMove } from '../../workbench-annex-guard.js'
 import type { RouteContext } from './types.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
@@ -1666,6 +1667,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   outline_duplicate: {
     hu: 'Ez a fájl már szerepel a mellékletek között.',
     en: 'This file is already one of the annexes.',
+  },
+  outline_annex_not_in_life: {
+    hu: 'Ez a fájl még a munkadarab saját mappájában van, nincs az Életfában. Előbb költöztesd át (Költöztetés az Életfába), utána csatolható mellékletként.',
+    en: 'This file is still inside the work item\'s own folder, not in the Life tree. Move it first (Move to the Life tree), then it can be attached as an annex.',
   },
   outline_file_missing: {
     hu: 'Ez a fájl nincs meg a projekt mappájában. Előbb töltsd fel az anyagok közé.',
@@ -3986,25 +3991,31 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       res.on('close', () => data.discard())
       if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
-      const up = attachAsset(item, url.searchParams.get('name') || '', data, { createdBy: actor(ctx), into: 'attachments', remake: true })
-      let path = ''
-      if (up.ok) path = up.asset.project_path
+      // #716: the file goes to the Uploads folder like every upload; it becomes an annex only once it is in the Life tree
+      // (the page opens the "move to the Life tree" list, then links it). A copy already in the Life tree is linked at once.
+      const up = attachAsset(item, url.searchParams.get('name') || '', data, { createdBy: actor(ctx), into: 'uploads', remake: true })
+      let lifeRel = ''
+      if (up.ok) lifeRel = up.asset.path
       else if (up.code === 'asset_duplicate') {
-        // The very same content is already a material of this item: that file becomes the annex, no second copy.
-        path = listWorkItemAssetsSynced(item.id).find((a) => a.id === up.existing.id)?.project_path || ''
+        // The very same content is already a material of this item: no second copy.
+        lifeRel = listWorkItemAssetsSynced(item.id).find((a) => a.id === up.existing.id)?.path || ''
       } else {
         const code = MESSAGES['upload_' + up.code] ? 'upload_' + up.code : up.code
         return failDetail(res, up.code === 'write_failed' ? 500 : up.code === 'not_found' ? 404 : 400, code, lang, 'message' in up ? (up.message || null) : null)
       }
       const resolve = resolverFor(item)
       if (!resolve) return fail(res, 404, 'project_not_found', lang)
-      const a = addAnnex(item.id, { path, title: url.searchParams.get('title') || '' }, resolve, actor(ctx))
-      if (!a.ok) {
-        json(res, { error: 'outline_' + a.code, message: msg('outline_' + a.code, lang), detail: a.detail, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, a.code === 'file_missing' ? 404 : 400)
+      if (annexNeedsLifeMove(owner, projectRelative(owner, lifeRel))) {
+        json(res, { ok: true, needs_move: true, rel: lifeRel, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, 201)
+        return true
+      }
+      const linked = await linkLifeFileAsAnnex(item.id, lifeRel, { title: url.searchParams.get('title') || '' }, resolve, actor(ctx))
+      if (!linked.ok) {
+        json(res, { error: 'outline_' + linked.code, message: msg('outline_' + linked.code, lang), detail: linked.detail, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, linked.code === 'file_missing' ? 404 : 400)
         return true
       }
       scheduleOutlineMirror(item.id)
-      json(res, { ok: true, annex: a.annex, path, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, 201)
+      json(res, { ok: true, annex: linked.annex, rel: lifeRel, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, 201)
       return true
     }
     // VEGLEGESITES (K-1.22, K-1.23): csak a tulajdonos sajat kattintasa, ellenorzes +
@@ -4116,6 +4127,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         if (!resolve) return fail(res, 404, 'project_not_found', lang)
         // #530: a file that lives elsewhere in the Life tree is LINKED, not refused and not copied.
         if (!base || !rel.startsWith(base + '/')) return done(await linkLifeFileAsAnnex(item.id, rel, { title: body['title'] }, resolve, actor(ctx)), true)
+        if (annexNeedsLifeMove(owner, rel.slice(base.length + 1))) return fail(res, 409, 'outline_annex_not_in_life', lang)
         return done(addAnnex(item.id, { path: rel.slice(base.length + 1), title: body['title'] }, resolve, actor(ctx)), true)
       }
       const kind = embedKind(rel)
@@ -4210,6 +4222,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'annexes' && segs.length === 3 && method === 'POST') {
       const resolve = resolverFor(item)
       if (!resolve) return fail(res, 404, 'project_not_found', lang)
+      if (annexNeedsLifeMove(owner, String(body['path'] ?? ''))) return fail(res, 409, 'outline_annex_not_in_life', lang)
       return done(addAnnex(item.id, { path: body['path'], title: body['title'], position: body['position'] }, resolve, actor(ctx)), true)
     }
     if (sub === 'annexes' && segs.length === 4 && method === 'PATCH') return done(updateAnnex(item.id, id, { title: body['title'], position: body['position'] }))

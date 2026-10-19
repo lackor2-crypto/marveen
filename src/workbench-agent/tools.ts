@@ -258,7 +258,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'doc.addAnnex',
-    description: 'Add a file of the project folder (usually one of the materials) to the annex list. It gets the next number; with position it is inserted and the references in the text are renumbered.',
+    description: 'Add a file of the project folder to the annex list (NOT a file inside a work item folder such as Uploads: that must be moved into the Life tree by the owner first). It gets the next number; with position it is inserted and the references in the text are renumbered.',
     input: 'id (optional); path: the file inside the project folder; title: the annex name ("Bérleti szerződés, 2024. május 2."; the file on disk keeps its name); position (optional, 0 = first)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },

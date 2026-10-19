@@ -8781,6 +8781,8 @@ window._i18n.hu = {
   "workbench.lifemove.up_title": "Az új feltöltés helye az Életfában",
   "workbench.lifemove.up_help": "A feltöltött fájl nem maradhat a Feltöltések mappában: itt az Életfa megfelelő helyére költöztetjük. Soronként megmutatom, hová javaslom (ahol biztos vagyok benne, előre kitöltöm), te jóváhagyod vagy átállítod. A Feltöltések alatt a fájl linkként megmarad. Mellékletnek csak az Életfában lévő fájl csatolható.",
   "workbench.lifemove.later": "Később",
+  "workbench.lifemove.annex_help": "A gépről választott fájl először az Életfa megfelelő helyére költözik, és csak utána lesz belőle melléklet (linkként, így a hely későbbi átrendezése sem töri el). Soronként megmutatom, hová javaslom, te jóváhagyod vagy átállítod. A „Később” gombbal a fájl a Feltöltésekben marad, mellékletként nem csatolható, amíg át nem költözteted.",
+  "workbench.annex.unplaced": "még nincs az Életfában",
   "workbench.lifemove.relinked": "{n} melléklet az Életfa új helyére mutat.",
   "workbench.lifemove.linked_at": "🔗 az Életfában: {path}",
   "workbench.lifemove.no_target": "nincs célmappa, marad",

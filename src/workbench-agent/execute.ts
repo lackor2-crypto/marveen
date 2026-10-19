@@ -17,6 +17,7 @@ import { closeSync, lstatSync, openSync, readFileSync, readSync, realpathSync, s
 import { getTool } from './tools.js'
 import { dirname, join, sep } from 'node:path'
 import { getProject, type ProjectRow } from '../projects.js'
+import { annexNeedsLifeMove } from '../workbench-annex-guard.js'
 import { projectContext } from '../project-context.js'
 import { projectFileTarget, writeProjectFile, safeFileName, freeFileName } from '../project-files.js'
 import { recentFiles, buildProjectOverview } from '../project-overview.js'
@@ -545,7 +546,12 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
             }
           }
           case 'doc.annexes': return { ok: true, data: { annexes: listAnnexes(item.id, world.resolveFile), settings: docSettings(item.id), check: annexCheck(item.id, world.resolveFile) } }
-          case 'doc.addAnnex': { const r = addAnnex(item.id, { path: input.path, title: input.title, position: input.position }, world.resolveFile, 'workbench-agent'); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
+          case 'doc.addAnnex': {
+            // #716 (Boss TG 10015): only a file of the Life tree can be an annex; a file still inside the work item's own folder (Uploads, ...) is moved first by the owner ("Move to the Life tree").
+            const annexProject = getProject(item.project_id)
+            if (annexProject && annexNeedsLifeMove(annexProject, asString(input.path))) return { ok: false, code: 'not_in_life', detail: 'this file is still inside the work item folder, not in the Life tree: ask the owner to move it (Move to the Life tree); it can be attached as a linked annex only after that' }
+            const r = addAnnex(item.id, { path: input.path, title: input.title, position: input.position }, world.resolveFile, 'workbench-agent'); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r
+          }
           case 'doc.updateAnnex': { const r = updateAnnex(item.id, asString(input.annex), { title: input.title, position: input.position }); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
           case 'doc.removeAnnex': { const r = removeAnnex(item.id, asString(input.annex)); if (r.ok) scheduleOutlineMirror(item.id); return r.ok ? { ok: true, data: r } : r }
           case 'doc.court': {
