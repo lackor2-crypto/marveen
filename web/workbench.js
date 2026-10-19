@@ -9289,6 +9289,7 @@
    *  a szerver igazitja a listahoz, a felulet csak mutat es kuld. */
   function annexHtml(o, ro) {
     var list = o.annexes || []
+    var itemFolderRel = String((WB.detail && WB.detail.item && WB.detail.item.folder) || '').replace(/^\/+|\/+$/g, '')
     var st = o.settings || {}
     var rows = list.map(function (a, i) {
       var warn = (a.exists === false ? ' <span class="wb-doc-low">⚠ ' + esc(t(a.linked ? (o.linked_searching ? 'workbench.annex.linked_searching' : 'workbench.annex.linked_missing') : 'workbench.annex.missing_file')) + '</span>' : '')
@@ -9304,6 +9305,8 @@
         ? ' <span class="wb-muted wb-annex-linked" title="' + escA(t('workbench.annex.linked_hint')) + '">(🔗 ' + esc(t('workbench.annex.linked_at', { path: String(a.life_rel || a.name || '').split('/').join(' › ') })) + ')</span>'
           + (a.life_rel ? ' <button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(a.life_rel) + '">' + esc(t('workbench.annex.origin')) + '</button>' : '')
         : ' <span class="wb-muted">(' + esc(a.path) + ')</span>'
+          + (!ro && itemFolderRel && (a.path === itemFolderRel || a.path.indexOf(itemFolderRel + '/') === 0)
+            ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.annex.unplaced')) + '</span> <button type="button" class="wb-linklike" data-wb-act="life-move">' + esc(t('workbench.lifemove.btn')) + '</button>' : '')
       return '<li class="wb-annex"><strong>' + esc(a.label) + '</strong> – ' + esc(a.title)
         + where + warn + tools + '</li>'
     }).join('')
@@ -9346,6 +9349,7 @@
     WB.annexUploading = true
     render()
     var added = 0
+    var pending = []
     var chain = Promise.resolve()
     files.forEach(function (f) {
       chain = chain.then(function () {
@@ -9358,7 +9362,8 @@
             if (d.assets) WB.detail.assets = d.assets
           }
           if (!r.ok) { window.showToast(t('workbench.annex.browse_failed', { name: f.name || '', message: r.message || '' })); return }
-          added++
+          // #716: a file from the computer goes to the Uploads folder first; it becomes an annex once it is in the Life tree.
+          if (d.needs_move && d.rel) pending.push(d.rel); else added++
         })
       })
     })
@@ -9366,6 +9371,7 @@
       WB.annexUploading = false
       if (added) window.showToast(t('workbench.annex.browse_done', { n: added }))
       render()
+      if (pending.length && WB.selectedId === id) lifeMoveOffer(id, { annexRels: pending })
     })
   }
 
@@ -14631,11 +14637,28 @@
     return '<button type="button" class="btn-secondary btn-compact" data-wb-act="life-move"' + (archived() ? ' disabled' : '') + ' title="' + escA(t('workbench.lifemove.hint')) + '">' + esc(t('workbench.lifemove.btn')) + '</button>'
   }
   /** #716: after an upload into the Uploads folder: ask what is still there, and only when something is, open the list. */
-  function lifeMoveOffer(id) {
+  function lifeMoveOffer(id, extra) {
     api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move?scope=uploads').then(function (r) {
       var files = r && r.ok && r.data && r.data.files
       if (!files || !files.length || WB.selectedId !== id) return
-      lifeMoveOpen({ scope: 'uploads', preload: r })
+      var o = { scope: 'uploads', preload: r }
+      // Files picked as ANNEXES: once they are in the Life tree they are linked as annexes (the owner approved the place).
+      var rels = extra && extra.annexRels
+      if (rels && rels.length) {
+        o.annex = true
+        o.onMoved = function (res) {
+          var chain = Promise.resolve()
+          var linked = 0
+          res.forEach(function (x) {
+            if (!x.ok || rels.indexOf(x.rel) < 0) return
+            chain = chain.then(function () {
+              return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/annexes/link', { rel: x.new_rel }).then(function (lr) { if (lr && lr.ok) linked++ })
+            })
+          })
+          return chain.then(function () { if (linked) window.showToast(t('workbench.annex.browse_done', { n: linked })) })
+        }
+      }
+      lifeMoveOpen(o)
     })
   }
   // opts.scope === 'uploads': the list right after an upload -- only the files of the Uploads folder, and "Later" instead
@@ -14649,7 +14672,7 @@
     overlay.id = 'wbLifeMove'
     overlay.innerHTML = '<div class="modal-content" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column;padding:18px">'
       + '<h3 style="margin:0 0 4px;flex:none">' + esc(t(upOnly ? 'workbench.lifemove.up_title' : 'workbench.lifemove.title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px;flex:none">' + esc(t(upOnly ? 'workbench.lifemove.up_help' : 'workbench.lifemove.help')) + '</p>'
+      + '<p class="subtitle" style="margin:0 0 8px;flex:none">' + esc(t(opts && opts.annex ? 'workbench.lifemove.annex_help' : upOnly ? 'workbench.lifemove.up_help' : 'workbench.lifemove.help')) + '</p>'
       + '<div id="wbLifeMoveList" class="wb-lifemove-list" style="flex:1 1 auto;min-height:0;overflow-y:auto"><p class="wb-muted">' + esc(t('workbench.lifemove.loading')) + '</p></div>'
       + '<div style="text-align:right;margin-top:10px;flex:none"><button type="button" class="btn-secondary" id="wbLifeMoveClose">' + esc(t(upOnly ? 'workbench.lifemove.later' : 'workbench.lifemove.cancel')) + '</button> '
       + '<button type="button" class="btn-primary" id="wbLifeMoveGo" disabled>' + esc(t('workbench.lifemove.go')) + '</button></div>'
@@ -14724,6 +14747,8 @@
         var okN = res.filter(function (x) { return x.ok }).length
         var bad = res.filter(function (x) { return !x.ok })
         close()
+        var afterMove = opts && opts.onMoved ? Promise.resolve(opts.onMoved(res)).catch(function () {}) : Promise.resolve()
+        afterMove.then(function () { if (WB.selectedId === id) loadDetail(id) })
         window.showToast(t('workbench.lifemove.done', { n: okN }) + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : '')
           + (r.data && r.data.relinked ? ' ' + t('workbench.lifemove.relinked', { n: r.data.relinked }) : ''))
         if (WB.selectedId === id) loadDetail(id); else render()

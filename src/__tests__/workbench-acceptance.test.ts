@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Readable } from 'node:stream'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -458,6 +458,14 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
   })
   afterEach(() => env.teardown())
 
+  /** #716: an annex is a file of the Life tree, not of the work item's own folder: the annex copies stand in the project's "Iratok" folder. */
+  const annexFile = (e: DocEnv, from: string, name: string): string => {
+    const dir = join(e.depot, 'Projektek', 'Iroda', 'Iratok')
+    mkdirSync(dir, { recursive: true })
+    copyFileSync(join(e.depot, 'Projektek', 'Iroda', ...from.split('/')), join(dir, name))
+    return `Iratok/${name}`
+  }
+
   /** A Marvin munkaja a sajat eszkozeivel: vazlat, forrasolt allitasok, mellekletek. */
   function writeBrief(e: DocEnv): Brief {
     const t = (name: string, input: Record<string, unknown>) => {
@@ -482,8 +490,8 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
       rent: claim(rent, 'a havi bérleti díj 900 euró', lease, 1, 'Die monatliche Miete beträgt 900 Euro.'),
       paid: claim(paid, 'Az alperes 2026. január 3-án 900 eurót utalt át', payment, 1, 'Überweisung vom 3. Januar 2026 über 900 Euro'),
     }
-    t('doc.addAnnex', { path: lease, title: 'Bérleti szerződés' })
-    t('doc.addAnnex', { path: payment, title: 'Átutalási igazolás' })
+    t('doc.addAnnex', { path: annexFile(e, lease, 'Mietvertrag.pdf'), title: 'Bérleti szerződés' })
+    t('doc.addAnnex', { path: annexFile(e, payment, 'Kontoauszug.pdf'), title: 'Átutalási igazolás' })
     for (const s of [s1, s2]) t('doc.updateSection', { section: s, status: 'done' })
     return { sections: [s1, s2], blocks: { intro, rent, paid, request, sign }, claims }
   }
@@ -665,8 +673,8 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
       return r.data as Record<string, any>
     }
     tde('doc.annexSettings', { scheme: 'anlage' })
-    tde('doc.addAnnex', { path: lease, title: 'Mietvertrag' })
-    tde('doc.addAnnex', { path: payment, title: 'Kontoauszug' })
+    tde('doc.addAnnex', { path: annexFile(e, lease, 'Mietvertrag.pdf'), title: 'Mietvertrag' })
+    tde('doc.addAnnex', { path: annexFile(e, payment, 'Kontoauszug.pdf'), title: 'Kontoauszug' })
     tde('doc.setCourt', { profile: 'de-ervv' })
     const deCheck = documentCheck(de)
     expect(deCheck.items.filter((i) => !i.ok), JSON.stringify(deCheck.items)).toEqual([])

@@ -205,7 +205,7 @@ export function docSettings(itemId: string): DocSettings {
   }
 }
 
-export type AnnexError = 'not_found' | 'bad_input' | 'too_many' | 'duplicate' | 'file_missing'
+export type AnnexError = 'not_found' | 'bad_input' | 'too_many' | 'duplicate' | 'file_missing' | 'not_in_life'
 export type AnnexResult<T> = ({ ok: true } & T) | { ok: false; code: AnnexError; detail: string }
 
 /** Sema, betujel vagy modvaltas. Ha a cimke alakja valtozik, a szovegbeli hivatkozasok is atiroddnak. */

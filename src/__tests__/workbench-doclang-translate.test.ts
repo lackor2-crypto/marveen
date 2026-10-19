@@ -310,28 +310,22 @@ describe('whole-document translation and annex upload', () => {
     } finally { restoreProviders() }
   })
 
-  it('annex upload: the file lands in the item folder\'s "Mellékletek" folder, becomes a material AND the next annex', async () => {
+  it('annex upload (#716): the file lands in the item folder\'s Uploads folder, becomes a material and is NOT an annex yet (it must be moved into the Life tree first)', async () => {
     const base = `/api/workbench/items/${src.id}/outline/annexes/upload`
     const pdf = Buffer.from('%PDF-1.4 bérleti szerződés')
     const r = await callWorkbench(`${base}?name=${encodeURIComponent('Bérleti szerződés.pdf')}&title=${encodeURIComponent('Bérleti szerződés, 2024. május 2.')}`, 'POST', pdf, { 'content-type': 'application/pdf' })
     expect(r.status).toBe(201)
-    const dir = ol('Mellékletek', 'Attachments')
-    expect(r.body.path).toMatch(new RegExp(`/${dir}/Bérleti szerződés\\.pdf$`))
+    expect(r.body.needs_move).toBe(true)
+    const dir = ol('Feltöltések', 'Uploads')
     const folder = getWorkItem(src.id)!.folder as string
-    expect(r.body.path).toBe(`${folder}/${dir}/Bérleti szerződés.pdf`)
-    expect(readFileSync(join(projDir(), ...r.body.path.split('/'))).toString()).toContain('bérleti szerződés')
-    expect(r.body.outline.annexes).toEqual([expect.objectContaining({ label: expect.stringContaining('K1'), title: 'Bérleti szerződés, 2024. május 2.', path: r.body.path })])
+    expect(r.body.rel).toMatch(new RegExp(`/${folder}/${dir}/Bérleti szerződés\\.pdf$`))
+    expect(readFileSync(join(depot, ...r.body.rel.split('/'))).toString()).toContain('bérleti szerződés')
+    expect(r.body.outline.annexes ?? []).toEqual([])
     expect(listWorkItemAssets(src.id).map((a) => a.name)).toContain('Bérleti szerződés.pdf')
-    // No title: the file name is the title. The folder is reused, not made twice.
-    const r2 = await callWorkbench(`${base}?name=jegyzokonyv.pdf`, 'POST', Buffer.from('%PDF-1.4 masik'), { 'content-type': 'application/pdf' })
-    expect(r2.status).toBe(201)
-    expect(r2.body.path).toBe(`${folder}/${dir}/jegyzokonyv.pdf`)
-    expect(r2.body.outline.annexes.map((a: { title: string }) => a.title)).toEqual(['Bérleti szerződés, 2024. május 2.', 'jegyzokonyv'])
-    expect(existsSync(join(projDir(), ...folder.split('/'), dir))).toBe(true)
-    // The same content again: no second copy, and it is already an annex -> said in words.
+    // The same content again: no second copy.
     const dup = await callWorkbench(`${base}?name=${encodeURIComponent('másolat.pdf')}`, 'POST', pdf, { 'content-type': 'application/pdf' })
-    expect(dup.status).toBe(400)
-    expect(dup.body).toMatchObject({ error: 'outline_duplicate', message: expect.stringContaining('mellékletek') })
+    expect(dup.status).toBe(201)
+    expect(dup.body.rel).toBe(r.body.rel)
     expect(existsSync(join(projDir(), ...folder.split('/'), dir, 'másolat.pdf'))).toBe(false)
     // An empty upload is refused.
     expect((await callWorkbench(`${base}?name=ures.pdf`, 'POST', Buffer.alloc(0))).status).toBe(400)
