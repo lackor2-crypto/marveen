@@ -41,7 +41,7 @@ export const BLOCK_KINDS = ['paragraph', 'list', 'table', 'footnote', 'signature
 export type BlockKind = typeof BLOCK_KINDS[number]
 
 /** Picture formats an `image` block can hold (the ones LibreOffice embeds in the PDF / Word copy). */
-export const DOC_IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif'])
+export const DOC_IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp'])
 
 /**
  * An `image` block's text is the picture's path under the Marveen folder (the same

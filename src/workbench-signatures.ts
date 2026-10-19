@@ -19,7 +19,7 @@ export interface SignatureList { signatures: SignatureFile[]; truncated: boolean
 /** Name fragments that mark a signature picture (lower case; accents and plain spelling). */
 export const SIGNATURE_TERMS = ['aláírás', 'alairas', 'alárás', 'signature', 'unterschrift', 'szignó']
 
-const IMAGE_EXT = /\.(png|jpe?g|gif)$/i
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i
 
 /** The walk stops after this long and says so (`truncated`): a slow drive must not keep the owner waiting forever. */
 export const SIGNATURE_BUDGET_MS = 8_000
