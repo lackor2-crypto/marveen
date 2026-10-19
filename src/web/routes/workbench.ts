@@ -76,6 +76,7 @@ import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus }
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { finalizeTextItem, hasTextFinalPanel } from '../../workbench-notefinal.js'
 import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefinal.js'
+import { docxMailView, finalizeDocxItem, hasDocxFinalPanel, makeDocxMailDraft } from '../../workbench-docxfinal.js'
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
@@ -323,6 +324,34 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   note_final_bad_translation: {
     hu: 'A lefordított szöveg vagy a nyelv kódja nem megfelelő, ezért nem készült PDF. Fordítsd le újra a szöveget, és próbáld újra.',
     en: 'The translated text or its language code is not usable, so no PDF was made. Translate the text again and retry.',
+  },
+  docx_final_not_docx: {
+    hu: 'Ennek a munkadarabnak nincs Word-fájlja (docx), ezért nem véglegesíthető ezen a panelen.',
+    en: 'This work item has no Word file (docx), so it cannot be finalized from this panel.',
+  },
+  docx_final_unreadable: {
+    hu: 'A Word-fájl nem olvasható (törölték vagy áthelyezték?). Nézd meg a Raktárban, hogy megvan-e, és próbáld újra.',
+    en: 'The Word file cannot be read (deleted or moved?). Check that it is still in the Depot, then try again.',
+  },
+  docx_final_save_failed: {
+    hu: 'A PDF elkészült, de az Elkészített anyagok mappába nem sikerült elmenteni, ezért a munkadarab nincs véglegesítve.',
+    en: 'The PDF was made, but it could not be saved into the Finished materials folder, so the work item is not finalized.',
+  },
+  docx_final_already_done: {
+    hu: 'Ez a munkadarab már véglegesítve van. Ha módosítani akarod, előbb nyisd újra.',
+    en: 'This work item is already finalized. Reopen it first if you want to change it.',
+  },
+  docx_mail_no_pdf: {
+    hu: 'Még nincs végleges PDF az Elkészített anyagok mappában. Előbb véglegesítsd a munkadarabot, utána készülhet az e-mail.',
+    en: 'There is no final PDF in the Finished materials folder yet. Finalize the work item first, then the e-mail can be made.',
+  },
+  docx_mail_bad_address: {
+    hu: 'Az egyik e-mail-cím nem megfelelő. Egy cím így néz ki: nev@example.hu, többet vesszővel válassz el.',
+    en: 'One of the e-mail addresses is not valid. An address looks like name@example.com; separate several with commas.',
+  },
+  docx_mail_save_failed: {
+    hu: 'Az e-mail-piszkozatot nem sikerült az Elkészített anyagok mappába elmenteni.',
+    en: 'The e-mail draft could not be saved into the Finished materials folder.',
   },
   table_final_not_table: {
     hu: 'Ennek a munkadarabnak nincs táblázat-fájlja (xlsx / csv), ezért nem véglegesíthető ezen a panelen.',
@@ -4603,6 +4632,18 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // #719: the e-mail draft of a finalized Word item (an .eml next to the Word file, the final PDF attached).
+  if (segs.length === 2 && segs[1] === 'docx-mail' && (method === 'GET' || method === 'POST') && hasDocxFinalPanel(item)) {
+    if (method === 'GET') { json(res, docxMailView(item, lang)); return true }
+    if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const mr = makeDocxMailDraft(item, body, lang)
+    if (!mr.ok) return failDetail(res, mr.code === 'docx_mail_no_pdf' || mr.code === 'docx_mail_bad_address' ? 400 : 500, mr.code, lang, mr.detail)
+    json(res, { eml_path: mr.eml_path, eml_name: mr.eml_name, pdf_name: mr.pdf_name })
+    return true
+  }
+
   // JOVAHAGYAS MUNKADARABRA (#406, 9. pont): bekuldes / visszavonas a
   // Munkapadrol barki; DONTENI (elfogad / visszadob) csak bejelentkezett
   // munkamenet tud -- az agensek kozos tokenje nem.
@@ -4634,6 +4675,16 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         const tf = await finalizeTextItem(item, { by: who || 'dashboard', lang: body['lang'] == null ? null : String(body['lang']), text: typeof body['text'] === 'string' ? body['text'] : null })
         if (!tf.ok) return failDetail(res, tf.code === 'note_final_already_done' ? 409 : tf.code === 'note_final_not_text' || tf.code === 'note_final_bad_translation' || tf.code === 'note_final_no_variant' ? 400 : 500, tf.code, lang, tf.detail)
         json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name } })
+        return true
+      }
+      // #719: a Word (.docx) item is finalized from its own panel; the PDF lands NEXT TO the Word file (no folder is made).
+      if (action === 'finalize' && body['pdf'] === true && hasDocxFinalPanel(item)) {
+        const df = await finalizeDocxItem(item, { by: who || 'dashboard', ui: lang })
+        if (!df.ok) {
+          if (df.code === 'convert') return docEditFail(res, { code: df.convert || 'convert_failed', detail: df.detail }, lang)
+          return failDetail(res, df.code === 'docx_final_already_done' ? 409 : df.code === 'docx_final_not_docx' ? 400 : 500, df.code, lang, df.detail)
+        }
+        json(res, { item: df.item, approval: workItemApprovalState(item.id), final: { path: df.pdf_path, name: df.pdf_name, pdf_name: df.pdf_name } })
         return true
       }
       // #674: a table item is finalized from its own panel; the workbook (and a PDF, when LibreOffice is there) lands in Finished materials.
