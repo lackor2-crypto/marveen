@@ -323,7 +323,15 @@ export function addGitAccount(
   if (safeDepotName(name) !== name) {
     return { reg, error: 'A fiók neve csak betű, szám, kötőjel és aláhúzás lehet — mappanév lesz belőle.' }
   }
-  if (reg.gitAccounts.includes(name)) return { reg, error: 'Ez a fiók már fel van véve.' }
+  if (reg.gitAccounts.includes(name)) {
+    // A rejtett sor nincs a listan: "mar fel van veve" onmagaban megtevesztene, ezert megmondjuk, hol van.
+    return {
+      reg,
+      error: reg.hidden?.[storageKey('git', name)] === true
+        ? 'Ez a fiók már fel van véve, de le van véve a listáról — az „Elrejtett tárolók” alatt visszahozhatod.'
+        : 'Ez a fiók már fel van véve.',
+    }
+  }
   return { reg: { ...reg, gitAccounts: [...reg.gitAccounts, name] } }
 }
 
@@ -345,12 +353,16 @@ export function removeGitAccount(
   const key = storageKey('git', account)
   const names = { ...reg.names }
   const disabled = { ...reg.disabled }
+  // A rejtett jelolest is torolni kell: kulonben az ugyanezen a neven ujra felvett fiok lathatatlanul szuletne.
+  const hidden = { ...(reg.hidden || {}) }
   delete names[key]
   delete disabled[key]
+  delete hidden[key]
   return {
     ...reg,
     names,
     disabled,
+    hidden,
     gitAccounts: reg.gitAccounts.filter((a) => a !== account),
   }
 }
