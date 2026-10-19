@@ -4305,21 +4305,63 @@
   function docImgDragInit(st, page) {
     var drag = null
     var line = null
-    page.addEventListener('dragstart', function (e) {
-      if (e.target && e.target.tagName === 'IMG') e.preventDefault()
-    })
-    function target(x, y) {
-      var r = page.getBoundingClientRect()
-      var blocks = Array.prototype.slice.call(page.children).filter(function (b) { return b !== drag.par })
+    var menu = null
+    var WRAP_TAGS = /^(P|H[1-6]|DIV|LI|BLOCKQUOTE)$/
+    /** Put the picture in its new place. mode: 'left' | 'right' = the text runs round it, anchored to the start of
+     *  `anchor`; 'l' | 'c' | 'r' = a line of its own (before/after `anchor`). */
+    function place(img, mode, anchor, after) {
+      var old = img.parentNode
+      while (old && old.parentNode && old.parentNode !== page) old = old.parentNode
+      var w = img.style.width || '5cm'
+      img.removeAttribute('align')
+      if (mode === 'left' || mode === 'right') {
+        if (!anchor || !WRAP_TAGS.test(anchor.tagName)) return false
+        img.setAttribute('align', mode)
+        img.style.cssText = 'float:' + mode + ';width:' + w + ';margin:0 ' + (mode === 'left' ? '0.4cm 0.2cm 0' : '0 0.2cm 0.4cm')
+        anchor.insertBefore(img, anchor.firstChild)
+      } else {
+        img.style.cssText = 'width:' + w
+        var p = document.createElement('p')
+        p.style.textAlign = mode === 'l' ? 'left' : (mode === 'r' ? 'right' : 'center')
+        p.appendChild(img)
+        if (!anchor) page.appendChild(p)
+        else if (after) anchor.parentNode.insertBefore(p, anchor.nextSibling)
+        else anchor.parentNode.insertBefore(p, anchor)
+      }
+      if (old && old !== img.parentNode && old.parentNode && !old.textContent.trim() && !old.querySelector('img')) old.parentNode.removeChild(old)
+      st.dirty = true
+      docStatus('')
+      docSaveRange(st)
+      return true
+    }
+    function blockAt(y, skip) {
       var best = null
-      if (x < r.left || x > r.right || y < r.top - 20 || y > r.bottom + 20) return { b: null, align: 'left' }
+      var blocks = Array.prototype.slice.call(page.children).filter(function (b) { return b !== skip })
       for (var i = 0; i < blocks.length; i++) {
         var br = blocks[i].getBoundingClientRect()
-        if (y < br.top + br.height / 2) { best = { el: blocks[i], after: false, y: br.top }; break }
-        best = { el: blocks[i], after: true, y: br.bottom }
+        if (y < br.top + br.height / 2) return { el: blocks[i], after: false, y: br.top, r: br }
+        best = { el: blocks[i], after: true, y: br.bottom, r: br }
       }
+      return best
+    }
+    function target(x, y) {
+      var r = page.getBoundingClientRect()
+      if (x < r.left || x > r.right || y < r.top - 20 || y > r.bottom + 20) return { b: null }
       var third = (x - r.left) / Math.max(1, r.width)
-      return { b: best, align: third < 0.33 ? 'left' : (third > 0.66 ? 'right' : 'center') }
+      var mode = third < 0.33 ? 'left' : (third > 0.66 ? 'right' : 'c')
+      var b = blockAt(y, drag.par)
+      if (!b) return { b: null }
+      if (mode === 'c') return { b: b, mode: 'c' }
+      // text runs round it: anchored to the block UNDER the pointer
+      var under = null
+      Array.prototype.slice.call(page.children).forEach(function (el) {
+        if (el === drag.par) return
+        var br = el.getBoundingClientRect()
+        if (!under && y >= br.top && y <= br.bottom && el.textContent.trim()) under = { el: el, y: br.top, r: br }
+      })
+      under = under || { el: b.el, y: b.y, r: b.r }
+      if (!WRAP_TAGS.test(under.el.tagName)) return { b: b, mode: 'c' }
+      return { b: under, mode: mode, wrap: true }
     }
     function cleanup() {
       if (line && line.parentNode) line.parentNode.removeChild(line)
@@ -4339,33 +4381,78 @@
       drag.tg = tg
       if (!line) {
         line = document.createElement('div')
-        line.style.cssText = 'position:fixed;height:3px;background:#2563eb;pointer-events:none;z-index:99999;border-radius:2px'
+        line.style.cssText = 'position:fixed;background:#2563eb;pointer-events:none;z-index:99999;border-radius:2px'
         document.body.appendChild(line)
       }
       var r = page.getBoundingClientRect()
-      if (tg.b) { line.style.display = ''; line.style.left = r.left + 'px'; line.style.width = r.width + 'px'; line.style.top = (tg.b.y - 1) + 'px' }
-      else line.style.display = 'none'
+      if (!tg.b) { line.style.display = 'none'; return }
+      line.style.display = ''
+      if (tg.wrap) {
+        // a vertical bar at the side where the picture will sit, along the first lines of that paragraph
+        var h = Math.min(tg.b.r.height, 90)
+        line.style.width = '4px'; line.style.height = h + 'px'; line.style.top = tg.b.r.top + 'px'
+        line.style.left = (tg.mode === 'left' ? r.left : r.right - 4) + 'px'
+      } else {
+        line.style.height = '3px'; line.style.width = r.width + 'px'; line.style.left = r.left + 'px'; line.style.top = (tg.b.y - 1) + 'px'
+      }
     }
     function onUp(e) {
       var d = drag
-      var moved = d && d.on && d.tg && d.tg.b
-      var img = d && d.img
       var tg = d && d.tg
-      var old = d && d.par
+      var img = d && d.img
+      var moved = d && d.on && tg && tg.b
       e.preventDefault(); e.stopPropagation()
       cleanup()
       if (!moved) return
-      var p = document.createElement('p')
-      p.style.textAlign = tg.align
-      p.appendChild(img)
-      if (tg.b.after) tg.b.el.parentNode.insertBefore(p, tg.b.el.nextSibling)
-      else tg.b.el.parentNode.insertBefore(p, tg.b.el)
-      if (old && old.parentNode && old !== p && !old.textContent.trim() && !old.querySelector('img')) old.parentNode.removeChild(old)
-      st.dirty = true
-      docStatus('')
-      docSaveRange(st)
+      if (tg.wrap) place(img, tg.mode, tg.b.el, false)
+      else place(img, 'c', tg.b.el, tg.b.after)
     }
     function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); cleanup() } }
+    function closeMenu() {
+      if (menu && menu.parentNode) menu.parentNode.removeChild(menu)
+      menu = null
+      document.removeEventListener('mousedown', outside, true)
+    }
+    function outside(e) { if (menu && !menu.contains(e.target)) closeMenu() }
+    page.addEventListener('contextmenu', function (e) {
+      if (!e.target || e.target.tagName !== 'IMG') return
+      e.preventDefault()
+      closeMenu()
+      var img = e.target
+      var items = [
+        ['left', 'workbench.docedit.img_wrap_left'], ['right', 'workbench.docedit.img_wrap_right'],
+        ['l', 'workbench.docedit.img_line_left'], ['c', 'workbench.docedit.img_line_center'], ['r', 'workbench.docedit.img_line_right']
+      ]
+      menu = document.createElement('div')
+      menu.style.cssText = 'position:fixed;z-index:99999;background:#fff;color:#111;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:4px;min-width:230px;left:' + Math.min(e.clientX, window.innerWidth - 250) + 'px;top:' + Math.min(e.clientY, window.innerHeight - 190) + 'px'
+      items.forEach(function (it) {
+        var bt = document.createElement('button')
+        bt.type = 'button'
+        bt.textContent = t(it[1])
+        bt.style.cssText = 'display:block;width:100%;text-align:left;padding:7px 10px;border:0;background:transparent;color:inherit;cursor:pointer;border-radius:6px;font:inherit'
+        bt.addEventListener('mouseenter', function () { bt.style.background = '#e2e8f0' })
+        bt.addEventListener('mouseleave', function () { bt.style.background = 'transparent' })
+        bt.addEventListener('click', function () {
+          closeMenu()
+          var par = img
+          while (par.parentNode && par.parentNode !== page) par = par.parentNode
+          if (it[0] === 'left' || it[0] === 'right') {
+            // the picture sits in a paragraph of its own: the text that runs round it is the NEXT block
+            var anchor = par
+            if (par === img || !par.textContent.trim()) anchor = par.nextElementSibling || par.previousElementSibling
+            if (!anchor || !place(img, it[0], anchor, false)) place(img, 'c', par, true)
+          } else {
+            place(img, it[0], par, true)
+          }
+        })
+        menu.appendChild(bt)
+      })
+      document.body.appendChild(menu)
+      document.addEventListener('mousedown', outside, true)
+    })
+    page.addEventListener('dragstart', function (e) {
+      if (e.target && e.target.tagName === 'IMG') e.preventDefault()
+    })
     page.addEventListener('mousedown', function (e) {
       if (e.button !== 0 || !e.target || e.target.tagName !== 'IMG') return
       var par = e.target

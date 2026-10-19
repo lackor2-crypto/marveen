@@ -134,4 +134,13 @@ describe('#719 the Word editor moves a picture with its own mouse drag', () => {
     expect(js).toContain('docImgDragInit(st, page)')
     expect(js).toMatch(/addEventListener\('dragstart'[\s\S]{0,120}tagName === 'IMG'\) e\.preventDefault\(\)/)
   })
+  it('offers text-wrap placement (float left/right) and a context menu, with HU + EN labels', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain("'float:' + mode")
+    expect(js).toContain("addEventListener('contextmenu'")
+    for (const f of ['hu', 'en']) {
+      const lang = readFileSync(join(__dirname, '..', '..', 'web', 'lang', f + '.js'), 'utf8')
+      for (const k of ['img_wrap_left', 'img_wrap_right', 'img_line_left', 'img_line_center', 'img_line_right']) expect(lang).toContain('"workbench.docedit.' + k + '"')
+    }
+  })
 })
