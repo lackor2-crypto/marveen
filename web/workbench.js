@@ -3022,6 +3022,8 @@
       if (intoItem) {
         if (WB.selectedId === intoItem) loadDetail(intoItem)
         load(projectId)
+        // #716: what went into the Uploads folder is put in its place in the Life tree right away (the owner approves).
+        if (upFolder && toAssets && WB.selectedId === intoItem) lifeMoveOffer(intoItem)
       } else {
         load(projectId)
         // #491: a feltoltes nyers anyag, nem munkadarab (created ures); a hibatlan agon csak ujrarajzolunk.
@@ -14628,17 +14630,28 @@
     if (!it || !it.folder) return ''
     return '<button type="button" class="btn-secondary btn-compact" data-wb-act="life-move"' + (archived() ? ' disabled' : '') + ' title="' + escA(t('workbench.lifemove.hint')) + '">' + esc(t('workbench.lifemove.btn')) + '</button>'
   }
-  function lifeMoveOpen() {
+  /** #716: after an upload into the Uploads folder: ask what is still there, and only when something is, open the list. */
+  function lifeMoveOffer(id) {
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move?scope=uploads').then(function (r) {
+      var files = r && r.ok && r.data && r.data.files
+      if (!files || !files.length || WB.selectedId !== id) return
+      lifeMoveOpen({ scope: 'uploads', preload: r })
+    })
+  }
+  // opts.scope === 'uploads': the list right after an upload -- only the files of the Uploads folder, and "Later" instead
+  // of "Cancel" (#716, Boss TG 10015: every upload is followed by the move into the Life tree).
+  function lifeMoveOpen(opts) {
     var id = WB.selectedId
+    var upOnly = !!(opts && opts.scope === 'uploads')
     if (!id || archived() || document.getElementById('wbLifeMove')) return
     var overlay = document.createElement('div')
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbLifeMove'
     overlay.innerHTML = '<div class="modal-content" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column;padding:18px">'
-      + '<h3 style="margin:0 0 4px;flex:none">' + esc(t('workbench.lifemove.title')) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 8px;flex:none">' + esc(t('workbench.lifemove.help')) + '</p>'
+      + '<h3 style="margin:0 0 4px;flex:none">' + esc(t(upOnly ? 'workbench.lifemove.up_title' : 'workbench.lifemove.title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 8px;flex:none">' + esc(t(upOnly ? 'workbench.lifemove.up_help' : 'workbench.lifemove.help')) + '</p>'
       + '<div id="wbLifeMoveList" class="wb-lifemove-list" style="flex:1 1 auto;min-height:0;overflow-y:auto"><p class="wb-muted">' + esc(t('workbench.lifemove.loading')) + '</p></div>'
-      + '<div style="text-align:right;margin-top:10px;flex:none"><button type="button" class="btn-secondary" id="wbLifeMoveClose">' + esc(t('workbench.lifemove.cancel')) + '</button> '
+      + '<div style="text-align:right;margin-top:10px;flex:none"><button type="button" class="btn-secondary" id="wbLifeMoveClose">' + esc(t(upOnly ? 'workbench.lifemove.later' : 'workbench.lifemove.cancel')) + '</button> '
       + '<button type="button" class="btn-primary" id="wbLifeMoveGo" disabled>' + esc(t('workbench.lifemove.go')) + '</button></div>'
       + '</div>'
     document.body.appendChild(overlay)
@@ -14692,7 +14705,7 @@
         list.appendChild(row)
       })
     }
-    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move').then(function (r) {
+    ;(opts && opts.preload ? Promise.resolve(opts.preload) : api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move' + (upOnly ? '?scope=uploads' : ''))).then(function (r) {
       if (!overlay.parentNode) return
       if (!r.ok) { list.innerHTML = ''; var p = document.createElement('p'); p.className = 'wb-error'; p.textContent = r.message || t('workbench.lifemove.failed'); list.appendChild(p); return }
       files = (r.data && r.data.files) || []
@@ -14711,7 +14724,8 @@
         var okN = res.filter(function (x) { return x.ok }).length
         var bad = res.filter(function (x) { return !x.ok })
         close()
-        window.showToast(t('workbench.lifemove.done', { n: okN }) + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : ''))
+        window.showToast(t('workbench.lifemove.done', { n: okN }) + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : '')
+          + (r.data && r.data.relinked ? ' ' + t('workbench.lifemove.relinked', { n: r.data.relinked }) : ''))
         if (WB.selectedId === id) loadDetail(id); else render()
       })
     })
@@ -16270,6 +16284,7 @@
     if (!rows.length) return canvasShown ? '' : '<p class="wb-hint">' + esc(t('workbench.fr.files_none')) + '</p>'
     var more = t('workbench.ctx.more_file')
     var isDoc = isDocSurface(WB.detail && WB.detail.item)
+    var itemFolder = String((WB.detail && WB.detail.item && WB.detail.item.folder) || '').replace(/^\/+|\/+$/g, '')
     var lang = encodeURIComponent(window._lang || 'hu')
     return '<div class="wb-fr-tiles">' + rows.map(function (a) {
       var name = a.name || baseOf(a.path)
@@ -16285,6 +16300,9 @@
         + '<span class="wb-fr-tile-pic"><span class="wb-fr-tile-icon" aria-hidden="true">' + frFileIcon(name) + '</span>'
         + (media ? '<img alt="" loading="lazy" draggable="false" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(a.path) + '&lang=' + lang) + '">' : '<span class="wb-fr-tile-ext">' + esc(ext) + '</span>')
         + '</span><span class="wb-fr-tile-name">' + esc(name) + '</span></a>'
+        // #716: a file that was moved into the Life tree stays here as a link; say where it really is.
+        + (itemFolder && !a.shared && String(a.project_path || '').indexOf(itemFolder + '/') !== 0
+          ? '<span class="wb-fr-tile-link wb-muted" title="' + escA(a.path) + '">' + esc(t('workbench.lifemove.linked_at', { path: String(a.path).split('/').slice(0, -1).join(' › ') })) + '</span>' : '')
         + (archived() ? '' : '<button type="button" class="wb-fr-thumb-more" data-wb-act="file-ctx" data-wb-rel="' + escA(a.path) + '" aria-haspopup="menu" title="' + escA(more) + '" aria-label="' + escA(more) + '">&#8943;</button>')
         + fileMenuHtml(a.path, '') + '</div>'
     }).join('') + '</div>'

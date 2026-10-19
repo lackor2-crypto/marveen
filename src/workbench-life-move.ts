@@ -16,8 +16,10 @@ import { loadLifeConfig } from './life-tree.js'
 import { isContextFileName } from './workbench-item-context.js'
 import { isTodoFileName } from './workbench-item-todos.js'
 
-/** Folders whose files are NOT candidates: uploads came FROM the owner / the Life tree, versions are the item's history, "Agent" holds chat references for the agent only. */
-const SKIP_FOLDERS = new Set(['feltöltések', 'uploads', 'verziók', 'versions', 'agent', 'agentnek', 'for the agent'])
+/** Folders whose files are NOT candidates: versions are the item's history, "Agent" holds chat references for the agent only. */
+const SKIP_FOLDERS = new Set(['verziók', 'versions', 'agent', 'agentnek', 'for the agent'])
+/** #716 (Boss TG 10015): the uploads folder is a candidate too -- a file uploaded there must go to its place in the Life tree. */
+const UPLOAD_FOLDERS = new Set(['feltöltések', 'uploads'])
 const SKIP_FILES = new Set(['marveen-item.json', '.marveen-id'])
 const MAX_CANDIDATES = 200
 
@@ -27,7 +29,12 @@ export interface LifeMoveCandidate {
   name: string
   /** The subfolder name the file sits in; '' = the item's folder itself. */
   folder: string
+  /** #716: the file sits in the item's uploads folder (an upload that has not been put in its place yet). */
+  upload?: boolean
 }
+
+/** 'exclude' (default): the uploads folder is not listed; 'include': listed with the rest; 'only': ONLY the uploads. */
+export type LifeMoveUploads = 'exclude' | 'include' | 'only'
 
 export interface LifeMoveSuggestion {
   /** Life-tree relative target folder; '' = the sorter has no (existing) folder for this file. */
@@ -69,13 +76,13 @@ export async function suggestLifeTargets(files: LifeMoveCandidate[], lang: strin
   return out
 }
 
-export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {
+export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>, uploads: LifeMoveUploads = 'exclude'): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {
   const base = String(item.folder ?? '').trim()
   if (!base) return { ok: false, code: 'no_folder' }
   const t = projectFileTarget(project, base)
   if (!t.ok) return { ok: false, code: 'no_folder' }
   const files: LifeMoveCandidate[] = []
-  const take = (dirAbs: string, folder: string): void => {
+  const take = (dirAbs: string, folder: string, upload = false): void => {
     let names: string[] = []
     try { names = readdirSync(dirAbs) } catch { return }
     for (const name of names.sort((a, b) => a.localeCompare(b))) {
@@ -85,17 +92,19 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
       try { st = statSync(join(dirAbs, name)) } catch { continue }
       if (!st.isFile()) continue
       const rel = toLifeRel(join(dirAbs, name))
-      if (rel) files.push({ rel, name, folder })
+      if (rel) files.push({ rel, name, folder, ...(upload ? { upload: true } : {}) })
     }
   }
-  take(t.dirAbs, '')
+  if (uploads !== 'only') take(t.dirAbs, '')
   let subs: string[] = []
   try { subs = readdirSync(t.dirAbs) } catch { subs = [] }
   for (const sub of subs.sort((a, b) => a.localeCompare(b))) {
+    const isUp = UPLOAD_FOLDERS.has(sub.toLowerCase())
     if (sub.startsWith('.') || SKIP_FOLDERS.has(sub.toLowerCase())) continue
+    if (isUp ? uploads === 'exclude' : uploads === 'only') continue
     const abs = join(t.dirAbs, sub)
     try { if (!statSync(abs).isDirectory()) continue } catch { continue }
-    take(abs, sub)
+    take(abs, sub, isUp)
   }
   return { ok: true, folder_rel: t.dirRel, files }
 }
@@ -103,12 +112,17 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
 export interface LifeMoveRow { rel: string; target: string }
 export interface LifeMoveOutcome { rel: string; target: string; ok: boolean; new_rel: string; message: string }
 
+/** The files that really moved, as old and new Life-tree path (for re-pointing what referred to the old place). */
+export function movedPairs(results: LifeMoveOutcome[]): Array<{ oldRel: string; newRel: string }> {
+  return results.filter((r) => r.ok && r.new_rel).map((r) => ({ oldRel: r.rel, newRel: r.new_rel }))
+}
+
 /**
  * Moves the approved rows. Only files that are CURRENT candidates of this item move (a rel the owner's list did not
  * contain is refused), and moveLife never overwrites: a name clash comes back as a message, not a silent rename.
  */
-export function moveItemFilesToLife(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>, rows: unknown, lang: string): { ok: true; results: LifeMoveOutcome[] } | { ok: false; code: 'no_folder' | 'bad_input' } {
-  const cands = lifeMoveCandidates(project, item)
+export function moveItemFilesToLife(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>, rows: unknown, lang: string, uploads: LifeMoveUploads = 'exclude'): { ok: true; results: LifeMoveOutcome[] } | { ok: false; code: 'no_folder' | 'bad_input' } {
+  const cands = lifeMoveCandidates(project, item, uploads)
   if (!cands.ok) return { ok: false, code: 'no_folder' }
   if (!Array.isArray(rows) || !rows.length || rows.length > MAX_CANDIDATES) return { ok: false, code: 'bad_input' }
   const allowed = new Set(cands.files.map((f) => f.rel))
