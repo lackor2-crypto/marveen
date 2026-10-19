@@ -4148,10 +4148,11 @@
   var DOC_TOOLS = [
     ['undo', '&#8630;'], ['redo', '&#8631;'], ['|'],
     ['bold', '<b>B</b>'], ['italic', '<i>I</i>'], ['underline', '<u>U</u>'], ['strikeThrough', '<s>S</s>'], ['|'],
-    ['block', ''], ['size', ''], ['|'],
+    ['block', ''], ['font', ''], ['size', ''], ['|'],
     ['insertUnorderedList', '&#8226;&#8226;'], ['insertOrderedList', '1.2.'], ['outdent', '&#8676;'], ['indent', '&#8677;'], ['|'],
     ['justifyLeft', '&#8676;&#8801;'], ['justifyCenter', '&#8801;'], ['justifyRight', '&#8801;&#8677;'], ['justifyFull', '&#9776;'], ['|'],
-    ['foreColor', ''], ['hiliteColor', ''], ['removeFormat', '&#10007;']
+    ['linesp', ''], ['spaceafter', ''], ['|'],
+    ['foreColor', ''], ['hiliteColor', ''], ['removeFormat', '&#10007;'], ['sign', '&#9997;']
   ]
 
   function docBuildHost(st, html) {
@@ -4178,12 +4179,29 @@
           + '<option value="h2">' + esc(t('workbench.docedit.block_h2')) + '</option>'
           + '<option value="h3">' + esc(t('workbench.docedit.block_h3')) + '</option></select>'
       }
+      // #718: the same font / size / spacing choices as the court-document ribbon (DP_* lists).
       if (c === 'size') {
         return '<select class="wb-docedit-select" data-de-size title="' + escA(t('workbench.docedit.t_size')) + '">'
           + '<option value="">' + esc(t('workbench.docedit.t_size')) + '</option>'
-          + [['1', '8'], ['2', '10'], ['3', '12'], ['4', '14'], ['5', '18'], ['6', '24'], ['7', '36']].map(function (o) {
-            return '<option value="' + o[0] + '">' + o[1] + ' pt</option>'
-          }).join('') + '</select>'
+          + DP_SIZES.map(function (z) { return '<option value="' + z + '">' + z + ' pt</option>' }).join('') + '</select>'
+      }
+      if (c === 'font') {
+        return '<select class="wb-docedit-select" data-de-font title="' + escA(t('workbench.dp.fmt_font')) + '">'
+          + '<option value="">' + esc(t('workbench.dp.fmt_font')) + '</option>'
+          + DP_FONTS.map(function (f) { return '<option value="' + escA(f) + '">' + esc(f) + '</option>' }).join('') + '</select>'
+      }
+      if (c === 'linesp') {
+        return '<select class="wb-docedit-select" data-de-linesp title="' + escA(t('workbench.dp.fmt_linesp')) + '">'
+          + '<option value="">' + esc(t('workbench.dp.fmt_linesp')) + '</option>'
+          + DP_LINESP.map(function (v) { return '<option value="' + v + '">' + esc(t('workbench.dp.fmt_linesp_opt', { v: String(v).replace('.', window._lang === 'en' ? '.' : ',') })) + '</option>' }).join('') + '</select>'
+      }
+      if (c === 'spaceafter') {
+        return '<select class="wb-docedit-select" data-de-spaceafter title="' + escA(t('workbench.dp.fmt_spaceafter')) + '">'
+          + '<option value="">' + esc(t('workbench.dp.fmt_spaceafter')) + '</option>'
+          + DP_SPACEAFTER.map(function (v) { return '<option value="' + v + '">' + esc(t('workbench.dp.fmt_spaceafter_opt', { v: v })) + '</option>' }).join('') + '</select>'
+      }
+      if (c === 'sign') {
+        return '<button type="button" class="wb-docedit-btn" data-de="sign" title="' + escA(t('workbench.dp.ins_sign')) + '" aria-label="' + escA(t('workbench.dp.ins_sign')) + '">' + tool[1] + '</button>'
       }
       if (c === 'foreColor' || c === 'hiliteColor') {
         // The project's brand colours go in front of the colour field (K-4.2); docBrandFill fills the slot.
@@ -4227,7 +4245,7 @@
     })
     bar.addEventListener('click', function (e) {
       var b = e.target && e.target.closest ? e.target.closest('[data-de]') : null
-      if (b) { docExec(b.getAttribute('data-de')); return }
+      if (b) { if (b.getAttribute('data-de') === 'sign') docSignInsert(); else docExec(b.getAttribute('data-de')); return }
       var sw = e.target && e.target.closest ? e.target.closest('[data-de-swatch]') : null
       if (!sw) return
       var cmd = sw.getAttribute('data-de-swatch')
@@ -4242,7 +4260,10 @@
       var el = e.target
       if (!el) return
       if (el.hasAttribute('data-de-block') && el.value) { docExec('formatBlock', el.value); el.value = '' }
-      else if (el.hasAttribute('data-de-size') && el.value) { docExec('fontSize', el.value); el.value = '' }
+      else if (el.hasAttribute('data-de-size') && el.value) { docSetSize(Number(el.value)); el.value = '' }
+      else if (el.hasAttribute('data-de-font') && el.value) { docExec('fontName', el.value); el.value = '' }
+      else if (el.hasAttribute('data-de-linesp') && el.value) { docParaStyle('lineHeight', el.value); el.value = '' }
+      else if (el.hasAttribute('data-de-spaceafter') && el.value !== '') { docParaStyle('marginBottom', el.value + 'pt'); el.value = '' }
       else if (el.hasAttribute('data-de-color')) docExec(el.getAttribute('data-de-color'), el.value)
     })
     page.addEventListener('input', function () { st.dirty = true; docStatus('') })
@@ -4304,6 +4325,87 @@
     } catch (_e) { /* a bongeszo nem ismeri: nem tortenik semmi */ }
     st.dirty = true
     docSaveRange(st)
+  }
+
+  /** Font size in real points (execCommand only knows 1-7): mark with size 7, then turn the marks into pt spans. */
+  function docSetSize(pt) {
+    var st = WB.docEdit
+    if (!st || !st.page || st.busy || !(pt > 0)) return
+    if (document.activeElement !== st.page) { st.page.focus(); docRestoreRange(st) }
+    try {
+      document.execCommand('styleWithCSS', false, false)
+      document.execCommand('fontSize', false, '7')
+    } catch (_e) { return }
+    var marks = st.page.querySelectorAll('font[size="7"]')
+    for (var i = 0; i < marks.length; i++) {
+      var sp = document.createElement('span')
+      sp.style.fontSize = pt + 'pt'
+      while (marks[i].firstChild) sp.appendChild(marks[i].firstChild)
+      marks[i].parentNode.replaceChild(sp, marks[i])
+    }
+    st.dirty = true
+    docSaveRange(st)
+  }
+
+  /** Paragraph-level style (line spacing, space after) on every paragraph the selection touches. */
+  function docParaStyle(prop, value) {
+    var st = WB.docEdit
+    if (!st || !st.page || st.busy) return
+    if (document.activeElement !== st.page) { st.page.focus(); docRestoreRange(st) }
+    var sel = window.getSelection && window.getSelection()
+    if (!sel || !sel.rangeCount) return
+    var range = sel.getRangeAt(0)
+    var els = []
+    var all = st.page.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li')
+    for (var i = 0; i < all.length; i++) { try { if (range.intersectsNode(all[i])) els.push(all[i]) } catch (_e) { /* detached */ } }
+    if (!els.length) {
+      var n = sel.anchorNode
+      var e = n && (n.nodeType === 3 ? n.parentNode : n)
+      var b = e && e.closest ? e.closest('p,h1,h2,h3,h4,h5,h6,li,div') : null
+      if (b && b !== st.page && st.page.contains(b)) els.push(b)
+    }
+    for (var j = 0; j < els.length; j++) els[j].style[prop] = value
+    st.dirty = true
+    docSaveRange(st)
+  }
+
+  /** "Insert signature": the same picker as the court documents; the picture lands at the cursor as an inline image. */
+  function docSignInsert() {
+    var st = WB.docEdit
+    if (!st || !st.page || st.busy) return
+    docSaveRange(st)
+    dpSignPicker('', '', function (rel) {
+      fetch('/api/life/file?rel=' + encodeURIComponent(rel)).then(function (res) {
+        if (!res.ok) throw new Error('http')
+        return res.blob()
+      }).then(function (blob) {
+        return new Promise(function (resolve, reject) {
+          var url = URL.createObjectURL(blob)
+          var img = new Image()
+          img.onload = function () {
+            // Shrunk to at most 600 px wide, so the saved document stays small.
+            var w = Math.min(600, img.naturalWidth || 600)
+            var h = Math.max(1, Math.round(w * (img.naturalHeight || w) / (img.naturalWidth || w)))
+            var cv = document.createElement('canvas')
+            cv.width = w; cv.height = h
+            cv.getContext('2d').drawImage(img, 0, 0, w, h)
+            URL.revokeObjectURL(url)
+            resolve({ data: cv.toDataURL('image/png'), w: w, h: h })
+          }
+          img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('img')) }
+          img.src = url
+        })
+      }).then(function (pic) {
+        var s2 = WB.docEdit
+        if (!s2 || !s2.page) return
+        s2.page.focus()
+        docRestoreRange(s2)
+        // 5 cm wide like a handwritten signature; the height follows the picture's own proportion.
+        document.execCommand('insertHTML', false, '<img src="' + pic.data + '" alt="" style="width:5cm">')
+        s2.dirty = true
+        docSaveRange(s2)
+      }).catch(function () { window.showToast(t('workbench.docedit.sign_failed')) })
+    })
   }
 
   function docStatus(text) {
@@ -15693,12 +15795,12 @@
   }
 
   /** "Insert signature": lists every signature picture found in the Life tree; the pick becomes a picture block (Boss TG 3044). */
-  function dpSignPicker(sid, bid) {
+  function dpSignPicker(sid, bid, onPick) {
     var sec = findSection(sid)
     var pos = 0
     if (sec && bid) (sec.blocks || []).forEach(function (b, i) { if (b.id === bid) pos = i + 1 })
     WB.docMenu = null
-    render()
+    if (!onPick) render() // #718: the docx editor keeps its page as is (no redraw)
     var old = document.getElementById('wbSignPick')
     if (old) old.remove()
     var ov = document.createElement('div')
@@ -15717,6 +15819,7 @@
       if (!pick) return
       var rel = pick.getAttribute('data-wb-sign-rel')
       close()
+      if (onPick) { onPick(rel); return }
       // #566: a signature arrives FREE, over the text, anchored at the paragraph the cursor stood in (to the right of it), so it
       // can be put exactly on the line without pushing anything.
       dpCall('POST', '/blocks', { section: sid, text: rel + '#w=30&a=l&x=60&y=0&o=1', kind: 'image', position: Math.max(0, pos - 1) }).then(function (o) { if (o) render() })
