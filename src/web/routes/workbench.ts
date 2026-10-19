@@ -34,7 +34,7 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
-import { kickItemContextSweep } from '../../workbench-item-context.js'
+import { kickItemContextSweep, markPlainItem } from '../../workbench-item-context.js'
 import { lifeMoveCandidates, moveItemFilesToLife, movedPairs, suggestLifeTargets } from '../../workbench-life-move.js'
 import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
@@ -3536,7 +3536,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // #471: a deck made from an existing folder of pictures owns that folder, so renaming one renames the other.
     // A folder another item already owns stays a plain container (adoptExistingFolder refuses it).
     if (!ownFolder && body.adopt_folder === true && (containerFolder || existingFolder) && (containerFolder || existingFolder)!.includes('/')) adoptExistingFolder(r.item, project, (containerFolder || existingFolder)!)
-    newItemFolders(r.item)
+    // #717 (Boss TG 3759): made from a file that already exists -> a plain item, nothing generated for it.
+    if (srcRel && body.adopt_folder !== true && body.from_files !== true && !ownFolder) markPlainItem(r.item.id)
+    else newItemFolders(r.item)
     json(res, { ok: true, item: getWorkItem(r.item.id) ?? r.item, versions: [r.version], folder_existed: folderExisted, import_warnings: presentation ? presentation.warnings : [] }, 201)
     return true
   }
