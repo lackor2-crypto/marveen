@@ -17,6 +17,7 @@
  * - TECHNIKAI NYOM (K-1.23/b): ki, mikor, mit irt, ellenorzott, erositett meg.
  *   A Marveen NEM minositi, hogy ez mire eleg jogilag -- csak rogziti.
  */
+import { execFileSync } from 'node:child_process'
 import { getDb } from './db.js'
 import { resolveLifePath } from './life-explorer.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
@@ -83,6 +84,17 @@ export function renderInputFor(item: WorkItemRow, withImages = false): RenderOut
 /** Largest picture file an `image` block embeds (a bigger one is shown as missing, not crashing the render). */
 export const DOC_IMAGE_MAX_BYTES = 25 * 1024 * 1024
 
+/** RIFF....WEBP */
+export function isWebp(b: Buffer): boolean { return b.length > 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP' }
+
+/** WebP bytes to PNG bytes with ffmpeg (an installer dependency); null when ffmpeg is missing or cannot read it. */
+export function webpToPng(data: Buffer): Buffer | null {
+  try {
+    const out = execFileSync('ffmpeg', ['-v', 'error', '-i', 'pipe:0', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', 'pipe:1'], { input: data, maxBuffer: 64 * 1024 * 1024, timeout: 15_000 })
+    return out.length ? out : null
+  } catch { return null }
+}
+
 /** The picture of an `image` block (its path under the Marveen folder), or null when it is gone or not a picture. */
 export function readDocImage(rel: string): RenderImage | null {
   const abs = resolveLifePath(rel)
@@ -90,7 +102,9 @@ export function readDocImage(rel: string): RenderImage | null {
   try {
     const st = statSync(abs)
     if (!st.isFile() || st.size > DOC_IMAGE_MAX_BYTES) return null
-    const data = readFileSync(abs)
+    let data: Buffer<ArrayBuffer> = readFileSync(abs)
+    // #719: Word and the PDF renderer know no WebP; it becomes a PNG (transparency kept) before it is measured.
+    if (isWebp(data)) { const png = webpToPng(data); if (!png) return null; data = png as Buffer<ArrayBuffer> }
     const dim = imageSize(data)
     return dim ? { data, ...dim } : null
   } catch { return null }

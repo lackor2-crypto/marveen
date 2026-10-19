@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -47,6 +48,12 @@ describe('listSignatures', () => {
     const r = await listSignatures('hu')
     expect(r.signatures.map((s) => s.name).sort()).toEqual(['Aláírás Laszlo.PNG', 'alairas.png'])
     expect(r.signatures.every((s) => s.rel.endsWith(s.name) && s.folder.startsWith('Emberek'))).toBe(true)
+  })
+
+  it('lists a .webp signature too (#719: "anyu alairasa.webp" was skipped)', async () => {
+    writeFileSync(join(root, 'Emberek', 'Nagymama', 'anyu alairasa.webp'), 'x')
+    const r = await listSignatures('hu')
+    expect(r.signatures.map((s) => s.name)).toEqual(['anyu alairasa.webp'])
   })
 
   it('returns an empty list when there is none', async () => {
@@ -103,5 +110,19 @@ describe('the walk never blocks and is not repeated (2026-10-10 freeze)', () => 
     expect(src).not.toMatch(/readdirSync|statSync|searchLife\(/)
     const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf8')
     expect(route).toContain('await listSignatures(lang')
+  })
+})
+
+describe('a WebP picture on the page (#719)', () => {
+  const WEBP = Buffer.from('UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoEAAIAAgA0JaQAA3AA/vv9UAA=', 'base64')
+  it('is accepted as an image block path', async () => {
+    const { imageBlockPathOk } = await import('../workbench-docmodel.js')
+    expect(imageBlockPathOk('Család/Éva/Identitás/anyu alairasa.webp')).toBe(true)
+  })
+  it.skipIf(spawnSync('ffmpeg', ['-version']).status !== 0)('is turned into a PNG for the document renderer', async () => {
+    const { isWebp, webpToPng } = await import('../workbench-docfinal.js')
+    expect(isWebp(WEBP)).toBe(true)
+    const png = webpToPng(WEBP)
+    expect(png && png.readUInt32BE(0)).toBe(0x89504e47)
   })
 })
