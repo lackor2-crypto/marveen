@@ -143,4 +143,10 @@ describe('#719 the Word editor moves a picture with its own mouse drag', () => {
       for (const k of ['img_wrap_left', 'img_wrap_right', 'img_line_left', 'img_line_center', 'img_line_right']) expect(lang).toContain('"workbench.docedit.' + k + '"')
     }
   })
+  it('moves a picture freely (position:absolute in cm, 1 mm arrow nudges) like the court document editor', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain("img.style.position = 'absolute'")
+    expect(js).toContain('function nudge(img, dxMm, dyMm)')
+    expect(js).toContain("ArrowLeft: [-step, 0]")
+  })
 })

@@ -4304,7 +4304,6 @@
    *  off, so it can never reach the Workbench's file/item drop handlers. */
   function docImgDragInit(st, page) {
     var drag = null
-    var line = null
     var menu = null
     var WRAP_TAGS = /^(P|H[1-6]|DIV|LI|BLOCKQUOTE)$/
     /** Put the picture in its new place. mode: 'left' | 'right' = the text runs round it, anchored to the start of
@@ -4334,80 +4333,121 @@
       docSaveRange(st)
       return true
     }
-    function blockAt(y, skip) {
-      var best = null
-      var blocks = Array.prototype.slice.call(page.children).filter(function (b) { return b !== skip })
-      for (var i = 0; i < blocks.length; i++) {
-        var br = blocks[i].getBoundingClientRect()
-        if (y < br.top + br.height / 2) return { el: blocks[i], after: false, y: br.top, r: br }
-        best = { el: blocks[i], after: true, y: br.bottom, r: br }
+    var PX_CM = 96 / 2.54
+    var sel = null
+    var frame = null
+    function scaleOf() { return page.offsetWidth ? page.getBoundingClientRect().width / page.offsetWidth : 1 }
+    function showFrame() {
+      if (!sel || !sel.isConnected) { hideFrame(); return }
+      if (!frame) {
+        frame = document.createElement('div')
+        frame.style.cssText = 'position:fixed;border:2px solid #2563eb;pointer-events:none;z-index:99998;box-sizing:border-box'
+        document.body.appendChild(frame)
       }
-      return best
+      var r = sel.getBoundingClientRect()
+      frame.style.left = r.left + 'px'; frame.style.top = r.top + 'px'; frame.style.width = r.width + 'px'; frame.style.height = r.height + 'px'
     }
-    function target(x, y) {
-      var r = page.getBoundingClientRect()
-      if (x < r.left || x > r.right || y < r.top - 20 || y > r.bottom + 20) return { b: null }
-      var third = (x - r.left) / Math.max(1, r.width)
-      var mode = third < 0.33 ? 'left' : (third > 0.66 ? 'right' : 'c')
-      var b = blockAt(y, drag.par)
-      if (!b) return { b: null }
-      if (mode === 'c') return { b: b, mode: 'c' }
-      // text runs round it: anchored to the block UNDER the pointer
-      var under = null
+    function hideFrame() { if (frame && frame.parentNode) frame.parentNode.removeChild(frame); frame = null }
+    function unselect() {
+      sel = null; hideFrame()
+      document.removeEventListener('keydown', onSelKey, true)
+      document.removeEventListener('mousedown', onSelOutside, true)
+      window.removeEventListener('scroll', showFrame, true)
+    }
+    function onSelOutside(e) { if (!e.target || e.target.tagName !== 'IMG' || !page.contains(e.target)) unselect() }
+    function select(img) {
+      if (sel !== img) unselect()
+      sel = img
+      document.addEventListener('keydown', onSelKey, true)
+      document.addEventListener('mousedown', onSelOutside, true)
+      window.addEventListener('scroll', showFrame, true)
+      showFrame()
+    }
+    /** The top-level block of the page that holds an element. */
+    function anchorBlock(el) {
+      var b = el
+      while (b && b.parentNode && b.parentNode !== page) b = b.parentNode
+      return b && b.parentNode === page ? b : null
+    }
+    /** Put the picture at a screen position (px of its top-left corner), anchored to the block under it. The
+     *  picture is a free one: left from the text column, top from its paragraph (the document keeps both). */
+    function putAt(img, left, top) {
+      var sc = scaleOf()
+      var pr = page.getBoundingClientRect()
+      var cs = getComputedStyle(page)
+      var contentLeft = pr.left + (parseFloat(cs.paddingLeft) || 0) * sc
+      var h = img.getBoundingClientRect().height
+      var mid = top + h / 2
+      var cur = anchorBlock(img)
+      var hit = null
       Array.prototype.slice.call(page.children).forEach(function (el) {
-        if (el === drag.par) return
+        if (hit || !/^(P|H[1-6]|DIV|LI|BLOCKQUOTE)$/.test(el.tagName)) return
         var br = el.getBoundingClientRect()
-        if (!under && y >= br.top && y <= br.bottom && el.textContent.trim()) under = { el: el, y: br.top, r: br }
+        if (mid >= br.top && mid <= br.bottom) hit = el
       })
-      under = under || { el: b.el, y: b.y, r: b.r }
-      if (!WRAP_TAGS.test(under.el.tagName)) return { b: b, mode: 'c' }
-      return { b: under, mode: mode, wrap: true }
+      var anchor = hit || cur || page.firstElementChild
+      if (!anchor) return
+      if (anchor !== cur || img.parentNode !== anchor) {
+        anchor.style.position = 'relative'
+        anchor.insertBefore(img, anchor.firstChild)
+      }
+      var ar = anchor.getBoundingClientRect()
+      img.style.position = 'absolute'
+      img.style.left = (Math.round((left - contentLeft) / sc / PX_CM * 100) / 100) + 'cm'
+      img.style.top = (Math.round((top - ar.top) / sc / PX_CM * 100) / 100) + 'cm'
+      img.style.margin = '0'
+      img.style.cssFloat = 'none'
+      img.removeAttribute('align')
+    }
+    function dropEmpty(old) {
+      if (old && old.parentNode === page && !old.textContent.trim() && !old.querySelector('img')) page.removeChild(old)
+    }
+    function nudge(img, dxMm, dyMm) {
+      var r = img.getBoundingClientRect()
+      var k = scaleOf() * PX_CM / 10
+      var oldBlock = anchorBlock(img)
+      putAt(img, r.left + dxMm * k, r.top + dyMm * k)
+      if (oldBlock !== anchorBlock(img)) dropEmpty(oldBlock)
+      st.dirty = true; docStatus(''); docSaveRange(st); showFrame()
+    }
+    function onSelKey(e) {
+      if (!sel) return
+      if (e.key === 'Escape') { unselect(); return }
+      var step = e.shiftKey ? 5 : 1
+      var d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key]
+      if (d) { e.preventDefault(); e.stopPropagation(); nudge(sel, d[0], d[1]) }
+      else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault(); e.stopPropagation()
+        var old = anchorBlock(sel)
+        sel.parentNode.removeChild(sel)
+        dropEmpty(old)
+        unselect(); st.dirty = true; docStatus('')
+      }
     }
     function cleanup() {
-      if (line && line.parentNode) line.parentNode.removeChild(line)
-      line = null; drag = null
+      drag = null
       document.removeEventListener('mousemove', onMove, true)
       document.removeEventListener('mouseup', onUp, true)
-      document.removeEventListener('keydown', onKey, true)
       page.style.cursor = ''
     }
     function onMove(e) {
       if (!drag) return
-      if (!drag.on && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 5) return
+      if (!drag.on && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 3) return
       drag.on = true
       e.preventDefault()
       page.style.cursor = 'grabbing'
-      var tg = target(e.clientX, e.clientY)
-      drag.tg = tg
-      if (!line) {
-        line = document.createElement('div')
-        line.style.cssText = 'position:fixed;background:#2563eb;pointer-events:none;z-index:99999;border-radius:2px'
-        document.body.appendChild(line)
-      }
-      var r = page.getBoundingClientRect()
-      if (!tg.b) { line.style.display = 'none'; return }
-      line.style.display = ''
-      if (tg.wrap) {
-        // a vertical bar at the side where the picture will sit, along the first lines of that paragraph
-        var h = Math.min(tg.b.r.height, 90)
-        line.style.width = '4px'; line.style.height = h + 'px'; line.style.top = tg.b.r.top + 'px'
-        line.style.left = (tg.mode === 'left' ? r.left : r.right - 4) + 'px'
-      } else {
-        line.style.height = '3px'; line.style.width = r.width + 'px'; line.style.left = r.left + 'px'; line.style.top = (tg.b.y - 1) + 'px'
-      }
+      putAt(drag.img, drag.sl + (e.clientX - drag.x), drag.st + (e.clientY - drag.y))
+      showFrame()
     }
     function onUp(e) {
       var d = drag
-      var tg = d && d.tg
-      var img = d && d.img
-      var moved = d && d.on && tg && tg.b
       e.preventDefault(); e.stopPropagation()
       cleanup()
-      if (!moved) return
-      if (tg.wrap) place(img, tg.mode, tg.b.el, false)
-      else place(img, 'c', tg.b.el, tg.b.after)
+      if (!d || !d.on) return
+      if (d.par !== anchorBlock(d.img)) dropEmpty(d.par)
+      st.dirty = true; docStatus(''); docSaveRange(st)
+      showFrame()
     }
-    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); cleanup() } }
     function closeMenu() {
       if (menu && menu.parentNode) menu.parentNode.removeChild(menu)
       menu = null
@@ -4455,13 +4495,13 @@
     })
     page.addEventListener('mousedown', function (e) {
       if (e.button !== 0 || !e.target || e.target.tagName !== 'IMG') return
-      var par = e.target
-      while (par.parentNode && par.parentNode !== page) par = par.parentNode
       e.preventDefault()
-      drag = { img: e.target, par: par, x: e.clientX, y: e.clientY, on: false, tg: null }
+      var img = e.target
+      var r = img.getBoundingClientRect()
+      drag = { img: img, par: anchorBlock(img), x: e.clientX, y: e.clientY, sl: r.left, st: r.top, on: false }
+      select(img)
       document.addEventListener('mousemove', onMove, true)
       document.addEventListener('mouseup', onUp, true)
-      document.addEventListener('keydown', onKey, true)
     })
   }
 
