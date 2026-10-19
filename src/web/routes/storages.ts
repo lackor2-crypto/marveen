@@ -185,6 +185,12 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
     const account = String(b?.account || '').trim()
     if (!kind || !account) { json(res, { error: L(lang, 'Hiányzik a tároló azonosítója.', 'The storage ID is missing.') }, 400); return true }
     const hide = b?.hidden !== false
+    // Csak letezo tarolot lehet elrejteni/visszahozni: egy kitalalt kulcs ne keruljon a regiszterbe.
+    const known = currentRowsAll()
+    if (![...known.rows, ...known.hiddenRows].some((x) => x.kind === kind && x.account === account)) {
+      json(res, { error: L(lang, 'Ilyen tároló nincs.', 'There is no such storage.') }, 404)
+      return true
+    }
     writeStorageRegistry(setStorageHidden(readStorageRegistry(), kind, account, hide))
     const all = currentRowsAll()
     json(res, {

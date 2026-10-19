@@ -14,6 +14,7 @@ import {
   listStorages,
   ensureStorageFolders,
   addGitAccount,
+  removeGitAccount,
   renameStorage,
   setStorageActive,
   setStorageHidden,
@@ -250,3 +251,22 @@ describe('Eltavolitas (setStorageHidden)', () => {
   })
 })
 
+describe('Eltavolitas -- git-fiok (#713)', () => {
+  it('a veglegesen torolt git-fiok rejtett jelolese is megszunik, igy az ujra felvett fiok latszik', () => {
+    const added = addGitAccount(EMPTY, 'lackor2').reg
+    const hid = setStorageHidden(added, 'git', 'lackor2', true)
+    const gone = removeGitAccount(hid, 'lackor2')
+    expect(gone.hidden?.['git:lackor2']).toBeUndefined()
+    const again = addGitAccount(gone, 'lackor2').reg
+    const l = listStorages({ driveAccounts: [], photosAccounts: [], megaAccounts: [], root, registry: again })
+    expect(l.rows.map((r) => r.account)).toEqual(['lackor2'])
+    expect(l.hiddenRows).toHaveLength(0)
+  })
+
+  it('rejtett git-fiok ujrafelvetelekor a hiba megmondja, hogy az Elrejtett tarolok alatt van', () => {
+    const hid = setStorageHidden(addGitAccount(EMPTY, 'lackor2').reg, 'git', 'lackor2', true)
+    const r = addGitAccount(hid, 'lackor2')
+    expect(r.error).toContain('Elrejtett tárolók')
+    expect(addGitAccount(addGitAccount(EMPTY, 'x').reg, 'x').error).toBe('Ez a fiók már fel van véve.')
+  })
+})
