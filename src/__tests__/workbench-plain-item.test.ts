@@ -4,10 +4,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { getWorkItem } from '../workbench.js'
-import { sweepItemContexts, readItemContext, isPlainItem } from '../workbench-item-context.js'
+import { sweepItemContexts, readItemContext, isPlainItem, markPlainItem } from '../workbench-item-context.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
 let dir = ''
@@ -45,5 +45,24 @@ describe('an item made from an existing file is plain', () => {
     expect(c.status).toBe(201)
     expect(isPlainItem(c.body.item.id as string)).toBe(false)
     expect(readdirSync(projDir).length).toBeGreaterThan(0)
+  })
+
+  it('a context and to-do file made before the item was marked plain are removed while untouched', async () => {
+    writeFileSync(join(projDir, 'Antrag.docx'), 'x')
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'document', title: 'Antrag', source_path: 'Projektek/Plain/Antrag.docx', folder: 'Projektek/Plain' })
+    const id = c.body.item.id as string
+    const { ensureItemContext } = await import('../workbench-item-context.js')
+    const { ensureItemTodoFile } = await import('../workbench-item-todos.js')
+    const { getProject } = await import('../projects.js')
+    const project = getProject(pid)!
+    // simulate the old behaviour: the files were generated first
+    getDb().prepare('DELETE FROM work_item_plain WHERE item_id = ?').run(id)
+    ensureItemContext(getWorkItem(id)!, project)
+    ensureItemTodoFile(getWorkItem(id)!, project)
+    expect(readItemContext(getWorkItem(id)!)).not.toBeNull()
+    markPlainItem(id)
+    await sweepItemContexts()
+    expect(readItemContext(getWorkItem(id)!)).toBeNull()
+    expect(readdirSync(join(projDir, ...(getWorkItem(id)!.container_folder ? [] : []))).filter((n) => /^(Kontextus|Teend)/.test(n))).toEqual([])
   })
 })
