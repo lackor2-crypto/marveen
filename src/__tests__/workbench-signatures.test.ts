@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -124,5 +124,14 @@ describe('a WebP picture on the page (#719)', () => {
     expect(isWebp(WEBP)).toBe(true)
     const png = webpToPng(WEBP)
     expect(png && png.readUInt32BE(0)).toBe(0x89504e47)
+  })
+})
+
+describe('#719 the Word editor moves a picture with its own mouse drag', () => {
+  it('switches the native image drag off and wires docImgDragInit into the editor', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain('function docImgDragInit(st, page)')
+    expect(js).toContain('docImgDragInit(st, page)')
+    expect(js).toMatch(/addEventListener\('dragstart'[\s\S]{0,120}tagName === 'IMG'\) e\.preventDefault\(\)/)
   })
 })

@@ -4271,6 +4271,7 @@
     page.addEventListener('keyup', remember)
     page.addEventListener('mouseup', remember)
     page.addEventListener('blur', remember)
+    docImgDragInit(st, page)
     foot.addEventListener('click', function (e) {
       var b = e.target && e.target.closest ? e.target.closest('[data-de-act]') : null
       if (!b) return
@@ -4295,6 +4296,86 @@
     for (var i = 0; i < slots.length; i++) {
       slots[i].innerHTML = brandSwatchRow('data-de-swatch="' + escA(slots[i].getAttribute('data-de-brand')) + '"', '')
     }
+  }
+
+  /** #719: a picture (the signature) in the Word editor is moved with the mouse: it is grabbed, a line shows where
+   *  it will land, and on release it becomes a paragraph of its own before/after the block under the pointer
+   *  (left / centre / right by the pointer's horizontal third). The browser's native image drag is switched
+   *  off, so it can never reach the Workbench's file/item drop handlers. */
+  function docImgDragInit(st, page) {
+    var drag = null
+    var line = null
+    page.addEventListener('dragstart', function (e) {
+      if (e.target && e.target.tagName === 'IMG') e.preventDefault()
+    })
+    function target(x, y) {
+      var r = page.getBoundingClientRect()
+      var blocks = Array.prototype.slice.call(page.children).filter(function (b) { return b !== drag.par })
+      var best = null
+      if (x < r.left || x > r.right || y < r.top - 20 || y > r.bottom + 20) return { b: null, align: 'left' }
+      for (var i = 0; i < blocks.length; i++) {
+        var br = blocks[i].getBoundingClientRect()
+        if (y < br.top + br.height / 2) { best = { el: blocks[i], after: false, y: br.top }; break }
+        best = { el: blocks[i], after: true, y: br.bottom }
+      }
+      var third = (x - r.left) / Math.max(1, r.width)
+      return { b: best, align: third < 0.33 ? 'left' : (third > 0.66 ? 'right' : 'center') }
+    }
+    function cleanup() {
+      if (line && line.parentNode) line.parentNode.removeChild(line)
+      line = null; drag = null
+      document.removeEventListener('mousemove', onMove, true)
+      document.removeEventListener('mouseup', onUp, true)
+      document.removeEventListener('keydown', onKey, true)
+      page.style.cursor = ''
+    }
+    function onMove(e) {
+      if (!drag) return
+      if (!drag.on && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 5) return
+      drag.on = true
+      e.preventDefault()
+      page.style.cursor = 'grabbing'
+      var tg = target(e.clientX, e.clientY)
+      drag.tg = tg
+      if (!line) {
+        line = document.createElement('div')
+        line.style.cssText = 'position:fixed;height:3px;background:#2563eb;pointer-events:none;z-index:99999;border-radius:2px'
+        document.body.appendChild(line)
+      }
+      var r = page.getBoundingClientRect()
+      if (tg.b) { line.style.display = ''; line.style.left = r.left + 'px'; line.style.width = r.width + 'px'; line.style.top = (tg.b.y - 1) + 'px' }
+      else line.style.display = 'none'
+    }
+    function onUp(e) {
+      var d = drag
+      var moved = d && d.on && d.tg && d.tg.b
+      var img = d && d.img
+      var tg = d && d.tg
+      var old = d && d.par
+      e.preventDefault(); e.stopPropagation()
+      cleanup()
+      if (!moved) return
+      var p = document.createElement('p')
+      p.style.textAlign = tg.align
+      p.appendChild(img)
+      if (tg.b.after) tg.b.el.parentNode.insertBefore(p, tg.b.el.nextSibling)
+      else tg.b.el.parentNode.insertBefore(p, tg.b.el)
+      if (old && old.parentNode && old !== p && !old.textContent.trim() && !old.querySelector('img')) old.parentNode.removeChild(old)
+      st.dirty = true
+      docStatus('')
+      docSaveRange(st)
+    }
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); cleanup() } }
+    page.addEventListener('mousedown', function (e) {
+      if (e.button !== 0 || !e.target || e.target.tagName !== 'IMG') return
+      var par = e.target
+      while (par.parentNode && par.parentNode !== page) par = par.parentNode
+      e.preventDefault()
+      drag = { img: e.target, par: par, x: e.clientX, y: e.clientY, on: false, tg: null }
+      document.addEventListener('mousemove', onMove, true)
+      document.addEventListener('mouseup', onUp, true)
+      document.addEventListener('keydown', onKey, true)
+    })
   }
 
   function docSaveRange(st) {
