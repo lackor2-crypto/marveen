@@ -4342,6 +4342,47 @@
       docSaveRange(st)
       return true
     }
+    var IMG_MODES = [
+      ['l', 'workbench.docedit.img_line_left', '&#8676;'], ['c', 'workbench.docedit.img_line_center', '&#8596;'], ['r', 'workbench.docedit.img_line_right', '&#8677;'],
+      ['left', 'workbench.docedit.img_wrap_left', '&#9700;'], ['right', 'workbench.docedit.img_wrap_right', '&#9701;'],
+      ['over', 'workbench.dp.img_mode_over', '&#9635;']
+    ]
+    /** Which of IMG_MODES the picture is in now (read from the page, the only source of truth). */
+    function modeOf(img) {
+      if (img.style.position === 'absolute') return 'over'
+      var f = img.style.cssFloat || img.getAttribute('align')
+      if (f === 'left' || f === 'right') return f
+      var ta = img.parentNode && img.parentNode.style ? img.parentNode.style.textAlign : ''
+      return ta === 'left' ? 'l' : ta === 'right' ? 'r' : 'c'
+    }
+    /** Put the picture in one of IMG_MODES (the toolbar and the right-click menu both come here). */
+    function applyMode(img, mode) {
+      if (mode === 'over') {
+        if (img.style.position === 'absolute') return
+        var r0 = img.getBoundingClientRect()
+        var old0 = anchorBlock(img)
+        putAt(img, r0.left, r0.top)
+        if (old0 !== anchorBlock(img)) dropEmpty(old0)
+        st.dirty = true; docStatus(''); docSaveRange(st)
+        return
+      }
+      var par = img
+      while (par.parentNode && par.parentNode !== page) par = par.parentNode
+      if (mode === 'left' || mode === 'right') {
+        // the picture sits in a paragraph of its own: the text that runs round it is the NEXT block
+        var anchor = par
+        if (par === img || !par.textContent.trim()) anchor = par.nextElementSibling || par.previousElementSibling
+        if (!anchor || !place(img, mode, anchor, false)) place(img, 'c', par, true)
+      } else if (par !== img && !par.textContent.trim() && par.tagName === 'P') {
+        // already on a line of its own: only the alignment changes
+        img.style.cssText = 'width:' + (img.style.width || '5cm')
+        img.removeAttribute('align')
+        par.style.textAlign = mode === 'l' ? 'left' : (mode === 'r' ? 'right' : 'center')
+        st.dirty = true; docStatus(''); docSaveRange(st)
+      } else {
+        place(img, mode, par, true)
+      }
+    }
     var PX_CM = 96 / 2.54
     var sel = null
     var frame = null
@@ -4363,7 +4404,38 @@
         hd.style.cssText = 'position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:3px;background:#2563eb;border:2px solid #fff;cursor:nwse-resize;pointer-events:auto;touch-action:none'
         hd.addEventListener('pointerdown', onSizeDown)
         frame.appendChild(hd)
+        // The court document's picture buttons (Boss TG 3839): own line left / centre / right, text runs round it
+        // left / right, free over the text -- the same choices as the right-click menu, one click away.
+        var tools = document.createElement('span')
+        tools.className = 'wb-dp-img-tools'
+        tools.setAttribute('data-de-img-tools', '1')
+        tools.style.cssText = 'opacity:1;pointer-events:auto;top:auto;bottom:100%;margin-bottom:4px;white-space:nowrap'
+        IMG_MODES.forEach(function (m) {
+          var bt = document.createElement('button')
+          bt.type = 'button'
+          bt.className = 'wb-dp-img-al'
+          bt.setAttribute('data-de-img-mode', m[0])
+          bt.title = t(m[1])
+          bt.setAttribute('aria-label', t(m[1]))
+          bt.innerHTML = m[2]
+          bt.addEventListener('mousedown', function (ev) { ev.preventDefault(); ev.stopPropagation() })
+          bt.addEventListener('click', function (ev) {
+            ev.preventDefault(); ev.stopPropagation()
+            var img = sel
+            if (!img) return
+            applyMode(img, m[0])
+            select(img)
+          })
+          tools.appendChild(bt)
+        })
+        frame.appendChild(tools)
       }
+      var cur = modeOf(sel)
+      Array.prototype.forEach.call(frame.querySelectorAll('[data-de-img-mode]'), function (bt) {
+        var on = bt.getAttribute('data-de-img-mode') === cur
+        bt.classList.toggle('is-on', on)
+        bt.setAttribute('aria-pressed', on ? 'true' : 'false')
+      })
       var r = sel.getBoundingClientRect()
       frame.style.left = r.left + 'px'; frame.style.top = r.top + 'px'; frame.style.width = r.width + 'px'; frame.style.height = r.height + 'px'
     }
@@ -4396,7 +4468,7 @@
       document.removeEventListener('mousedown', onSelOutside, true)
       window.removeEventListener('scroll', showFrame, true)
     }
-    function onSelOutside(e) { if (e.target && e.target.closest && e.target.closest('[data-de-img-size]')) return; if (!e.target || e.target.tagName !== 'IMG' || !page.contains(e.target)) unselect() }
+    function onSelOutside(e) { if (e.target && e.target.closest && e.target.closest('[data-de-img-size],[data-de-img-tools]')) return; if (!e.target || e.target.tagName !== 'IMG' || !page.contains(e.target)) unselect() }
     function select(img) {
       if (sel !== img) unselect()
       sel = img
@@ -4506,12 +4578,9 @@
       e.preventDefault()
       closeMenu()
       var img = e.target
-      var items = [
-        ['left', 'workbench.docedit.img_wrap_left'], ['right', 'workbench.docedit.img_wrap_right'],
-        ['l', 'workbench.docedit.img_line_left'], ['c', 'workbench.docedit.img_line_center'], ['r', 'workbench.docedit.img_line_right']
-      ]
+      var items = IMG_MODES
       menu = document.createElement('div')
-      menu.style.cssText = 'position:fixed;z-index:99999;background:#fff;color:#111;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:4px;min-width:230px;left:' + Math.min(e.clientX, window.innerWidth - 250) + 'px;top:' + Math.min(e.clientY, window.innerHeight - 190) + 'px'
+      menu.style.cssText = 'position:fixed;z-index:99999;background:#fff;color:#111;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:4px;min-width:230px;left:' + Math.min(e.clientX, window.innerWidth - 250) + 'px;top:' + Math.min(e.clientY, window.innerHeight - 230) + 'px'
       items.forEach(function (it) {
         var bt = document.createElement('button')
         bt.type = 'button'
@@ -4521,16 +4590,8 @@
         bt.addEventListener('mouseleave', function () { bt.style.background = 'transparent' })
         bt.addEventListener('click', function () {
           closeMenu()
-          var par = img
-          while (par.parentNode && par.parentNode !== page) par = par.parentNode
-          if (it[0] === 'left' || it[0] === 'right') {
-            // the picture sits in a paragraph of its own: the text that runs round it is the NEXT block
-            var anchor = par
-            if (par === img || !par.textContent.trim()) anchor = par.nextElementSibling || par.previousElementSibling
-            if (!anchor || !place(img, it[0], anchor, false)) place(img, 'c', par, true)
-          } else {
-            place(img, it[0], par, true)
-          }
+          applyMode(img, it[0])
+          if (sel === img) showFrame()
         })
         menu.appendChild(bt)
       })
