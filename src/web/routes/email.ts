@@ -203,7 +203,9 @@ registerMailboxDraftPort({
     if (m.subject) args.push('-s', m.subject)
     args.push('--body', m.body.trim() ? m.body : '\n', '--save', drafts)
     for (const f of m.files) args.push('--attach', f)
-    const r = await himalayaOnce(args)
+    // #725 (Boss TG 4003: the first press did not put the draft in, the second did): the known transient IMAP error
+    // ("Resource temporarily unavailable") is retried here like in the reads, instead of failing the owner's one press.
+    const r = await himalayaRead(args)
     if (!r.ok) return { ok: false, detail: himalayaErrorText(r) }
     invalidateEnvelopeCache(accountId, drafts)
     return { ok: true, mailbox: drafts }
