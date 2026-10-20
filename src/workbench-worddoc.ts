@@ -1,0 +1,493 @@
+/**
+ * ONE DOCUMENT EDITOR: A WORD FILE ON THE COURT DOCUMENT PAGE (kanban #720, Boss TG 3877-3886).
+ *
+ * Boss: "mindenfele dokumentumot az a birosagi resz kezelne le, igy csak egy helyen lenne az egesz." Decision 1A + 2A:
+ * a .docx / .doc / .odt / .rtf work item opens on the SAME page as a court document (the text profile of #673 hides the
+ * court-only parts), and saving updates the same work item and the same file -- no "(2).docx" per save; the old state is
+ * the previous version in the version bar.
+ *
+ * The way in: LibreOffice turns the file into HTML (the same export the Word editor used, pictures embedded), and this
+ * module reads that HTML into the page's outline: headings -> chapters, paragraphs (bold / italic / underline / strike,
+ * font, size, colour, alignment), lists, tables, pictures (written next to the file as picture files, an identical one
+ * is reused). The original file is NEVER touched: the first import keeps it as the previous version and the page writes
+ * (through the mirror, `workbench-docmirror.ts`) into a NEW .docx that is the item's current file from then on.
+ *
+ * What the page cannot hold (header / footer, text box, columns, footnotes, a picture in an unknown format) is not
+ * silently dropped: it is listed as a warning the page shows, and the original file stays in the version history.
+ */
+import { createHash } from 'node:crypto'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { basename, dirname, extname, join } from 'node:path'
+import { APP_LANG } from './config.js'
+import { getDb } from './db.js'
+import { resolveLifePath } from './life-explorer.js'
+import { writeProjectFile } from './project-files.js'
+import { getProject, type ProjectRow } from './projects.js'
+import { docEditExt, docToEditableHtml } from './workbench-docedit.js'
+import { fileStem, renderDocx } from './workbench-docfinal.js'
+import { seedMirrorRow, scheduleOutlineMirror } from './workbench-docmirror.js'
+import {
+  BLANK_LINE, BLOCK_TEXT_MAX, BLOCKS_MAX, OVER_Y_MAX, PLACEHOLDER_SECTION_TITLES, SECTION_TITLE_MAX, addSection, documentOutline,
+  hasDocModel, replacePage, type PageSectionIn,
+} from './workbench-docmodel.js'
+import { richMatches, richToPlain, sanitizeRich } from './workbench-docrich.js'
+import { saveBytesAsNewVersion, subFolderOf } from './workbench-edit.js'
+import { getWorkItem, type WorkItemRow } from './workbench.js'
+
+export type WordDocCode = 'worddoc_not_word' | 'worddoc_unreadable' | 'worddoc_convert_failed' | 'worddoc_project_gone' | 'worddoc_save_failed' | 'worddoc_import_failed'
+
+/** What did not come over from the file (the page lists them; the original file stays in the version history). */
+export const WORD_WARNINGS = ['header_footer', 'text_box', 'columns', 'footnotes', 'images_skipped', 'nested_tables', 'too_long'] as const
+export type WordWarning = typeof WORD_WARNINGS[number]
+
+export type WordImportOutcome =
+  | { ok: true; item: WorkItemRow; imported: boolean; warnings: WordWarning[] }
+  | { ok: false; code: WordDocCode; detail: string | null }
+
+/** The width of the text on an A4 page with 2.54 cm margins (what LibreOffice writes by default), in cm and in CSS px. */
+const TEXT_WIDTH_CM = 15.92
+
+function ensureWordTable(): void {
+  getDb().exec(`CREATE TABLE IF NOT EXISTS wb_word_import (
+    work_item_id TEXT PRIMARY KEY,
+    warnings TEXT NOT NULL DEFAULT '[]',
+    imported_at INTEGER NOT NULL
+  )`)
+}
+
+/** Was this item read in from a Word file (it then mirrors into its own .docx and takes the text profile)? */
+export function isWordImported(itemId: string): boolean {
+  ensureWordTable()
+  return !!getDb().prepare('SELECT 1 FROM wb_word_import WHERE work_item_id = ?').get(itemId)
+}
+
+/** The warnings of the import still shown on the page ([] once the owner closed them). */
+export function wordImportWarnings(itemId: string): WordWarning[] {
+  ensureWordTable()
+  const row = getDb().prepare('SELECT warnings FROM wb_word_import WHERE work_item_id = ?').get(itemId) as { warnings: string } | undefined
+  if (!row) return []
+  try {
+    const v = JSON.parse(row.warnings) as unknown
+    return Array.isArray(v) ? v.filter((w): w is WordWarning => (WORD_WARNINGS as readonly string[]).includes(String(w))) : []
+  } catch { return [] }
+}
+
+export function dismissWordWarnings(itemId: string): void {
+  ensureWordTable()
+  getDb().prepare(`UPDATE wb_word_import SET warnings = '[]' WHERE work_item_id = ?`).run(itemId)
+}
+
+function markImported(itemId: string, warnings: WordWarning[]): void {
+  ensureWordTable()
+  getDb().prepare(`INSERT INTO wb_word_import (work_item_id, warnings, imported_at) VALUES (?, ?, ?)
+    ON CONFLICT(work_item_id) DO UPDATE SET warnings = excluded.warnings, imported_at = excluded.imported_at`)
+    .run(itemId, JSON.stringify(warnings), Date.now())
+}
+
+/**
+ * A document work item whose file is a Word-like document, not yet on the page (or read in by this module before).
+ * A court document that has its own page AND a .docx path from elsewhere is left alone: its page is the source already.
+ */
+export function isWordProfileCandidate(item: Pick<WorkItemRow, 'id' | 'type' | 'source_path' | 'deleted_at'>): boolean {
+  if (item.type !== 'document' || item.deleted_at || !docEditExt(item.source_path)) return false
+  return !hasDocModel(item.id) || isWordImported(item.id)
+}
+
+// ---- HTML -> page -------------------------------------------------------------------------------
+
+const TOKEN_RE = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)/g
+const INLINE_KEEP = new Set(['b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'span', 'font'])
+const SKIP_CONTENT = new Set(['head', 'style', 'script', 'title', 'sdfield'])
+
+function attr(attrs: string, name: string): string | null {
+  const m = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(attrs)
+  return m ? (m[1] ?? m[2] ?? m[3] ?? '') : null
+}
+
+function styleOf(attrs: string, prop: string): string | null {
+  const st = attr(attrs, 'style')
+  if (!st) return null
+  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, 'i').exec(st)
+  return m ? (m[1] as string).trim() : null
+}
+
+/** A CSS length in cm (cm, mm, in, pt, px); null when it is not one. */
+function cmOf(v: string | null): number | null {
+  const m = /^(-?[\d.]+)\s*(cm|mm|in|pt|px)?$/i.exec(String(v ?? '').trim())
+  if (!m) return null
+  const n = Number(m[1])
+  if (!Number.isFinite(n)) return null
+  const unit = (m[2] || 'px').toLowerCase()
+  return unit === 'cm' ? n : unit === 'mm' ? n / 10 : unit === 'in' ? n * 2.54 : unit === 'pt' ? n / 72 * 2.54 : n / 96 * 2.54
+}
+
+function alignOf(attrs: string): 'c' | 'r' | 'j' | '' {
+  const a = (styleOf(attrs, 'text-align') || attr(attrs, 'align') || '').toLowerCase()
+  return a === 'center' ? 'c' : a === 'right' ? 'r' : a === 'justify' ? 'j' : ''
+}
+
+function decodeText(s: string): string {
+  return s.replace(/&nbsp;|&#160;|&#xa0;/gi, ' ')
+}
+
+function placeholderTitle(): string {
+  return APP_LANG === 'en' ? PLACEHOLDER_SECTION_TITLES[1] as string : PLACEHOLDER_SECTION_TITLES[0] as string
+}
+
+/** One picture found in the file: its bytes (from the embedded data: address) and how it stood on the page. */
+export interface WordPicture { mime: string; data: Buffer; widthCm: number | null; align: 'l' | 'c' | 'r'; over: { x: number; y: number } | null }
+
+interface ParsedBlock { kind: 'paragraph' | 'list' | 'table' | 'image'; text: string; rich?: string; align?: string; picture?: WordPicture }
+export interface ParsedWord { sections: { title: string; blocks: ParsedBlock[] }[]; warnings: WordWarning[] }
+
+const PICTURE_MIME: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' }
+
+/**
+ * The LibreOffice HTML of a Word document as the page's sections. Pure (no files): a picture is returned with its bytes,
+ * the caller writes it. What is not understood stays as paragraph text, so no words can vanish.
+ */
+export function parseWordHtml(html: string): ParsedWord {
+  const warnings = new Set<WordWarning>()
+  const sections: ParsedWord['sections'] = []
+  let cur: ParsedWord['sections'][number] | null = null
+  const section = (): ParsedWord['sections'][number] => {
+    if (!cur) { cur = { title: placeholderTitle(), blocks: [] }; sections.push(cur) }
+    return cur
+  }
+
+  const src = String(html ?? '')
+  const bodyAt = src.search(/<body\b/i)
+  const body = bodyAt >= 0 ? src.slice(bodyAt) : src
+  if (/<div\b[^>]*\btitle\s*=\s*"?(header|footer)/i.test(body)) warnings.add('header_footer')
+  if (/column-count|<multicol\b/i.test(body)) warnings.add('columns')
+
+  // The capture: the paragraph / heading / list item / table cell being read.
+  type Capture = { kind: 'p' | 'h' | 'li' | 'cell'; buf: string; align: string; pics: WordPicture[]; lineStart: boolean; space: boolean }
+  let cap = null as Capture | null
+  const skip: string[] = []            // open tags whose content is not read (head, header, footnote, ...)
+  const divs: boolean[] = []           // per open <div>: does it skip its content
+  const lists: { ordered: boolean; items: string[] }[] = []
+  let table = null as { rows: string[][]; depth: number } | null
+  let afterImg = false
+
+  const open = (kind: 'p' | 'h' | 'li' | 'cell', attrs: string): void => {
+    cap = { kind, buf: '', align: alignOf(attrs), pics: [], lineStart: true, space: false }
+  }
+  const text = (raw: string): void => {
+    if (!cap) {
+      if (!raw.trim() || table) return
+      open('p', '')
+    }
+    const c = cap as Capture
+    let t = decodeText(raw).replace(/\s+/g, ' ')
+    // LibreOffice breaks the line right after a picture: that break is not a space in the text ("B<img>\n\nakos").
+    if (afterImg && /^\s/.test(raw)) t = t.replace(/^ /, '')
+    afterImg = false
+    if (c.lineStart || c.space) t = t.replace(/^ /, '')
+    if (!t) return
+    c.buf += t.replace(/[<>]/g, (ch) => (ch === '<' ? '&lt;' : '&gt;'))
+    c.lineStart = false
+    c.space = t.endsWith(' ')
+  }
+  const picture = (attrs: string): void => {
+    afterImg = true
+    const srcAttr = attr(attrs, 'src') || ''
+    const m = /^data:([^;,]+);base64,([\s\S]*)$/i.exec(srcAttr.trim())
+    const ext = m ? PICTURE_MIME[(m[1] as string).toLowerCase()] : undefined
+    if (!m || !ext) { warnings.add('images_skipped'); return }
+    let data: Buffer
+    try { data = Buffer.from((m[2] as string).replace(/\s+/g, ''), 'base64') } catch { warnings.add('images_skipped'); return }
+    if (!data.length) { warnings.add('images_skipped'); return }
+    const widthCm = cmOf(styleOf(attrs, 'width')) ?? cmOf(attr(attrs, 'width'))
+    const fl = (styleOf(attrs, 'float') || attr(attrs, 'align') || '').toLowerCase()
+    const pAlign = cap && cap.align === 'c' ? 'c' : cap && cap.align === 'r' ? 'r' : 'l'
+    const align: 'l' | 'c' | 'r' = fl === 'right' ? 'r' : fl === 'left' ? 'l' : pAlign
+    let over: WordPicture['over'] = null
+    if ((styleOf(attrs, 'position') || '').toLowerCase() === 'absolute') {
+      const left = cmOf(styleOf(attrs, 'left')) ?? 0
+      const top = cmOf(styleOf(attrs, 'top')) ?? 0
+      over = { x: Math.max(0, Math.round(left / TEXT_WIDTH_CM * 1000) / 10), y: Math.max(0, Math.min(OVER_Y_MAX, Math.round(top / TEXT_WIDTH_CM * 1000) / 10)) }
+    }
+    const pic: WordPicture = { mime: (m[1] as string).toLowerCase(), data, widthCm, align, over }
+    if (cap) cap.pics.push(pic)
+    else if (!table) section().blocks.push({ kind: 'image', text: '', picture: pic })
+  }
+  const flush = (): void => {
+    const c = cap
+    if (!c) return
+    cap = null
+    const buf = c.buf.replace(/ ((?:<\/?(?:b|strong|i|em|u|s|strike|del|span|font)\b[^>]*>)*)$/i, '$1')
+    const plain = richToPlain(buf).replace(/[ \t]*\n[ \t]*/g, '\n').replace(/^\n+|\n+$/g, '').trim()
+    if (c.kind === 'h') {
+      if (plain) { cur = { title: plain.replace(/\s*\n\s*/g, ' ').slice(0, SECTION_TITLE_MAX), blocks: [] }; sections.push(cur) }
+    } else if (c.kind === 'li') {
+      const l = lists[lists.length - 1]
+      if (l && plain) l.items.push(plain.replace(/\s*\n\s*/g, ' '))
+    } else if (c.kind === 'cell') {
+      if (table) {
+        const row = table.rows[table.rows.length - 1]
+        if (row) row.push(plain.replace(/\s*\n\s*/g, ' ').replace(/\|/g, '/'))
+      }
+    } else if (plain) {
+      const rich = sanitizeRich(buf)
+      const pieces = plain.length > BLOCK_TEXT_MAX ? chunk(plain) : [plain]
+      for (const piece of pieces) {
+        const b: ParsedBlock = { kind: 'paragraph', text: piece }
+        if (pieces.length === 1 && rich && richMatches(rich, piece)) b.rich = rich
+        if (c.align) b.align = c.align
+        section().blocks.push(b)
+      }
+    } else if (!c.pics.length && c.kind === 'p') section().blocks.push({ kind: 'paragraph', text: BLANK_LINE })
+    for (const pic of c.pics) section().blocks.push({ kind: 'image', text: '', picture: pic })
+  }
+
+  for (const m of body.matchAll(TOKEN_RE)) {
+    const whole = m[0]
+    if (whole.startsWith('<!--')) continue
+    const tag = (m[2] || '').toLowerCase()
+    const attrs = m[3] || ''
+    const closing = m[1] === '/'
+    if (!tag) {
+      if (!skip.length) text(m[4] ?? '')
+      continue
+    }
+    if (skip.length) {
+      // Inside skipped content only the matching close (and nested divs) count.
+      if (tag === 'div') {
+        if (closing) { if (divs.pop()) skip.pop() } else divs.push(false)
+      } else if (closing && tag === skip[skip.length - 1]) skip.pop()
+      continue
+    }
+    if (SKIP_CONTENT.has(tag)) { if (!closing && !/\/\s*$/.test(attrs)) skip.push(tag); continue }
+    if (tag === 'a' && !closing && /sdfootnoteanc|sdendnoteanc/i.test(attrs)) { warnings.add('footnotes'); skip.push('a'); continue }
+    if (tag === 'div') {
+      if (closing) { flush(); if (divs.pop()) skip.pop(); continue }
+      flush()
+      const header = /\btitle\s*=\s*"?(header|footer)/i.test(attrs)
+      const note = /\bid\s*=\s*"?sd(foot|end)note/i.test(attrs)
+      if (note) warnings.add('footnotes')
+      if (/\bid\s*=\s*"?(frame|text ?frame|shape)\d*/i.test(attrs) || /sd-abs-pos/i.test(attrs)) warnings.add('text_box')
+      divs.push(header || note)
+      if (header || note) skip.push('div')
+      continue
+    }
+    if (/^h[1-6]$/.test(tag)) {
+      if (table) continue
+      flush()
+      if (!closing) open('h', attrs)
+      continue
+    }
+    if (tag === 'p') {
+      if (table) continue
+      if (cap && cap.kind === 'li') continue
+      flush()
+      if (!closing) open('p', attrs)
+      continue
+    }
+    if (tag === 'ol' || tag === 'ul') {
+      if (table) continue
+      if (!closing) {
+        if (cap && cap.kind === 'li') flush()
+        else flush()
+        lists.push({ ordered: tag === 'ol', items: [] })
+      } else {
+        flush()
+        const l = lists.pop()
+        if (l && l.items.length) {
+          const parent = lists[lists.length - 1]
+          if (parent) parent.items.push(...l.items.map((x) => `  ${x}`))
+          else {
+            const t = l.ordered ? l.items.map((x, i) => `${i + 1}. ${x}`).join('\n') : l.items.join('\n')
+            for (const piece of chunk(t)) section().blocks.push({ kind: 'list', text: piece })
+          }
+        }
+      }
+      continue
+    }
+    if (tag === 'li') {
+      if (table) continue
+      flush()
+      if (!closing) open('li', attrs)
+      continue
+    }
+    if (tag === 'table') {
+      if (!closing) {
+        if (table) { table.depth++; warnings.add('nested_tables'); continue }
+        flush()
+        table = { rows: [], depth: 1 }
+      } else if (table) {
+        if (--table.depth > 0) continue
+        flush()
+        const rows = table.rows.filter((r) => r.some((c) => c.trim()))
+        table = null
+        if (rows.length) section().blocks.push({ kind: 'table', text: rows.map((r) => r.join(' | ')).join('\n').slice(0, BLOCK_TEXT_MAX) })
+      }
+      continue
+    }
+    if (table && tag === 'tr') { if (!closing && table.depth === 1) { flush(); table.rows.push([]) } continue }
+    if (table && (tag === 'td' || tag === 'th')) {
+      if (table.depth > 1) continue
+      flush()
+      if (!closing) { if (!table.rows.length) table.rows.push([]); open('cell', attrs) }
+      continue
+    }
+    if (tag === 'img') { picture(attrs); continue }
+    if (tag === 'br') {
+      if (cap) {
+        cap.buf = cap.buf.replace(/ ((?:<\/?(?:b|strong|i|em|u|s|strike|del|span|font)\b[^>]*>)*)$/i, '$1') + '<br>'
+        cap.lineStart = true
+        cap.space = false
+      }
+      continue
+    }
+    if (INLINE_KEEP.has(tag) && cap) {
+      cap.buf += closing ? `</${tag}>` : `<${tag}${tag === 'span' || tag === 'font' ? attrs.replace(/\/\s*$/, '') : ''}>`
+      continue
+    }
+    if (tag === 'body' && closing) flush()
+  }
+  flush()
+  // Empty lines at the very end (the trailing paragraph marks of a Word file) carry nothing.
+  for (const s of sections) while (s.blocks.length && s.blocks[s.blocks.length - 1]?.text === BLANK_LINE) s.blocks.pop()
+  let total = 0
+  for (const s of sections) {
+    if (total + s.blocks.length > BLOCKS_MAX) { s.blocks.length = Math.max(0, BLOCKS_MAX - total); warnings.add('too_long') }
+    total += s.blocks.length
+  }
+  return { sections, warnings: [...warnings] }
+}
+
+function chunk(text: string): string[] {
+  if (text.length <= BLOCK_TEXT_MAX) return [text]
+  const out: string[] = []
+  for (let i = 0; i < text.length; i += BLOCK_TEXT_MAX) out.push(text.slice(i, i + BLOCK_TEXT_MAX))
+  return out
+}
+
+// ---- pictures -----------------------------------------------------------------------------------
+
+const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex')
+
+/**
+ * Writes a picture of the file next to it (the same folder: no new folder) and returns its path. An identical picture
+ * already in that folder is reused, so reading the same file twice does not make a copy.
+ */
+function placePicture(project: ProjectRow, dirRel: string, dirAbs: string, stem: string, n: number, pic: WordPicture): string | null {
+  const ext = PICTURE_MIME[pic.mime] ?? 'png'
+  const want = sha(pic.data)
+  try {
+    for (const name of readdirSync(dirAbs)) {
+      if (!/\.(png|jpe?g|gif|webp)$/i.test(name)) continue
+      const abs = join(dirAbs, name)
+      try { if (statSync(abs).size !== pic.data.length) continue } catch { continue }
+      if (sha(readFileSync(abs)) === want) return `${dirRel}/${name}`
+    }
+  } catch { /* an unreadable folder: write a new file below */ }
+  const word = APP_LANG === 'en' ? 'picture' : 'kép'
+  const out = writeProjectFile(project, subFolderOf(project, `${dirRel}/x`), `${stem} - ${word} ${n}.${ext}`, pic.data)
+  return out.ok ? out.rel : null
+}
+
+function imageBlockText(path: string, pic: WordPicture): string {
+  const width = pic.widthCm ? Math.max(10, Math.min(100, Math.round(pic.widthCm / TEXT_WIDTH_CM * 100))) : 40
+  if (pic.over) return `${path}#w=${width}&a=l&x=${Math.min(100 - width, pic.over.x)}&y=${pic.over.y}&o=1`
+  return `${path}#w=${width}&a=${pic.align}`
+}
+
+/** The parsed file as the page's sections, its pictures written next to `sourceRel`. */
+function pageOf(parsed: ParsedWord, project: ProjectRow, sourceRel: string, title: string, warnings: Set<WordWarning>): PageSectionIn[] {
+  const dirRel = dirname(sourceRel)
+  const dirAbs = resolveLifePath(dirRel)
+  const stem = fileStem(title || basename(sourceRel, extname(sourceRel)), 80)
+  let n = 0
+  return parsed.sections.map((s) => ({
+    title: s.title,
+    blocks: s.blocks.flatMap((b) => {
+      if (b.kind !== 'image') return [{ kind: b.kind, text: b.text, ...(b.rich ? { rich: b.rich } : {}), ...(b.align ? { align: b.align } : {}) }]
+      const pic = b.picture as WordPicture
+      const path = dirAbs ? placePicture(project, dirRel, dirAbs, stem, ++n, pic) : null
+      if (!path) { warnings.add('images_skipped'); return [] }
+      return [{ kind: 'image', text: imageBlockText(path, pic) }]
+    }),
+  }))
+}
+
+async function readWordFile(abs: string): Promise<{ ok: true; parsed: ParsedWord } | { ok: false; code: WordDocCode; detail: string | null }> {
+  const r = await docToEditableHtml(abs)
+  if (!r.ok) return { ok: false, code: 'worddoc_convert_failed', detail: r.detail ?? r.code }
+  return { ok: true, parsed: parseWordHtml(r.html) }
+}
+
+/**
+ * Reads a Word work item onto the document page (once: an item that has a page is left alone). The file it came from
+ * stays untouched as the previous version; the new current version is a .docx next to it that the page writes into.
+ */
+export async function importWordToOutline(item: WorkItemRow, by: string | null): Promise<WordImportOutcome> {
+  if (!isWordProfileCandidate(item)) return { ok: false, code: 'worddoc_not_word', detail: null }
+  if (hasDocModel(item.id)) return { ok: true, item, imported: false, warnings: wordImportWarnings(item.id) }
+  const rel = item.source_path as string
+  const abs = resolveLifePath(rel)
+  if (!abs) return { ok: false, code: 'worddoc_unreadable', detail: null }
+  try { statSync(abs) } catch { return { ok: false, code: 'worddoc_unreadable', detail: null } }
+  const project = getProject(item.project_id)
+  if (!project || project.archived_at != null) return { ok: false, code: 'worddoc_project_gone', detail: null }
+  const read = await readWordFile(abs)
+  if (!read.ok) return read
+  if (hasDocModel(item.id)) return { ok: true, item, imported: false, warnings: wordImportWarnings(item.id) }
+  const warnings = new Set<WordWarning>(read.parsed.warnings)
+  const page = pageOf(read.parsed, project, rel, item.title, warnings)
+  if (!page.length) {
+    const s = addSection(item.id, placeholderTitle(), {})
+    if (!s.ok) return { ok: false, code: 'worddoc_import_failed', detail: s.detail }
+  } else {
+    const r = replacePage(item.id, page, [], 'owner')
+    if (!r.ok) return { ok: false, code: 'worddoc_import_failed', detail: r.detail }
+  }
+  // The page's own .docx becomes the current version (once); every later save rewrites THAT file (the mirror).
+  const doc = await renderDocx(item, APP_LANG === 'en' ? 'en' : 'hu')
+  const data = doc.ok ? doc.docx : readFileSync(abs)
+  const stem = basename(rel, extname(rel))
+  const saved = saveBytesAsNewVersion(item, project, rel, data, { created_by: by, edit: 'word_import', fileName: `${dirname(rel)}/${stem}.docx` })
+  if (!saved.ok) {
+    // Nothing half-done: the page goes again, the item stays a Word file.
+    replacePage(item.id, [], documentOutline(item.id).sections.flatMap((s) => [s.id, ...s.blocks.map((b) => b.id)]), 'owner')
+    return { ok: false, code: 'worddoc_save_failed', detail: saved.code }
+  }
+  const list = [...warnings]
+  markImported(item.id, list)
+  const fresh = getWorkItem(item.id) ?? saved.item
+  // A rendered page already matches the outline; a raw copy (no converter) is rewritten by the next mirror run.
+  seedMirrorRow(fresh, doc.ok ? {} : { outlineSha: '' })
+  if (!doc.ok) scheduleOutlineMirror(item.id)
+  return { ok: true, item: fresh, imported: true, warnings: list }
+}
+
+/**
+ * The owner edited the item's .docx by hand (in Word, outside the page): reads it onto the page again. The edited file
+ * is kept as the previous version first; the page then writes into its copy.
+ */
+export async function reimportWordFromFile(item: WorkItemRow, by: string | null): Promise<WordImportOutcome> {
+  if (!isWordProfileCandidate(item) || !isWordImported(item.id)) return { ok: false, code: 'worddoc_not_word', detail: null }
+  const rel = item.source_path as string
+  const abs = resolveLifePath(rel)
+  if (!abs) return { ok: false, code: 'worddoc_unreadable', detail: null }
+  let bytes: Buffer
+  try { bytes = readFileSync(abs) } catch { return { ok: false, code: 'worddoc_unreadable', detail: null } }
+  const project = getProject(item.project_id)
+  if (!project || project.archived_at != null) return { ok: false, code: 'worddoc_project_gone', detail: null }
+  const read = await readWordFile(abs)
+  if (!read.ok) return read
+  const warnings = new Set<WordWarning>(read.parsed.warnings)
+  const page = pageOf(read.parsed, project, rel, item.title, warnings)
+  const saved = saveBytesAsNewVersion(item, project, rel, bytes, { created_by: by, edit: 'word_reimport', fileName: rel.replace(/ \(\d+\)(\.[^.]+)$/, '$1') })
+  if (!saved.ok) return { ok: false, code: 'worddoc_save_failed', detail: saved.code }
+  const known = documentOutline(item.id).sections.flatMap((s) => [s.id, ...s.blocks.map((b) => b.id)])
+  const r = replacePage(item.id, page.length ? page : [{ title: placeholderTitle(), blocks: [] }], known, 'owner')
+  if (!r.ok) return { ok: false, code: 'worddoc_import_failed', detail: r.detail }
+  const list = [...warnings]
+  markImported(item.id, list)
+  const fresh = getWorkItem(item.id) ?? saved.item
+  seedMirrorRow(fresh, { outlineSha: '' })
+  scheduleOutlineMirror(item.id)
+  return { ok: true, item: fresh, imported: true, warnings: list }
+}

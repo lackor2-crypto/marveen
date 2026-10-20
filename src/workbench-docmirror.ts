@@ -23,6 +23,7 @@ import { fileStem, renderDocx } from './workbench-docfinal.js'
 import { APP_LANG } from './config.js'
 import { refreshMailDraft } from './workbench-maildraft.js'
 import { isTextSourcePath } from './workbench-notefinal.js'
+import { isWordImported } from './workbench-worddoc.js'
 
 const DEBOUNCE_MS = 1500
 
@@ -82,12 +83,17 @@ export function outlineMarkdown(item: WorkItemRow, dir?: string): string {
 // Boss, 2026-10-16: no PDF twin of the Word copy any more. The finished-documents folder holds ONLY finalized PDFs (an identical
 // "twin" there was a duplicate nobody could tell from the final); the mail draft makes its own PDF.
 
-/** #673: a text-profile note mirrors into ITS OWN .md / .txt file (one file in the folder), not into a Word copy next to it. */
-function textMirrorTarget(item: WorkItemRow): { dirAbs: string; dirRel: string; name: string } | null {
-  if (item.type !== 'note' || !isTextSourcePath(item.source_path)) return null
+/**
+ * #673: a text-profile note mirrors into ITS OWN .md / .txt file (one file in the folder), not into a Word copy next to it.
+ * #720: a Word file read onto the page mirrors into its own .docx the same way (`word`: the page is written as Word).
+ */
+function textMirrorTarget(item: WorkItemRow): { dirAbs: string; dirRel: string; name: string; word: boolean } | null {
+  const text = item.type === 'note' && isTextSourcePath(item.source_path)
+  const word = !text && item.type === 'document' && /\.docx$/i.test(String(item.source_path ?? '')) && isWordImported(item.id)
+  if (!text && !word) return null
   const abs = resolveLifePath(item.source_path as string)
   if (!abs) return null
-  return { dirAbs: dirname(abs), dirRel: dirname(item.source_path as string), name: basename(abs) }
+  return { dirAbs: dirname(abs), dirRel: dirname(item.source_path as string), name: basename(abs), word }
 }
 
 /**
@@ -146,8 +152,9 @@ async function mirrorOutlineToFileCore(itemId: string): Promise<MirrorResult> {
 
   let format: 'docx' | 'md' = 'docx'
   let data: Buffer
-  const r = own ? null : await renderDocx(item, APP_LANG === 'en' ? 'en' : 'hu')
+  const r = own && !own.word ? null : await renderDocx(item, APP_LANG === 'en' ? 'en' : 'hu')
   if (r && r.ok) data = r.docx
+  else if (own?.word) return { ok: false, code: 'write_failed', detail: r && !r.ok ? String(r.detail ?? r.code) : 'docx render failed' }
   else {
     format = 'md'
     data = Buffer.from(outlineMarkdown(item, t.dirAbs), 'utf-8')

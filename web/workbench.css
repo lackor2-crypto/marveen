@@ -2278,3 +2278,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-fr-vsub-yellow { color: #ffff00; }
 .wb-fr-vsub-box { text-shadow: none; }
 .wb-fr-vsub-box > span { background: rgba(0, 0, 0, 0.7); padding: 0.1em 0.4em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+/* #720: what did not come over from the Word file: a visible note above the page until the owner closes it. */
+.wb-word-warn { opacity: 1; margin: 6px 0; padding: 8px 12px; border: 1px solid #f59e0b; border-radius: 6px; background: rgba(245, 158, 11, 0.08); }
+.wb-word-warn ul { margin: 4px 0 4px 18px; padding: 0; }
+.wb-word-warn p { margin: 2px 0; }

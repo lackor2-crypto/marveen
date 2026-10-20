@@ -16327,6 +16327,13 @@
         frTableEnsure(dit)
         return '<div class="wb-sh-doc-body">' + (WB.table && WB.table.itemId === dit.id ? tableHtml() : '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>') + '</div>'
       }
+      // #720: a Word file is read onto the document page (textProfileEnsure), not opened in the old Word editor. Only when
+      // reading it failed (the message says why) is the file shown as it is, with the old editor's button.
+      var wtp = WB.detail.text_profile
+      if (wtp && wtp.word && wtp.candidate && !wtp.on) {
+        if (!WB.textImportError) return '<div class="wb-sh-doc-body"><p class="wb-muted wb-center">' + esc(t('workbench.worddoc.reading')) + '</p></div>'
+        return '<div class="wb-sh-doc-body"><p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' + previewHtml() + '</div>'
+      }
       docAutoOpen()
       return '<div class="wb-sh-doc-body">' + (WB.textImportError ? '<p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' : '') + previewHtml() + '</div>'
     }
@@ -16366,7 +16373,27 @@
       : twWrapHtml(o, ro) + docExtrasHtml() + canvasHtml() + postPreviewHtml()
     // Boss TG 8748: the action buttons stand BESIDE the tabs (to the right of the last one), not in a row of their own under
     // them: the page starts higher. They wrap under the tabs only when the row is too narrow (a phone).
-    return '<div class="wb-sh-doc-bar">' + head + actions + '</div>' + finalPanel + '<div class="wb-sh-doc-body">' + body + '</div>'
+    return '<div class="wb-sh-doc-bar">' + head + actions + '</div>' + finalPanel + wordWarningsHtml(ro) + '<div class="wb-sh-doc-body">' + body + '</div>'
+  }
+
+  /** #720: what did not come over from the Word file (header / footer, text box, ...). Stays until the owner closes it. */
+  function wordWarningsHtml(ro) {
+    var tp = WB.detail && WB.detail.text_profile
+    if (!tp || !tp.on || !tp.word || !tp.warnings || !tp.warnings.length) return ''
+    return '<div class="wb-hint wb-word-warn" role="status"><p>' + esc(t('workbench.worddoc.warn_lead')) + '</p><ul>'
+      + tp.warnings.map(function (w) { return '<li>' + esc(t('workbench.worddoc.warn.' + w)) + '</li>' }).join('')
+      + '</ul><p>' + esc(t('workbench.worddoc.warn_original')) + '</p>'
+      + (ro ? '' : '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="word-warn-dismiss">' + esc(t('workbench.worddoc.warn_ok')) + '</button></p>')
+      + '</div>'
+  }
+
+  function wordWarningsDismiss() {
+    var id = WB.selectedId
+    if (!id) return
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/text-import', { dismiss_warnings: true }).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      if (WB.selectedId === id && WB.detail && r.data && r.data.text_profile) { WB.detail.text_profile = r.data.text_profile; render() }
+    })
   }
 
   /** A jobb oldal: az eredmeny a munkatipus szerint. A poszt a vaszonnal
@@ -20321,6 +20348,7 @@
     else if (a === 'tw-save') twSave()
     else if (a === 'sh-doc-tab') { WB.shDocTab = act.getAttribute('data-wb-tab') || 'draft'; render() }
     else if (a === 'text-reimport') textReimport()
+    else if (a === 'word-warn-dismiss') wordWarningsDismiss()
     else if (a === 'sh-final') { WB.shFinal = !WB.shFinal; if (WB.shFinal) { WB.dbOpen = false; WB.pdOpen = false } render() }
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)

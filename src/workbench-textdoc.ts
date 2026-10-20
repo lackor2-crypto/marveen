@@ -25,6 +25,7 @@ import { saveTextSourceAsNewVersion } from './workbench-edit.js'
 import { isTextSourcePath } from './workbench-notefinal.js'
 import { getDb } from './db.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
+import { isWordImported, isWordProfileCandidate } from './workbench-worddoc.js'
 
 export type TextDocCode = 'textdoc_not_text' | 'textdoc_unreadable' | 'textdoc_project_gone' | 'textdoc_save_failed' | 'textdoc_import_failed'
 
@@ -112,12 +113,14 @@ export function isTextProfileCandidate(item: Pick<WorkItemRow, 'type' | 'source_
 /** The text profile is ON for an item that has the page's outline: a note read into it, or a language version of such a note. */
 export function textProfileOf(item: Pick<WorkItemRow, 'id' | 'type' | 'source_path' | 'deleted_at'>): boolean {
   if (!hasDocModel(item.id)) return false
-  if (isTextProfileCandidate(item)) return true
+  // #720: a Word file read onto the page takes the same profile (no court-only parts).
+  const own = (it: Pick<WorkItemRow, 'id' | 'type' | 'source_path' | 'deleted_at'>): boolean => isTextProfileCandidate(it) || (isWordProfileCandidate(it) && isWordImported(it.id))
+  if (own(item)) return true
   ensureDocLangTables()
   const v = variantOf(item.id)
   if (!v) return false
   const src = getWorkItem(v.source_item_id)
-  return !!src && isTextProfileCandidate(src)
+  return !!src && own(src)
 }
 
 function readSourceText(item: WorkItemRow): { ok: true; text: string } | { ok: false; code: TextDocCode } {
