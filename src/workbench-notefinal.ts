@@ -6,16 +6,17 @@
  * PDF of the file and puts it into the item's Finished materials folder, then marks the item finalized.
  * The PDF comes first: when it cannot be made the status does not change.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveLifePath } from './life-explorer.js'
-import { attachAsset } from './workbench-assets.js'
+import { attachAsset, listWorkItemAssets } from './workbench-assets.js'
 import { fileStem } from './workbench-docfinal.js'
 import { buildTextFodt, PDF_FILTER_FINAL, renderFodtPdf } from './workbench-docrender.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { finalizeWorkItem } from './workbench-approval.js'
 import { cleanLangCode, readTextVariant, saveTextVariant } from './workbench-notelang.js'
 import { outlineTextOf } from './workbench-textdoc.js'
+import { documentOutline, hasDocModel } from './workbench-docmodel.js'
 
 /** True when the file is a plain text / Markdown file: the kind that has no outline of its own. */
 export function isTextSourcePath(rel: string | null | undefined): boolean {
@@ -66,6 +67,14 @@ export async function finalizeTextItem(item: WorkItemRow, input: { by: string | 
     }
   }
   const stem = fileStem(basename(item.source_path).replace(/\.[^.]+$/, ''))
+  // #725 (Boss TG 3987): a text that did not change since its final PDF was made gets no new PDF -- the one there is is used
+  // again, so finalizing (or sending to many places) never piles up "(2)", "(3)" copies. Language versions are always made.
+  const same = lang ? null : unchangedFinalPdf(item, `${stem}.pdf`)
+  if (same) {
+    const done0 = finalizeWorkItem(item.id, { by: input.by || 'dashboard' })
+    if (!done0.ok) return { ok: false, code: 'note_final_already_done', detail: done0.code }
+    return { ok: true, item: getWorkItem(item.id) ?? done0.item, asset_path: same.path, asset_name: same.name }
+  }
   const r = await renderFodtPdf(buildTextFodt(text, stem), PDF_FILTER_FINAL)
   if (!r.ok) return { ok: false, code: 'note_final_pdf_failed', detail: r.detail ?? r.code }
   const pdfName = lang ? `${stem} (${lang.toUpperCase()}).pdf` : `${stem}.pdf`
@@ -74,4 +83,26 @@ export async function finalizeTextItem(item: WorkItemRow, input: { by: string | 
   const done = finalizeWorkItem(item.id, { by: input.by || 'dashboard' })
   if (!done.ok) return { ok: false, code: 'note_final_already_done', detail: done.code }
   return { ok: true, item: getWorkItem(item.id) ?? done.item, asset_path: saved.asset.path, asset_name: saved.asset.name }
+}
+
+/** The newest final PDF of the item when it is not older than the text it was made from (the file and the page), else null. */
+function unchangedFinalPdf(item: WorkItemRow, pdfName: string): { path: string; name: string } | null {
+  const base = pdfName.replace(/\.pdf$/i, '')
+  const rows = listWorkItemAssets(item.id).filter((a) => a.present && (a.name === pdfName || new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(\\d+\\)\\.pdf$`, 'i').test(a.name)))
+  const last = rows[rows.length - 1]
+  const abs = last ? resolveLifePath(last.path) : null
+  if (!last || !abs) return null
+  try {
+    const made = statSync(abs).mtimeMs
+    let changed = 0
+    const src = item.source_path ? resolveLifePath(item.source_path) : null
+    if (src) changed = Math.max(changed, statSync(src).mtimeMs)
+    if (hasDocModel(item.id)) {
+      for (const sec of documentOutline(item.id).sections) {
+        changed = Math.max(changed, (sec.updated_at || 0) * 1000)
+        for (const b of sec.blocks) changed = Math.max(changed, (b.updated_at || 0) * 1000)
+      }
+    }
+    return made >= changed ? { path: last.path, name: last.name } : null
+  } catch { return null }
 }

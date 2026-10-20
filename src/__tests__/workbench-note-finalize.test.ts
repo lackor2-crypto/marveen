@@ -10,6 +10,7 @@ import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { hasTextFinalPanel, isTextSourcePath } from '../workbench-notefinal.js'
+import { reopenWorkItem } from '../workbench-approval.js'
 import { textLangState } from '../workbench-notelang.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { rmTempDir } from './helpers/rm-temp-dir.js'
@@ -85,6 +86,19 @@ describe('#667 text-file work item: finalize makes the PDF', () => {
     expect(readFileSync(abs).subarray(0, 5).toString()).toBe('%PDF-')
     expect(r.body.final.path).toMatch(/Elkészített anyagok|Finished materials/)
     expect(getWorkItem(id)?.status).toBe('done')
+  })
+
+  // #725 (Boss TG 3987): the same unchanged text finalized again reuses its PDF, no "(2)" copy.
+  it('finalizing an unchanged text again makes no new PDF', async () => {
+    const id = mkNote('Projektek/Iroda/Terv.md')
+    const a = await approval(id, { action: 'finalize', pdf: true })
+    expect(a.status).toBe(200)
+    const re = reopenWorkItem(id, { by: 'owner' })
+    if (!re.ok) throw new Error('reopen ' + re.code)
+    const b = await approval(id, { action: 'finalize', pdf: true })
+    expect(b.status).toBe(200)
+    expect(b.body.final.path).toBe(a.body.final.path)
+    expect(readdirSync(dirname(join(depot, a.body.final.path))).filter((n) => n.endsWith('.pdf'))).toHaveLength(1)
   })
 
   it('a missing file stops it: no PDF, the item is not finalized, the message is a sentence', async () => {
