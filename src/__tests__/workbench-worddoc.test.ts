@@ -121,6 +121,33 @@ describe('#720 import of a real Word file (LibreOffice)', () => {
     expect(listSections(it0.id).length).toBe(count)
   }, 240_000)
 
+  // The other three extensions the card names, each made by LibreOffice (the card's comment had measured only .docx).
+  const FORMATS: Array<{ ext: string; filter: string }> = [
+    { ext: 'odt', filter: 'odt:writer8' },
+    { ext: 'rtf', filter: 'rtf:Rich Text Format' },
+    { ext: 'doc', filter: 'doc:MS Word 97' },
+  ]
+  for (const f of FORMATS) {
+    it(`a real .${f.ext} is read onto the page, the original stays, the new current version is a .docx`, async () => {
+      const htmlAbs = join(depot, 'src.html')
+      writeFileSync(htmlAbs, '<html><body><h1>Sachverhalt</h1><p><b>Fett</b> und normal.</p><h1>Antrag</h1><ul><li>erstens</li><li>zweitens</li></ul></body></html>', 'utf-8')
+      const conv = await sofficeConvertFile(htmlAbs, f.filter, { outExt: f.ext, infilter: 'HTML (StarWriter)' })
+      if (!conv.ok) throw new Error(`soffice: ${conv.code} ${conv.detail}`)
+      const rel = `${dirRel}/Brief.${f.ext}`
+      writeFileSync(join(depot, rel), conv.data)
+      const original = readFileSync(join(depot, rel))
+      const it0 = mkItem(rel, 'Brief')
+      expect(isWordProfileCandidate(it0)).toBe(true)
+      const r = await importWordToOutline(it0, 'owner')
+      expect(r.ok && r.imported).toBe(true)
+      expect(listSections(it0.id).map((s) => s.title)).toEqual(expect.arrayContaining(['Sachverhalt', 'Antrag']))
+      expect(readFileSync(join(depot, rel)).equals(original)).toBe(true)
+      const fresh = getWorkItem(it0.id)!
+      expect(String(fresh.source_path)).toMatch(/\.docx$/)
+      expect(existsSync(join(depot, fresh.source_path as string))).toBe(true)
+    }, 240_000)
+  }
+
   it('the route: text_profile.word, text-import 201 then 200, warnings can be closed', async () => {
     const rel = await mkDocx('Brief.docx', '<html><body><h1>Brief</h1><p>Text.</p></body></html>')
     const it0 = mkItem(rel, 'Brief')
