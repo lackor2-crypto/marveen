@@ -22,7 +22,9 @@ import { ol } from './owner-lang.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
 import { getWorkItem, listWorkItems, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { variantOf } from './workbench-doclang.js'
-import { followDepotFolderMove, itemOutputFolder } from './workbench-assets.js'
+import { followDepotFolderMove, itemOutputFolder, isPlainItem, markPlainItem } from './workbench-assets.js'
+// #717: the plain-item flag lives with the folder logic (ensureWorkItemFolder reads it); re-exported for the old callers.
+export { isPlainItem, markPlainItem }
 import { projectFileTarget, safeFileName } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { resolveLifePath } from './life-explorer.js'
@@ -42,25 +44,6 @@ const sleep0 = (): Promise<void> => new Promise((r) => setImmediate(r))
 
 function ensureTable(): void {
   getDb().exec('CREATE TABLE IF NOT EXISTS work_item_context (item_id TEXT PRIMARY KEY, rel TEXT NOT NULL, stem TEXT NOT NULL DEFAULT \'\')')
-}
-
-function ensurePlainTable(): void {
-  getDb().exec('CREATE TABLE IF NOT EXISTS work_item_plain (item_id TEXT PRIMARY KEY)')
-}
-
-/**
- * #717 (Boss TG 3759): an item made from a file that already exists (right click, "Munkadarabba tétel") is a plain item:
- * the file stays where it is and NOTHING is generated for it (no folder, no context file, no to-do file). Only an
- * explicit action (the agent writing context, an annex upload) makes any of that, on demand.
- */
-export function markPlainItem(itemId: string): void {
-  ensurePlainTable()
-  getDb().prepare('INSERT OR IGNORE INTO work_item_plain (item_id) VALUES (?)').run(itemId)
-}
-
-export function isPlainItem(itemId: string): boolean {
-  ensurePlainTable()
-  return !!getDb().prepare('SELECT 1 FROM work_item_plain WHERE item_id = ?').get(itemId)
 }
 
 /** "Kontextus - <name>.md": the name of the context file for an item title. */

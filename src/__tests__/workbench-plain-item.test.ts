@@ -66,3 +66,57 @@ describe('an item made from an existing file is plain', () => {
     expect(readdirSync(join(projDir, ...(getWorkItem(id)!.container_folder ? [] : []))).filter((n) => /^(Kontextus|Teend)/.test(n))).toEqual([])
   })
 })
+
+// #721 (Boss TG 3914): finalizing a plain item made a NEW folder named after it (with its own "Elkeszitett anyagok")
+// next to the file, and the finished PDF went there instead of the existing "Elkeszitett anyagok" beside the file.
+describe('a plain item never gets a folder of its own (#721)', () => {
+  async function plainIn(sub: string, file: string): Promise<string> {
+    mkdirSync(join(projDir, sub), { recursive: true })
+    writeFileSync(join(projDir, sub, file), 'x')
+    const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'document', title: file.replace(/\.[^.]+$/, ''), source_path: `Projektek/Plain/${sub}/${file}`, folder: `Projektek/Plain/${sub}` })
+    expect(c.status).toBe(201)
+    const id = c.body.item.id as string
+    expect(isPlainItem(id)).toBe(true)
+    return id
+  }
+
+  it('the finished PDF goes into the existing "Elkészített anyagok" beside the file; no folder named after the item', async () => {
+    const { attachAsset } = await import('../workbench-assets.js')
+    mkdirSync(join(projDir, 'Munkadarabok', 'Szoc', 'Elkészített anyagok'), { recursive: true })
+    const id = await plainIn('Munkadarabok/Szoc', 'Antrag.docx')
+    const before = readdirSync(join(projDir, 'Munkadarabok', 'Szoc')).sort()
+    const r = attachAsset(getWorkItem(id)!, 'Antrag - végleges.pdf', Buffer.from('%PDF-1.4 x'), { force: true, into: 'finished' })
+    expect(r.ok).toBe(true)
+    expect(readdirSync(join(projDir, 'Munkadarabok', 'Szoc')).sort()).toEqual(before)
+    expect(readdirSync(join(projDir, 'Munkadarabok', 'Szoc', 'Elkészített anyagok'))).toEqual(['Antrag - végleges.pdf'])
+    expect(getWorkItem(id)!.folder ?? null).toBeNull()
+  })
+
+  it('without an existing one, only the "Elkészített anyagok" beside the file is made -- no other standard folder', async () => {
+    const { attachAsset, ensureWorkItemFolder } = await import('../workbench-assets.js')
+    const id = await plainIn('Iratok', 'Level.docx')
+    const f = ensureWorkItemFolder(getWorkItem(id)!)
+    expect(f).toMatchObject({ ok: true, folder: 'Iratok', created: false })
+    expect(readdirSync(join(projDir, 'Iratok'))).toEqual(['Level.docx'])
+    expect(attachAsset(getWorkItem(id)!, 'Level.pdf', Buffer.from('%PDF-1.4 y'), { force: true, into: 'finished' }).ok).toBe(true)
+    expect(readdirSync(join(projDir, 'Iratok')).sort()).toEqual(['Elkészített anyagok', 'Level.docx'])
+    expect(getWorkItem(id)!.folder ?? null).toBeNull()
+  })
+
+  it('"tidy into a folder" is the owner asking for an own folder: only then does a plain item get one', async () => {
+    const { tidyWorkItemIntoFolder } = await import('../workbench-assets.js')
+    const id = await plainIn('Iratok', 'Level.docx')
+    const t = tidyWorkItemIntoFolder(getWorkItem(id)!)
+    expect(t.ok).toBe(true)
+    expect(isPlainItem(id)).toBe(false)
+    expect(String(getWorkItem(id)!.folder ?? '')).not.toBe('')
+  })
+
+  it('source guard: the plain check stands before any folder is made for an item without one', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(join(process.cwd(), 'src', 'workbench-assets.ts'), 'utf8')
+    const core = src.slice(src.indexOf('function ensureWorkItemFolderCore'))
+    expect(core.indexOf('isPlainItem(item.id)')).toBeGreaterThan(0)
+    expect(core.indexOf('isPlainItem(item.id)')).toBeLessThan(core.indexOf('makeFreshFolder('))
+  })
+})

@@ -149,7 +149,7 @@ export function folderNameFromTitle(title: string): string {
 }
 
 export type FolderOutcome =
-  | { ok: true; folder: string; created: boolean }
+  | { ok: true; folder: string; created: boolean; plain?: boolean }
   | { ok: false; code: FileErrorCode | 'folder_name' | 'folder_taken' | 'not_found'; message?: string }
 
 function setItemFolder(itemId: string, folder: string): void {
@@ -1578,8 +1578,48 @@ export function migrateWorkItemFolders(project: ProjectRow): FolderMigration {
  * A munkadarab mappaja; ha meg nincs (vagy a nyilvantartott mappa eltunt),
  * letrehozza a munkadarab nevevel es megjegyzi.
  */
+function ensurePlainTable(): void {
+  getDb().exec('CREATE TABLE IF NOT EXISTS work_item_plain (item_id TEXT PRIMARY KEY)')
+}
+
+/**
+ * #717 (Boss TG 3759): an item made from a file that already exists (right click, "Munkadarabba tétel") is a plain item:
+ * the file stays where it is and NOTHING is generated for it (no folder, no context file, no to-do file).
+ */
+export function markPlainItem(itemId: string): void {
+  ensurePlainTable()
+  getDb().prepare('INSERT OR IGNORE INTO work_item_plain (item_id) VALUES (?)').run(itemId)
+}
+
+/** #721: the owner explicitly asked for the item's own folder ("tidy into a folder"): it stops being plain. */
+function unmarkPlainItem(itemId: string): void {
+  ensurePlainTable()
+  getDb().prepare('DELETE FROM work_item_plain WHERE item_id = ?').run(itemId)
+}
+
+export function isPlainItem(itemId: string): boolean {
+  ensurePlainTable()
+  return !!getDb().prepare('SELECT 1 FROM work_item_plain WHERE item_id = ?').get(itemId)
+}
+
+/**
+ * #721 (Boss TG 3914): the folder a plain item works in is the folder its file lies in (project-relative, '' = the
+ * project root). Null when the item has no source file inside the project.
+ */
+export function plainItemFolder(project: ProjectRow, item: WorkItemRow): string | null {
+  const src = String(item.source_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const base = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (!src || !base || !src.startsWith(base + '/')) return null
+  const rel = src.slice(base.length + 1)
+  const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+  const t = projectFileTarget(project, dir)
+  return t.ok ? dir : null
+}
+
 export function ensureWorkItemFolder(item: WorkItemRow, opts?: { remake?: boolean }): FolderOutcome {
   const r = ensureWorkItemFolderCore(item, opts)
+  // #721: a plain item never gets standard subfolders made around its file; each one is made on demand by its first file.
+  if (r.ok && r.plain) return r
   // #618 (Boss TG 3515: "mindig hozza letre"): every work item folder always has its "Mellekletek" / "Attachments"
   // subfolder, so the annexes have their place before the first one arrives. An existing one (either name) is reused.
   if (r.ok) {
@@ -1597,6 +1637,13 @@ function ensureWorkItemFolderCore(item: WorkItemRow, opts?: { remake?: boolean }
   if (!project) return { ok: false, code: 'not_found' }
   ensureProjectHasFolder(project)
   const known = workItemFolder(item.id)
+  // #721 (Boss TG 3914: "megegyszer ne forduljon elo hogy uj mappaba teszi"): a plain item (#717) has no folder of its
+  // own and NEVER gets one made -- not by finalizing, uploading or anything else. It works in the folder its file lies
+  // in: the finished PDF goes into that folder's existing "Elkeszitett anyagok", made there on demand.
+  if (!known && isPlainItem(item.id)) {
+    const dir = plainItemFolder(project, item)
+    return dir === null ? { ok: false, code: 'unreachable' } : { ok: true, folder: dir, created: false, plain: true }
+  }
   if (known) {
     const t = projectFileTarget(project, known)
     if (t.ok) return { ok: true, folder: known, created: false }
@@ -2032,7 +2079,10 @@ export function tidyWorkItemIntoFolder(item: WorkItemRow, opts: { folder?: unkno
   ensureAssetTables()
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'not_found' }
-  const f = opts.folder === undefined || opts.folder === null || String(opts.folder).trim() === ''
+  const ownWanted = opts.folder === undefined || opts.folder === null || String(opts.folder).trim() === ''
+  // #721: tidying IS the owner asking for a folder of the item's own, so a plain item gets one here (and only here).
+  if (ownWanted && isPlainItem(item.id)) unmarkPlainItem(item.id)
+  const f = ownWanted
     ? ensureWorkItemFolder(item)
     : adoptExistingFolder(item, project, opts.folder)
   if (!f.ok) return f
