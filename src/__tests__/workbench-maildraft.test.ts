@@ -15,6 +15,7 @@ import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { markPlainItem } from '../workbench-assets.js'
 import { finalizeDocxItem } from '../workbench-docxfinal.js'
+import { reopenWorkItem } from '../workbench-approval.js'
 import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, registerMailboxDraftPort, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
 
 /** A fake LibreOffice: the PDF it writes carries a checksum of the source, so any change of the text shows in the bytes. */
@@ -184,6 +185,22 @@ describe('the e-mail draft of a work item', () => {
     expect(readdirSync(join(projDir(), 'Iratok', 'Elkészített anyagok')).filter((n) => n.endsWith('.eml'))).toEqual([])
     expect(readdirSync(join(projDir(), 'Iratok')).sort()).toEqual(['Antrag.docx', 'Elkészített anyagok', 'bescheid.pdf', 'vertrag.pdf'])
     expect(mailDraftView(word)).toMatchObject({ from_account: 'work', state: 'current' })
+  })
+
+  // #725 (Boss TG 3987): finalizing an unchanged Word file again reuses the final PDF that is there; no "(2)" copy.
+  it('finalizing an unchanged Word file again makes no new PDF', async () => {
+    writeFileSync(join(projDir(), 'Iratok', 'Antrag.docx'), 'PK fake word')
+    const w = createWorkItem({ project_id: pid, title: 'Antrag', type: 'document', source_path: 'Projektek/Iroda/Iratok/Antrag.docx' })
+    if (!w.ok) throw new Error('item')
+    markPlainItem(w.item.id)
+    const first = await finalizeDocxItem(getWorkItem(w.item.id)!, { by: 'owner', ui: 'hu' })
+    if (!first.ok) throw new Error('finalize ' + first.code)
+    const re = reopenWorkItem(w.item.id, { by: 'owner' })
+    if (!re.ok) throw new Error('reopen ' + re.code)
+    const second = await finalizeDocxItem(getWorkItem(w.item.id)!, { by: 'owner', ui: 'hu' })
+    if (!second.ok) throw new Error('finalize2 ' + second.code)
+    expect(second.pdf_path).toBe(first.pdf_path)
+    expect(readdirSync(join(projDir(), 'Iratok', 'Elkészített anyagok')).filter((n) => n.endsWith('.pdf'))).toHaveLength(1)
   })
 
   it('an item without a document makes no draft', async () => {
