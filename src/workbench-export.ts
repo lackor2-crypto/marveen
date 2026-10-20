@@ -90,7 +90,7 @@ export interface ExportPage {
  * A munkadarab nyomtathato lapja. `print`: a lap tetejen ott a "Nyomtatas /
  * PDF" gomb (a letoltott valtozatban nincs -- az mar a vegtermek).
  */
-export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang: Lang, opts: { toolbar?: boolean; autoPrint?: boolean; fileOnly?: string } = {}): ExportPage {
+export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang: Lang, opts: { toolbar?: boolean; autoPrint?: boolean; fileOnly?: string; docHtml?: string } = {}): ExportPage {
   const w = W[lang]
   const project = getProject(item.project_id)
   const p = buildPreview(item.id, wantedVersion)
@@ -104,7 +104,12 @@ export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang:
     return `<figure>${fig}${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>`
   }
 
-  if (p.kind === 'parts' || (!p.available && p.reason === 'no_source')) {
+  if (opts.docHtml) {
+    // #719 (Boss TG 3836): a Word item prints as its own text and pictures (LibreOffice's HTML of the document).
+    const styles = (opts.docHtml.match(/<style\b[\s\S]*?<\/style\s*>/gi) || []).map((x) => x.replace(/@page\s*[^{]*\{[^}]*\}/gi, '')).join('\n')
+    const body = (opts.docHtml.match(/<body\b[^>]*>([\s\S]*)<\/body\s*>/i) || [, opts.docHtml])[1] || ''
+    blocks.push(`${styles}<div class="docbody">${body}</div>`)
+  } else if (p.kind === 'parts' || (!p.available && p.reason === 'no_source')) {
     const snapshot = p.version_id && p.version_id !== item.current_version_id ? p.version_id : null
     for (const part of listWorkItemParts(item.id, snapshot)) {
       if (part.kind === 'text') blocks.push(paragraphs(part.text || ''))
@@ -146,6 +151,8 @@ export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang:
   figure { margin: 0 0 16px; page-break-inside: avoid; break-inside: avoid; }
   figure img, .canvas svg { max-width: 100%; height: auto; display: block; }
   figcaption { color: #444; font-size: 0.9rem; margin-top: 4px; }
+  .docbody p, .docbody h1, .docbody h2, .docbody h3, .docbody li { position: relative; }
+  .docbody img { max-width: none; }
   .missing { color: #8a4b00; font-style: italic; }
   .bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border: 1px solid #ccc; border-radius: 8px; padding: 10px; margin: 0 0 20px; font-size: 0.85rem; color: #444; }
   .bar button { font: inherit; font-size: 1rem; padding: 8px 14px; border-radius: 6px; border: 1px solid #888; background: #fff; cursor: pointer; }

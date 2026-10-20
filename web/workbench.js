@@ -4229,6 +4229,13 @@
     // doc.body.firstChild never changed and the loop never ended: the tab froze on any document
     // that had content.
     while (doc.body.firstChild) page.appendChild(document.adoptNode(doc.body.firstChild))
+    // A picture the server restored as free (position:absolute) hangs off its paragraph: that block is its anchor.
+    Array.prototype.slice.call(page.querySelectorAll('img')).forEach(function (im) {
+      if (!/position:\s*absolute/i.test(im.getAttribute('style') || '')) return
+      var b = im
+      while (b && b.parentNode && b.parentNode !== page) b = b.parentNode
+      if (b && b.parentNode === page && b.style) b.style.position = 'relative'
+    })
     paper.appendChild(page)
     var foot = document.createElement('div')
     foot.className = 'wb-docedit-foot'
@@ -4346,8 +4353,41 @@
         frame.style.cssText = 'position:fixed;border:2px solid #2563eb;pointer-events:none;z-index:99998;box-sizing:border-box'
         document.body.appendChild(frame)
       }
+      if (!frame.firstChild) {
+        // Corner handle: drag to scale the picture (aspect kept), like the court document's one.
+        var hd = document.createElement('span')
+        hd.setAttribute('data-de-img-size', '1')
+        hd.setAttribute('role', 'slider')
+        hd.setAttribute('aria-label', t('workbench.dp.img_resize'))
+        hd.title = t('workbench.dp.img_resize')
+        hd.style.cssText = 'position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:3px;background:#2563eb;border:2px solid #fff;cursor:nwse-resize;pointer-events:auto;touch-action:none'
+        hd.addEventListener('pointerdown', onSizeDown)
+        frame.appendChild(hd)
+      }
       var r = sel.getBoundingClientRect()
       frame.style.left = r.left + 'px'; frame.style.top = r.top + 'px'; frame.style.width = r.width + 'px'; frame.style.height = r.height + 'px'
+    }
+    function setWidthPx(img, wPx) {
+      var cm = Math.max(0.5, Math.round(wPx / PX_CM * 100) / 100)
+      img.style.width = cm + 'cm'
+      img.style.height = 'auto'
+      img.removeAttribute('width'); img.removeAttribute('height')
+    }
+    function onSizeDown(e) {
+      if (!sel) return
+      e.preventDefault(); e.stopPropagation()
+      var hd = e.currentTarget
+      var img = sel
+      var sc = scaleOf()
+      var startX = e.clientX
+      var startW = img.getBoundingClientRect().width / sc
+      try { hd.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ }
+      function move(ev) { setWidthPx(img, Math.max(20, startW + (ev.clientX - startX) / sc)); showFrame() }
+      function up() {
+        hd.removeEventListener('pointermove', move); hd.removeEventListener('pointerup', up); hd.removeEventListener('pointercancel', up)
+        st.dirty = true; docStatus(''); docSaveRange(st); showFrame()
+      }
+      hd.addEventListener('pointermove', move); hd.addEventListener('pointerup', up); hd.addEventListener('pointercancel', up)
     }
     function hideFrame() { if (frame && frame.parentNode) frame.parentNode.removeChild(frame); frame = null }
     function unselect() {
@@ -4356,7 +4396,7 @@
       document.removeEventListener('mousedown', onSelOutside, true)
       window.removeEventListener('scroll', showFrame, true)
     }
-    function onSelOutside(e) { if (!e.target || e.target.tagName !== 'IMG' || !page.contains(e.target)) unselect() }
+    function onSelOutside(e) { if (e.target && e.target.closest && e.target.closest('[data-de-img-size]')) return; if (!e.target || e.target.tagName !== 'IMG' || !page.contains(e.target)) unselect() }
     function select(img) {
       if (sel !== img) unselect()
       sel = img
@@ -4415,6 +4455,11 @@
     function onSelKey(e) {
       if (!sel) return
       if (e.key === 'Escape') { unselect(); return }
+      if (e.key === '+' || e.key === '-') {
+        e.preventDefault(); e.stopPropagation()
+        setWidthPx(sel, sel.getBoundingClientRect().width / scaleOf() * (e.key === '+' ? 1.05 : 0.95))
+        st.dirty = true; docStatus(''); showFrame(); return
+      }
       var step = e.shiftKey ? 5 : 1
       var d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key]
       if (d) { e.preventDefault(); e.stopPropagation(); nudge(sel, d[0], d[1]) }
