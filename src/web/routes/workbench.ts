@@ -147,6 +147,7 @@ import {
 import { setOverride, getEffectiveSettingValue } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
+import { depotSourcePath, repairProjectRelativeSourcePaths } from '../../workbench-source-path.js'
 import { addMount, listMounts } from '../../life-mounts.js'
 import { safeLifeName } from '../../life-tree.js'
 import { embedKind, fileToBlocks } from '../../workbench-docembed.js'
@@ -3498,6 +3499,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!project) return fail(res, 404, 'project_not_found', lang)
     // #454: old main/sub links become folders (no-op once done).
     try { migrateSubItemsToFolders() } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] sub item -> folder migration failed') }
+    // #722: items stored earlier with a project-relative file path open again (no-op once done).
+    try { repairProjectRelativeSourcePaths(project.id) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] source path repair failed') }
     // #481: a folder renamed or moved outside Marvin is found again by its hidden id before the list is built.
     let folderMoves: FolderReconcile = { moved: [], lost: [] }
     try { folderMoves = reconcileFolderMarkers(project) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] folder id reconcile failed') }
@@ -3522,6 +3525,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    // #722: a file path given relative to the project folder is stored Depot-root relative, like every reader expects.
+    if ('source_path' in body) body.source_path = depotSourcePath(project, body.source_path)
     // #454: "Which folder should it go in?" -- '' = the project's default box.
     let containerFolder: string | null = null
     // #474: an item made from a file (or folder) that already lies somewhere in the project (e.g. 'Munkapad terv/diak')
@@ -4778,7 +4783,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = createWorkItemVersion(item.id, {
       prompt: body['prompt'],
       // A `source_path` csak akkor valtozik, ha a hivo KIMONDJA -- kulonben marad.
-      ...('source_path' in body ? { source_path: body['source_path'] } : {}),
+      ...('source_path' in body ? { source_path: owner ? depotSourcePath(owner, body['source_path']) : body['source_path'] } : {}),
       created_by: actor(ctx),
     })
     if (!r.ok) return fail(res, r.code === 'context_not_attachable' ? 400 : 404, r.code, lang)
