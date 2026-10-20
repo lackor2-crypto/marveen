@@ -9919,19 +9919,16 @@
       + (accs.length === 1 ? '' : '<option value="">' + esc(t(WB.mailAccounts === undefined ? 'workbench.mail.from_loading' : accs.length ? 'workbench.mail.from_choose' : 'workbench.mail.from_none')) + '</option>')
       + accs.map(function (a) { return '<option value="' + escA(a.id) + '"' + (a.id === fromSel ? ' selected' : '') + '>' + esc(a.label) + '</option>' }).join('')
       + '</select></label><p class="wb-hint">' + esc(t('workbench.mail.from_hint')) + '</p>'
-    var toBox = ''
-    if (d && d.from_account && !ro) {
-      toBox = '<p><button type="button" class="wb-btn" data-wb-act="mail-to-mailbox"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t('workbench.mail.to_drafts')) + '</button> <span class="wb-muted">' + esc(t('workbench.mail.to_drafts_hint', { from: d.from_addr || d.from_account })) + '</span></p>'
-    }
     var form = ro ? '' : '<form id="wbMailForm" class="wb-mail-form">'
       + fromHtml
       + '<label>' + esc(t('workbench.mail.to')) + ' <input type="text" id="wbMailTo" maxlength="500" value="' + escA(v('to')) + '" placeholder="' + escA(t('workbench.mail.to_ph')) + '"></label>'
       + '<label>' + esc(t('workbench.mail.cc')) + ' <input type="text" id="wbMailCc" maxlength="500" value="' + escA(v('cc')) + '"></label>'
       + '<label>' + esc(t('workbench.mail.subject')) + ' <input type="text" id="wbMailSubject" maxlength="300" value="' + escA(v('subject')) + '" placeholder="' + escA(t('workbench.mail.subject_ph')) + '"></label>'
       + '<label>' + esc(t('workbench.mail.body')) + ' <textarea id="wbMailBody" rows="6" maxlength="20000" placeholder="' + escA(t('workbench.mail.body_ph')) + '">' + esc(v('body')) + '</textarea></label>'
+      + '<p class="wb-hint">' + esc(t('workbench.mail.to_drafts_hint')) + '</p>'
       + '<p><button type="submit" class="wb-btn"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t(WB.mailBusy ? 'workbench.mail.making' : d ? 'workbench.mail.update' : 'workbench.mail.make')) + '</button></p></form>'
     return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
-      + '<p class="wb-hint">' + esc(opts.hint) + '</p>' + (opts.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>' : '') + status + list + form + toBox + (opts.extra || '') + '</div>'
+      + '<p class="wb-hint">' + esc(opts.hint) + '</p>' + (opts.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>' : '') + status + list + form + (opts.extra || '') + '</div>'
   }
   /** The Iroda mail accounts (the sender choice): loaded once, then the box is drawn again. */
   function mailAccountsLoad() {
@@ -9972,6 +9969,8 @@
         WB.detail.outline = r.data.outline
         if (r.data.mail_draft) WB.detail.mail_draft = r.data.mail_draft
         WB.mailForm = null
+        // ONE press (Boss TG 3959): with a sender chosen the draft also goes into the account's Drafts folder.
+        if (from) { render(); mailToMailbox(); return }
         window.showToast(t(r.data.new_file ? 'workbench.mail.done_new' : 'workbench.mail.done'))
       } else if (!r.ok) window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
       render()

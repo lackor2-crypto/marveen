@@ -325,3 +325,14 @@ describe('annexFileStem', () => {
     expect(n.endsWith('word')).toBe(true)
   })
 })
+
+// #724 (Boss TG 3959): ONE button makes the draft and puts it into the mailbox; there is no second, late-appearing button.
+describe('one-button e-mail draft (frontend source)', () => {
+  const src = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
+  it('has no separate save-to-mailbox button', () => {
+    expect(src).not.toContain('data-wb-act="mail-to-mailbox"')
+  })
+  it('chains the mailbox save after the draft is made, when a sender is chosen', () => {
+    expect(src).toMatch(/if \(from\) \{ render\(\); mailToMailbox\(\); return \}/)
+  })
+})
