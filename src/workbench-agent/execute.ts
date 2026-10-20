@@ -58,7 +58,7 @@ import { listFinals } from '../workbench-docfinal.js'
 import { buildPreview } from '../workbench-preview.js'
 import { saveTextSourceAsNewVersion } from '../workbench-edit.js'
 import { scheduleOutlineMirror } from '../workbench-docmirror.js'
-import { saveMailDraft } from '../workbench-maildraft.js'
+import { saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
 import { isLinkedDocPath, resolveLinkedDoc, sourceWorldFor } from '../workbench-docmodel-world.js'
 import { aiMayReadLinked } from '../workbench-doc-links.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
@@ -303,7 +303,7 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
   }
 }
 
-/** The e-mail draft of a document (an .eml with the PDF attachments made by Marveen, refreshed on every change). */
+/** The e-mail draft of a document: stored, then put into the Drafts folder of the sender account the owner chose on the page (#725: no .eml file). */
 async function emailDraftTool(project: ProjectRow, ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
   const id = asString(input.id) || ctx.workItemId || ''
   if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
@@ -317,13 +317,15 @@ async function emailDraftTool(project: ProjectRow, ctx: ToolContext, input: Reco
     return { ok: false, code: r.code === 'bad_input' || r.code === 'outline_empty' ? r.code : 'failed', detail: why }
   }
   const d = r.draft
+  if (!d.from_account) return { ok: false, code: 'failed', detail: 'no sender account is chosen yet: ask the owner to choose the sender in the e-mail box of the document page (the draft goes into that account\'s Drafts folder)' }
+  const box = await saveDraftToMailbox(item, ctx.lang === 'en' ? 'en' : 'hu')
+  if (!box.ok) return { ok: false, code: 'failed', detail: `the draft could not be put into the Drafts folder (${box.code}${box.detail ? ': ' + box.detail : ''})` }
   return {
     ok: true,
     data: {
-      file: d.file, to: d.to, cc: d.cc, subject: d.subject,
+      mailbox: box.mailbox, to: d.to, cc: d.cc, subject: d.subject,
       attachments: d.attachments.map((a) => ({ name: a.name, kb: Math.round(a.bytes / 1024), kind: a.kind })),
-      new_file: r.new_file,
-      note: 'The draft is an .eml in the work item folder; the owner opens it and presses send (nothing was sent). The PDFs inside are refreshed automatically when the document or an annex changes. Tell the owner the file name and the attachment list.',
+      note: 'The draft is in the Drafts folder of the sender account; the owner opens it in the mail program and presses send (nothing was sent, no file was put next to the work item). Every call makes a new draft there. Tell the owner the attachment list.',
     },
   }
 }

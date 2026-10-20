@@ -9902,9 +9902,7 @@
     if (d) {
       var warn = d.state !== 'current'
       status = '<p class="' + (warn ? 'wb-doc-low' : 'wb-ok') + '" role="status">' + (warn ? '⚠ ' : '✓ ') + esc(t('workbench.mail.state.' + d.state)) + '</p>'
-      list = '<p><a href="/api/life/file?rel=' + escA(encodeURIComponent(d.file)) + '" download title="' + escA(d.file_name) + '">✉ ' + esc(d.file_name) + '</a> '
-        + '<button type="button" class="wb-linklike" data-wb-act="outline-annex-origin" data-wb-rel="' + escA(d.file) + '">' + esc(t('workbench.mail.open_folder')) + '</button></p>'
-        + '<p class="wb-hint">' + esc(t('workbench.mail.attached', { n: d.attachments.length, size: mailSize(d.total_bytes) })) + '</p>'
+      list = '<p class="wb-hint">' + esc(t('workbench.mail.attached', { n: d.attachments.length, size: mailSize(d.total_bytes) })) + '</p>'
         + '<ul class="wb-sent-list">' + d.attachments.map(function (a) {
           return '<li class="wb-sent-row">📎 ' + esc(a.name) + ' <span class="wb-muted">PDF · ' + esc(mailSize(a.bytes)) + '</span></li>'
         }).join('') + '</ul>'
@@ -9958,7 +9956,8 @@
     if (!id || archived() || WB.mailBusy) return
     var gv = function (el) { var x = document.getElementById(el); return x ? String(x.value) : '' }
     var from = gv('wbMailFrom')
-    if (!from && WB.mailAccounts && WB.mailAccounts.length) { window.showToast(t('workbench.mail.from_required')); return }
+    // #725: the draft goes straight into the account's Drafts folder (no .eml file), so a sender is needed.
+    if (!from) { window.showToast(t(WB.mailAccounts && WB.mailAccounts.length ? 'workbench.mail.from_required' : 'workbench.mail.account_needed')); return }
     try { if (from) window.localStorage.setItem('wbMailFrom', from) } catch (e) { /* remembering the choice is optional */ }
     var payload = { from_account: from, to: gv('wbMailTo').trim(), cc: gv('wbMailCc').trim(), subject: gv('wbMailSubject').trim(), body: gv('wbMailBody') }
     WB.mailBusy = true
@@ -9970,8 +9969,7 @@
         if (r.data.mail_draft) WB.detail.mail_draft = r.data.mail_draft
         WB.mailForm = null
         // ONE press (Boss TG 3959): with a sender chosen the draft also goes into the account's Drafts folder.
-        if (from) { render(); mailToMailbox(); return }
-        window.showToast(t(r.data.new_file ? 'workbench.mail.done_new' : 'workbench.mail.done'))
+        render(); mailToMailbox(); return
       } else if (!r.ok) window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
       render()
     })
