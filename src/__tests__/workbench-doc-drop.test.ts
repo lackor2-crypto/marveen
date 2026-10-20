@@ -19,9 +19,18 @@ function docx(body: string): Buffer {
   return buildZip([{ name: 'word/document.xml', data: `<?xml version="1.0"?><w:document xmlns:w="x"><w:body>${body}<w:sectPr/></w:body></w:document>` }])
 }
 
+describe('the page accepts a .webp picture on the client too (#719)', () => {
+  const src = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+  it('the drag-onto-page picture check and the drop kind list .webp, like the server', () => {
+    expect(src).toMatch(/function frDocImageOk\(name\) \{ return \/\\\.\(jpe\?g\|png\|gif\|webp\)\$\/i/)
+    expect(src).toMatch(/function dpEmbedKind[\s\S]{0,200}\^\(jpe\?g\|png\|gif\|webp\)\$/)
+  })
+})
+
 describe('fileToBlocks', () => {
   it('knows what can be built in', () => {
     expect(embedKind('a.JPG')).toBe('image')
+    expect(embedKind('anyu alairasa.webp')).toBe('image')
     expect(embedKind('k.xlsx')).toBe('table')
     expect(embedKind('l.docx')).toBe('text')
     expect(embedKind('v.mp4')).toBeNull()

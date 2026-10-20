@@ -7424,7 +7424,7 @@ window._i18n.hu = {
   "workbench.fr.thumb_place": "Ráteszem a lapra",
   "workbench.fr.thumb_remove": "Kivétel a munkából (a fájl a projekt mappájában marad)",
   "workbench.fr.tile_drag": "húzd a lapra: beépítheted vagy mellékletnek teheted",
-  "workbench.dp.img_type": "Dokumentumba JPG, PNG vagy GIF kép tehető.",
+  "workbench.dp.img_type": "Dokumentumba JPG, PNG, GIF vagy WebP kép tehető.",
   "workbench.dp.drop_no_path": "Ezt a fájlt nem sikerült az oldalra tenni, mert nem tudom, hol van. Próbáld újra, vagy a Hozzáadás gombbal csatold.",
   "workbench.dp.drop_title": "Mi legyen a fájllal?",
   "workbench.dp.drop_embed_image": "Beépítés a lapba (kép)",
