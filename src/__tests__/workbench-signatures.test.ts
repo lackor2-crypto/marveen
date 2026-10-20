@@ -149,6 +149,12 @@ describe('#719 the Word editor moves a picture with its own mouse drag', () => {
     expect(js).toContain('function nudge(img, dxMm, dyMm)')
     expect(js).toContain("ArrowLeft: [-step, 0]")
   })
+  it('the selected picture gets the court editor buttons (line l/c/r, wrap left/right, free) on its frame', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    expect(js).toContain("tools.setAttribute('data-de-img-tools', '1')")
+    expect(js).toContain('function applyMode(img, mode)')
+    expect(js).toMatch(/var IMG_MODES = \[[\s\S]{0,400}'over', 'workbench\.dp\.img_mode_over'/)
+  })
 })
 
 describe('#719 Word item finalize panel', () => {
