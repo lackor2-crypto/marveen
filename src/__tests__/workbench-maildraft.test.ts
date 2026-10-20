@@ -1,7 +1,7 @@
 // The e-mail draft of a document (Boss TG, 2026-10-16): an .eml with the document and its annexes as PDF attachments,
 // made by Marveen and refreshed by itself, so a fresh install attaches the current PDF without anybody doing it by hand.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { simpleParser } from 'mailparser'
@@ -15,7 +15,7 @@ import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { markPlainItem } from '../workbench-assets.js'
 import { finalizeDocxItem } from '../workbench-docxfinal.js'
-import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, saveMailDraft } from '../workbench-maildraft.js'
+import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, registerMailboxDraftPort, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
 
 /** A fake LibreOffice: the PDF it writes carries a checksum of the source, so any change of the text shows in the bytes. */
 const FAKE_SOFFICE = `#!/bin/sh
@@ -140,14 +140,30 @@ describe('the e-mail draft of a work item', () => {
     }
   }
   const emlFiles = (): string[] => {
-    const f = getWorkItem(itemId)!.folder!
+    const f = getWorkItem(itemId)!.folder
+    if (!f) return []
     return readdirSync(join(projDir(), ...f.split('/'))).filter((n) => n.endsWith('.eml'))
   }
   const emlPath = (name: string): string => join(projDir(), ...getWorkItem(itemId)!.folder!.split('/'), name)
 
+  /** #725: the draft goes into the account's Drafts folder through the registered port; this one records what it got. */
+  async function boxSave(it: ReturnType<typeof item>): Promise<{ account: string; to: string; subject: string; attachments: string[]; contents: string[] }> {
+    const got = { account: '', to: '', subject: '', attachments: [] as string[], contents: [] as string[] }
+    registerMailboxDraftPort({
+      async save(account, msg) {
+        got.account = account; got.to = msg.to; got.subject = msg.subject
+        for (const f of msg.files) { got.attachments.push(f.split('/').pop()!); got.contents.push(readFileSync(f, 'utf-8')) }
+        return { ok: true, mailbox: '[Gmail]/Piszkozatok' }
+      },
+    })
+    const r = await saveDraftToMailbox(it, 'hu')
+    if (!r.ok) throw new Error('mailbox ' + r.code)
+    return got
+  }
+
   // #723 (Boss TG 3935: "feladot is irni kell az emailhoz ... egy kodsort hasznaljunk csak"): a finalized Word item makes
   // its mail with this same code -- the sender account, the From line, the final PDF attached, in Finished materials.
-  it('a finalized Word item: the same draft with the sender, its final PDF attached, in Finished materials beside the file', async () => {
+  it('a finalized Word item: the same draft with the sender, its final PDF attached, straight into the mailbox', async () => {
     writeFileSync(join(projDir(), 'Iratok', 'Antrag.docx'), 'PK fake word')
     const w = createWorkItem({ project_id: pid, title: 'Antrag', type: 'document', source_path: 'Projektek/Iroda/Iratok/Antrag.docx' })
     if (!w.ok) throw new Error('item')
@@ -160,11 +176,12 @@ describe('the e-mail draft of a work item', () => {
     const r = await saveMailDraft(word, { from_account: 'work', from_addr: 'me@example.com', to: 'amt@stadt.de', subject: 'Antrag' }, 'hu')
     if (!r.ok) throw new Error('save ' + r.code)
     expect(r.draft).toMatchObject({ from_account: 'work', from_addr: 'me@example.com', state: 'current' })
-    expect(r.draft.file).toBe('Projektek/Iroda/Iratok/Elkészített anyagok/' + r.draft.file_name)
-    const mail = await simpleParser(readFileSync(join(projDir(), 'Iratok', 'Elkészített anyagok', r.draft.file_name)))
-    expect(mail.from?.value[0]?.address).toBe('me@example.com')
-    expect(mail.attachments.map((a) => a.filename)).toEqual(['Antrag - végleges.pdf'])
-    // a plain item never gets a folder of its own (#721): nothing new beside the file but the Finished materials
+    // #725: no .eml file anywhere; the Finished materials hold only the final PDF
+    expect(r.draft.file).toBe('')
+    const sent = await boxSave(word)
+    expect(sent.attachments).toEqual(['Antrag - végleges.pdf'])
+    expect(sent.account).toBe('work')
+    expect(readdirSync(join(projDir(), 'Iratok', 'Elkészített anyagok')).filter((n) => n.endsWith('.eml'))).toEqual([])
     expect(readdirSync(join(projDir(), 'Iratok')).sort()).toEqual(['Antrag.docx', 'Elkészített anyagok', 'bescheid.pdf', 'vertrag.pdf'])
     expect(mailDraftView(word)).toMatchObject({ from_account: 'work', state: 'current' })
   })
@@ -175,25 +192,27 @@ describe('the e-mail draft of a work item', () => {
     expect(mailDraftView(item())).toBeNull()
   })
 
-  it('makes an .eml with the document and every annex as its own PDF, named by label and title', async () => {
+  it('puts the document and every annex as its own PDF into the mailbox, named by label and title, and writes no file', async () => {
     write('Text eins')
     annexes()
-    const r = await saveMailDraft(item(), { to: 'amt@stadt.de', subject: 'Nachreichung', body: 'Guten Tag' }, 'hu')
+    const r = await saveMailDraft(item(), { from_account: 'work', from_addr: 'me@example.com', to: 'amt@stadt.de', subject: 'Nachreichung', body: 'Guten Tag' }, 'hu')
     if (!r.ok) throw new Error('save: ' + r.code + ' ' + r.detail)
-    expect(r.new_file).toBe(true)
-    expect(emlFiles()).toHaveLength(1)
-    const m = await simpleParser(readFileSync(emlPath(r.draft.file_name)))
-    expect(m.subject).toBe('Nachreichung')
-    expect(m.text).toContain('Guten Tag')
-    expect(m.attachments.map((a) => a.filename)).toEqual([
+    expect(r.new_file).toBe(false)
+    expect(r.draft.file).toBe('')
+    // the item gets no folder of its own just because a mail draft was made
+    expect(getWorkItem(itemId)!.folder ?? '').toBe('')
+    const got = await boxSave(item())
+    expect(got).toMatchObject({ account: 'work', to: 'amt@stadt.de', subject: 'Nachreichung' })
+    expect(got.attachments).toEqual([
       'Antwort auf das Schreiben.pdf',
       'K1 – Mietvertrag (Korpás László).pdf',
       'K2 – Bescheid vom 04.07.2026.pdf',
     ])
-    expect(m.attachments[0]!.content.subarray(0, 4).toString()).toBe('%PDF')
-    expect(m.attachments[1]!.content.toString()).toContain('VERTRAG-INHALT')
+    expect(got.contents[0]!.slice(0, 4)).toBe('%PDF')
+    expect(got.contents[1]).toContain('VERTRAG-INHALT')
     expect(r.draft.state).toBe('current')
     expect(r.draft.attachments.map((a) => a.kind)).toEqual(['document', 'annex', 'annex'])
+    expect(emlFiles()).toHaveLength(0)
   })
 
   it('"combined" annex mode attaches ONE PDF', async () => {
@@ -214,13 +233,11 @@ describe('the e-mail draft of a work item', () => {
     expect(r.draft.body.length).toBeGreaterThan(20)
   })
 
-  it('the chosen sender account is stored, written as the From line, and kept by a later save that leaves it out', async () => {
+  it('the chosen sender account is stored and kept by a later save that leaves it out', async () => {
     write('Text eins')
     const r = await saveMailDraft(item(), { from_account: 'work', from_addr: 'me@example.com', to: 'amt@stadt.de' }, 'hu')
     if (!r.ok) throw new Error('save')
     expect(r.draft).toMatchObject({ from_account: 'work', from_addr: 'me@example.com' })
-    const mail = await simpleParser(readFileSync(emlPath(r.draft.file_name)))
-    expect(mail.from?.value[0]?.address).toBe('me@example.com')
     const again = await saveMailDraft(item(), { subject: 'Neu' }, 'hu')
     if (!again.ok) throw new Error('save2')
     expect(again.draft.from_account).toBe('work')
@@ -236,74 +253,48 @@ describe('the e-mail draft of a work item', () => {
     expect(mailDraftView(item())).toBeNull()
   })
 
-  it('the attachment follows the text: a change of the document refreshes the PDF in the draft by itself', async () => {
+  it('a change of the document makes the stored draft "outdated"; saving again makes it current', async () => {
     const blockId = write('Text eins')
     const first = await saveMailDraft(item(), { to: 'amt@stadt.de' }, 'hu')
     if (!first.ok) throw new Error('save')
-    const before = await simpleParser(readFileSync(emlPath(first.draft.file_name)))
+    expect(first.draft.state).toBe('current')
     updateBlock(itemId, blockId, { text: 'Text zwei, ganz anders', author: 'owner' })
-    expect(mailDraftView(item())!.state).toBe('outdated')
     await mirrorOutlineToFile(itemId)
-    const view = mailDraftView(item())!
-    expect(view.state).toBe('current')
-    expect(emlFiles()).toHaveLength(1)
-    const after = await simpleParser(readFileSync(emlPath(view.file_name)))
-    expect(after.attachments[0]!.content.equals(before.attachments[0]!.content)).toBe(false)
-    expect(after.subject).toBe(before.subject)
-    expect((after.to as { text: string }).text).toBe('amt@stadt.de')
+    expect(mailDraftView(item())!.state).toBe('outdated')
+    const again = await saveMailDraft(item(), {}, 'hu')
+    if (!again.ok) throw new Error('save2')
+    expect(again.draft.state).toBe('current')
+    expect(emlFiles()).toHaveLength(0)
   })
 
-  it('a new annex shows up in the draft without anybody touching the mail', async () => {
+  it('a new annex shows up in the attachment list when the draft is saved again', async () => {
     write('Text eins')
     const first = await saveMailDraft(item(), {}, 'hu')
     if (!first.ok) throw new Error('save')
     expect(first.draft.attachments).toHaveLength(1)
     annexes()
-    await mirrorOutlineToFile(itemId)
-    expect(mailDraftView(item())!.attachments).toHaveLength(3)
-  })
-
-  it('a file the owner changed is not overwritten by the refresh; the explicit button writes a new file beside it', async () => {
-    const blockId = write('Text eins')
-    const first = await saveMailDraft(item(), {}, 'hu')
-    if (!first.ok) throw new Error('save')
-    writeFileSync(emlPath(first.draft.file_name), 'Subject: kezzel szerkesztve\r\n\r\nsajat')
-    updateBlock(itemId, blockId, { text: 'Text zwei', author: 'owner' })
-    await mirrorOutlineToFile(itemId)
-    expect(readFileSync(emlPath(first.draft.file_name), 'utf-8')).toContain('kezzel szerkesztve')
-    expect(mailDraftView(item())!.state).toBe('edited')
     const again = await saveMailDraft(item(), {}, 'hu')
     if (!again.ok) throw new Error('save2')
-    expect(again.new_file).toBe(true)
-    expect(again.draft.file_name).not.toBe(first.draft.file_name)
-    expect(emlFiles()).toHaveLength(2)
-    expect(readFileSync(emlPath(first.draft.file_name), 'utf-8')).toContain('kezzel szerkesztve')
-    expect(again.draft.state).toBe('current')
+    expect(again.draft.attachments).toHaveLength(3)
   })
 
-  it('a deleted file is reported as missing and NOT silently recreated by the refresh', async () => {
-    const blockId = write('Text eins')
+  it('an old row that still points to an .eml file is kept as it is on disk, and the next save stops tracking it', async () => {
+    write('Text eins')
     const first = await saveMailDraft(item(), {}, 'hu')
     if (!first.ok) throw new Error('save')
-    rmSync(emlPath(first.draft.file_name))
-    updateBlock(itemId, blockId, { text: 'Text zwei', author: 'owner' })
-    await mirrorOutlineToFile(itemId)
-    expect(existsSync(emlPath(first.draft.file_name))).toBe(false)
-    expect(mailDraftView(item())!.state).toBe('missing')
+    const old = join(projDir(), 'Iratok')
+    writeFileSync(join(old, 'Levélpiszkozat - alt.eml'), 'Subject: alt\r\n\r\nalt')
     const again = await saveMailDraft(item(), {}, 'hu')
-    expect(again.ok).toBe(true)
-    expect(emlFiles()).toHaveLength(1)
+    if (!again.ok) throw new Error('save2')
+    expect(again.draft.file).toBe('')
+    expect(readFileSync(join(old, 'Levélpiszkozat - alt.eml'), 'utf-8')).toContain('alt')
   })
 
-  it('forgetting the draft keeps the file and stops the refresh', async () => {
-    const blockId = write('Text eins')
+  it('forgetting the draft stops tracking it', async () => {
+    write('Text eins')
     const first = await saveMailDraft(item(), {}, 'hu')
     if (!first.ok) throw new Error('save')
     expect(forgetMailDraft(itemId)).toBe(true)
-    const body = readFileSync(emlPath(first.draft.file_name))
-    updateBlock(itemId, blockId, { text: 'Text zwei', author: 'owner' })
-    await mirrorOutlineToFile(itemId)
-    expect(readFileSync(emlPath(first.draft.file_name)).equals(body)).toBe(true)
     expect(mailDraftView(item())).toBeNull()
   })
 })
@@ -332,7 +323,8 @@ describe('one-button e-mail draft (frontend source)', () => {
   it('has no separate save-to-mailbox button', () => {
     expect(src).not.toContain('data-wb-act="mail-to-mailbox"')
   })
-  it('chains the mailbox save after the draft is made, when a sender is chosen', () => {
-    expect(src).toMatch(/if \(from\) \{ render\(\); mailToMailbox\(\); return \}/)
+  it('chains the mailbox save after the draft is made, and needs a sender (no .eml fallback)', () => {
+    expect(src).toMatch(/render\(\); mailToMailbox\(\); return/)
+    expect(src).toContain("if (!from) { window.showToast(t(WB.mailAccounts && WB.mailAccounts.length ? 'workbench.mail.from_required' : 'workbench.mail.account_needed')); return }")
   })
 })

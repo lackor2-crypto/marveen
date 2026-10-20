@@ -205,20 +205,12 @@ function folderOf(item: WorkItemRow): { dirAbs: string; dirRel: string } | null 
 export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   const row = getRow(item.id)
   if (!row) return null
-  const dir = folderOf(item)
   let attachments: MailDraftAttachment[] = []
   try { attachments = JSON.parse(row.attachments_json) as MailDraftAttachment[] } catch { /* a bad row shows no list */ }
-  let state: MailDraftView['state'] = 'missing'
-  if (dir) {
-    const abs = join(dir.dirAbs, row.file_name)
-    if (existsSync(abs)) {
-      let same = false
-      try { same = sha(readFileSync(abs)) === row.sha } catch { /* unreadable: counts as edited */ }
-      state = !same ? 'edited' : row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
-    }
-  }
+  // #725: there is no .eml file any more; the draft lives in the account's Drafts folder, so only the document's change counts.
+  const state: MailDraftView['state'] = row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
   return {
-    file: dir ? `${dir.dirRel}/${row.file_name}` : row.file_name, file_name: row.file_name,
+    file: '', file_name: '',
     from_account: row.from_account, from_addr: row.from_addr, to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: row.body,
     attachments, total_bytes: attachments.reduce((n, a) => n + a.bytes, 0), updated_at: row.updated_at, state,
   }
@@ -357,27 +349,9 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   if (bodyRaw.length > TEXT_MAX) return { ok: false, code: 'bad_input', detail: 'body' }
   const body = bodyRaw.trim() ? bodyRaw : defaultMailBody(item, lang, listAnnexes(item.id).length)
 
-  const dir = folderOf(item)
-  if (!dir) return { ok: false, code: 'no_folder', detail: null }
   const made = await collectAttachments(item, ui)
   if (!made.ok) return made
 
-  const eml = buildEml({ from: fromAddr, to, cc, subject, body, attachments: made.files })
-  let name = prev?.file_name || `${ol('Levélpiszkozat', 'E-mail draft')} - ${fileStem(item.title)}.eml`
-  let newFile = false
-  const exists = existsSync(join(dir.dirAbs, name))
-  if (exists) {
-    let mine = false
-    try { mine = !!prev && sha(readFileSync(join(dir.dirAbs, name))) === prev.sha } catch { /* unreadable: not ours to overwrite */ }
-    if (!mine) { name = freeFileName(dir.dirAbs, name); newFile = true }
-  } else if (!prev) newFile = true
-  const blocked = writeBlockReason(`${dir.dirRel}/${name}`)
-  if (blocked) return { ok: false, code: 'write_failed', detail: blocked }
-  try {
-    writeFileSync(join(dir.dirAbs, name), eml)
-  } catch (e) {
-    return { ok: false, code: 'write_failed', detail: e instanceof Error ? e.message : String(e) }
-  }
   const attachments: MailDraftAttachment[] = made.files.map((f) => ({ name: f.name, bytes: f.data.length, kind: f.kind }))
   ensureMailDraftTable()
   getDb().prepare(`INSERT INTO wb_doc_maildraft (work_item_id, from_account, from_addr, file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at)
@@ -385,9 +359,9 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
     ON CONFLICT(work_item_id) DO UPDATE SET from_account = excluded.from_account, from_addr = excluded.from_addr, file_name = excluded.file_name, sha = excluded.sha, package_key = excluded.package_key,
       to_addr = excluded.to_addr, cc_addr = excluded.cc_addr, subject = excluded.subject, body = excluded.body,
       attachments_json = excluded.attachments_json, updated_at = excluded.updated_at`)
-    .run(item.id, fromAccount, fromAddr, name, sha(eml), packageKey(item, fromAccount, to, cc, subject, body), to, cc, subject, body, JSON.stringify(attachments), Date.now())
+    .run(item.id, fromAccount, fromAddr, '', '', packageKey(item, fromAccount, to, cc, subject, body), to, cc, subject, body, JSON.stringify(attachments), Date.now())
   const draft = mailDraftView(item)
-  return draft ? { ok: true, draft, written: true, new_file: newFile } : { ok: false, code: 'write_failed', detail: null }
+  return draft ? { ok: true, draft, written: true, new_file: false } : { ok: false, code: 'write_failed', detail: null }
 }
 
 /**
@@ -395,17 +369,8 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
  * touched, and the document (or an annex) has changed since, the attachments are made again -- the mail never carries an
  * older PDF than the text. Best effort and silent: a failure leaves the old file, and the page says "outdated".
  */
-export async function refreshMailDraft(item: WorkItemRow, ui: 'hu' | 'en'): Promise<void> {
-  try {
-    const row = getRow(item.id)
-    if (!row) return
-    if (packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) === row.package_key) return
-    const dir = folderOf(item)
-    if (!dir) return
-    const abs = join(dir.dirAbs, row.file_name)
-    if (!existsSync(abs) || sha(readFileSync(abs)) !== row.sha) return
-    await saveMailDraft(item, {}, ui)
-  } catch { /* the stored draft stands */ }
+export async function refreshMailDraft(_item: WorkItemRow, _ui: 'hu' | 'en'): Promise<void> {
+  // #725: no file is kept beside the item any more, so there is nothing to remake; the page says "outdated" when the document changed.
 }
 
 /** Stop tracking (the file itself stays where it is). */
@@ -417,7 +382,7 @@ export function forgetMailDraft(itemId: string): boolean {
 /** Size of the file now, for the tests and the page (0 when it is not there). */
 export function mailDraftFileBytes(item: WorkItemRow): number {
   const row = getRow(item.id)
-  const dir = row ? folderOf(item) : null
+  const dir = row && row.file_name ? folderOf(item) : null
   try { return row && dir ? statSync(join(dir.dirAbs, row.file_name)).size : 0 } catch { return 0 }
 }
 
