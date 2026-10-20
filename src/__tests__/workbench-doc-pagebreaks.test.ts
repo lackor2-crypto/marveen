@@ -58,6 +58,13 @@ describe('pageUnitsOf', () => {
 })
 
 describe('the editor', () => {
+  it('draws the line on the read-only Preview sheet too, not only on the editable page', () => {
+    expect(js).toContain('function dpPagesRoot()')
+    expect(js).toMatch(/function dpPagesRoot\(\) \{[^}]*querySelector\('\.wb-dp-page'\)/)
+    expect(js).toMatch(/function dpPagesPaint\(\) \{\s*var page = dpPagesRoot\(\)/)
+    expect(js).toContain('!dpPagesRoot() || dpIsVariant()')
+  })
+
   it('has the toggle in the ribbon, asks the server, and paints the line into the page after every redraw', () => {
     expect(js).toContain('data-wb-act="dp-pages-toggle"')
     expect(js).toContain("a === 'dp-pages-toggle'")
