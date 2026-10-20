@@ -16834,7 +16834,7 @@
   }
 
   /** Pictures a document page can hold (the server embeds these in the PDF / Word copy). */
-  function frDocImageOk(name) { return /\.(jpe?g|png|gif)$/i.test(String(name || '')) }
+  function frDocImageOk(name) { return /\.(jpe?g|png|gif|webp)$/i.test(String(name || '')) }
 
   /**
    * The uploaded files as medium tiles (Boss, TG 2898): a photo shows its own preview, a document a big
@@ -22940,7 +22940,7 @@
   /** What a dropped file can become on the page (#508): the same list as the server's embedKind(). */
   function dpEmbedKind(rel) {
     var ext = String(rel || '').split('.').pop().toLowerCase()
-    if (/^(jpe?g|png|gif)$/.test(ext)) return 'image'
+    if (/^(jpe?g|png|gif|webp)$/.test(ext)) return 'image'
     if (/^(xlsx|xlsm|csv|tsv)$/.test(ext)) return 'table'
     if (/^(docx|odt|txt|md)$/.test(ext)) return 'text'
     return null
