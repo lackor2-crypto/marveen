@@ -15757,8 +15757,12 @@
     var label = t(m.inside ? 'workbench.dp.pagebreak_inside' : 'workbench.dp.pagebreak', { n: m.page })
     return '<div class="wb-dp-pagebreak' + (m.inside ? ' is-inside' : '') + '" contenteditable="false" data-wb-pagebreak="' + m.page + '" role="separator" aria-label="' + escA(label) + '"><span>' + esc(label) + '</span></div>'
   }
+  /** The sheet the lines go on: the editable page, or the read-only one of the Preview tab (it must show the same PDF edge). */
+  function dpPagesRoot() {
+    return typeof document.querySelector === 'function' ? document.querySelector('.wb-dp-page') : null
+  }
   function dpPagesPaint() {
-    var page = dpRoot()
+    var page = dpPagesRoot()
     if (!page) return
     Array.prototype.slice.call(page.querySelectorAll('.wb-dp-pagebreak')).forEach(function (n) { n.remove() })
     var d = WB.dpPages
@@ -15775,7 +15779,7 @@
   function dpPagesHash() { return (WB.detail && WB.detail.outline && WB.detail.outline.content_hash) || '' }
   function dpPagesLoad() {
     var id = WB.selectedId
-    if (!id || !dpPagesOn() || archived() || !dpRoot() || dpIsVariant()) return
+    if (!id || !dpPagesOn() || archived() || !dpPagesRoot() || dpIsVariant()) return
     if (WB.dpPagesBusy) { WB.dpPagesAgain = true; return }
     WB.dpPagesBusy = true
     WB.dpPagesAgain = false
@@ -15805,7 +15809,7 @@
   }
   /** After a redraw: put the lines back, and measure when there is no (fresh) measurement of this document. */
   function dpPagesAfterRender() {
-    if (!dpPagesOn() || !dpRoot() || dpIsVariant()) return
+    if (!dpPagesOn() || !dpPagesRoot() || dpIsVariant()) return
     dpPagesPaint()
     var d = WB.dpPages
     if (!WB.dpPagesError && !WB.dpPagesBusy && (!d || d.item !== WB.selectedId || d.hash !== dpPagesHash())) dpPagesSoon()
