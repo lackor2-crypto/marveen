@@ -68,6 +68,7 @@ import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
+import { dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, wordImportWarnings, type WordWarning } from '../../workbench-worddoc.js'
 import { forgetMailDraft, mailDraftView, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
 import { getAccounts as getMailAccounts } from './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
@@ -376,6 +377,30 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   textdoc_unreadable: {
     hu: 'A jegyzet fájlja nem olvasható (hiányzik vagy nem érhető el a Raktár), ezért nem tudtam beolvasni. Nézd meg, hogy a fájl megvan-e a mappájában.',
     en: 'The note\'s file cannot be read (it is missing or the Depot is not reachable), so it was not read in. Check that the file is in its folder.',
+  },
+  worddoc_not_word: {
+    hu: 'Ez a munkadarab nem Word-dokumentum (.docx / .doc / .odt / .rtf), ezért nem olvasható be a dokumentum-oldalra.',
+    en: 'This work item is not a Word document (.docx / .doc / .odt / .rtf), so it cannot be read into the document page.',
+  },
+  worddoc_unreadable: {
+    hu: 'A dokumentum fájlja nem olvasható (hiányzik vagy nem érhető el a Raktár), ezért nem tudtam beolvasni. Nézd meg, hogy a fájl megvan-e a mappájában.',
+    en: 'The document\'s file cannot be read (it is missing or the Depot is not reachable), so it was not read in. Check that the file is in its folder.',
+  },
+  worddoc_convert_failed: {
+    hu: 'A Word-fájlt nem sikerült megnyitni. Ehhez a LibreOffice kell ezen a gépen (Beállítások / Önellenőrzés mutatja, megvan-e). A fájl változatlan maradt.',
+    en: 'The Word file could not be opened. This needs LibreOffice on this machine (Settings / Self-check shows whether it is there). The file is unchanged.',
+  },
+  worddoc_project_gone: {
+    hu: 'A projekt archivált vagy nem található, ezért a dokumentum nem módosítható.',
+    en: 'The project is archived or not found, so the document cannot be changed.',
+  },
+  worddoc_save_failed: {
+    hu: 'A dokumentum új verzióját nem sikerült a mappába menteni, ezért semmi sem változott.',
+    en: 'The document\'s new version could not be saved into the folder, so nothing was changed.',
+  },
+  worddoc_import_failed: {
+    hu: 'A Word-fájl tartalmát nem sikerült a dokumentum-oldalra beolvasni, ezért a munkadarab változatlan maradt.',
+    en: 'The Word file\'s content could not be read into the document page, so the work item stayed as it was.',
   },
   textdoc_project_gone: {
     hu: 'A projekt archivált vagy nem található, ezért a jegyzet nem módosítható.',
@@ -2170,9 +2195,14 @@ function projectDocsOut(projectId: string): Record<string, unknown> {
 }
 
 /** #673: what the page needs to know about the text profile: is it on, may a note be read in, was the file edited outside. */
-function textProfileView(item: WorkItemRow): { on: boolean; candidate: boolean; file_edited: boolean } {
+function textProfileView(item: WorkItemRow): { on: boolean; candidate: boolean; file_edited: boolean; word: boolean; warnings: WordWarning[] } {
   const on = textProfileOf(item)
-  return { on, candidate: isTextProfileCandidate(item), file_edited: on && mirrorFileEdited(item) }
+  // #720: a Word file (.docx / .doc / .odt / .rtf) is read onto the same page; `warnings` lists what did not come over.
+  const word = isWordProfileCandidate(item)
+  return {
+    on, candidate: isTextProfileCandidate(item) || word, file_edited: on && mirrorFileEdited(item),
+    word, warnings: word && isWordImported(item.id) ? wordImportWarnings(item.id) : [],
+  }
 }
 
 function outlineOut(itemId: string): OutlineOut | null {
@@ -3759,6 +3789,18 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const owner = getProject(item.project_id)
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    // #720: a Word file goes the same way: read onto the page once, or again after a hand edit in Word.
+    if (isWordProfileCandidate(item)) {
+      if (body['dismiss_warnings'] === true) {
+        dismissWordWarnings(item.id)
+        json(res, { ok: true, imported: false, item, text_profile: textProfileView(item) })
+        return true
+      }
+      const w = body['reimport'] === true ? await reimportWordFromFile(item, actor(ctx)) : await importWordToOutline(item, actor(ctx))
+      if (!w.ok) return failDetail(res, w.code === 'worddoc_not_word' ? 400 : w.code === 'worddoc_unreadable' ? 404 : w.code === 'worddoc_project_gone' ? 409 : w.code === 'worddoc_convert_failed' ? 503 : 500, w.code, lang, w.detail)
+      json(res, { ok: true, imported: w.imported, warnings: w.warnings, item: w.item, outline: outlineOut(item.id), text_profile: textProfileView(w.item), versions: listWorkItemVersionsView(item.id) }, w.imported ? 201 : 200)
+      return true
+    }
     const r = body['reimport'] === true ? reimportTextFromFile(item, actor(ctx)) : importTextToOutline(item, actor(ctx))
     if (!r.ok) return failDetail(res, r.code === 'textdoc_not_text' ? 400 : r.code === 'textdoc_unreadable' ? 404 : r.code === 'textdoc_project_gone' ? 409 : 500, r.code, lang, r.detail)
     if (body['reimport'] === true) scheduleOutlineMirror(item.id)
