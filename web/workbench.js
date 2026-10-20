@@ -170,7 +170,6 @@
     noteFinal: null,    // #667: a szoveges fajlu munkadarab (.md/.txt) veglesites-panelje nyitva: a munkadarab azonositoja
     noteFinalBusy: false,
     docxMailFor: null,
-    docxMail: null,
     noteFinalLang: '',  // #671: '' = the file's own language, else the code of the language the PDF is translated into
     liveTimer: null,
     // --- projekt-idovonal (#406, 7. pont) ---
@@ -9873,7 +9872,8 @@
     }
     // The order of the work: the final PDF first, then the e-mail draft that carries it, then the record of the sending.
     var finalCurrent = !!(f && !f.stale)
-    var mailBox = finalCurrent || (o.mail_draft && !ro) ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
+    // #723: while the Word item's own mail panel is open, the same box is not drawn twice (one form, one set of fields).
+    var mailBox = WB.docxMailFor && WB.docxMailFor === WB.selectedId ? '' : finalCurrent || (o.mail_draft && !ro) ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
     return '<div class="wb-outline-pdf">' + tools + finalLine + courtBoxHtml(ro) + fin + mailBox + sentBoxHtml(o, f, ro) + '</div>'
   }
 
@@ -9888,7 +9888,13 @@
   function mailDraftBoxHtml(o, ro, finalCurrent) {
     if (ro && !o.mail_draft) return ''
     if (!o.sections || !o.sections.length) return ''
-    var d = o.mail_draft
+    return mailBoxHtml(o.mail_draft, ro, { hint: t('workbench.mail.hint'), stale: !finalCurrent })
+  }
+  /**
+   * #723 (Boss TG 3935: "egy kodsort hasznaljunk csak"): the ONE e-mail draft box -- sender account, recipients, text, and
+   * the Drafts folder of the account. A court document and a finalized Word item both draw this; `extra` closes the panel.
+   */
+  function mailBoxHtml(d, ro, opts) {
     var fm = WB.mailForm && WB.mailForm.id === WB.selectedId ? WB.mailForm : null
     var v = function (k) { return fm && fm[k] !== undefined ? fm[k] : (d ? d[k] : '') }
     var status = ''
@@ -9925,7 +9931,7 @@
       + '<label>' + esc(t('workbench.mail.body')) + ' <textarea id="wbMailBody" rows="6" maxlength="20000" placeholder="' + escA(t('workbench.mail.body_ph')) + '">' + esc(v('body')) + '</textarea></label>'
       + '<p><button type="submit" class="wb-btn"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t(WB.mailBusy ? 'workbench.mail.making' : d ? 'workbench.mail.update' : 'workbench.mail.make')) + '</button></p></form>'
     return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
-      + '<p class="wb-hint">' + esc(t('workbench.mail.hint')) + '</p>' + (finalCurrent ? '' : '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>') + status + list + form + toBox + '</div>'
+      + '<p class="wb-hint">' + esc(opts.hint) + '</p>' + (opts.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>' : '') + status + list + form + toBox + (opts.extra || '') + '</div>'
   }
   /** The Iroda mail accounts (the sender choice): loaded once, then the box is drawn again. */
   function mailAccountsLoad() {
@@ -9944,6 +9950,7 @@
       WB.mailBusy = false
       if (r.ok && r.data) {
         if (WB.selectedId === id && WB.detail && r.data.outline) WB.detail.outline = r.data.outline
+        if (WB.selectedId === id && WB.detail && r.data.mail_draft) WB.detail.mail_draft = r.data.mail_draft
         window.showToast(t('workbench.mail.drafts_done', { mailbox: r.data.mailbox || '' }))
       } else window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
       render()
@@ -9963,6 +9970,7 @@
       WB.mailBusy = false
       if (WB.selectedId === id && WB.detail && r.ok && r.data && r.data.outline) {
         WB.detail.outline = r.data.outline
+        if (r.data.mail_draft) WB.detail.mail_draft = r.data.mail_draft
         WB.mailForm = null
         window.showToast(t(r.data.new_file ? 'workbench.mail.done_new' : 'workbench.mail.done'))
       } else if (!r.ok) window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
@@ -12738,49 +12746,18 @@
       }
       var f = (r.data && r.data.final) || {}
       window.showToast(t('workbench.docxfinal.done', { pdf: f.pdf_name || '', folder: docxFolderLabel(WB.detail ? WB.detail.item : it) }))
-      WB.docxMailFor = id; WB.docxMail = { busy: false, done: null }
+      WB.docxMailFor = id
       render()
       load(WB.projectId)
     })
   }
 
-  /** #719: the e-mail draft panel of a finalized Word item (an .eml next to the Word file, the final PDF attached). */
+  /** #719 / #723: the e-mail draft of a finalized Word item -- the same box and code as a court document's, the final PDF attached. */
   function docxMailPanelHtml(it) {
-    var m = WB.docxMail || {}
-    var busy = m.busy ? ' disabled' : ''
-    var v = m.form || {}
-    var out = '<div class="wb-note-final wb-docx-mail" role="region" aria-label="' + escA(t('workbench.docxfinal.mail_title')) + '">'
-      + '<h4>\u2709 ' + esc(t('workbench.docxfinal.mail_title')) + '</h4>'
-      + '<p class="wb-hint">' + esc(t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) })) + '</p>'
-    if (m.done) {
-      out += '<p class="wb-ok" role="status">\u2713 ' + esc(t('workbench.docxfinal.mail_done', { eml: m.done.eml_name, pdf: m.done.pdf_name, folder: docxFolderLabel(it) })) + '</p>'
-        + '<p class="wb-hint">' + esc(t('workbench.docxfinal.mail_open_hint')) + '</p>'
-    }
-    out += '<div class="wb-form-grid">'
-      + '<label>' + esc(t('workbench.docxfinal.mail_to')) + '<input type="text" id="wbDocxMailTo" class="wb-input" autocomplete="off" value="' + escA(v.to || '') + '" placeholder="' + escA(t('workbench.docxfinal.mail_to_ph')) + '"></label>'
-      + '<label>' + esc(t('workbench.docxfinal.mail_cc')) + '<input type="text" id="wbDocxMailCc" class="wb-input" autocomplete="off" value="' + escA(v.cc || '') + '"></label>'
-      + '<label>' + esc(t('workbench.docxfinal.mail_subject')) + '<input type="text" id="wbDocxMailSubject" class="wb-input" autocomplete="off" value="' + escA(v.subject != null ? v.subject : it.title) + '"></label>'
-      + '<label>' + esc(t('workbench.docxfinal.mail_body')) + '<textarea id="wbDocxMailBody" class="wb-input" rows="6">' + esc(v.body || '') + '</textarea></label>'
+    var close = '<p class="wb-note-final-btns"><button type="button" class="btn-secondary" data-wb-act="docx-mail-close"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t('workbench.docxfinal.mail_close')) + '</button></p>'
+    return '<div class="wb-note-final wb-docx-mail" role="region" aria-label="' + escA(t('workbench.mail.title')) + '">'
+      + mailBoxHtml((WB.detail && WB.detail.mail_draft) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: close })
       + '</div>'
-      + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="docx-mail-save"' + busy + '>' + esc(t(m.busy ? 'workbench.docxfinal.mail_working' : 'workbench.docxfinal.mail_save')) + '</button> '
-      + '<button type="button" class="btn-secondary" data-wb-act="docx-mail-close"' + busy + '>' + esc(t('workbench.docxfinal.mail_close')) + '</button></p>'
-      + '</div>'
-    return out
-  }
-  function docxMailSave() {
-    if (!WB.detail || !WB.docxMail || WB.docxMail.busy) return
-    var it = WB.detail.item
-    function val(id) { var e = document.getElementById(id); return e ? e.value : '' }
-    var form = { to: val('wbDocxMailTo'), cc: val('wbDocxMailCc'), subject: val('wbDocxMailSubject'), body: val('wbDocxMailBody') }
-    WB.docxMail.busy = true; WB.docxMail.form = form
-    render()
-    api('POST', '/api/workbench/items/' + encodeURIComponent(it.id) + '/docx-mail', form).then(function (r) {
-      WB.docxMail.busy = false
-      if (!r.ok) { window.showToast(r.message); render(); return }
-      WB.docxMail.done = r.data
-      render()
-      load(WB.projectId)
-    })
   }
 
   /** #674: finalize a spreadsheet item: the server puts the workbook (and a PDF, when LibreOffice is there) into Finished materials. */
@@ -20392,8 +20369,7 @@
     else if (a === 'note-final-go') noteFinalGo()
     else if (a === 'tr-save-version') trSaveVersion()
     else if (a === 'note-final-close') { WB.noteFinal = null; render() }
-    else if (a === 'docx-mail-open') { WB.docxMailFor = WB.docxMailFor === (WB.detail && WB.detail.item.id) ? null : (WB.detail && WB.detail.item.id); WB.docxMail = { busy: false, done: null }; render() }
-    else if (a === 'docx-mail-save') docxMailSave()
+    else if (a === 'docx-mail-open') { WB.docxMailFor = WB.docxMailFor === (WB.detail && WB.detail.item.id) ? null : (WB.detail && WB.detail.item.id); render() }
     else if (a === 'docx-mail-close') { WB.docxMailFor = null; render() }
     else if (a === 'item-reopen') approvalAction('reopen')
     else if (a === 'approval-submit') approvalAction('submit')

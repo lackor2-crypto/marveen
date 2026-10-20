@@ -77,7 +77,7 @@ import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus }
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { finalizeTextItem, hasTextFinalPanel } from '../../workbench-notefinal.js'
 import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefinal.js'
-import { docxMailView, finalizeDocxItem, hasDocxFinalPanel, makeDocxMailDraft } from '../../workbench-docxfinal.js'
+import { finalizeDocxItem, hasDocxFinalPanel } from '../../workbench-docxfinal.js'
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
@@ -346,14 +346,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   docx_mail_no_pdf: {
     hu: 'Még nincs végleges PDF az Elkészített anyagok mappában. Előbb véglegesítsd a munkadarabot, utána készülhet az e-mail.',
     en: 'There is no final PDF in the Finished materials folder yet. Finalize the work item first, then the e-mail can be made.',
-  },
-  docx_mail_bad_address: {
-    hu: 'Az egyik e-mail-cím nem megfelelő. Egy cím így néz ki: nev@example.hu, többet vesszővel válassz el.',
-    en: 'One of the e-mail addresses is not valid. An address looks like name@example.com; separate several with commas.',
-  },
-  docx_mail_save_failed: {
-    hu: 'Az e-mail-piszkozatot nem sikerült az Elkészített anyagok mappába elmenteni.',
-    en: 'The e-mail draft could not be saved into the Finished materials folder.',
   },
   table_final_not_table: {
     hu: 'Ennek a munkadarabnak nincs táblázat-fájlja (xlsx / csv), ezért nem véglegesíthető ezen a panelen.',
@@ -3781,6 +3773,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       privacy: privacyState(item.project_id, item.id),
       court: courtOut(item.id),
       ...(hasTextFinalPanel(item) ? { text_langs: textLangState(item) } : {}),
+      // #723: the e-mail draft of a finalized Word item (the same draft as a court document's, made by the same code).
+      ...(hasDocxFinalPanel(item) ? { mail_draft: mailDraftView(item) } : {}),
       text_profile: textProfileView(item),
     })
     return true
@@ -4281,21 +4275,24 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const r = await saveMailDraft(item, { ...sender, to: body['to'], cc: body['cc'], subject: body['subject'], body: body['body'] }, lang)
       if (!r.ok) {
         if (r.code === 'outline_empty') return fail(res, 404, 'outline_empty', lang)
+        if (r.code === 'docx_mail_no_pdf') return fail(res, 409, 'docx_mail_no_pdf', lang)
         if (r.code === 'bad_input') return failDetail(res, 400, 'maildraft_bad_input', lang, r.detail)
         if (r.code === 'no_folder' || r.code === 'write_failed') return failDetail(res, r.code === 'no_folder' ? 409 : 500, 'maildraft_' + r.code, lang, r.detail)
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }
-      json(res, { ok: true, new_file: r.new_file, outline: outlineOrEmpty(item.id) }, 201)
+      // #723: `mail_draft` also for a Word item, whose page has no outline.
+      json(res, { ok: true, new_file: r.new_file, mail_draft: r.draft, outline: outlineOrEmpty(item.id) }, 201)
       return true
     }
     // POST .../outline/mail-draft/mailbox puts the draft (with its PDFs) into the Drafts folder of the sender account. Nothing is sent.
     if (sub === 'mail-draft' && segs.length === 4 && segs[3] === 'mailbox' && method === 'POST') {
       const r = await saveDraftToMailbox(item, lang)
       if (!r.ok) {
+        if (r.code === 'docx_mail_no_pdf') return fail(res, 409, 'docx_mail_no_pdf', lang)
         if (r.code === 'no_draft' || r.code === 'no_account' || r.code === 'no_port' || r.code === 'save_failed') return failDetail(res, r.code === 'save_failed' ? 502 : 409, 'maildraft_' + r.code, lang, r.detail)
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }
-      json(res, { ok: true, mailbox: r.mailbox, account: r.account, outline: outlineOrEmpty(item.id) }, 201)
+      json(res, { ok: true, mailbox: r.mailbox, account: r.account, mail_draft: mailDraftView(item), outline: outlineOrEmpty(item.id) }, 201)
       return true
     }
     if (sub === 'mail-draft' && segs.length === 3 && method === 'DELETE') {
@@ -4688,18 +4685,6 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = purgeWorkItem(item.id)
     if (!r.ok) return r.code === 'item_not_found' ? fail(res, 404, 'not_found', lang) : fail(res, 409, r.code, lang)
     json(res, { ok: true, items: listWorkItems(r.projectId), deleted: listDeletedWorkItems(r.projectId) })
-    return true
-  }
-
-  // #719: the e-mail draft of a finalized Word item (an .eml next to the Word file, the final PDF attached).
-  if (segs.length === 2 && segs[1] === 'docx-mail' && (method === 'GET' || method === 'POST') && hasDocxFinalPanel(item)) {
-    if (method === 'GET') { json(res, docxMailView(item, lang)); return true }
-    if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
-    const body = await readJson(req)
-    if (!body) return fail(res, 400, 'bad_json', lang)
-    const mr = makeDocxMailDraft(item, body, lang)
-    if (!mr.ok) return failDetail(res, mr.code === 'docx_mail_no_pdf' || mr.code === 'docx_mail_bad_address' ? 400 : 500, mr.code, lang, mr.detail)
-    json(res, { eml_path: mr.eml_path, eml_name: mr.eml_name, pdf_name: mr.pdf_name })
     return true
   }
 

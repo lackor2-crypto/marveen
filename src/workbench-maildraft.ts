@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { getDb } from './db.js'
 import { currentOwnerName, OWNER_NAME_PLACEHOLDER } from './config.js'
 import { getProject } from './projects.js'
-import { freeFileName, projectFileTarget } from './project-files.js'
+import { finishedFolderFor, freeFileName, projectFileTarget } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
@@ -28,6 +28,7 @@ import { annexPdfs, annexContentPdf, mergePdfs, type PackageError } from './work
 import { docSettings, listAnnexes } from './workbench-docannex.js'
 import { contentHash, docLangFor, fileStem, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
 import { hasDocModel } from './workbench-docmodel.js'
+import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
 import type { DocLang } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
 
@@ -194,7 +195,9 @@ function folderOf(item: WorkItemRow): { dirAbs: string; dirRel: string } | null 
   if (!project) return null
   const folder = ensureWorkItemFolder(item)
   if (!folder.ok) return null
-  const t = projectFileTarget(project, folder.folder)
+  // #723: a Word item's mail lies beside its final PDF, in Finished materials (Boss TG 3830), as the #719 panel put it.
+  const dir = hasDocxFinalPanel(item) ? (finishedFolderFor(project, folder.folder) ?? folder.folder) : folder.folder
+  const t = projectFileTarget(project, dir)
   return t.ok ? { dirAbs: t.dirAbs, dirRel: t.dirRel } : null
 }
 
@@ -228,9 +231,17 @@ function currentFinalId(item: WorkItemRow): string {
   return f && !f.stale ? f.version_id : ''
 }
 
+/** #723: the final PDF a Word item's mail carries (name, size, time), '' when there is none. */
+function wordFinalPrint(item: WorkItemRow): string {
+  const pdf = hasDocxFinalPanel(item) ? docxFinalPdf(item) : null
+  if (!pdf) return ''
+  try { const st = statSync(pdf.abs); return `${pdf.name}:${st.size}:${Math.floor(st.mtimeMs)}` } catch { return `${pdf.name}:missing` }
+}
+
 function packageKey(item: WorkItemRow, from: string, to: string, cc: string, subject: string, body: string): string {
-  const mode = docSettings(item.id).annex_mode
-  return sha(Buffer.from([contentHash(item), mode, currentFinalId(item), from, to, cc, subject, body].join('\n'), 'utf-8'))
+  const doc = hasDocModel(item.id) ? [contentHash(item), docSettings(item.id).annex_mode, currentFinalId(item)] : []
+  const word = hasDocxFinalPanel(item) ? [wordFinalPrint(item)] : []
+  return sha(Buffer.from([...doc, ...word, from, to, cc, subject, body].join('\n'), 'utf-8'))
 }
 
 export type CollectResult =
@@ -279,8 +290,16 @@ function collectFinalFiles(item: WorkItemRow): (MailAttachment & { kind: MailDra
 
 /** The PDFs that go with the mail, made now from the document as it is. */
 export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Promise<CollectResult> {
-  const finals = collectFinalFiles(item)
+  const finals = hasDocModel(item.id) ? collectFinalFiles(item) : null
   if (finals) return { ok: true, files: finals }
+  // #723: a Word item finalized from its own panel (#719) carries that final PDF, exactly as it was made.
+  if (hasDocxFinalPanel(item)) {
+    const pdf = docxFinalPdf(item)
+    if (pdf) {
+      try { return { ok: true, files: [{ name: pdf.name, data: readFileSync(pdf.abs), kind: 'document' }] } } catch { /* gone: as if there were none */ }
+    }
+    if (!hasDocModel(item.id)) return { ok: false, code: 'docx_mail_no_pdf', detail: null }
+  }
   const lang = docLangFor(item, ui)
   const main = await renderPlainPdf(item, ui)
   if (!main.ok) return { ok: false, code: main.code, detail: main.detail }
@@ -322,7 +341,8 @@ const SUBJECT_MAX = 300
  * document's own language. A file the owner changed is not overwritten: the new one gets a free name next to it.
  */
 export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui: 'hu' | 'en'): Promise<MailDraftOutcome> {
-  if (!hasDocModel(item.id)) return { ok: false, code: 'outline_empty', detail: null }
+  // #723 (Boss TG 3935: "egy kodsort hasznaljunk csak"): a finalized Word item makes its mail here too, with the sender.
+  if (!hasDocModel(item.id) && !hasDocxFinalPanel(item)) return { ok: false, code: 'outline_empty', detail: null }
   const prev = getRow(item.id)
   const fromAccount = input.from_account === undefined ? (prev?.from_account ?? '') : String(input.from_account).trim()
   const fromAddr = input.from_account === undefined ? (prev?.from_addr ?? '') : (cleanAddresses(input.from_addr) || '')

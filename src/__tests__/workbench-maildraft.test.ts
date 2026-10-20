@@ -13,6 +13,8 @@ import { addAnnex, setDocSettings } from '../workbench-docannex.js'
 import { resolverFor } from '../workbench-docfinal.js'
 import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
+import { markPlainItem } from '../workbench-assets.js'
+import { finalizeDocxItem } from '../workbench-docxfinal.js'
 import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, saveMailDraft } from '../workbench-maildraft.js'
 
 /** A fake LibreOffice: the PDF it writes carries a checksum of the source, so any change of the text shows in the bytes. */
@@ -142,6 +144,30 @@ describe('the e-mail draft of a work item', () => {
     return readdirSync(join(projDir(), ...f.split('/'))).filter((n) => n.endsWith('.eml'))
   }
   const emlPath = (name: string): string => join(projDir(), ...getWorkItem(itemId)!.folder!.split('/'), name)
+
+  // #723 (Boss TG 3935: "feladot is irni kell az emailhoz ... egy kodsort hasznaljunk csak"): a finalized Word item makes
+  // its mail with this same code -- the sender account, the From line, the final PDF attached, in Finished materials.
+  it('a finalized Word item: the same draft with the sender, its final PDF attached, in Finished materials beside the file', async () => {
+    writeFileSync(join(projDir(), 'Iratok', 'Antrag.docx'), 'PK fake word')
+    const w = createWorkItem({ project_id: pid, title: 'Antrag', type: 'document', source_path: 'Projektek/Iroda/Iratok/Antrag.docx' })
+    if (!w.ok) throw new Error('item')
+    markPlainItem(w.item.id)
+    const before = await saveMailDraft(w.item, { to: 'amt@stadt.de' }, 'hu')
+    expect(before).toMatchObject({ ok: false, code: 'docx_mail_no_pdf' })
+    const f = await finalizeDocxItem(getWorkItem(w.item.id)!, { by: 'owner', ui: 'hu' })
+    if (!f.ok) throw new Error('finalize ' + f.code + ' ' + f.detail)
+    const word = getWorkItem(w.item.id)!
+    const r = await saveMailDraft(word, { from_account: 'work', from_addr: 'me@example.com', to: 'amt@stadt.de', subject: 'Antrag' }, 'hu')
+    if (!r.ok) throw new Error('save ' + r.code)
+    expect(r.draft).toMatchObject({ from_account: 'work', from_addr: 'me@example.com', state: 'current' })
+    expect(r.draft.file).toBe('Projektek/Iroda/Iratok/Elkészített anyagok/' + r.draft.file_name)
+    const mail = await simpleParser(readFileSync(join(projDir(), 'Iratok', 'Elkészített anyagok', r.draft.file_name)))
+    expect(mail.from?.value[0]?.address).toBe('me@example.com')
+    expect(mail.attachments.map((a) => a.filename)).toEqual(['Antrag - végleges.pdf'])
+    // a plain item never gets a folder of its own (#721): nothing new beside the file but the Finished materials
+    expect(readdirSync(join(projDir(), 'Iratok')).sort()).toEqual(['Antrag.docx', 'Elkészített anyagok', 'bescheid.pdf', 'vertrag.pdf'])
+    expect(mailDraftView(word)).toMatchObject({ from_account: 'work', state: 'current' })
+  })
 
   it('an item without a document makes no draft', async () => {
     const r = await saveMailDraft(item(), {}, 'hu')
