@@ -15178,33 +15178,43 @@
     var refreshGo = function () {
       go.disabled = !(Object.keys(target).some(function (k) { return target[k] }) || files.some(function (f) { return f.action === 'trash' }))
     }
-    var gateHtml = function () {
-      var g = gates.filter(function (x) { return x.item_id === id })[0]
-      if (!g || g.sent || upOnly) return ''
-      return '<div class="wb-lifemove-gate" style="padding:8px;margin-bottom:8px;border:1px solid #d33;border-radius:6px;color:#b00020">'
-        + esc(t('workbench.lifemove.gate_unsent')) + ' <button type="button" class="btn-secondary btn-compact" id="wbLifeMoveMark" title="' + escA(t('workbench.lifemove.gate_mark_hint')) + '">' + esc(t('workbench.lifemove.gate_mark')) + '</button></div>'
+    // One "not sent yet" box with its own "Already sent" button, for the open document and for every other document of the folder.
+    var gateBox = function (itemId, text) {
+      var box = document.createElement('div')
+      box.className = 'wb-lifemove-gate'
+      box.style.cssText = 'padding:8px;margin-bottom:8px;border:1px solid #d33;border-radius:6px;color:#b00020'
+      box.appendChild(document.createTextNode(text + ' '))
+      var mk = document.createElement('button')
+      mk.type = 'button'
+      mk.className = 'btn-secondary btn-compact wb-lifemove-mark'
+      mk.dataset.itemId = itemId
+      mk.title = t('workbench.lifemove.gate_mark_hint')
+      mk.textContent = t('workbench.lifemove.gate_mark')
+      mk.addEventListener('click', function () {
+        mk.disabled = true
+        api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/sent-mark', { sent: true }).then(function (mr) {
+          if (!mr.ok) { mk.disabled = false; window.showToast(mr.message || t('workbench.lifemove.failed')); return }
+          window.showToast(t('workbench.lifemove.gate_marked'))
+          load()
+        })
+      })
+      box.appendChild(mk)
+      return box
+    }
+    var unsentGate = function (itemId) {
+      var g = gates.filter(function (x) { return x.item_id === itemId })[0]
+      return g && !g.sent && !upOnly ? g : null
     }
     var draw = function () {
       list.innerHTML = ''
-      var gh = gateHtml()
-      if (gh) {
-        var gd = document.createElement('div'); gd.innerHTML = gh; list.appendChild(gd.firstChild)
-        var mk = list.querySelector('#wbLifeMoveMark')
-        if (mk) mk.addEventListener('click', function () {
-          mk.disabled = true
-          api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/sent-mark', { sent: true }).then(function (mr) {
-            if (!mr.ok) { mk.disabled = false; window.showToast(mr.message || t('workbench.lifemove.failed')); return }
-            window.showToast(t('workbench.lifemove.gate_marked'))
-            load()
-          })
-        })
-      }
+      if (unsentGate(id)) list.appendChild(gateBox(id, t('workbench.lifemove.gate_unsent')))
       if (!files.length) { var em = document.createElement('p'); em.className = 'wb-muted'; em.textContent = t('workbench.lifemove.empty'); list.appendChild(em); return }
       var lastGroup = ''
       files.forEach(function (f, i) {
         if (f.group === 'other' && lastGroup !== 'other:' + f.item_id) {
           var h = document.createElement('div'); h.style.cssText = 'font-weight:600;margin:10px 0 2px'
           h.textContent = t('workbench.lifemove.group_other', { title: f.item_title || '' }); list.appendChild(h)
+          if (unsentGate(f.item_id)) list.appendChild(gateBox(f.item_id, t('workbench.lifemove.gate_unsent_other', { title: f.item_title || '' })))
         }
         lastGroup = f.group === 'other' ? 'other:' + f.item_id : 'this'
         var row = document.createElement('div')
