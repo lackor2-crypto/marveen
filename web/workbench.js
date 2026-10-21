@@ -9410,7 +9410,7 @@
       + '<ul>' + open.concat(acked).map(function (i) { return consistencyIssueHtml(i, ro) }).join('') + '</ul>'
   }
 
-  /** Boss TG 3438 (#611): a grey finalize button must show WHICH points are open, right in the finalize box. */
+  /** Boss TG 3438 (#611): the finalize box shows WHICH points are open. #751: they only inform, they do not block. */
   function outlineOpenPointsHtml(o, ro) {
     var check = o && o.check
     if (!check || check.ready) return ''
@@ -9456,6 +9456,13 @@
       + '</ul><p class="' + (check.ready ? 'wb-ok' : 'wb-muted') + '">' + esc(t(check.ready ? 'workbench.outline.ready' : 'workbench.outline.not_ready')) + '</p></div>'
   }
 
+  /** #751: the server put the check's content points into the to-do list -- the page reloads the to-dos once per change. */
+  function syncCheckTodosSeen(o) {
+    if (!o || !o.check_todos_at || o.check_todos_at === WB.checkTodosAt) return
+    WB.checkTodosAt = o.check_todos_at
+    setTimeout(function () { loadTodos() }, 0)
+  }
+
   /** VAZLAT (K-1.14): fejezetek allapottal, bekezdesek, allitasok a forrasaikkal,
    *  hianyok, es a veglegesites elotti ellenorzes (K-1.22). */
   function outlineHtml() {
@@ -9463,6 +9470,7 @@
     if (!d || !d.item) return ''
     var o = d.outline
     var ro = docLocked()
+    syncCheckTodosSeen(o)
     if (!o) {
       if (!isDocSurface(d.item) || ro) return ''
       return '<div class="wb-outline wb-outline-empty"><p class="wb-hint">' + esc(t('workbench.outline.empty_hint')) + '</p>'
@@ -9826,7 +9834,7 @@
       }).join(' · ') + '</p>'
     // The draft PDF button is the same PDF as "Megnyitom es atnezem": with the check done, opening it records the review too
     // (an owner who reads the draft PDF no longer has to find a second button -- the tick stayed grey for exactly that).
-    var draftReview = !ro && o.check && o.check.ready && o.content_hash ? '&review=' + encodeURIComponent(o.content_hash) : ''
+    var draftReview = !ro && o.check && o.content_hash ? '&review=' + encodeURIComponent(o.content_hash) : ''
     var tools = '<p class="wb-outline-pdf-tools">'
       + '<a class="btn-secondary btn-compact"' + (draftReview ? ' data-wb-act="outline-review"' : '') + ' href="' + escA(base + '/pdf' + q + draftReview) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.outline.draft_pdf_hint')) + '">' + esc(t('workbench.outline.draft_pdf')) + '</a> '
       + '<a class="btn-secondary btn-compact" href="' + escA(base + '/docx' + q) + '" download title="' + escA(t('workbench.outline.docx_hint')) + '">' + esc(t('workbench.outline.docx')) + '</a> '
@@ -9835,18 +9843,20 @@
     var fin = ''
     if (!ro) {
       var hash = o.content_hash || ''
+      // #751 (Boss, TG 4201): "ne akasszuk meg a veglegesitest semmivel. csak szoljunk!" -- the open points of the check
+      // never grey the buttons. Only a missing signature or an annex not in order asks for a "finalize anyway" tick.
       var ready = !!(o.check && o.check.ready)
+      var needOverride = !!(o.check && o.check.needs_override)
+      var overridden = !needOverride || WB.docOverride === hash
       var reviewed = !!o.reviewed
-      var accepted = ready && reviewed && WB.docAccept === hash
-      var reviewBtn = ready
-        ? '<a class="btn-secondary btn-compact" data-wb-act="outline-review" href="' + escA(base + '/pdf' + q + '&review=' + encodeURIComponent(hash)) + '" target="_blank" rel="noopener">' + esc(t('workbench.outline.review_open')) + '</a>'
-        : '<button type="button" class="btn-secondary btn-compact" disabled title="' + escA(t('workbench.outline.next_check')) + '">' + esc(t('workbench.outline.review_open')) + '</button>'
+      var accepted = reviewed && WB.docAccept === hash && overridden
+      var reviewBtn = '<a class="btn-secondary btn-compact" data-wb-act="outline-review" href="' + escA(base + '/pdf' + q + '&review=' + encodeURIComponent(hash)) + '" target="_blank" rel="noopener">' + esc(t('workbench.outline.review_open')) + '</a>'
       // #590 (Boss, TG 9007): a grey button must say WHICH step is still open -- the check, the review, or the tick.
       // The review, the tick and the final PDF are the owner's own click: a browser that is not logged in with a user name
       // (token access) can never record them, so the grey button would stay grey forever -- say so instead of a step.
       wbAuthLoad()
       var notOwner = typeof WB.authMethod === 'string' && WB.authMethod !== 'session'
-      var nextKey = !ready ? 'workbench.outline.next_check' : notOwner ? 'workbench.outline.next_login' : !reviewed ? 'workbench.outline.next_review' : !accepted ? 'workbench.outline.next_accept' : 'workbench.outline.next_final'
+      var nextKey = notOwner ? 'workbench.outline.next_login' : !reviewed ? 'workbench.outline.next_review' : !overridden ? 'workbench.outline.next_override' : WB.docAccept !== hash ? 'workbench.outline.next_accept' : 'workbench.outline.next_final'
       var nextTip = escA(t(nextKey))
       // Which language is being finalized (Boss, 2026-10-16): the PDF is made of THIS work item; the other languages are their own
       // work items (language versions) and are finalized there, only once their translation is complete.
@@ -9865,11 +9875,13 @@
           }).join('') + '</ul></div>'
       }
       fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>' + langPick
-        + '<p class="wb-hint">' + esc(t(ready ? 'workbench.outline.finalize_steps' : 'workbench.outline.finalize_blocked')) + '</p>'
+        + '<p class="wb-hint">' + esc(t('workbench.outline.finalize_steps')) + '</p>'
         + '<p class="wb-outline-next" role="status"><strong>' + esc(t('workbench.outline.next_label')) + '</strong> ' + esc(t(nextKey)) + '</p>'
         + (ready ? '' : outlineOpenPointsHtml(o, ro))
         + '<p>' + reviewBtn + (reviewed ? ' <span class="wb-ok">✓ ' + esc(t('workbench.outline.reviewed')) + '</span>' : '') + '</p>'
-        + '<p><label class="wb-outline-accept"><input type="checkbox" data-wb-act="outline-accept"' + (ready && reviewed ? '' : ' disabled title="' + nextTip + '"') + (accepted ? ' checked' : '') + '> '
+        + (needOverride ? '<p><label class="wb-outline-override wb-doc-low"><input type="checkbox" data-wb-act="outline-override"' + (WB.docOverride === hash ? ' checked' : '') + '> '
+          + esc(t('workbench.outline.override')) + '</label></p>' : '')
+        + '<p><label class="wb-outline-accept"><input type="checkbox" data-wb-act="outline-accept"' + (reviewed ? '' : ' disabled title="' + nextTip + '"') + (WB.docAccept === hash && reviewed ? ' checked' : '') + '> '
         + esc(t('workbench.outline.accept')) + '</label></p>'
         + '<p><button type="button" class="wb-btn" data-wb-act="outline-finalize"' + (accepted && !WB.docFinalizing ? '' : ' disabled title="' + nextTip + '"') + '>'
         + esc(t(WB.docFinalizing ? 'workbench.outline.finalizing' : 'workbench.outline.finalize')) + '</button></p>'
@@ -10203,7 +10215,9 @@
     if (!id || !o || WB.docFinalizing || archived()) return
     WB.docFinalizing = true
     render()
-    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/finalize', { accept: true, hash: o.content_hash }).then(function (r) {
+    var body = { accept: true, hash: o.content_hash }
+    if (o.check && o.check.needs_override && WB.docOverride === o.content_hash) body.override = true
+    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/finalize', body).then(function (r) {
       WB.docFinalizing = false
       if (WB.selectedId === id && WB.detail) {
         if (r.data && r.data.outline) WB.detail.outline = r.data.outline
@@ -10211,7 +10225,7 @@
         if (r.ok && r.data.court) WB.detail.court = r.data.court
       }
       if (r.ok) {
-        WB.docAccept = null; window.showToast(t(r.data.reused ? 'workbench.outline.finalized_same' : 'workbench.outline.finalized', { label: r.data.final.label }))
+        WB.docAccept = null; WB.docOverride = null; window.showToast(t(r.data.reused ? 'workbench.outline.finalized_same' : 'workbench.outline.finalized', { label: r.data.final.label }))
         // #552: the server marked the work item finalized (done) with it; the box and the list follow.
         if (WB.selectedId === id && WB.detail && WB.detail.item) WB.detail.item.status = 'done'
         render()
@@ -10429,6 +10443,10 @@
     } else if (a === 'outline-accept') {
       var o = WB.detail && WB.detail.outline
       WB.docAccept = act.checked && o ? o.content_hash : null
+      render()
+    } else if (a === 'outline-override') {
+      var oo = WB.detail && WB.detail.outline
+      WB.docOverride = act.checked && oo ? oo.content_hash : null
       render()
     } else if (a === 'outline-finalize') {
       finalizeDocument()

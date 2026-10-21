@@ -15,6 +15,7 @@ import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench
 import { buildFodt, renderOutlineDocx, renderOutlinePdf, toRenderOutline, DOCX_FILTER, PDF_FILTER_FINAL } from '../workbench-docrender.js'
 import { contentHash, docxFileName, fileStem, finalFileName, shortTitle } from '../workbench-docfinal.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
+import { listItemTodos } from '../workbench-todos.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { rmTempDir } from './helpers/rm-temp-dir.js'
@@ -202,7 +203,10 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     expect(oldScreen.body.error).toBe('outline_changed')
 
     const versionsBefore = listWorkItemVersions(itemId).length
-    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    // #751: the signature block has no handwritten signature picture: asked once, then "finalize anyway".
+    const asked = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(asked.body.error).toBe('outline_override_required')
+    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash, override: true })
     expect(fin.status).toBe(200)
     expect(fin.body.final.label).toMatch(/^Végleges – \d{4}-\d{2}-\d{2}$/)
     expect(fin.body.final.stale).toBe(false)
@@ -253,18 +257,46 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     expect(t.reviews.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('K-1.22: hianyzo adattal nem veglegesitheto, a piszkozat viszont elkeszul', async () => {
+  it('#751: a hianyzo adat nem akadalyozza a veglegesitest, hanem teendo lesz belole', async () => {
     const s = addSection(itemId, '1. Kérelem', { status: 'done' })
     if (!s.ok) throw new Error('fejezet')
     addBlock(itemId, s.section.id, { text: 'A kézbesítés napja: ⚠ Hiányzó adat: a kézbesítés dátuma', author: 'agent' })
     const base = `/api/workbench/items/${itemId}/outline`
-    const hash = (await callWorkbench(base, 'GET')).body.outline.content_hash
+    const got = (await callWorkbench(base, 'GET')).body.outline
+    expect(got.check.ready).toBe(false)
+    expect(got.check.needs_override).toBe(false)
+    expect(got.check_todos_at).toBeGreaterThan(0)
+    const todos = listItemTodos(itemId)
+    expect(todos.map((x) => x.text)).toContain('Hiányzó adat: a kézbesítés dátuma')
+    expect(todos[0]).toMatchObject({ source: 'agent', created_by: 'doc-check' })
+    // A second look does not make the same to-do again.
+    expect((await callWorkbench(base, 'GET')).body.outline.check_todos_at).toBeUndefined()
+    const hash = got.content_hash
     const draft = await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')
     expect(draft.status).toBe(200)
     const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(fin.body.error).not.toBe('outline_not_ready')
+    expect(fin.body.error).not.toBe('outline_override_required')
+  })
+
+  it('#751: kezi alairas nelkul csak az "ennek ellenere" pipaval (override) veglegesit, magyarul mondja meg', async () => {
+    const s = addSection(itemId, '1. Kérelem', { status: 'done' })
+    if (!s.ok) throw new Error('fejezet')
+    addBlock(itemId, s.section.id, { text: 'Kérem a keresetet elutasítani.', author: 'agent' })
+    addBlock(itemId, s.section.id, { text: 'Teszt Elek', author: 'agent', kind: 'signature' })
+    const base = `/api/workbench/items/${itemId}/outline`
+    const got = (await callWorkbench(base, 'GET')).body.outline
+    expect(got.check.needs_override).toBe(true)
+    const hash = got.content_hash
+    await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')
+    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
     expect(fin.status).toBe(409)
-    expect(fin.body.error).toBe('outline_not_ready')
-    expect(fin.body.message).toContain('ellenőrzés')
+    expect(fin.body.error).toBe('outline_override_required')
+    expect(fin.body.message).toContain('Ennek ellenére véglegesítem')
+    const fin2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash, override: true })
+    expect(fin2.body.error).not.toBe('outline_override_required')
+    // The signature is asked at finalizing, it is not a to-do.
+    expect(listItemTodos(itemId)).toHaveLength(0)
   })
 
   it('vazlat nelkul nincs PDF; LibreOffice nelkul emberi mondat a teendovel', async () => {
@@ -487,18 +519,42 @@ describe('a felulet: piszkozat, atnezes, veglegesites', () => {
     expect(html).toContain('workbench.outline.next_label')
   })
 
-  it('#590: the next step follows the state -- check, review, tick, make', async () => {
-    const blocked = (await open(outline({ check: { ready: false, items: [{ key: 'missing_data', ok: false, count: 1 }] } }))).html()
-    expect(blocked).toContain('class="wb-outline-next" role="status"><strong>⟦workbench.outline.next_label⟧</strong> ⟦workbench.outline.next_check⟧')
+  it('#590: the next step follows the state -- review, tick, make (#751: open points never block)', async () => {
+    const open1 = (await open(outline({ check: { ready: false, needs_override: false, items: [{ key: 'missing_data', ok: false, count: 1 }] } }))).html()
+    expect(open1).toContain('class="wb-outline-next" role="status"><strong>⟦workbench.outline.next_label⟧</strong> ⟦workbench.outline.next_review⟧')
     const reviewed = (await open(outline({ reviewed: true }))).html()
     expect(reviewed).toContain('⟦workbench.outline.next_accept⟧</p>')
   })
 
-  it('nem kesz dokumentumnal az atnezes gomb sem aktiv', async () => {
-    const h = await open(outline({ check: { ready: false, items: [{ key: 'missing_data', ok: false, count: 1 }] } }))
+  it('#751: nyitott pontnal is aktiv az atnezes, a pontok csak tajekoztatnak (teendo)', async () => {
+    const h = await open(outline({ check: { ready: false, needs_override: false, items: [{ key: 'missing_data', ok: false, count: 1 }] } }))
     const html = h.html()
-    expect(html).not.toContain('data-wb-act="outline-review"')
-    expect(html).toContain('workbench.outline.finalize_blocked')
+    expect(html).toContain('data-wb-act="outline-review"')
+    expect(html).toContain('workbench.outline.not_ready')
+    expect(html).not.toContain('finalize_blocked')
+    expect(html).not.toContain('data-wb-act="outline-override"')
+  })
+
+  it('#751: hianyzo alairasnal "ennek ellenere veglegesitem" pipa kell, es a keres override-dal megy', async () => {
+    const h = await open(outline({ reviewed: true, check: { ready: true, needs_override: true, items: [{ key: 'signature_missing', ok: true, count: 1 }] } }))
+    expect(h.html()).toContain('data-wb-act="outline-override"')
+    const click = (act: string) => h.fire('click', {
+      target: { closest: (sel: string) => (sel === '[data-wb-act]' ? { getAttribute: (a: string) => (a === 'data-wb-act' ? act : null), checked: true } : null) },
+      preventDefault() {}, stopPropagation() {},
+    })
+    click('outline-accept')
+    await vi.waitFor(() => expect(h.html()).toContain('⟦workbench.outline.next_override⟧'))
+    expect(h.html()).toMatch(/data-wb-act="outline-finalize" disabled/)
+    click('outline-override')
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="outline-override" checked'))
+    expect(h.html()).not.toMatch(/data-wb-act="outline-finalize" disabled/)
+    h.click({ 'data-wb-act': 'outline-finalize' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.includes('/outline/finalize'))).toBe(true))
+    const call = h.fetchCalls.find((c) => c.url.includes('/outline/finalize'))
+    expect(JSON.parse(String(call?.init?.body))).toEqual({ accept: true, hash: HASH, override: true })
+    // The page marks the shared item fixture finalized (#552); the next test starts from a draft again.
+    await vi.waitFor(() => expect(h.html()).toContain('workbench.outline.final_current'))
+    ITEM.status = 'draft'
   })
 
   it('atnezes utan pipa -> a gomb elesedik, es a veglegesites a latott ujjlenyomattal megy', async () => {

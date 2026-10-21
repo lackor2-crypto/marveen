@@ -544,7 +544,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
                 consistency: consistencyIssues(item.id).map((i) => ({ kind: i.kind, values: i.values, section: i.where, marked_intentional_by_owner: i.acked })),
                 reviewed_by_owner: fin.reviewed,
                 final: fin.final ? { label: fin.final.label, version_no: fin.final.version_no, file: fin.final.pdf_path, stale: fin.final.stale } : null,
-                pdf: 'The owner makes the draft PDF (watermarked, any time) and the final PDF (only after this check passes, they opened and reviewed it and ticked that they take responsibility) with the buttons of the Vázlat box. You can not finalize.',
+                pdf: 'The owner makes the draft PDF (watermarked, any time) and the final PDF (after they opened and reviewed it and ticked that they take responsibility; the open points of this check never block it: the content points are in the to-do list of the work item, and a missing signature or annex only asks the owner for a "finalize anyway" tick) with the buttons of the Vázlat box. You can not finalize.',
               },
             }
           }

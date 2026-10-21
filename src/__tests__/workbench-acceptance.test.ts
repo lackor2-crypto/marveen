@@ -503,7 +503,11 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
     const draft = await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')
     expect(draft.status).toBe(200)
     expect(draft.headers['Content-Type']).toBe('application/pdf')
-    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    // #751: the brief has a signature block without the handwritten signature picture: the owner is asked, and goes on
+    // with the "finalize anyway" tick.
+    const asked = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(asked.body.error).toBe('outline_override_required')
+    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash, override: true })
     return { draft: draft.raw, fin }
   }
 
@@ -596,14 +600,12 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
     const owner = await callWorkbench(`/api/workbench/items/${e.itemId}/outline`, 'GET')
     expect(owner.body.outline.check.ready).toBe(false)
 
-    // Veglegesiteni nem lehet: se a tulajdonos (atnezes utan sem), se az Agent.
+    // #751: the open points are to-dos, they never hold the owner's finalizing back; the Agent still can not finalize.
     const { fin } = await ownerFinalizes(e.itemId)
-    expect(fin.status).toBe(409)
-    expect(fin.body.error).toBe('outline_not_ready')
+    expect(fin.body.error).not.toBe('outline_not_ready')
     const hash = (await callWorkbench(`/api/workbench/items/${e.itemId}/outline`, 'GET')).body.outline.content_hash
     const byAgent = await callWorkbench(`/api/workbench/items/${e.itemId}/outline/finalize`, 'POST', { accept: true, hash }, undefined, { kind: 'token' })
     expect(byAgent.status).toBe(403)
-    expect(owner.body.outline.final).toBe(null)
   }, 240_000)
 
   it('1/B: ugyanaz angolul es nemetul, utolagos magyar modositas -- elavult valtozatok, a szoszedet ervenyesul, a celbirosag-ellenorzes kiirja a szabalyverziot', async () => {
