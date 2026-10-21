@@ -415,6 +415,9 @@ function reusableFinal(item: WorkItemRow, hash: string, lang: 'hu' | 'en'): Fina
   const prev = listFinals(item.id)[0]
   if (!prev || prev.content_hash !== hash || !prev.files || !prev.files.length) return null
   if (!String(prev.label || '').startsWith(FINAL_LABEL[lang])) return null
+  // The annex mode is a setting, not part of the content hash: a switch (separate <-> combined) needs the files made again.
+  const wanted = listAnnexes(item.id).length ? docSettings(item.id).annex_mode : null
+  if ((prev.annex_mode ?? null) !== wanted) return null
   for (const f of prev.files) {
     const abs = resolveLifePath(f.path)
     if (!abs || !existsSync(abs)) return null
