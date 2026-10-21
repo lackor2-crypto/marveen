@@ -874,6 +874,12 @@ export async function listEnvelopesDirect(
   }
 
   try {
+    // The connection is long-lived and runs with disableAutoIdle, so the server's
+    // untagged EXISTS/EXPUNGE updates are only read when a command runs. Without
+    // this NOOP, `mailbox.exists` below (and the sequence-number band built from
+    // it) is the count from the last time the mailbox was touched: a deleted draft
+    // kept showing, a freshly saved one did not (Boss, 2026-10-21).
+    try { await withTimeout(client.noop(), FETCH_TIMEOUT_MS) } catch { /* fall through with what we have */ }
     // Pagination
     const start = (page - 1) * pageSize
     const end = start + pageSize
