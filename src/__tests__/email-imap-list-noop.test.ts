@@ -16,3 +16,18 @@ describe('listEnvelopesDirect refreshes the mailbox state before using exists', 
     expect(existsAt).toBeGreaterThan(noopAt)
   })
 })
+
+// The route must not answer the Drafts list from the "stale but instant" cache either: a deleted draft came back
+// after a refresh and a new one stayed out for minutes (#729).
+describe('GET /api/email/envelopes reads the Drafts list fresh', () => {
+  it('resolves the drafts folder and answers before consulting the envelope cache', () => {
+    const src = readFileSync(join(__dirname, '..', 'web', 'routes', 'email.ts'), 'utf8')
+    const route = src.slice(src.indexOf("path === '/api/email/envelopes' && method === 'GET'"))
+    const draftsAt = route.indexOf("resolveSpecialMailboxes(account as string)")
+    const cacheAt = route.indexOf('cacheGet(envelopeListCache, envelopeCacheKey)')
+    const staleAt = route.indexOf('cacheGetStale(envelopeListCache')
+    expect(draftsAt).toBeGreaterThan(-1)
+    expect(cacheAt).toBeGreaterThan(draftsAt)
+    expect(staleAt).toBeGreaterThan(draftsAt)
+  })
+})
