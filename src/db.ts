@@ -2193,18 +2193,48 @@ export function getChildCards(parentId: string): KanbanCard[] {
   return db.prepare('SELECT * FROM kanban_cards WHERE parent_id = ? AND archived_at IS NULL ORDER BY sort_order ASC').all(parentId) as KanbanCard[]
 }
 
-export function moveKanbanCard(id: string, status: KanbanCard['status'], sortOrder: number, actor?: string): boolean {
+// The statuses the kanban_cards CHECK constraint accepts. Exported so the HTTP
+// boundary can validate a caller-supplied status (the /move route's
+// `expected_status`) against exactly this set (upstream #1975, rebuilt).
+export const KANBAN_STATUSES: readonly KanbanCard['status'][] = [
+  'planned', 'in_progress', 'testing', 'waiting', 'done',
+]
+
+export interface MoveKanbanCardOptions {
+  // Compare-and-set guard. When given, the move only happens if the card's
+  // current status equals this value; otherwise nothing is written and the call
+  // returns false. Without it the move is unconditional (last writer wins),
+  // exactly as before.
+  expectedStatus?: KanbanCard['status']
+}
+
+export function moveKanbanCard(
+  id: string,
+  status: KanbanCard['status'],
+  sortOrder: number,
+  actor?: string,
+  opts?: MoveKanbanCardOptions,
+): boolean {
   const now = Math.floor(Date.now() / 1000)
   // Read the previous status first so we only record an audit event on a real
   // status transition (not a pure sort_order reorder within the same column).
   const prev = (db.prepare('SELECT status FROM kanban_cards WHERE id=?').get(id) as { status: string } | undefined)?.status
-  const changed = db.prepare(
-    'UPDATE kanban_cards SET status=?, sort_order=?, updated_at=? WHERE id=?'
-  ).run(status, sortOrder, now, id).changes > 0
-  if (changed && prev !== undefined && prev !== status) {
+  // With opts.expectedStatus the status check is part of the SAME statement
+  // (WHERE id=? AND status=?), so check and write cannot be split by another
+  // writer. A false return then means "missing card" OR "status mismatch"; the
+  // caller tells them apart with a follow-up read (see the /move route).
+  const expected = opts?.expectedStatus
+  const changed = (expected === undefined
+    ? db.prepare('UPDATE kanban_cards SET status=?, sort_order=?, updated_at=? WHERE id=?').run(status, sortOrder, now, id)
+    : db.prepare('UPDATE kanban_cards SET status=?, sort_order=?, updated_at=? WHERE id=? AND status=?').run(status, sortOrder, now, id, expected)
+  ).changes > 0
+  // With the guard, a successful UPDATE proves the status WAS `expected` at the
+  // write, a stronger fact than the read above.
+  const from = expected ?? prev
+  if (changed && from !== undefined && from !== status) {
     db.prepare(
       'INSERT INTO kanban_card_events (card_id, from_status, to_status, actor, created_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(id, prev, status, actor ?? null, now)
+    ).run(id, from, status, actor ?? null, now)
   }
   return changed
 }

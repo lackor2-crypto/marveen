@@ -4,7 +4,7 @@ import {
   listKanbanCards, createKanbanCard, updateKanbanCard, KANBAN_WRITABLE_FIELDS,
   deleteKanbanCard, moveKanbanCard, archiveKanbanCard, unarchiveKanbanCard,
   getKanbanComments, addKanbanComment, getKanbanCardEvents, listKanbanProjects,
-  getKanbanCard, getChildCards, getDb, parentWouldCycle,
+  getKanbanCard, KANBAN_STATUSES, getChildCards, getDb, parentWouldCycle,
   createAgentMessage, markKanbanCardDispatched,
   getKanbanSeqByIdPrefix,
   listLabels, getLabel, createLabel, updateLabel, deleteLabel,
@@ -416,9 +416,18 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const id = decodeURIComponent(kanbanMoveMatch[1])
     const body = await readBody(req)
     const parsed = JSON.parse(body.toString())
-    const { status, sort_order, actor } = parsed
+    const { status, sort_order, actor, expected_status } = parsed
+    // Upstream #1975 (rebuilt): optional compare-and-set guard. Absent
+    // (undefined/null) keeps the old unconditional move. Present, it must name a
+    // real status: an unknown value could never match, and a 409 would wrongly
+    // suggest someone else moved the card.
+    const hasExpected = expected_status !== undefined && expected_status !== null
+    if (hasExpected && !(KANBAN_STATUSES as readonly string[]).includes(expected_status)) {
+      json(res, { error: `Invalid expected_status. Accepted: ${KANBAN_STATUSES.join(', ')}` }, 400)
+      return true
+    }
     if (refuseUnfinishedWaiting(ctx, id, status, parsed)) return true
-    if (moveKanbanCard(id, status, sort_order ?? 0, actor)) {
+    if (moveKanbanCard(id, status, sort_order ?? 0, actor, hasExpected ? { expectedStatus: expected_status } : undefined)) {
       // Wake the assigned agent once when the card enters in_progress -- unless
       // that agent is the one who moved it (self-pickup needs no wake-up).
       if (status === 'in_progress') fireKanbanDispatch(id, actor)
@@ -439,6 +448,13 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       // card dragged back to in_progress left its request pending for good.
       else withdrawApprovalForCardLeavingWaiting(id, status, actor)
       json(res, { ok: true })
+      return true
+    }
+    // Nothing changed: a missing card stays the old 404; an existing card means
+    // the guard did not hold, so tell the caller what the status actually is.
+    const current = hasExpected ? getKanbanCard(id) : undefined
+    if (current) {
+      json(res, { error: 'status_conflict', current_status: current.status, expected_status }, 409)
       return true
     }
     json(res, { error: 'Kártya nem található' }, 404)

@@ -265,6 +265,8 @@ POST   /api/kanban/:id/labels          -- attach a label to a card ({ labelId })
 DELETE /api/kanban/:id/labels/:labelId -- detach a label from a card
 ```
 
+`POST /api/kanban/:id/move` also takes an optional `expected_status` (compare-and-set). When it is given, the move happens only if the card's current status equals it, checked and written in one statement; otherwise nothing changes and the answer is 409 `{error: "status_conflict", current_status, expected_status}`. An unknown `expected_status` value is a 400, a missing card is still a 404, and without the field the move is unconditional, as before.
+
 The board list endpoint (`GET /api/kanban`) embeds each card's `labels` array using a single bulk JOIN query (not an N+1 per-card lookup), so the footer pills get everything they need in one round trip.
 
 **Card editor (CRUD UI):**

@@ -266,6 +266,8 @@ POST   /api/kanban/:id/labels          -- címke hozzáadása a kártyához ({ l
 DELETE /api/kanban/:id/labels/:labelId -- címke levétele a kártyáról
 ```
 
+A `POST /api/kanban/:id/move` opcionálisan `expected_status`-t is elfogad (compare-and-set). Ha meg van adva, a mozgatás csak akkor történik meg, ha a kártya aktuális státusza ezzel egyezik, az ellenőrzés és az írás egyetlen utasítás; különben semmi nem változik, és a válasz 409 `{error: "status_conflict", current_status, expected_status}`. Ismeretlen `expected_status` érték 400, hiányzó kártya továbbra is 404, a mező nélkül pedig a mozgatás feltétel nélküli, mint eddig.
+
 A tábla-listázó `GET /api/kanban` minden kártyához becsomagolja a `labels` tömböt is, egyetlen bulk JOIN lekérdezéssel (nem N+1 kártyánkénti hívással), így a footer-pillek egyetlen körútból megkapják az adatot.
 
 **Kártya-szerkesztő (CRUD UI):**
