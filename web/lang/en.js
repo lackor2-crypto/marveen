@@ -8283,6 +8283,7 @@ window._i18n.en = {
   "workbench.outline.finalize": "Make the final PDF",
   "workbench.outline.finalizing": "Making the final PDF…",
   "workbench.outline.finalized": "Done: {label}. The PDF is in the work item folder.",
+  "workbench.outline.finalized_same": "Done: {label}. The work item did not change, so no new PDF was made: the earlier one is in the folder.",
   "workbench.tool.doc.outline": "Reading the outline",
   "workbench.tool.doc.addSection": "Adding a section",
   "workbench.tool.doc.updateSection": "Changing a section",

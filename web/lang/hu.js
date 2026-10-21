@@ -8357,6 +8357,7 @@ window._i18n.hu = {
   "workbench.outline.finalize": "Végleges PDF készítése",
   "workbench.outline.finalizing": "A végleges PDF készül…",
   "workbench.outline.finalized": "Kész: {label}. A PDF a munkadarab mappájába került.",
+  "workbench.outline.finalized_same": "Kész: {label}. A munkadarab nem változott, ezért nem készült új PDF: a mappában a korábbi van.",
   "workbench.tool.doc.outline": "Vázlat lekérése",
   "workbench.tool.doc.addSection": "Fejezet hozzáadása",
   "workbench.tool.doc.updateSection": "Fejezet módosítása",
