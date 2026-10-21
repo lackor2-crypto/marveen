@@ -216,17 +216,18 @@ registerMailboxDraftPort({
 // #741: the workbench asks the Sent mailbox whether a document's PDF went out (attachment names, newest messages only).
 registerSentMailPort({
   accounts: () => getAccounts().map((a) => a.id),
-  recent: async (accountId, limit) => {
+  recent: async (accountId, limit, sinceMs) => {
     if (!isKnownAccount(accountId)) return []
     const sent = await fetchSentEnvelopes(accountId)
     if (!sent.ok) return []
-    const out: Array<{ id: string; date: string; to: string; messageId: string; attachments: string[] }> = []
-    for (const e of sent.envelopes.slice(0, limit)) {
+    // Only messages newer than the document's first final can be its sending: no attachment lookup for the older ones.
+    const fresh = sent.envelopes.filter((e) => { const t = Date.parse(String(e.date || '')); return !sinceMs || !Number.isFinite(t) || t >= sinceMs }).slice(0, limit)
+    const out = await Promise.all(fresh.map(async (e) => {
       const att = await himalayaRead(['-a', accountId, 'attachment', 'list', String(e.id), '-m', sent.mailbox, '--json'])
       let names: string[] = []
       if (att.ok) { try { names = ((JSON.parse(att.stdout).attachments || []) as Array<{ filename?: string; inline?: boolean }>).filter((a) => !a.inline && a.filename).map((a) => String(a.filename)) } catch { /* no attachments */ } }
-      out.push({ id: String(e.id), date: String(e.date || ''), to: (e.to || []).map((x) => x.email).filter(Boolean).join(', '), messageId: String(e['message-id'] || ''), attachments: names })
-    }
+      return { id: String(e.id), date: String(e.date || ''), to: (e.to || []).map((x) => x.email).filter(Boolean).join(', '), messageId: String(e['message-id'] || ''), attachments: names }
+    }))
     return out
   },
 })

@@ -19,12 +19,15 @@ export interface SentMailPort {
   /** The ids of the mail accounts that can be looked into. */
   accounts(): string[]
   /** The newest messages of the account's Sent mailbox that carry attachments (names read), newest first. */
-  recent(account: string, limit: number): Promise<SentMailInfo[]>
+  recent(account: string, limit: number, sinceMs: number): Promise<SentMailInfo[]>
 }
 let port: SentMailPort | null = null
 export function registerSentMailPort(p: SentMailPort): void { port = p }
 
 const MAX_MESSAGES = 8
+/** A look that found nothing is not repeated for a minute: the move list is opened again and again. */
+const MISS_TTL_MS = 60_000
+const misses = new Map<string, number>()
 
 /** A file name compared the way a person would: case, spaces and a " (2)" copy mark anywhere ("X (2) - végleges.pdf") do not matter. */
 export function normName(n: string): string {
@@ -61,11 +64,12 @@ export async function detectSentByMail(itemIds: string[]): Promise<string[]> {
     if (!id || sentStatus(id).sent) continue
     const { names, since, account } = sentCandidateNames(id)
     if (!names.size) continue
+    if ((misses.get(id) || 0) > Date.now()) continue
     const accounts = account ? [account] : port.accounts()
     let hit: { info: SentMailInfo; account: string } | null = null
     for (const acc of accounts) {
       let msgs: SentMailInfo[] = []
-      try { msgs = await port.recent(acc, MAX_MESSAGES) } catch { continue }
+      try { msgs = await port.recent(acc, MAX_MESSAGES, since ? (since - 86_400) * 1000 : 0) } catch { continue }
       for (const m of msgs) {
         // A mail older than the first finalisation cannot be this document's sending (one day of slack for clock skew).
         const t = Date.parse(m.date)
@@ -74,7 +78,7 @@ export async function detectSentByMail(itemIds: string[]): Promise<string[]> {
       }
       if (hit) break
     }
-    if (!hit) continue
+    if (!hit) { misses.set(id, Date.now() + MISS_TTL_MS); continue }
     const item = getWorkItem(id)
     const day = /^\d{4}-\d{2}-\d{2}/.exec(hit.info.date)?.[0] || new Date().toISOString().slice(0, 10)
     const to = hit.info.to || hit.account
