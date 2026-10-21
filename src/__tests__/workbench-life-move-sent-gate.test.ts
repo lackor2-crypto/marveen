@@ -1,7 +1,7 @@
 // Boss TG 4059-4068: "Move to the Life tree" only moves a document that was SENT; of its generated files only the sent
 // version goes to the Life tree (the older ones to the Trash, restorable); the place is read from where the document lives.
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync, renameSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync, renameSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -145,6 +145,43 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
     const plan = lifeMovePlan(project, getWorkItem(b) as any, 'include')
     if (!plan.ok) throw new Error('terv')
     expect(plan.files.find((x) => x.name === 'Sozialamt piszkozat.pdf')?.action).toBe('trash')
+  })
+
+  // #742: a link whose file is gone proves nothing -- the remaining final must not go to the Trash.
+  it('az Életfába vitt elküldött PDF azóta eltűnt (törött link): a megmaradt végleges PDF megy, NEM a Kukába', () => {
+    const { project, b } = setup()
+    markSentManually(b, null)
+    const fin = join(root, 'Projektek', 'Nemet', CONT, FIN)
+    const target = join(root, 'Bakos Éva', 'Hatóságok', 'Németország', 'Sozialamt')
+    renameSync(join(fin, 'Sozialamt v1.pdf'), join(target, 'Sozialamt v1.pdf'))
+    addMount({ rel: `Projektek/Nemet/${CONT}/${FIN}/Sozialamt v1.pdf`, target: 'Bakos Éva/Hatóságok/Németország/Sozialamt/Sozialamt v1.pdf', kind: 'local', file: true })
+    rmSync(join(target, 'Sozialamt v1.pdf'))
+    writeFileSync(join(fin, 'Sozialamt végleges.pdf'), 'sent')
+    ensureAssetTables()
+    getDb().prepare('INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('as3', b, `Projektek/Nemet/${CONT}/${FIN}/Sozialamt végleges.pdf`, 'Sozialamt végleges.pdf', 'final', '', 0, 1)
+    const plan = lifeMovePlan(project, getWorkItem(b) as any, 'include')
+    if (!plan.ok) throw new Error('terv')
+    expect(plan.files.find((x) => x.name === 'Sozialamt végleges.pdf')?.action).toBe('move')
+  })
+
+  // #742: of the files left, a final PDF is the document -- a newer non-final generated file is not.
+  it('a rögzített elküldött PDF kitörölve: a végleges PDF megy, nem az újabb nem-végleges fájl', () => {
+    const { project, b } = setup()
+    markSentManually(b, null)
+    const fin = join(root, 'Projektek', 'Nemet', CONT, FIN)
+    rmSync(join(fin, 'Sozialamt v1.pdf'))
+    writeFileSync(join(fin, 'Sozialamt végleges.pdf'), 'sent')
+    writeFileSync(join(fin, 'Sozialamt előnézet.pdf'), 'preview')
+    utimesSync(join(fin, 'Sozialamt végleges.pdf'), 1000, 1000)
+    ensureAssetTables()
+    const ins = getDb().prepare('INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    ins.run('as4', b, `Projektek/Nemet/${CONT}/${FIN}/Sozialamt végleges.pdf`, 'Sozialamt végleges.pdf', 'final', '', 0, 1)
+    ins.run('as5', b, `Projektek/Nemet/${CONT}/${FIN}/Sozialamt előnézet.pdf`, 'Sozialamt előnézet.pdf', 'preview', '', 0, 2)
+    const plan = lifeMovePlan(project, getWorkItem(b) as any, 'include')
+    if (!plan.ok) throw new Error('terv')
+    expect(plan.files.find((x) => x.name === 'Sozialamt végleges.pdf')?.action).toBe('move')
+    expect(plan.files.find((x) => x.name === 'Sozialamt előnézet.pdf')?.action).toBe('trash')
   })
 
   it('rögzített küldés: AZ megy, amelyik tényleg elment, még ha nem a legújabb', () => {
