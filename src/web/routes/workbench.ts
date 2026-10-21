@@ -35,7 +35,8 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { kickItemContextSweep, markPlainItem } from '../../workbench-item-context.js'
-import { lifeMovePlan, moveItemFilesToLife, movedPairs, suggestForPlan } from '../../workbench-life-move.js'
+import { lifeMovePlan, moveItemFilesToLife, movedPairs, siblingsOf, suggestForPlan } from '../../workbench-life-move.js'
+import { detectSentByMail } from '../../workbench-sent-detect.js'
 import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
 import { createHash } from 'node:crypto'
@@ -4621,6 +4622,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (method === 'GET') {
       // #716: the button lists everything including the uploads; `scope=uploads` is the list right after an upload.
+      // #741: the first thing the move does is look into the Sent mailbox, so a letter that went out is not asked about.
+      await detectSentByMail(siblingsOf(owner, item).map((w) => w.id)).catch(() => [])
       const c = lifeMovePlan(owner, item, url.searchParams.get('scope') === 'uploads' ? 'only' : 'include')
       if (!c.ok) return fail(res, 404, 'life_move_no_folder', lang)
       const sug = await suggestForPlan(owner, item, c.files, lang)
