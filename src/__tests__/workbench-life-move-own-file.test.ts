@@ -1,6 +1,6 @@
 // A work item made from a file has no folder, only its source file: the "move to the Life tree" list offers that one
 // file (every document has the button), and the item follows the file to its new place.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +9,10 @@ import { createProject, updateProject, getProject, type ProjectRow } from '../pr
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { markSentManually } from '../workbench-docsent.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
+
+// The move leaves a linked file behind (#741): its list must not reach the real store/ (a second run failed on the first one's link).
+const mountStore = vi.hoisted(() => require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'marveen-own-file-move-store-')) as string)
+vi.mock('../config.js', async () => ({ ...(await vi.importActual<typeof import('../config.js')>('../config.js')), STORE_DIR: mountStore }))
 
 describe('Eletfa-koltoztetes: fajlbol keszult munkadarab', () => {
   let depot = ''
@@ -30,6 +34,7 @@ describe('Eletfa-koltoztetes: fajlbol keszult munkadarab', () => {
 
   afterEach(() => {
     rmSync(depot, { recursive: true, force: true })
+    rmSync(join(mountStore, 'life-mounts.json'), { force: true })
     delete process.env['MARVEEN_DEPOT']
   })
 

@@ -4634,7 +4634,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
-    const r = moveItemFilesToLife(owner, item, body['moves'], lang, 'include')
+    // #742 review: the move runs on the same list the owner saw -- right after an upload (`scope: 'uploads'`) that is the
+    // uploads-only list, whose files may move before the document is sent; on the whole list they would be refused.
+    const r = moveItemFilesToLife(owner, item, body['moves'], lang, body['scope'] === 'uploads' ? 'only' : 'include')
     if (!r.ok) return fail(res, r.code === 'no_folder' ? 404 : 400, r.code === 'no_folder' ? 'life_move_no_folder' : 'life_move_bad_input', lang)
     // #716: an annex that stood on the old place becomes a link to the document in the Life tree.
     const relinked = await relinkMovedAnnexes(owner, movedPairs(r.results)).catch(() => 0)

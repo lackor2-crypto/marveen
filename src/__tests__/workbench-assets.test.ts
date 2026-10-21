@@ -25,6 +25,10 @@ import { buildCodeBridgePrompt } from '../workbench-agent/code-bridge-turn.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
 
+// The move leaves a linked file behind (#741): its list must not reach the real store/ (a second run failed on the first one's link).
+const mountStore = vi.hoisted(() => require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'marveen-assets-store-')) as string)
+vi.mock('../config.js', async () => ({ ...(await vi.importActual<typeof import('../config.js')>('../config.js')), STORE_DIR: mountStore }))
+
 describe('tamogatasi allapot es mappanev', () => {
   it('K-0.15: fajtankent kimondja, mit tud vele az agent', () => {
     expect(assetSupport('terv.md')).toBe('readable')
