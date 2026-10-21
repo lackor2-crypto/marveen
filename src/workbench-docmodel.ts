@@ -33,6 +33,7 @@ import { annexCheck, type FileResolver } from './workbench-docannex.js'
 import { consistencyIssues } from './workbench-doccheck.js'
 import { variantCheckItems } from './workbench-doclang.js'
 import { SIGNATURE_TERMS } from './workbench-signatures.js'
+import { needsOverride } from './workbench-check-todos.js'
 import { isBlockAlign, parsePfmt, pfmtToStored, richMatches, richToPlain, sanitizePfmt, sanitizeRich, type ParaFmt } from './workbench-docrich.js'
 
 export const SECTION_STATUSES = ['todo', 'in_progress', 'done'] as const
@@ -924,12 +925,13 @@ export function documentOutline(itemId: string): { sections: SectionView[] } {
 export interface CheckItem { key: string; ok: boolean; count: number; total?: number; detail?: string[] }
 
 /**
- * A VEGLEGESITES elotti ellenorzes (K-1.22). Minden sor egy feltetel; a
- * dokumentum csak akkor veglegesitheto, ha mindegyik `ok`. A tulajdonos
+ * A VEGLEGESITES elotti ellenorzes (K-1.22). Minden sor egy feltetel; #751 ota
+ * egyik sem akadaly: a tartalmi pontok teendove valnak, az alairas es a
+ * mellekletek egy "ennek ellenere veglegesitem" pipat kernek. A tulajdonos
  * sajat kezzel irt blokkjai tajekoztatasul szerepelnek (a sajat szavaiert
  * felel), nem akadalyoznak.
  */
-export function documentCheck(itemId: string, resolve?: FileResolver): { ready: boolean; items: CheckItem[] } {
+export function documentCheck(itemId: string, resolve?: FileResolver): { ready: boolean; needs_override: boolean; items: CheckItem[] } {
   const { sections } = documentOutline(itemId)
   const claims = sections.flatMap((s) => s.blocks.flatMap((b) => b.claims))
   const blocks = sections.flatMap((s) => s.blocks)
@@ -991,5 +993,7 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   items.push({ key: 'consistency', ok: open.length === 0, count: open.length, total: cons.length, detail: open.map((i) => `${i.kind}: ${i.values.join(' / ')}`) })
   // NYELVI VALTOZAT (K-1.28): leforditatlan vagy elavult fejezettel nem veglegesitheto.
   items.push(...variantCheckItems(itemId))
-  return { ready: items.every((i) => i.ok), items }
+  // #751: `ready` only says whether every point is clear; nothing here holds the finalizing back any more. The content
+  // points go to the to-do list, and only the signature / annexes ask for the owner's "finalize anyway" tick.
+  return { ready: items.every((i) => i.ok), needs_override: needsOverride(items), items }
 }

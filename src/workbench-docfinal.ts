@@ -305,7 +305,7 @@ export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise
 }
 
 export type FinalizeCode =
-  | 'outline_empty' | 'outline_not_ready' | 'outline_changed' | 'outline_not_reviewed' | 'outline_accept_required'
+  | 'outline_empty' | 'outline_override_required' | 'outline_changed' | 'outline_not_reviewed' | 'outline_accept_required'
   | 'docpdf_failed'
 
 export type FinalizeOutcome =
@@ -320,16 +320,19 @@ export type FinalizeOutcome =
  * Mellekletekkel: "separate" -- a beadvany (PDF/A) es mellekletenkent egy PDF
  * (boritolap + tartalom); "combined" -- minden egy PDF-ben.
  */
-export async function finalizeDocument(item: WorkItemRow, input: { accept: unknown; hash: unknown; by: string | null; lang: 'hu' | 'en' }): Promise<FinalizeOutcome> {
+export async function finalizeDocument(item: WorkItemRow, input: { accept: unknown; hash: unknown; override?: unknown; by: string | null; lang: 'hu' | 'en' }): Promise<FinalizeOutcome> {
   if (!hasDocModel(item.id)) return { ok: false, code: 'outline_empty', detail: null }
   const hash = contentHash(item)
   if (typeof input.hash === 'string' && input.hash && input.hash !== hash) return { ok: false, code: 'outline_changed', detail: null }
   const resolve = resolverFor(item)
   const check = documentCheck(item.id, resolve)
-  if (!check.ready) return { ok: false, code: 'outline_not_ready', detail: null, check }
   const review = reviewOf(item.id, hash)
   if (!review) return { ok: false, code: 'outline_not_reviewed', detail: null }
   if (input.accept !== true) return { ok: false, code: 'outline_accept_required', detail: null }
+  // #751 (Boss, TG 4201): "ne akasszuk meg a veglegesitest semmivel. csak szoljunk!" -- the content points are to-dos,
+  // not a gate. A missing signature or an annex that is not in order only asks for the owner's "finalize anyway" tick.
+  const override = input.override === true
+  if (check.needs_override && !override) return { ok: false, code: 'outline_override_required', detail: null, check }
 
   // #738 (Boss, TG 4110): an unchanged document that is finalized again must not put the same PDF into the Finished materials a
   // second time. The same content (hash), the same language and the files still on disk -> the new final version points at them.
@@ -342,7 +345,8 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   let annexes: { label: string; title: string; pdf: Buffer }[] = []
   if (outline.annexes && outline.annexes.length) {
     if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
-    const ax = await annexPdfs(item.id, resolve, { lang: input.lang })
+    // With the owner's "finalize anyway" tick an annex whose file is gone (or cannot become a PDF) is left out, not an error.
+    const ax = await annexPdfs(item.id, resolve, { lang: input.lang, skipBroken: override })
     if (!ax.ok) {
       const f = packageFail(ax)
       return f.code === 'not_installed' || f.code === 'check_failed' ? { ok: false, code: 'docpdf_failed', detail: f.detail, convert: f.code } : f

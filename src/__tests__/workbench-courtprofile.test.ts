@@ -310,7 +310,7 @@ describe('veglegesites celbirosag-profillal', () => {
     const o = await callWorkbench(`${base}/outline`, 'GET')
     const hash = o.body.outline.content_hash
     await callWorkbench(`${base}/outline/pdf?review=${hash}`, 'GET')
-    const fin = await callWorkbench(`${base}/outline/finalize`, 'POST', { accept: true, hash })
+    const fin = await callWorkbench(`${base}/outline/finalize`, 'POST', { accept: true, hash, override: true })
     expect(fin.status, JSON.stringify(fin.body)).toBe(200)
     const names = fin.body.final.files.map((f: { name: string }) => f.name)
     expect(names[0]).toMatch(/^01_\d{4}-\d{2}-\d{2}_Klage_gegen_Muster_HU_v1\.pdf$/)

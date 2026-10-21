@@ -72,12 +72,12 @@ describe('#737 ujra-veglegesites', () => {
   it('finalize, reopen, finalize again with no change succeeds', async () => {
     const base = `/api/workbench/items/${itemId}/outline`
     const h1 = await review()
-    const f1 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: h1 })
+    const f1 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: h1, override: true })
     expect(f1.status, JSON.stringify(f1.body)).toBe(200)
     const re = await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })
     expect(re.status, JSON.stringify(re.body)).toBe(200)
     const h2 = await review()
-    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: h2 })
+    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: h2, override: true })
     expect(f2.status, JSON.stringify(f2.body)).toBe(200)
   })
 
@@ -89,11 +89,11 @@ describe('#737 ujra-veglegesites', () => {
       walk(join(depot, 'Projektek'))
       return out
     }
-    const f1 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    const f1 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
     expect(f1.status, JSON.stringify(f1.body)).toBe(200)
     expect(pdfs().length).toBe(1)
     expect((await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })).status).toBe(200)
-    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
     expect(f2.status, JSON.stringify(f2.body)).toBe(200)
     expect(pdfs().length).toBe(1)
     expect(f2.body.reused).toBe(true)
@@ -103,7 +103,7 @@ describe('#737 ujra-veglegesites', () => {
     expect((await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })).status).toBe(200)
     const sec = (await callWorkbench(base, 'GET')).body.outline.sections[0]
     addBlock(itemId, sec.id, { text: 'Noch ein Satz.', author: 'owner' })
-    const f3 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    const f3 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
     expect(f3.status, JSON.stringify(f3.body)).toBe(200)
     expect(pdfs().length).toBe(2)
   })
@@ -120,21 +120,21 @@ describe('#737 ujra-veglegesites', () => {
     makePlainWithoutFile('Munkadarabok/Level')
     const before = readdirSync(join(depot, 'Projektek', 'Iroda', 'Munkadarabok')).sort()
     const base = `/api/workbench/items/${itemId}/outline`
-    const f = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    const f = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
     expect(f.status, JSON.stringify(f.body)).toBe(200)
     expect(f.body.file).toMatch(/Munkadarabok\/Level\/Elkészített anyagok\/[^/]+\.pdf$/)
     expect(existsSync(join(depot, f.body.file))).toBe(true)
     expect(readdirSync(join(depot, 'Projektek', 'Iroda', 'Munkadarabok')).sort()).toEqual(before)
     // ... and again after a reopen, nothing changed
     expect((await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })).status).toBe(200)
-    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
     expect(f2.status, JSON.stringify(f2.body)).toBe(200)
   })
 
   it('when the folder is really gone the answer says so in a sentence and carries the exact error', async () => {
     makePlainWithoutFile('Munkadarabok/Nincs')
     const base = `/api/workbench/items/${itemId}/outline`
-    const f = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    const f = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
     expect(f.status).toBe(409)
     expect(f.body.error).toBe('docpdf_folder_unreachable')
     expect(f.body.message).toContain('mappája nem érhető el')

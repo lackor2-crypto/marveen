@@ -81,6 +81,7 @@ import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefina
 import { finalizeDocxItem, hasDocxFinalPanel } from '../../workbench-docxfinal.js'
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
+import { syncCheckTodos } from '../../workbench-check-todos.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { fileOfficialCopy, listSent, markSentManually, recordSent, removeSent, sentStatus, SENT_METHODS, unmarkSentManually } from '../../workbench-docsent.js'
@@ -1636,9 +1637,9 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ennek a dokumentumnak még nincs vázlata, ezért nincs miből PDF-et készíteni.',
     en: 'This document has no outline yet, so there is nothing to make a PDF from.',
   },
-  outline_not_ready: {
-    hu: 'Még nem véglegesíthető: a „Véglegesítés előtti ellenőrzés” listán van még megoldatlan pont. A piszkozat PDF addig is elkészíthető.',
-    en: 'It cannot be finalized yet: the "Check before finalizing" list still has open points. The draft PDF can be made in the meantime.',
+  outline_override_required: {
+    hu: 'Az aláírás vagy egy melléklet nincs rendben. Ha ennek ellenére véglegesíted, pipáld be az „Ennek ellenére véglegesítem” négyzetet.',
+    en: 'The signature or an annex is not in order. If you finalize anyway, tick the "Finalize anyway" box.',
   },
   outline_changed: {
     hu: 'A dokumentum közben megváltozott. Frissítettem a vázlatot: nézd át újra, és utána véglegesítsd.',
@@ -2160,6 +2161,8 @@ type OutlineOut = ReturnType<typeof documentOutline> & {
   /** The e-mail draft (.eml) with the document and its annexes as PDF attachments, or null when there is none yet. */
   mail_draft: ReturnType<typeof mailDraftView> | null
   check: ReturnType<typeof documentCheck>
+  /** #751: set when the check changed the to-do list, so the page reloads its to-dos. */
+  check_todos_at?: number
   consistency: ReturnType<typeof consistencyIssues>
   annexes: ReturnType<typeof listAnnexes>
   settings: ReturnType<typeof docSettings> & { schemes: typeof ANNEX_SCHEMES; modes: typeof ANNEX_MODES }
@@ -2217,13 +2220,23 @@ function outlineOut(itemId: string): OutlineOut | null {
     sent: listSent(itemId),
     sent_methods: SENT_METHODS,
     mail_draft: item ? mailDraftView(item) : null,
-    check: documentCheck(itemId, resolve),
+    ...checkWithTodos(itemId, resolve),
     consistency: consistencyIssues(itemId),
     annexes: listAnnexes(itemId, resolve),
     settings: { ...docSettings(itemId), schemes: ANNEX_SCHEMES, modes: ANNEX_MODES },
     ...(item ? finalizationState(item) : {}),
     ...(item ? langOut(item) : {}),
   }
+}
+
+/**
+ * #751: the check of the page, and its content points kept in the work item's to-do list (the owner does them or ticks
+ * them off there). `check_todos_at` changes when the list changed, so the page reloads its to-dos.
+ */
+function checkWithTodos(itemId: string, resolve: ReturnType<typeof resolverFor> | undefined): { check: ReturnType<typeof documentCheck>; check_todos_at?: number } {
+  const check = documentCheck(itemId, resolve)
+  const changed = syncCheckTodos(itemId, check.items, APP_LANG === 'en' ? 'en' : 'hu')
+  return changed ? { check, check_todos_at: Date.now() } : { check }
 }
 
 /** NYELVI VALTOZATOK (K-1.27 ... K-1.31): az eredetinel a valtozatai, a valtozatnal a fejezetek allapota, a szoszedet, a visszaforditasok. */
@@ -4114,7 +4127,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_finalize_owner_only', lang)
       const body = await readJson(req)
       if (!body) return fail(res, 400, 'bad_json', lang)
-      const r = await finalizeDocument(item, { accept: body['accept'], hash: body['hash'], by: actor(ctx), lang })
+      const r = await finalizeDocument(item, { accept: body['accept'], hash: body['hash'], override: body['override'], by: actor(ctx), lang })
       if (!r.ok) {
         if (!r.code.startsWith('outline_')) return docPdfFail(res, r.code === 'docpdf_failed' && r.convert ? r.convert : r.code, lang, r.detail, r.label, { outline: outlineOut(item.id) })
         const status = r.code === 'outline_empty' ? 404 : r.code === 'outline_accept_required' ? 400 : 409

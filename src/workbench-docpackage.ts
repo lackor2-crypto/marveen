@@ -77,14 +77,15 @@ export function coverText(scheme: AnnexScheme, label: string): string {
 }
 
 /** Minden melleklet: boritolap + tartalom, egy PDF-ben mellekletenkent. */
-export async function annexPdfs(itemId: string, resolve: FileResolver, opts: { lang: 'hu' | 'en' }): Promise<Out<{ annexes: AnnexPdf[] }>> {
+export async function annexPdfs(itemId: string, resolve: FileResolver, opts: { lang: 'hu' | 'en'; skipBroken?: boolean }): Promise<Out<{ annexes: AnnexPdf[] }>> {
   const s = docSettings(itemId)
   const out: AnnexPdf[] = []
   for (const a of listAnnexes(itemId, resolve)) {
     const f = resolve(a.path)
-    if (!f) return { ok: false, code: 'annex_missing', label: a.label, detail: a.path }
+    // #751: `skipBroken` -- the owner ticked "finalize anyway": an annex that is gone or cannot be read is left out.
+    if (!f) { if (opts.skipBroken) continue; return { ok: false, code: 'annex_missing', label: a.label, detail: a.path } }
     const content = await annexContentPdf(f.abs, f.name)
-    if (!content.ok) return { ...content, label: a.label }
+    if (!content.ok) { if (opts.skipBroken && content.code === 'annex_unsupported') continue; return { ...content, label: a.label } }
     const cover = await renderFodtPdf(buildCoverFodt(coverText(s.annex_scheme, a.label), a.title, opts.lang), PDF_FILTER_DRAFT)
     if (!cover.ok) return { ok: false, code: 'annex_convert_failed', label: a.label, detail: cover.detail, convert: cover.code }
     const merged = await mergePdfs([cover.pdf, content.pdf])
