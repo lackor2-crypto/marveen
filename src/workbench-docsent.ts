@@ -207,3 +207,49 @@ export async function fileOfficialCopy(item: WorkItemRow, sentId: string, folder
   void hashDocument(docId).catch((err) => logger.warn({ err: String(err?.message || err), docId }, '[docsent] hashing the official copy failed'))
   return { ok: true, rel }
 }
+
+// ---------------------------------------------------------------------------------------------
+// "SENT" AS THE MOVE-TO-LIFE-TREE GATE (Boss TG 4065, 4068: 5A). A document may only be moved into the Life tree once
+// it went out. Normally that is a recorded sending (wb_doc_sent); an old document that was sent before this existed (or
+// by a way the app cannot see) is marked by hand with one click -- an honest "I sent it", not a proof.
+// ---------------------------------------------------------------------------------------------
+
+let markDb: unknown = null
+function ensureSentMarkTable(): void {
+  const db = getDb()
+  if (markDb === db) return
+  db.exec(`CREATE TABLE IF NOT EXISTS wb_item_sent_mark (
+    work_item_id TEXT PRIMARY KEY,
+    marked_at INTEGER NOT NULL,
+    marked_by TEXT
+  )`)
+  markDb = db
+}
+
+export interface SentStatus {
+  sent: boolean
+  /** 'recorded' = a sending is on file; 'manual' = the owner marked it by hand; null = not sent. */
+  how: 'recorded' | 'manual' | null
+  /** The final version that went out (recorded sending only); null when unknown. */
+  version_id: string | null
+}
+
+export function sentStatus(itemId: string): SentStatus {
+  ensureDocSentTables()
+  ensureSentMarkTable()
+  const db = getDb()
+  const rec = db.prepare('SELECT version_id FROM wb_doc_sent WHERE work_item_id = ? ORDER BY created_at DESC, id LIMIT 1').get(itemId) as { version_id: string } | undefined
+  if (rec) return { sent: true, how: 'recorded', version_id: rec.version_id }
+  const man = db.prepare('SELECT 1 AS x FROM wb_item_sent_mark WHERE work_item_id = ?').get(itemId)
+  return man ? { sent: true, how: 'manual', version_id: null } : { sent: false, how: null, version_id: null }
+}
+
+export function markSentManually(itemId: string, by: string | null): void {
+  ensureSentMarkTable()
+  getDb().prepare('INSERT OR REPLACE INTO wb_item_sent_mark (work_item_id, marked_at, marked_by) VALUES (?, ?, ?)').run(itemId, Math.floor(Date.now() / 1000), by)
+}
+
+export function unmarkSentManually(itemId: string): void {
+  ensureSentMarkTable()
+  getDb().prepare('DELETE FROM wb_item_sent_mark WHERE work_item_id = ?').run(itemId)
+}

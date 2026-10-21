@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
+import { markSentManually } from '../workbench-docsent.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
 
 describe('Eletfa-koltoztetes: fajlbol keszult munkadarab', () => {
@@ -53,6 +54,10 @@ describe('Eletfa-koltoztetes: fajlbol keszult munkadarab', () => {
     if (!w.ok) throw new Error('munkadarab')
     const item = getWorkItem(w.item.id) as any
     const rel = 'Projektek/Iroda/Munkadarabok/level.docx'
+    // Only a sent document moves: it is blocked until it is marked as sent.
+    const blocked = moveItemFilesToLife(project, item, [{ rel, target: 'Cel' }], 'hu', 'include')
+    expect(blocked.ok && blocked.results[0].ok).toBe(false)
+    markSentManually(item.id, null)
     const r = moveItemFilesToLife(project, item, [{ rel, target: 'Cel' }, { rel: 'Mas/fajl.docx', target: 'Cel' }], 'hu', 'include')
     expect(r.ok && r.results.map((x) => x.ok)).toEqual([true, false])
     expect(existsSync(join(depot, 'Cel', 'level.docx'))).toBe(true)

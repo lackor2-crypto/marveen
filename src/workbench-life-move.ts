@@ -8,9 +8,13 @@ import { readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { ProjectRow } from './projects.js'
 import { getDb } from './db.js'
-import type { WorkItemRow } from './workbench.js'
+import { listWorkItems, type WorkItemRow } from './workbench.js'
 import { projectFileTarget } from './project-files.js'
-import { moveLife, toLifeRel, resolveLifePath } from './life-explorer.js'
+import { moveLife, toLifeRel, resolveLifePath, trashLife } from './life-explorer.js'
+import { listFinals } from './workbench-docfinal.js'
+import { sentStatus, type SentStatus } from './workbench-docsent.js'
+import { roleOfFolderName } from './workbench-misplaced.js'
+import { contextTarget } from './workbench-life-context.js'
 import { analyzeInboxItem, buildLearnedIndex, prefetchItem, sniffType } from './life-inbox-analyze.js'
 import { credentialRisk } from './life-inbox.js'
 import { loadLifeConfig } from './life-tree.js'
@@ -32,7 +36,21 @@ export interface LifeMoveCandidate {
   folder: string
   /** #716: the file sits in the item's uploads folder (an upload that has not been put in its place yet). */
   upload?: boolean
+  /** What the list does with it: 'move' = goes to the Life tree; 'trash' = an older generated version, goes to the Trash
+   *  once the sent one is in the Life tree; 'blocked' = cannot be moved yet (see `note`). Set by lifeMovePlan. */
+  action?: 'move' | 'trash' | 'blocked'
+  /** 'this' = belongs to the open document; 'other' = to another work item of the same folder (listed apart). */
+  group?: 'this' | 'other'
+  item_id?: string
+  item_title?: string
+  /** This is the version that was really sent. */
+  sent_final?: boolean
+  /** Why it is blocked: 'not_sent' (the document has not been sent yet) | 'unknown_owner'. */
+  note?: 'not_sent' | 'unknown_owner'
 }
+
+/** One work item's "was it sent?" answer, shown on top of the list (and the button that marks it by hand). */
+export interface LifeMoveGate { item_id: string; title: string; sent: boolean; how: 'recorded' | 'manual' | null }
 
 /** 'exclude' (default): the uploads folder is not listed; 'include': listed with the rest; 'only': ONLY the uploads. */
 export type LifeMoveUploads = 'exclude' | 'include' | 'only'
@@ -110,11 +128,15 @@ function ownFileCandidate(item: Partial<Pick<WorkItemRow, 'id' | 'source_path'>>
   return { ok: true, folder_rel: dirname(files[0].rel), files }
 }
 
-export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 'folder'> & Partial<Pick<WorkItemRow, 'id' | 'source_path'>>, uploads: LifeMoveUploads = 'exclude'): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {
-  const base = String(item.folder ?? '').trim()
+export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 'folder'> & Partial<Pick<WorkItemRow, 'id' | 'source_path' | 'container_folder' | 'title'>>, uploads: LifeMoveUploads = 'exclude'): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {
+  const own = String(item.folder ?? '').trim()
+  // A document made from a file sits in a shared FOLDER of work items: the documents themselves stay where they are
+  // (they ARE the work items); only the Uploads, Attachments and Finished materials subfolders hold files to move.
+  const container = !own ? String((item as { container_folder?: string | null }).container_folder ?? '').trim() : ''
+  const base = own || container
   if (!base) return uploads === 'only' ? { ok: false, code: 'no_folder' } : ownFileCandidate(item)
   const t = projectFileTarget(project, base)
-  if (!t.ok) return { ok: false, code: 'no_folder' }
+  if (!t.ok) return container ? ownFileCandidate(item) : { ok: false, code: 'no_folder' }
   const files: LifeMoveCandidate[] = []
   const take = (dirAbs: string, folder: string, upload = false): void => {
     let names: string[] = []
@@ -129,12 +151,14 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
       if (rel) files.push({ rel, name, folder, ...(upload ? { upload: true } : {}) })
     }
   }
-  if (uploads !== 'only') take(t.dirAbs, '')
+  if (uploads !== 'only' && !container) take(t.dirAbs, '')
   let subs: string[] = []
   try { subs = readdirSync(t.dirAbs) } catch { subs = [] }
   for (const sub of subs.sort((a, b) => a.localeCompare(b))) {
     const isUp = UPLOAD_FOLDERS.has(sub.toLowerCase())
     if (sub.startsWith('.') || SKIP_FOLDERS.has(sub.toLowerCase())) continue
+    if (container && !roleOfFolderName(sub)) continue
+    if (container && (roleOfFolderName(sub) === 'agent' || roleOfFolderName(sub) === 'debate')) continue
     if (isUp ? uploads === 'exclude' : uploads === 'only') continue
     const abs = join(t.dirAbs, sub)
     try { if (!statSync(abs).isDirectory()) continue } catch { continue }
@@ -144,32 +168,157 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
 }
 
 export interface LifeMoveRow { rel: string; target: string }
-export interface LifeMoveOutcome { rel: string; target: string; ok: boolean; new_rel: string; message: string }
+export interface LifeMoveOutcome { rel: string; target: string; ok: boolean; new_rel: string; message: string; trashed?: boolean }
 
 /** The files that really moved, as old and new Life-tree path (for re-pointing what referred to the old place). */
 export function movedPairs(results: LifeMoveOutcome[]): Array<{ oldRel: string; newRel: string }> {
-  return results.filter((r) => r.ok && r.new_rel).map((r) => ({ oldRel: r.rel, newRel: r.new_rel }))
+  return results.filter((r) => r.ok && !r.trashed && r.new_rel).map((r) => ({ oldRel: r.rel, newRel: r.new_rel }))
+}
+
+type PlanItem = Pick<WorkItemRow, 'folder'> & Partial<Pick<WorkItemRow, 'id' | 'source_path' | 'container_folder' | 'title'>>
+export type LifeMovePlan = { ok: true; folder_rel: string; files: LifeMoveCandidate[]; gates: LifeMoveGate[] } | { ok: false; code: 'no_folder' }
+
+interface OwnerInfo { id: string; title: string; status: SentStatus; owned: Set<string>; sentNames: Set<string> }
+
+/** The work items that share the open document's folder (the document itself when it has a folder of its own). */
+function siblingsOf(project: ProjectRow, item: PlanItem): Array<{ id: string; title: string }> {
+  const me = { id: String(item.id ?? ''), title: String(item.title ?? '') }
+  const container = String(item.container_folder ?? '').trim()
+  if (!container || String(item.folder ?? '').trim()) return me.id ? [me] : []
+  const out = listWorkItems(project.id).filter((w) => String(w.container_folder ?? '').trim() === container).map((w) => ({ id: w.id, title: w.title }))
+  return out.some((o) => o.id === me.id) ? out : [...out, me].filter((o) => o.id)
+}
+
+function ownerInfo(w: { id: string; title: string }): OwnerInfo {
+  const status = sentStatus(w.id)
+  const owned = new Set<string>()
+  const sentNames = new Set<string>()
+  const finals = listFinals(w.id)
+  const namesOf = (f: (typeof finals)[number]): string[] => [f.pdf_name, basename(f.pdf_path || ''), ...(f.files || []).flatMap((x) => [x.name, basename(x.path || '')])].filter(Boolean)
+  for (const f of finals) for (const n of namesOf(f)) owned.add(n)
+  try {
+    for (const r of getDb().prepare('SELECT path AS p FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(w.id) as { p: string }[]) owned.add(basename(r.p))
+  } catch { /* no assets table yet: nothing is owned that way */ }
+  // The version that really went out: the recorded one, or (marked by hand) the newest final.
+  const sentFinal = status.sent ? (finals.find((f) => f.version_id === status.version_id) || finals[0]) : undefined
+  if (sentFinal) for (const n of namesOf(sentFinal)) sentNames.add(n)
+  return { id: w.id, title: w.title, status, owned, sentNames }
 }
 
 /**
- * Moves the approved rows. Only files that are CURRENT candidates of this item move (a rel the owner's list did not
- * contain is refused), and moveLife never overwrites: a name clash comes back as a message, not a silent rename.
+ * The list the owner sees (Boss TG 4059-4068). Only a SENT document moves; of its generated files only the version that
+ * was sent goes to the Life tree and the older ones go to the Trash (restorable) once it is there; the owner's own
+ * uploads and attachments move too. The work items' own documents never appear: they stay in their folder.
  */
-export function moveItemFilesToLife(project: ProjectRow, item: Pick<WorkItemRow, 'folder'> & Partial<Pick<WorkItemRow, 'id' | 'source_path'>>, rows: unknown, lang: string, uploads: LifeMoveUploads = 'exclude'): { ok: true; results: LifeMoveOutcome[] } | { ok: false; code: 'no_folder' | 'bad_input' } {
-  const cands = lifeMoveCandidates(project, item, uploads)
-  if (!cands.ok) return { ok: false, code: 'no_folder' }
-  if (!Array.isArray(rows) || !rows.length || rows.length > MAX_CANDIDATES) return { ok: false, code: 'bad_input' }
-  const allowed = new Set(cands.files.map((f) => f.rel))
+export function lifeMovePlan(project: ProjectRow, item: PlanItem, uploads: LifeMoveUploads = 'exclude'): LifeMovePlan {
+  const base = lifeMoveCandidates(project, item, uploads)
+  if (!base.ok) return base
+  const sibs = siblingsOf(project, item)
+  const infos = new Map<string, OwnerInfo>(sibs.map((w) => [w.id, ownerInfo(w)]))
+  const me = String(item.id ?? '')
+  const mine = infos.get(me)
+  const mtimeOf = (rel: string): number => { try { const a = resolveLifePath(rel); return a ? statSync(a).mtimeMs : 0 } catch { return 0 } }
+
+  // The generated files (Finished materials): who owns each, and which one was sent.
+  const finishedBy = new Map<string, LifeMoveCandidate[]>()
+  const files = base.files.map((f) => ({ ...f }))
+  for (const f of files) {
+    f.group = 'this'; f.item_id = me; f.item_title = String(item.title ?? '')
+    const isFinished = !!f.folder && roleOfFolderName(f.folder.split('/').pop() || '') === 'finished'
+    if (!isFinished) continue
+    let owner = [...infos.values()].find((o) => o.owned.has(f.name))
+    if (!owner && sibs.length === 1) owner = mine
+    if (!owner) { f.action = 'blocked'; f.note = 'unknown_owner'; continue }
+    f.item_id = owner.id; f.item_title = owner.title; f.group = owner.id === me ? 'this' : 'other'
+    const arr = finishedBy.get(owner.id) || []
+    arr.push(f)
+    finishedBy.set(owner.id, arr)
+  }
+  for (const [id, arr] of finishedBy) {
+    const o = infos.get(id) as OwnerInfo
+    if (!o.status.sent) { for (const f of arr) { f.action = 'blocked'; f.note = 'not_sent' } continue }
+    let sentRel = new Set(arr.filter((f) => o.sentNames.has(f.name)).map((f) => f.rel))
+    // Marked as sent but no final on file (an old document): the newest generated file is the one that went out.
+    if (!sentRel.size && !o.sentNames.size) {
+      const newest = [...arr].sort((a, b) => mtimeOf(b.rel) - mtimeOf(a.rel))[0]
+      if (newest) sentRel = new Set([newest.rel])
+    }
+    for (const f of arr) {
+      if (sentRel.has(f.rel)) { f.action = 'move'; f.sent_final = true } else f.action = 'trash'
+    }
+  }
+  // Everything else (uploads, attachments, a folder's own files) follows the open document's gate.
+  for (const f of files) {
+    if (f.action) continue
+    f.action = uploads === 'only' || !mine || mine.status.sent ? 'move' : 'blocked'
+    if (f.action === 'blocked') f.note = 'not_sent'
+  }
+  const gates: LifeMoveGate[] = []
+  const wanted = new Set<string>([me, ...files.map((f) => f.item_id || '')])
+  for (const [id, o] of infos) if (wanted.has(id) && id) gates.push({ item_id: id, title: o.title, sent: o.status.sent, how: o.status.how })
+  return { ok: true, folder_rel: base.folder_rel, files, gates }
+}
+
+/**
+ * One suggestion per file to MOVE. A generated (outgoing) file is placed by where the document lives and who it is
+ * addressed to (contextTarget): the person in the folder name, the authority and its office. The owner's own incoming
+ * files keep the content-based guess when it is confident, and fall back to the context when it is not. The place is
+ * pre-filled even when unsure; `suggested_confident: false` is what the page shows in red (Boss: 3B).
+ */
+export async function suggestForPlan(project: ProjectRow, item: PlanItem, files: LifeMoveCandidate[], lang: string): Promise<Map<string, LifeMoveSuggestion & { suggested_why?: string }>> {
+  // A blocked file (document not sent yet) gets its suggestion too, so the owner can see where it WOULD go.
+  const movable = files.filter((f) => f.action !== 'trash')
+  const content = await suggestLifeTargets(movable, lang)
+  const out = new Map<string, LifeMoveSuggestion & { suggested_why?: string }>()
+  const titleOf = new Map<string, string>()
+  for (const f of movable) {
+    const ownerTitle = f.item_title || String(item.title ?? '')
+    titleOf.set(f.rel, ownerTitle)
+    const c = content.get(f.rel)
+    const outgoing = !!f.sent_final
+    if (c && c.suggested_confident && !outgoing) { out.set(f.rel, c); continue }
+    const ctx = contextTarget(project, { title: ownerTitle, folder: item.folder, container_folder: item.container_folder }, f.name, lang)
+    if (ctx) out.set(f.rel, { suggested_target: ctx.target, suggested_display: ctx.display, suggested_confident: ctx.confident, suggested_why: ctx.why })
+    else if (c) out.set(f.rel, c)
+  }
+  return out
+}
+
+/**
+ * Moves the approved rows. Only files that are CURRENT 'move' candidates of this plan move (a rel the owner's list did
+ * not contain is refused), and moveLife never overwrites: a name clash comes back as a message, not a silent rename.
+ * When the sent version of a document is in the Life tree, its older generated files go to the Trash (restorable).
+ */
+export function moveItemFilesToLife(project: ProjectRow, item: PlanItem, rows: unknown, lang: string, uploads: LifeMoveUploads = 'exclude'): { ok: true; results: LifeMoveOutcome[] } | { ok: false; code: 'no_folder' | 'bad_input' } {
+  const plan = lifeMovePlan(project, item, uploads)
+  if (!plan.ok) return { ok: false, code: 'no_folder' }
+  const trashable = plan.files.filter((f) => f.action === 'trash')
+  if (!Array.isArray(rows) || rows.length > MAX_CANDIDATES || (!rows.length && !trashable.length)) return { ok: false, code: 'bad_input' }
+  const byRel = new Map(plan.files.map((f) => [f.rel, f]))
   const results: LifeMoveOutcome[] = []
+  const sentMoved = new Set<string>()
   for (const r of rows) {
     const rel = String((r as any)?.rel ?? '')
     const target = String((r as any)?.target ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-    if (!rel || !target || !allowed.has(rel)) {
-      results.push({ rel, target, ok: false, new_rel: '', message: lang === 'en' ? 'This file is not on the list (any more) or has no target.' : 'Ez a fájl nincs (már) a listán, vagy nincs célmappája.' })
+    const cand = byRel.get(rel)
+    if (!rel || !target || !cand || cand.action !== 'move') {
+      const blocked = cand && cand.action === 'blocked'
+      results.push({ rel, target, ok: false, new_rel: '', message: blocked
+        ? (lang === 'en' ? 'This document has not been sent yet, so its files stay where they are.' : 'Ez az irat még nincs elküldve, ezért a fájljai maradnak a helyükön.')
+        : (lang === 'en' ? 'This file is not on the list (any more) or has no target.' : 'Ez a fájl nincs (már) a listán, vagy nincs célmappája.') })
       continue
     }
     const m = moveLife(rel, target, lang as any)
     results.push({ rel, target, ok: m.ok, new_rel: m.ok ? m.rel : '', message: m.ok ? '' : m.message })
+    if (m.ok && cand.sent_final && cand.item_id) sentMoved.add(cand.item_id)
+  }
+  // The older generated versions of a document whose SENT version now stands in the Life tree.
+  const sentStillHere = new Set(plan.files.filter((f) => f.sent_final && f.item_id).map((f) => f.item_id as string))
+  for (const f of trashable) {
+    const id = f.item_id || ''
+    if (!sentMoved.has(id) && sentStillHere.has(id)) continue
+    const t = trashLife(f.rel, lang as any)
+    results.push({ rel: f.rel, target: '', ok: t.ok, new_rel: t.ok ? t.rel : '', message: t.ok ? '' : t.message, trashed: true })
   }
   return { ok: true, results }
 }

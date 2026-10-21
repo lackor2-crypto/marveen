@@ -147,6 +147,16 @@ describe('#661: the real life-move route', () => {
     // a file the sorter cannot place is NOT given a confident pre-filled target
     expect(byName['semmi.txt'].suggested_confident === true).toBe(false)
 
+    // not sent yet: the list says so, and a POST moves nothing
+    expect((g.body.gates as any[])[0].sent).toBe(false)
+    expect(byName['hatarozat.txt'].action).toBe('blocked')
+    const early = await callWorkbench('/api/workbench/items/' + w.item.id + '/life-move', 'POST', { moves: [{ rel: byName['hatarozat.txt'].rel, target: 'Korpás László/Hatóságok' }] })
+    expect((early.body.results as any[])[0].ok).toBe(false)
+    expect(existsSync(join(dir, 'hatarozat.txt'))).toBe(true)
+    // marked as sent by hand (5A): now it may move
+    const mark = await callWorkbench('/api/workbench/items/' + w.item.id + '/sent-mark', 'POST', { sent: true })
+    expect(mark.status).toBe(200)
+
     // the owner approves one row with the suggested target: only that one moves
     const post = await callWorkbench('/api/workbench/items/' + w.item.id + '/life-move', 'POST',
       { moves: [{ rel: byName['hatarozat.txt'].rel, target: byName['hatarozat.txt'].suggested_target }] })
