@@ -131,7 +131,31 @@ classify_mcp_plugin_row() {
 #
 # Kept as a function so `--resolve-main-model` can exercise exactly the code
 # the launch path uses, with no tmux, store or network involved.
+# A value as ONE single-quoted shell word, the bash twin of shSingleQuote
+# (src/web/agent-process.ts): a quote in the value becomes '\'', so nothing in
+# it can end the word (upstream #866). Used for every value inlined into a
+# command string that a later shell (tmux) parses again.
+sh_single_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# The resolved model must have the shape of a model id (the same allowlist as
+# MODEL_ID_RE in src/model-id.ts: letters, digits, . _ : / - [ ] +, 1-128
+# long). Any other value is named in the failure log (not echoed) and left
+# UNSET, so the launch runs the CLI default instead of a broken command.
+MODEL_ID_SHAPE='^[][A-Za-z0-9._:/+-]{1,128}$'
 resolve_main_model() {
+  local _m
+  _m="$(_resolve_main_model_raw)"
+  # C locale for the match: a bracket range like A-Z is locale-dependent in
+  # some bash/libc builds; under C it is exactly the ASCII set MODEL_ID_RE means.
+  local LC_ALL=C
+  if [ -n "$_m" ] && ! [[ "$_m" =~ $MODEL_ID_SHAPE ]]; then
+    { echo "resolve_main_model: the configured main-agent model is not a valid model id (allowed: letters, digits, . _ : / - [ ] +, 1-128); main-agent model left UNSET" >>"$INSTALL_DIR/store/channels-failures.log"; } 2>/dev/null || true
+    return 0
+  fi
+  printf '%s' "$_m"
+}
+
+_resolve_main_model_raw() {
   if command -v node >/dev/null 2>&1 && [ -f "$INSTALL_DIR/dist/web/main-agent-model.js" ]; then
     _saved_model="$(node "$INSTALL_DIR/scripts/main-agent-model.mjs" 2>/dev/null || true)"
     if [ -n "$_saved_model" ]; then
@@ -695,8 +719,9 @@ MCP_BATCH_ENV="export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_DIS
 MAIN_MODEL="$(resolve_main_model)"
 MODEL_FLAG=""
 # Single-quote the model id so values like `claude-opus-4-8[1m]` survive the
-# tmux command-string round-trip without the inner shell glob-expanding `[1m]`.
-[ -n "$MAIN_MODEL" ] && MODEL_FLAG="--model '$MAIN_MODEL' "
+# tmux command-string round-trip without the inner shell glob-expanding `[1m]`;
+# the escape (sh_single_quote) keeps a quote in the value from ending the word.
+[ -n "$MAIN_MODEL" ] && MODEL_FLAG="--model $(sh_single_quote "$MAIN_MODEL") "
 
 # Main-agent config isolation (OPT-IN, default OFF).
 #

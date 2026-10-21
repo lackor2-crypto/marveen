@@ -1027,6 +1027,19 @@ export function agentSessionName(name: string): string {
   return `agent-${name}`
 }
 
+/**
+ * POSIX single-quote a value for safe interpolation into a shell command STRING (upstream #866).
+ *
+ * The agent launch is a shell string tmux runs (`new-session -d -s <s> <cmd>`), and the model id --
+ * which the operator controls via the dashboard -- was interpolated as `'${model}'`. Single-quoting
+ * made a `:` safe but not a `'`: `x'; curl ... | sh; echo '` closed the quote and injected a command.
+ * Wrapping in single quotes with each embedded `'` rewritten as `'\''` makes ANY value a single inert
+ * shell word. This is defence #2 at the sink; the model-id allowlist (model-id.ts) is defence #1.
+ */
+export function shSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
 // All tmux operations route through these two wrappers so the local-vs-remote
 // (ssh) decision and the quoting live in ONE place (ssh-tmux.ts). host=null is
 // byte-identical to the prior direct local tmux call. Remote calls get a larger
@@ -1379,14 +1392,15 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // value like `qwen3.6:27b` or `deepseek-v4-pro` -- which then errors against
     // the custom ANTHROPIC_BASE_URL ("model does not exist"). The env var is
     // authoritative and bypasses that validation. (`--print` honors --model, but
-    // the agents run the TUI.) Single-quoted so a `:` in the tag is shell-safe.
-    const ollamaEnv = isOllama ? `export ANTHROPIC_AUTH_TOKEN=ollama && export ANTHROPIC_BASE_URL=${OLLAMA_URL} && export ANTHROPIC_MODEL='${model}' && ` : ''
+    // the agents run the TUI.) Single-quoted AND escaped (shSingleQuote), so a `:` in the tag is shell-safe
+    // and a `'` cannot break out of the quote.
+    const ollamaEnv = isOllama ? `export ANTHROPIC_AUTH_TOKEN=ollama && export ANTHROPIC_BASE_URL=${OLLAMA_URL} && export ANTHROPIC_MODEL=${shSingleQuote(model)} && ` : ''
     const deepseekKey = isDeepseek ? (getSecret('DEEPSEEK_API_KEY') ?? '') : ''
-    const deepseekEnv = isDeepseek ? `export ANTHROPIC_AUTH_TOKEN="${deepseekKey}" && export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic && export ANTHROPIC_MODEL='${model}' && ` : ''
+    const deepseekEnv = isDeepseek ? `export ANTHROPIC_AUTH_TOKEN="${deepseekKey}" && export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic && export ANTHROPIC_MODEL=${shSingleQuote(model)} && ` : ''
     // OpenRouter: Anthropic-compatible endpoint at https://openrouter.ai/api
     // (the SDK appends /v1/messages). Key from the vault (openrouter-fleet-key).
     const openrouterKey = isOpenRouter ? (getSecret('openrouter-fleet-key') ?? '') : ''
-    const openrouterEnv = isOpenRouter ? `export ANTHROPIC_AUTH_TOKEN="${openrouterKey}" && export ANTHROPIC_BASE_URL=https://openrouter.ai/api && export ANTHROPIC_MODEL='${model}' && ` : ''
+    const openrouterEnv = isOpenRouter ? `export ANTHROPIC_AUTH_TOKEN="${openrouterKey}" && export ANTHROPIC_BASE_URL=https://openrouter.ai/api && export ANTHROPIC_MODEL=${shSingleQuote(model)} && ` : ''
     // GLM (Z.ai Coding Plan): Anthropic-compatible CODING endpoint, key in the
     // vault. Three env vars beyond the usual pair, each earning its place:
     //   ANTHROPIC_DEFAULT_HAIKU_MODEL -- Claude Code's background calls
@@ -1409,7 +1423,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
       logger.warn({ name, model, vaultId: GLM_VAULT_KEY }, `GLM model selected but vault key '${GLM_VAULT_KEY}' is missing -- add it on the dashboard Accounts page; the agent will get a 401 from Z.ai until then`)
     }
     const glmEnv = isGLM
-      ? `export ANTHROPIC_AUTH_TOKEN="${glmKey}" && unset ANTHROPIC_API_KEY && export ANTHROPIC_BASE_URL=${GLM_BASE_URL} && export ANTHROPIC_MODEL='${model}' && export ANTHROPIC_DEFAULT_OPUS_MODEL='${model}' && export ANTHROPIC_DEFAULT_SONNET_MODEL='${model}' && export ANTHROPIC_DEFAULT_HAIKU_MODEL='${GLM_FAST_MODEL}' && export API_TIMEOUT_MS=${GLM_TIMEOUT_MS} && `
+      ? `export ANTHROPIC_AUTH_TOKEN="${glmKey}" && unset ANTHROPIC_API_KEY && export ANTHROPIC_BASE_URL=${GLM_BASE_URL} && export ANTHROPIC_MODEL=${shSingleQuote(model)} && export ANTHROPIC_DEFAULT_OPUS_MODEL=${shSingleQuote(model)} && export ANTHROPIC_DEFAULT_SONNET_MODEL=${shSingleQuote(model)} && export ANTHROPIC_DEFAULT_HAIKU_MODEL='${GLM_FAST_MODEL}' && export API_TIMEOUT_MS=${GLM_TIMEOUT_MS} && `
       : ''
     // When authMode is 'api', the agent uses its own ANTHROPIC_API_KEY from
     // the vault instead of the host's OAuth. The vault entry ID follows the
@@ -1734,7 +1748,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     const connectorsEnv = 'export ENABLE_CLAUDEAI_MCP_SERVERS=false && '
     // Single-quote `${model}` so values like `claude-opus-4-8[1m]` (1M-context
     // suffix) are not glob-expanded by the shell that tmux spawns the command in.
-    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${connectorsEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}${glmEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model '${model}' ${channelFlag}`.trimEnd()
+    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${connectorsEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}${glmEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model ${shSingleQuote(model)} ${channelFlag}`.trimEnd()
     // -x 80 -y 60 gives the pane the same 60-row height as the main channel
     // session (lackor2-bot-channels), instead of tmux's detached default of
     // 80x24. The dashboard Terminal viewer bottom-anchors a pane snapshot, so a

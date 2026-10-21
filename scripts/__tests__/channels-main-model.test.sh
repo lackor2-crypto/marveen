@@ -69,6 +69,16 @@ expect_model "a similarly named key does not leak in" \
   'NOT_MAIN_AGENT_MODEL=wrong-model
 MAIN_AGENT_MODEL=claude-haiku-4-5' '' 'claude-haiku-4-5'
 
+# Upstream #866: a value that is not shaped like a model id never reaches the
+# launch command. It resolves EMPTY (the launcher omits --model) and the refusal
+# is named in the failure log.
+expect_model "a quote-breaking value is refused (empty)" \
+  "MAIN_AGENT_MODEL=x'; id; echo '" '' ''
+expect_model "a space in the value is refused (empty)" \
+  'MAIN_AGENT_MODEL=claude opus' '' ''
+expect_model "a plus sign is a valid model id character" \
+  'MAIN_AGENT_MODEL=oc/qwen2.5+' '' 'oc/qwen2.5+'
+
 # MODELMIGRATE806: with NO .env override and NO model in settings.json, the
 # resolver falls back to the SHIPPED DISTRIBUTION_DEFAULT_AGENT_MODEL, read from
 # dist/config-registry.js via node. This is what reaches existing model-less

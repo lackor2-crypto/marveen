@@ -2361,9 +2361,9 @@
     },
     "src/__tests__/auto-restart-put-merge.test.ts": {
       "blob": "223a47af1846db78e39ca6acef6dc5503a8ff53a",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(auto-restart): merge a partial PUT body over the stored config instead of resetting omitted keys (ARPUTMERGE1018) (#2049)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(auto-restart): merge a partial PUT body over the stored config instead of resetting omitted keys (ARPUTMERGE1018) (#2049); test(auto-restart): a null or malformed intervalHours does not clear a daily schedule (ARPUTTESTGAP1018) (#2057).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#735): upstream's test for #2049/#2057 adapted to our config (no openQuestionDeferralCapHours, no unknown-key 400 on this route); every merge rule is pinned.",
+      "card": "#735"
     },
     "src/__tests__/auto-restart.test.ts": {
       "blob": "d05eda799a1f643cd4576e2b81f0a9cbf1e10edb",
@@ -6315,9 +6315,9 @@
     },
     "src/model-id.ts": {
       "blob": "8c09a3ffd48180d40ac2d7503ebb8d562fa463d9",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(security): close the model-id command-injection at every launch sink (#866)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(security): close the model-id command-injection at every launch sink (#866); fix(agents): custom-provider model-id save uses the shared MODEL_ID_RE (#1959).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#735): upstream #866 and #1959 -- the model-id allowlist now also allows `+` (as upstream), the id is single-quote ESCAPED (shSingleQuote) at every launch sink of this fork (agent-process.ts incl. the GLM env, channel-monitor.ts respawn, channels.sh, channel-watchdog.sh, watchdog.sh), and refused with a 400 before any write by the agent create/PUT routes and writeAgentModel. The custom-provider branch of upstream #1959 does not exist in this fork (no custom providers), so there is nothing to route through MODEL_ID_RE there. Tests: model-id-injection, agent-put-model-id, channels-main-model.",
+      "card": "#735"
     },
     "src/notify.ts": {
       "blob": "ac740d5fc5fb9161f9882570aecdca100e34d69d",
@@ -6537,9 +6537,9 @@
     },
     "src/web/auto-restart-store.ts": {
       "blob": "859cc4ba1aa1ec00083cf67f54104097a5db8153",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(auto-restart): merge a partial PUT body over the stored config instead of resetting omitted keys (ARPUTMERGE1018) (#2049)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(auto-restart): merge a partial PUT body over the stored config instead of resetting omitted keys (ARPUTMERGE1018) (#2049).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#735): upstream #2049 (a partial PUT body is merged over the stored config, a valid dailyTime/intervalHours sent alone clears the other half of the schedule) -- writeAutoRestartConfig taken as is; the route comment follows. Not taken: the 400 for an unknown key and the openQuestionDeferralCapHours key (the fork has neither the unknown-key check on this route nor the open-question deferral).",
+      "card": "#735"
     },
     "src/web/builtin-commands.ts": {
       "blob": "d9610d8a6b7b4218ce9f87a2c7cb05495195e79b",
@@ -7029,9 +7029,9 @@
     },
     "src/web/routes/agents.ts": {
       "blob": "c772f2f3c8da2e7bf0ae0215a07c927ad1889846",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(auto-restart): merge a partial PUT body over the stored config instead of resetting omitted keys (ARPUTMERGE1018) (#2049)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: feat(dashboard): a session that exists is not an agent that answers (#1213); fix(restart): manual main restart does not cut a running turn; fix(restart): the dashboard restart button asks before it forces past the busy gate (RESTARTFORCEUI1018); fix(auto-restart): merge a partial PUT body over the stored config instead of resetting omitted keys (ARPUTMERGE1018) (#2049) +4 more.",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#735): upstream #2049 (auto-restart PUT merge, via writeAutoRestartConfig) and the model-id 400 of #866/#1959 are in our agents.ts. The other upstream commits on this file (restart busy-gate and force confirm, session-vs-agent answer state, and so on) stay at ours: they build on code that diverged here or restrict the restart path.",
+      "card": "#735"
     },
     "src/web/routes/approvals.ts": {
       "blob": "157b4226ff6900e7dfaf6a5a914f153adf896d19",
