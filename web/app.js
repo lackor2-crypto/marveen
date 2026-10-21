@@ -17276,7 +17276,8 @@ async function loadStatus() {
         }
         const div = document.createElement('div')
         div.className = `status-incident ${inc.status}`
-        const date = new Date(inc.pubDate).toLocaleString('hu-HU', { timeZone: 'Europe/Budapest' })
+        // The viewer's local time, like every other time on the dashboard (ISSUE1895 / #1895).
+        const date = new Date(inc.pubDate).toLocaleString('hu-HU')
         div.innerHTML = `
           <div class="status-incident-header">
             <span class="status-incident-title">${escapeHtml(inc.title)}</span>
@@ -17378,7 +17379,7 @@ async function loadContextUsage() {
     }
 
     const fmtNum = (n) => (typeof n === 'number' ? n.toLocaleString('hu-HU') : '—')
-    const fmtTime = (ts) => ts ? new Date(ts * 1000).toLocaleString('hu-HU', { timeZone: 'Europe/Budapest' }) : '—'
+    const fmtTime = (ts) => ts ? new Date(ts * 1000).toLocaleString('hu-HU') : '—'
 
     el.innerHTML = `<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse">
       <thead><tr style="text-align:left;border-bottom:1px solid var(--border,#333)">

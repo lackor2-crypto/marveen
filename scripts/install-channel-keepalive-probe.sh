@@ -44,6 +44,20 @@ if [ ! -f "$PROBE" ]; then
 fi
 
 mkdir -p "$HOME/Library/LaunchAgents"
+# ISSUE1895 (#1895): the job's TZ is the install zone, written only when the
+# operator pinned one (SCHEDULER_TZ); otherwise no TZ key, so the job follows the
+# OS zone like the main dashboard/channels units. It used to be a hardcoded
+# Europe/Budapest, so on any other install its log stamps ran off the dashboard's.
+. "$SCRIPT_DIR/lib/install-tz.sh"
+PINNED_TZ="$(install_tz_pinned "$PROJECT_DIR")"
+TZ_XML=""
+if [ -n "$PINNED_TZ" ]; then
+  # Leading newline: it is appended to the line above, so an unpinned plist
+  # has no blank line where the key would be.
+  TZ_XML="
+    <key>TZ</key>
+    <string>$PINNED_TZ</string>"
+fi
 cat > "$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -73,9 +87,7 @@ cat > "$PLIST" <<PLIST_EOF
     <key>HOME</key>
     <string>$HOME</string>
     <key>USER</key>
-    <string>$(id -un)</string>
-    <key>TZ</key>
-    <string>Europe/Budapest</string>
+    <string>$(id -un)</string>$TZ_XML
   </dict>
 </dict>
 </plist>

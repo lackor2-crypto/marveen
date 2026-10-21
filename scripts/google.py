@@ -8,7 +8,7 @@ A friss access_token-t a scripts/google-auth.py token adja (auto-refresh).
 Minden parancs egy sort ir a store/event-log.txt esemeny-logba (ok/error).
 
 Parancsok:
-  mai-naptar           mai naptar-esemenyek (Europe/Budapest)
+  mai-naptar           mai naptar-esemenyek (a telepites idozonaja)
   kovetkezo-esemeny    a kovetkezo kozelgo esemeny
   utolso-emailek [N]   utolso N email (alap 5), spam/promo szurve
   olvasatlan [N]       olvasatlan / fontos emailek (alap 10)
@@ -22,13 +22,12 @@ scripts/google-auth.py list`).
 """
 import json, os, re, sys, subprocess, urllib.error, urllib.parse, urllib.request
 from datetime import datetime, timedelta, timezone
-try:
-    from zoneinfo import ZoneInfo
-    TZ = ZoneInfo("Europe/Budapest")
-except Exception:
-    TZ = timezone(timedelta(hours=2))
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "scripts", "lib"))
+from install_tz import install_tz  # noqa: E402
+# A telepites idozonaja (SCHEDULER_TZ, kulonben a gep zonaja), nem fixen Europe/Budapest.
+TZ = install_tz(ROOT)
 EVENTLOG = os.path.join(ROOT, "store", "event-log.txt")
 
 
