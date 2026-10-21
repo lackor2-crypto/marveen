@@ -18,6 +18,7 @@ const RESERVED_SENDERS = new Set([COORDINATOR_AGENT_ID, OWNER_DASHBOARD_SENDER])
 import { isKnownAgent } from '../agent-config.js'
 import { OWNER_NAME } from '../../config.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
+import { MESSAGE_ABANDON_WINDOW_MS } from '../message-abandon.js'
 import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
 import { recipientAvailability } from '../../context-broker.js'
 import { listBrokerCandidates } from '../context-broker-store.js'
@@ -196,12 +197,20 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
     // de a kuldo NEM maradhat abban a hitben, hogy valaki feldolgozza: kimerult
     // vagy leallt cimzettnel a figyelmeztetes megnevezi a szabad tartalekot.
     // Fail-open: ha a meres elhal, az uzenet megy, figyelmeztetes nelkul.
+    // #1973 (upstream, rebuilt): a message to a STOPPED local agent is QUEUED, not
+    // lost -- the row stays pending and the router delivers it as soon as the
+    // target's session appears, and abandons it only after MESSAGE_ABANDON_WINDOW_MS
+    // of continuous absence. The sender is told so (queued + abandonAt), so it does
+    // not re-send a duplicate while the id is pending. abandonAt is an estimate:
+    // the router counts the target's continuous absence as it observes it.
+    let stoppedTarget = false
     if (!storedTo.includes('/') && sanitizeAgentIdent(from) !== sanitizeAgentIdent(storedTo) && isKnownAgent(sanitizeAgentIdent(storedTo))) {
       try {
         const av = recipientAvailability(storedTo, listBrokerCandidates().filter((c) => c.agent !== sanitizeAgentIdent(from)))
         if (!av.ok) {
           const alt = cardWorkNotice('msg.warn.alt_self', {}).message
-          warning = cardWorkNotice(av.reason === 'quota' ? 'msg.warn.recipient_quota' : 'msg.warn.recipient_stopped', { to: storedTo, alt })
+          stoppedTarget = av.reason === 'stopped'
+          warning = cardWorkNotice(av.reason === 'quota' ? 'msg.warn.recipient_quota' : 'msg.warn.recipient_stopped', { to: storedTo, alt, mins: String(Math.round(MESSAGE_ABANDON_WINDOW_MS / 60000)) })
           logger.warn({ from: from.trim(), to: storedTo, reason: av.reason, standIn: av.standIn }, 'Agent message to an unavailable recipient')
         }
       } catch (err) {
@@ -215,7 +224,10 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
       if (target) claimCardWork({ cardId: target.cardId, holder: storedTo, kind: 'message', ref: String(msg.id) })
     }
     logger.info({ id: msg.id, from: msg.from_agent, to: msg.to_agent, originNote: msg.origin_note, card: declared ?? null, warning: warning?.key }, 'Agent message created')
-    json(res, warning ? { ...msg, warning } : msg)
+    const queuedField = stoppedTarget
+      ? { targetRunning: false, queued: true, abandonAt: msg.created_at + Math.floor(MESSAGE_ABANDON_WINDOW_MS / 1000) }
+      : {}
+    json(res, warning ? { ...msg, ...queuedField, warning } : { ...msg, ...queuedField })
     return true
   }
 

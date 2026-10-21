@@ -261,12 +261,37 @@ describe('uzenetet SOHA nem utasitunk el', () => {
   })
 })
 
+describe('stopped recipient: the message is QUEUED, not lost (upstream #1973, rebuilt)', () => {
+  it('the stopped-recipient notice says it is queued, names the abandon window and forbids a duplicate re-send', async () => {
+    const { cardWorkNotice } = await import('../web/card-work-guard.js')
+    const n = cardWorkNotice('msg.warn.recipient_stopped', { to: 'some-agent', alt: 'x', mins: '60' })
+    expect(n.message).toContain('SORBAN VÁR')
+    expect(n.message).toContain('60')
+    expect(n.message).toContain('Ne küldd újra')
+    expect(n.message).not.toContain('{')
+  })
+
+  it('the route answers queued:true + targetRunning:false + abandonAt only for a stopped target', () => {
+    const src = readFileSync(join(__dirname, '..', 'web', 'routes', 'messages.ts'), 'utf-8')
+    expect(src).toContain("stoppedTarget = av.reason === 'stopped'")
+    expect(src).toContain('queued: true')
+    expect(src).toContain('abandonAt: msg.created_at + Math.floor(MESSAGE_ABANDON_WINDOW_MS / 1000)')
+  })
+
+  it('the router and the route quote the SAME abandon window', () => {
+    const router = readFileSync(join(__dirname, '..', 'web', 'message-router.ts'), 'utf-8')
+    const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'messages.ts'), 'utf-8')
+    expect(router).toContain("from './message-abandon.js'")
+    expect(route).toContain("from '../message-abandon.js'")
+  })
+})
+
 describe('recipient availability notices (kartya #451)', () => {
   it('name the recipient and tell the sender to start the work, not to wait', async () => {
     const { cardWorkNotice } = await import('../web/card-work-guard.js')
     const alt = cardWorkNotice('msg.warn.alt_self', {}).message
     for (const key of ['msg.warn.recipient_quota', 'msg.warn.recipient_stopped']) {
-      const n = cardWorkNotice(key, { to: 'some-agent', alt })
+      const n = cardWorkNotice(key, { to: 'some-agent', alt, mins: '60' })
       expect(n.message).toContain('some-agent')
       expect(n.message).toContain(alt)
       expect(n.message).not.toContain('{')

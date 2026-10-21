@@ -53,8 +53,9 @@ while [ "$attempt" -lt "$max" ]; do
   JSON="$(printf '%s' "$RESP" | sed '$d')"
   # An id ALONE is not delivery. The router answers 200 WITH an id even when the
   # recipient is not running, and says so in a separate `warning` field
-  # (src/web/routes/messages.ts) whose text spells out that such a message is
-  # LOST rather than queued. This helper read only the id, so it printed
+  # (src/web/routes/messages.ts). For a stopped LOCAL target the row is PENDING
+  # (`queued: true`) and is delivered when the target starts, inside the router's
+  # abandon window; only after that window does it fail. This helper read only the id, so it printed
   # "OK id=..." for a message that never arrived -- the exact failure the header
   # above says it exists to prevent, one field further in. The exit code stays 0
   # on purpose: the row really was accepted, so this is not a send failure. It
