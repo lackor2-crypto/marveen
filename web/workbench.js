@@ -12595,7 +12595,7 @@
     var busy = WB.approvalBusy ? ' disabled' : ''
     if (it.status === 'done') {
       return '<span class="wb-fr-final-done" role="status" title="' + escA(t('workbench.finalize.done_tip')) + '">\u2713 ' + esc(t('workbench.finalize.done')) + '</span>'
-        + (isDocxDoneItem(it) ? '<button type="button" class="' + cls + '" data-wb-act="docx-mail-open"' + busy + ' aria-expanded="' + (WB.docxMailFor === it.id) + '">\u2709 ' + esc(t('workbench.docxfinal.mail_button')) + '</button>' : '')
+        + (isMailDoneItem(it) ? '<button type="button" class="' + cls + '" data-wb-act="docx-mail-open"' + busy + ' aria-expanded="' + (WB.docxMailFor === it.id) + '">\u2709 ' + esc(t('workbench.docxfinal.mail_button')) + '</button>' : '')
         + '<button type="button" class="' + cls + '" data-wb-act="item-reopen"' + busy + ' title="' + escA(t('workbench.finalize.reopen_tip')) + '">' + esc(t('workbench.finalize.reopen')) + '</button>'
     }
     if (it.type === 'document' && !it.source_path) {
@@ -12625,6 +12625,11 @@
   }
   function isDocxDoneItem(it) {
     return !!(it && it.source_path && isDocxName(it.source_path) && it.status === 'done')
+  }
+  /** #743 (Boss TG 4171): a finalized document can be mailed again (to anyone) -- a finalized Word item and a drafted
+   *  document alike. The drafted document's own mail box is locked with the rest of its page, so the top bar opens this one. */
+  function isMailDoneItem(it) {
+    return isDocxDoneItem(it) || !!(it && it.type === 'document' && !it.source_path && it.status === 'done')
   }
 
   /** #674: a spreadsheet (xlsx / csv) item: its Finalize opens the panel too (the workbook goes to Finished materials). */
@@ -12681,7 +12686,7 @@
 
   function noteFinalPanelHtml() {
     var it = WB.detail && WB.detail.item
-    if (it && WB.docxMailFor === it.id && isDocxDoneItem(it) && !archived()) return docxMailPanelHtml(it)
+    if (it && WB.docxMailFor === it.id && isMailDoneItem(it) && !archived()) return docxMailPanelHtml(it)
     if (!it || WB.noteFinal !== it.id || !(isTextFinalItem(it) || isTableFinalItem(it) || isDocxFinalItem(it)) || archived()) return ''
     var name = baseOf(it.source_path)
     var busy = WB.noteFinalBusy ? ' disabled' : ''
@@ -12758,7 +12763,7 @@
   function docxMailPanelHtml(it) {
     var close = '<p class="wb-note-final-btns"><button type="button" class="btn-secondary" data-wb-act="docx-mail-close"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t('workbench.docxfinal.mail_close')) + '</button></p>'
     return '<div class="wb-note-final wb-docx-mail" role="region" aria-label="' + escA(t('workbench.mail.title')) + '">'
-      + mailBoxHtml((WB.detail && WB.detail.mail_draft) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: close })
+      + mailBoxHtml((WB.detail && (WB.detail.mail_draft || (WB.detail.outline && WB.detail.outline.mail_draft))) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: close })
       + '</div>'
   }
 

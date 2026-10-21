@@ -38,6 +38,18 @@ describe('frame bars', () => {
     expect(fn('editorPanelHtml')).toContain("finalizeTopHtml(it, 'btn-secondary btn-compact') + '</div>'")
   })
 
+  // #743 (Boss TG 4171): a finalized drafted document had no E-mail button beside "Finalized" (only a Word item had), and its
+  // own mail box is locked with the page -- it could not be sent again or to someone else.
+  it('a finalized document of every kind has the E-mail button, and it opens the one mail panel', () => {
+    expect(fn('finalizeTopHtml')).toContain('isMailDoneItem(it) ? \'<button type="button" class="\' + cls + \'" data-wb-act="docx-mail-open"')
+    const m = fn('isMailDoneItem')
+    expect(m).toContain('isDocxDoneItem(it)')
+    expect(m).toContain("it.type === 'document' && !it.source_path && it.status === 'done'")
+    expect(fn('noteFinalPanelHtml')).toContain('isMailDoneItem(it) && !archived()) return docxMailPanelHtml(it)')
+    // the drafted document's draft travels in its outline
+    expect(fn('docxMailPanelHtml')).toContain('WB.detail.outline.mail_draft')
+  })
+
   // #557 (Boss TG 8744 / 8759 / 8793): MEASURED in Chromium -- the dashboard's own `header { display: flex; height:
   // 64px }` rule reached Univer's <header>; the grid's toolbar got 56px of 990 and folded every button into its
   // overflow menu ("three dots"). With the rule undone: 20 buttons on screen in two rows, no overflow button.
