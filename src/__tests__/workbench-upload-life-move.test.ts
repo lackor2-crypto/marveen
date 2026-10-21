@@ -1,7 +1,7 @@
 // #716 (Boss TG 10015): a file uploaded into a work item's Uploads folder is put in its place in the Life tree; the
 // work item keeps reaching it (the Uploads tile follows), and an annex that stood on the old place becomes a link.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
@@ -133,6 +133,24 @@ describe('#716: feltoltes -> Eletfa', () => {
     expect(rows[0].life_rel).toBe('Cel/aok-level.jpg')
     expect(rows[0].title).toBe('AOK elutasito level')
     expect(annexRows(w2.item.id)[0].path).toBe(projRel)
+  })
+
+  // #742 review (MEASURED): the list right after an upload offered the file of a not yet sent document, but the move ran on
+  // the whole list and refused it ("not sent yet"). The POST now runs on the list the owner saw.
+  it('a feltoltes utani lista (only) el nem kuldott iratnal is atviszi a feltoltest, es a POST ugyanazt a listat hasznalja', () => {
+    const { item, dir } = setup()
+    const c = lifeMoveCandidates(project, item, 'only')
+    if (!c.ok) throw new Error('jeloltek')
+    mkdirSync(join(depot, 'Cel'), { recursive: true })
+    const r = moveItemFilesToLife(project, item, [{ rel: c.files[0].rel, target: 'Cel' }], 'hu', 'only')
+    if (!r.ok) throw new Error('mozgatas')
+    expect(r.results[0].ok).toBe(true)
+    expect(existsSync(join(depot, 'Cel', 'aok-level.jpg'))).toBe(true)
+    expect(existsSync(join(dir, 'kesz.pdf'))).toBe(true)
+    const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf-8')
+    expect(route).toContain("moveItemFilesToLife(owner, item, body['moves'], lang, body['scope'] === 'uploads' ? 'only' : 'include')")
+    const web = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
+    expect(web).toContain("upOnly ? { moves: moves, scope: 'uploads' } : { moves: moves }")
   })
 })
 

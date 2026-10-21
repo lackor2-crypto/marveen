@@ -15296,7 +15296,7 @@
       var moves = files.filter(function (f) { return f.action === 'move' && target[f.rel] }).map(function (f) { return { rel: f.rel, target: target[f.rel] } })
       if (!moves.length && !files.some(function (f) { return f.action === 'trash' })) return
       go.disabled = true
-      api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move', { moves: moves }).then(function (r) {
+      api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move', upOnly ? { moves: moves, scope: 'uploads' } : { moves: moves }).then(function (r) {
         if (!r.ok) { go.disabled = false; window.showToast(r.message || t('workbench.lifemove.failed')); return }
         var res = (r.data && r.data.results) || []
         var okN = res.filter(function (x) { return x.ok && !x.trashed }).length
