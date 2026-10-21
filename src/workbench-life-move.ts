@@ -11,6 +11,7 @@ import { getDb } from './db.js'
 import { listWorkItems, type WorkItemRow } from './workbench.js'
 import { projectFileTarget } from './project-files.js'
 import { moveLife, toLifeRel, resolveLifePath, trashLife } from './life-explorer.js'
+import { addMount } from './life-mounts.js'
 import { listFinals } from './workbench-docfinal.js'
 import { sentStatus, type SentStatus } from './workbench-docsent.js'
 import { roleOfFolderName } from './workbench-misplaced.js'
@@ -300,6 +301,11 @@ export async function suggestForPlan(project: ProjectRow, item: PlanItem, files:
   return out
 }
 
+/** A linked file (a pointer, no copy) at the place the file was moved from. Best effort: a clash or a missing target leaves nothing. */
+function leaveLinkBehind(oldRel: string, newRel: string, name: string): void {
+  try { addMount({ rel: oldRel, target: newRel, kind: 'local', label: name, note: 'Left behind when the file was moved to the Life tree.', file: true }) } catch { /* the move itself is done */ }
+}
+
 /**
  * Moves the approved rows. Only files that are CURRENT 'move' candidates of this plan move (a rel the owner's list did
  * not contain is refused), and moveLife never overwrites: a name clash comes back as a message, not a silent rename.
@@ -326,6 +332,8 @@ export function moveItemFilesToLife(project: ProjectRow, item: PlanItem, rows: u
     }
     const m = moveLife(rel, target, lang as any)
     results.push({ rel, target, ok: m.ok, new_rel: m.ok ? m.rel : '', message: m.ok ? '' : m.message })
+    // #741 (Boss TG 4147): the file moved away, but its old place must not go empty: a linked file (#601) stays there.
+    if (m.ok) leaveLinkBehind(rel, m.rel, cand.name)
     if (m.ok && cand.sent_final && cand.item_id) sentMoved.add(cand.item_id)
   }
   // The older generated versions of a document whose SENT version now stands in the Life tree.

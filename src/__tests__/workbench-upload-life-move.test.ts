@@ -1,6 +1,6 @@
 // #716 (Boss TG 10015): a file uploaded into a work item's Uploads folder is put in its place in the Life tree; the
 // work item keeps reaching it (the Uploads tile follows), and an annex that stood on the old place becomes a link.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +12,10 @@ import { lifeMoveCandidates, moveItemFilesToLife, movedPairs } from '../workbenc
 import { markSentManually } from '../workbench-docsent.js'
 import { relinkMovedAnnexes } from '../workbench-doc-links.js'
 import { ensureAnnexTables } from '../workbench-docannex.js'
+
+// The move leaves a linked file behind (#741): its list must not outlive a test.
+const mountStore = vi.hoisted(() => require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'marveen-upload-move-store-')) as string)
+vi.mock('../config.js', async () => ({ ...(await vi.importActual<typeof import('../config.js')>('../config.js')), STORE_DIR: mountStore }))
 
 describe('#716: feltoltes -> Eletfa', () => {
   let depot = ''
@@ -35,6 +39,7 @@ describe('#716: feltoltes -> Eletfa', () => {
 
   afterEach(() => {
     rmSync(depot, { recursive: true, force: true })
+    rmSync(join(mountStore, 'life-mounts.json'), { force: true })
     delete process.env['MARVEEN_DEPOT']
   })
 
