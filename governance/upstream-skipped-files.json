@@ -267,15 +267,15 @@
     },
     "package-lock.json": {
       "blob": "b111c752ab71a1ee41212980849828c43d8fca75",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: chore(deps): clear the critical and the two high advisories, esbuild left as is (DEPSAUDIT1013) (#1932); fix(web): escape data at every web/app.js sink; one colour policy (#1875); chore(release): v1.44.0 -- heti kiadás, 120 commit.",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "package.json": {
       "blob": "3a27d6e652e0568dcde4a3bc5e1230d0cb537b73",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875); chore(release): v1.44.0 -- heti kiadás, 120 commit.",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "plugins/agent-state-observer/.claude-plugin/plugin.json": {
       "blob": "335ecc9a81a202a1c4ee525c687e961cd78f6dfb",
@@ -489,9 +489,9 @@
     },
     "scripts/__tests__/curl-tok.test.sh": {
       "blob": "a6103b01cef2bd86894550c018e7101da488712c",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(curl): bearer token via curl config on stdin, not argv (#2041)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(curl): bearer token via curl config on stdin, not argv (#2041).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): upstream #2041 (bearer token to curl through a config on stdin, not argv) is taken for the script this fork has (fleet-safe-start.sh) with scripts/lib/curl-tok.sh; agent-inbox.sh and its test do not exist in this fork, and our set-bot-menu.sh has no bearer curl, so those stay at ours.",
+      "card": "#733"
     },
     "scripts/__tests__/destructive-gate.test.py": {
       "blob": "ba99c56029952caacbda2fad89a79eb0a9053ded",
@@ -993,9 +993,9 @@
     },
     "scripts/agent-inbox.sh": {
       "blob": "256ae53dad78baad27f3dc341743b52bc89db4e1",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(curl): bearer token via curl config on stdin, not argv (#2041)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(curl): bearer token via curl config on stdin, not argv (#2041).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): upstream #2041 (bearer token to curl through a config on stdin, not argv) is taken for the script this fork has (fleet-safe-start.sh) with scripts/lib/curl-tok.sh; agent-inbox.sh and its test do not exist in this fork, and our set-bot-menu.sh has no bearer curl, so those stay at ours.",
+      "card": "#733"
     },
     "scripts/agent-msg-get.sh": {
       "blob": "90d02f9fd6f5b62098c6c3a2bea05da8485264b5",
@@ -1113,9 +1113,9 @@
     },
     "scripts/fleet-safe-start.sh": {
       "blob": "d24aff1b93ea2f773f9bff4c86099e37f92eb56a",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(curl): bearer token via curl config on stdin, not argv (#2041)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(curl): bearer token via curl config on stdin, not argv (#2041).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): upstream #2041 (bearer token to curl through a config on stdin, not argv) is taken for the script this fork has (fleet-safe-start.sh) with scripts/lib/curl-tok.sh; agent-inbox.sh and its test do not exist in this fork, and our set-bot-menu.sh has no bearer curl, so those stay at ours.",
+      "card": "#733"
     },
     "scripts/fleet-venv-prefix.mjs": {
       "blob": "f4aa9a48968a5bc65976b16480b32ae17b33bdd4",
@@ -1563,9 +1563,9 @@
     },
     "scripts/lib/curl-tok.sh": {
       "blob": "f71f936e86218baef43af90842c1127258eac9a2",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(curl): bearer token via curl config on stdin, not argv (#2041)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(curl): bearer token via curl config on stdin, not argv (#2041).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): upstream #2041 (bearer token to curl through a config on stdin, not argv) is taken for the script this fork has (fleet-safe-start.sh) with scripts/lib/curl-tok.sh; agent-inbox.sh and its test do not exist in this fork, and our set-bot-menu.sh has no bearer curl, so those stay at ours.",
+      "card": "#733"
     },
     "scripts/lib/homoglyph.py": {
       "blob": "d3a97f919f380ad49a07a0ab2c3b6522812a01e7",
@@ -1791,9 +1791,9 @@
     },
     "scripts/set-bot-menu.sh": {
       "blob": "1e55b22a9c1e1d5c8938a1aecd8176101e8edd7b",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(curl): bearer token via curl config on stdin, not argv (#2041)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(curl): bearer token via curl config on stdin, not argv (#2041).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): upstream #2041 (bearer token to curl through a config on stdin, not argv) is taken for the script this fork has (fleet-safe-start.sh) with scripts/lib/curl-tok.sh; agent-inbox.sh and its test do not exist in this fork, and our set-bot-menu.sh has no bearer curl, so those stay at ours.",
+      "card": "#733"
     },
     "scripts/skill-index.sh": {
       "blob": "c964586595b8499eefb222501a6516e7c5353ac3",
@@ -2139,9 +2139,9 @@
     },
     "src/__tests__/agent-inbox.test.ts": {
       "blob": "b17ecd57165a0549f76d7529431ccfff588211c2",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(curl): bearer token via curl config on stdin, not argv (#2041)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(curl): bearer token via curl config on stdin, not argv (#2041).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): upstream #2041 (bearer token to curl through a config on stdin, not argv) is taken for the script this fork has (fleet-safe-start.sh) with scripts/lib/curl-tok.sh; agent-inbox.sh and its test do not exist in this fork, and our set-bot-menu.sh has no bearer curl, so those stay at ours.",
+      "card": "#733"
     },
     "src/__tests__/agent-local-base-url.test.ts": {
       "blob": "238c4ae571824528cd17d8ca7988c14736390139",
@@ -2283,9 +2283,9 @@
     },
     "src/__tests__/app-js-html-sinks.test.ts": {
       "blob": "91ca6bcaefa6e1608678cb87cefdf5e00ba347e8",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/__tests__/app-tz-unusable-host-zone.test.ts": {
       "blob": "5deb72c69565ea29941e3993eebd46759fccc662",
@@ -2829,9 +2829,9 @@
     },
     "src/__tests__/config-registry.test.ts": {
       "blob": "4ad29c204987339509d6811ce2459b7d2e03a25f",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: feat(telegram): replies go back into the topic a message came from in a private chat (TELEGRAM_TOPICS_ENABLED, off by default) (#1893); fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the opt-in retention prunes, the WAL checkpoint and the free-page-gated VACUUM of upstream #1739 are in our db.ts / memory.ts / config-registry.ts (default 0 = keep forever, so nothing is deleted unless the owner turns it on); the expected_status compare-and-set of upstream #1975 is in our moveKanbanCard and the /move route.",
+      "card": "#733"
     },
     "src/__tests__/connector-infobox-claudeai.test.ts": {
       "blob": "dad268f5e310e1eaaa734d9482214f8488d1c3f5",
@@ -2961,9 +2961,9 @@
     },
     "src/__tests__/css-color.test.ts": {
       "blob": "72a2a259a00f84d9dd46bbb9cfc35056bd5929b1",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/__tests__/custom-commands.test.ts": {
       "blob": "00689e1dfa7ee7aa06afb8b9220cb5ecb9fa9e22",
@@ -3153,9 +3153,9 @@
     },
     "src/__tests__/fixtures/app-js-html-allowlist.json": {
       "blob": "be61a95d63da0b2b8b97e3615816692466523685",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/__tests__/fixtures/attestation-vectors.json": {
       "blob": "a5d56f1cba9792deb373f8e7c1ac97cf25a1eaa4",
@@ -3165,9 +3165,9 @@
     },
     "src/__tests__/fixtures/css-color-vectors.json": {
       "blob": "dcf714c56f82afa282e1ee12c15359a7bbc69587",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/__tests__/fixtures/hidden-prompt-child.ts": {
       "blob": "b78d7a82d5708d9c91c4f34874d86f6065122f52",
@@ -3729,15 +3729,15 @@
     },
     "src/__tests__/helpers/app-js-sink-scan.ts": {
       "blob": "313c7a849ef5fa24958550734938351fe4a62807",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/__tests__/helpers/css-color-adversarial.ts": {
       "blob": "8707b699babb866100c37c028d1cb0db267dee57",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/__tests__/hidden-prompt.test.ts": {
       "blob": "6ae9d5ea36fec3cc39cf23946807b5c6a0516897",
@@ -4071,9 +4071,9 @@
     },
     "src/__tests__/kanban-label-colour-compat.test.ts": {
       "blob": "058e4f81c5c55a5446cc6bace1288e141dc2a414",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/__tests__/kanban-modal-overlay-click-data-loss.test.ts": {
       "blob": "3962a523601d711d1c63f0a0f5b338fe42b4d9ce",
@@ -5181,9 +5181,9 @@
     },
     "src/__tests__/retention-sweep.test.ts": {
       "blob": "29d959cd3d8ef379b3460ac9560e24cacc6b6adc",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the opt-in retention prunes, the WAL checkpoint and the free-page-gated VACUUM of upstream #1739 are in our db.ts / memory.ts / config-registry.ts (default 0 = keep forever, so nothing is deleted unless the owner turns it on); the expected_status compare-and-set of upstream #1975 is in our moveKanbanCard and the /move route.",
+      "card": "#733"
     },
     "src/__tests__/root-sandbox-every-launch.test.ts": {
       "blob": "8f60c0ec8280984bec36e8afaf914add7d0073ab",
@@ -5499,9 +5499,9 @@
     },
     "src/__tests__/send-honesty-round2.test.ts": {
       "blob": "1ad31a7e1968f12951e85285a074d5fea0ed556d",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(curl): bearer token via curl config on stdin, not argv (#2041)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(curl): bearer token via curl config on stdin, not argv (#2041).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): upstream #2041 (bearer token to curl through a config on stdin, not argv) is taken for the script this fork has (fleet-safe-start.sh) with scripts/lib/curl-tok.sh; agent-inbox.sh and its test do not exist in this fork, and our set-bot-menu.sh has no bearer curl, so those stay at ours.",
+      "card": "#733"
     },
     "src/__tests__/send-honesty-sweep.test.ts": {
       "blob": "e229f0bb34b79a322758a2b8eee155771e865684",
@@ -6207,15 +6207,15 @@
     },
     "src/config-registry.ts": {
       "blob": "966d0771988723cc2cfae4af759e59da1fd6350b",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739); fix(worker): launch both workers with the auto-updater pinned, opt-in single updater (WORKERAUTOUPDATE1011) (#1892); feat(memories): optional strict command-syntax group for the memory content filter (MEMORY_CONTENT_FILTER_STRICT_COMMANDS, default off) (...; fix(memory): a nonsense query finds nothing -- the vector branch has a calibrated floor, and filler words never carry the relaxed pass (#... +2 more.",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the opt-in retention prunes, the WAL checkpoint and the free-page-gated VACUUM of upstream #1739 are in our db.ts / memory.ts / config-registry.ts (default 0 = keep forever, so nothing is deleted unless the owner turns it on); the expected_status compare-and-set of upstream #1975 is in our moveKanbanCard and the /move route.",
+      "card": "#733"
     },
     "src/config.ts": {
       "blob": "f45dc458e12fe36c3f76239c58475e208e98d3ea",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(tz): the install zone (SCHEDULER_TZ, else the host zone) instead of hardcoded Europe/Budapest (ISSUE1895) (#1917); fix(worker): launch both workers with the auto-updater pinned, opt-in single updater (WORKERAUTOUPDATE1011) (#1892); fix(web): escape data at every web/app.js sink; one colour policy (#1875); feat(memories): optional strict command-syntax group for the memory content filter (MEMORY_CONTENT_FILTER_STRICT_COMMANDS, default off) (....",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/context-guard.ts": {
       "blob": "3faaacc382fed2f8032349a6b7ead22e934a654a",
@@ -6231,15 +6231,15 @@
     },
     "src/css-color.ts": {
       "blob": "20a361aaf4d42329db45ca506980b1604caee024",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/db.ts": {
       "blob": "9c334e3501804b10f718b2db57f2e7f7adde902d",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(memories): the agent-less search reads keywords too, so an existing memory stops answering zero (#2044); fix(memory): a nonsense query finds nothing -- the vector branch has a calibrated floor, and filler words never carry the relaxed pass (#...; feat(kanban): tell the next agent when the card it waits on is done (#2027); fix(kanban): the card script's closings tell the next agent too (PR2027SCRIPTNOTIFY1018) (#2064) +10 more.",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the opt-in retention prunes, the WAL checkpoint and the free-page-gated VACUUM of upstream #1739 are in our db.ts / memory.ts / config-registry.ts (default 0 = keep forever, so nothing is deleted unless the owner turns it on); the expected_status compare-and-set of upstream #1975 is in our moveKanbanCard and the /move route.",
+      "card": "#733"
     },
     "src/delivery-order.ts": {
       "blob": "432c60f03f76de3e169aefe38ff5457adcd3e28c",
@@ -6303,9 +6303,9 @@
     },
     "src/memory.ts": {
       "blob": "c246657f5e82eb25e49ac63b801aed344677eacc",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(db): wire up the missing retention prunes, WAL checkpoint and VACUUM (#1739).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the opt-in retention prunes, the WAL checkpoint and the free-page-gated VACUUM of upstream #1739 are in our db.ts / memory.ts / config-registry.ts (default 0 = keep forever, so nothing is deleted unless the owner turns it on); the expected_status compare-and-set of upstream #1975 is in our moveKanbanCard and the /move route.",
+      "card": "#733"
     },
     "src/model-fallback.ts": {
       "blob": "7ba7a366cc561cb3d5fb78982b9e94a0968a9af9",
@@ -6729,9 +6729,9 @@
     },
     "src/web/fleet-transfer.ts": {
       "blob": "97bb5d4894258edc6c6bdb89707294426a01e94a",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: feat(kanban): a card's testing steps get a field of their own (#1841); fix(web): escape data at every web/app.js sink; one colour policy (#1875).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/web/heartbeat-agent-scaffold.ts": {
       "blob": "a248afb9a34a149fc16ee8dc68c237175c335011",
@@ -7113,15 +7113,15 @@
     },
     "src/web/routes/kanban.ts": {
       "blob": "f20cf5c5d0f3da87d78b3c4091694e9c1d900ae7",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: feat(kanban): optional expected_status on POST /move, 409 on a stale status (#1975); feat(kanban): tokens per card -- what the assignee spent while it was in progress (#2028); feat(kanban): tell the next agent when the card it waits on is done (#2027); fix(kanban): the card script's closings tell the next agent too (PR2027SCRIPTNOTIFY1018) (#2064) +2 more.",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/web/routes/marveen.ts": {
       "blob": "2545a0e7e1f16e50f978f56bf72c3c0d3612408b",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(web): escape data at every web/app.js sink; one colour policy (#1875); fix(restart): manual main restart does not cut a running turn; fix(restart): the dashboard restart button asks before it forces past the busy gate (RESTARTFORCEUI1018).",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "src/web/routes/memories.ts": {
       "blob": "705eccb922b5ab79bc3f819c631e16a3de456482",
@@ -7449,9 +7449,9 @@
     },
     "web/app.js": {
       "blob": "1e8e5f28e09ac53bcea2c64245e2de8d73337d03",
-      "kind": "deferred",
-      "reason": "Postponed (#731): the file also carries a security or correctness fix the patch of which does not apply cleanly here (fix(web): escape data at every web/app.js sink; one colour policy (#1875)); needs a hand-made rebuild in our code, not done in this round. Upstream commits on it: fix(restart): the dashboard restart button asks before it forces past the busy gate (RESTARTFORCEUI1018); fix(federation): applying the federation settings takes the same busy gate as the main restart (FEDAPPLYGATE1018); feat(kanban): live agent state on in_progress cards (#2025); feat(kanban): tokens per card -- what the assignee spent while it was in progress (#2028) +11 more.",
-      "card": "#731"
+      "kind": "decided",
+      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
+      "card": "#733"
     },
     "web/index.html": {
       "blob": "442df643d0554abb9e900ce2f3767cb1d25153bd",
