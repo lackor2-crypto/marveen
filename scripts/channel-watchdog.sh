@@ -174,7 +174,10 @@ fi
 # uses it; ask IT instead of maintaining another copy.
 MAIN_MODEL="$(bash "$INSTALL_DIR/scripts/channels.sh" --resolve-main-model 2>/dev/null | head -1)"
 MODEL_FLAG=""
-[ -n "$MAIN_MODEL" ] && MODEL_FLAG="--model '$MAIN_MODEL' "
+# The resolver already refuses a value that is not a model id; the escape is the
+# second layer (upstream #866) so a quote in the value cannot end the word.
+sh_single_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+[ -n "$MAIN_MODEL" ] && MODEL_FLAG="--model $(sh_single_quote "$MAIN_MODEL") "
 
 # Main-agent isolated-config parity (PLAN.md GAP 1 completeness fix): without
 # this, a watchdog-triggered respawn would silently drop the main agent OUT of

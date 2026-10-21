@@ -210,6 +210,14 @@ for AGENT_DIR in "$INSTALL_DIR/agents"/*/; do
   CHAN_DIR="$AGENT_DIR/.claude/channels/$AGENT_PROVIDER"
   BOT_TOKEN=$(grep "$TOKEN_VAR" "$CHAN_DIR/.env" 2>/dev/null | cut -d= -f2- | head -1)
   MODEL=$(python3 -c "import json; d=json.load(open('$AGENT_DIR/agent-config.json')); print(d.get('model','claude-haiku-4-5-20251001'))" 2>/dev/null || echo "claude-haiku-4-5-20251001")
+  # The model lands in a command string a shell parses again (upstream #866): it
+  # must have the shape of a model id (MODEL_ID_RE in src/model-id.ts) or this
+  # agent is not restarted, and the value is escaped as one shell word below.
+  if ! LC_ALL=C bash -c '[[ "$1" =~ ^[][A-Za-z0-9._:/+-]{1,128}$ ]]' _ "$MODEL"; then
+    echo "$(timestamp) [watchdog] $AGENT_ID: agent-config.json model is not a valid model id, skipping" >> "$LOG"
+    continue
+  fi
+  MODEL_Q="'$(printf '%s' "$MODEL" | sed "s/'/'\\\\''/g")'"
 
   if [ -z "$BOT_TOKEN" ]; then
     echo "$(timestamp) [watchdog] $AGENT_ID: no $AGENT_PROVIDER bot token, skipping" >> "$LOG"
@@ -233,7 +241,7 @@ fi
 
   ISO_ENV="$(agent_launch_env "$AGENT_DIR")"
 
-  CMD="${ISO_ENV}export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:\$PATH\" && unset TELEGRAM_BOT_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN DISCORD_BOT_TOKEN && export ${STATE_ENV_VAR}=\"$CHAN_DIR\" && cd \"$AGENT_DIR\" && ${CLAUDE_BIN} --dangerously-skip-permissions ${AUTOCOMPACT_FLAG}--model '$MODEL' --channels plugin:${AGENT_PROVIDER}@claude-plugins-official"
+  CMD="${ISO_ENV}export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:\$PATH\" && unset TELEGRAM_BOT_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN DISCORD_BOT_TOKEN && export ${STATE_ENV_VAR}=\"$CHAN_DIR\" && cd \"$AGENT_DIR\" && ${CLAUDE_BIN} --dangerously-skip-permissions ${AUTOCOMPACT_FLAG}--model $MODEL_Q --channels plugin:${AGENT_PROVIDER}@claude-plugins-official"
 
   tmux new-session -d -s "$SESSION_NAME" "$CMD" 2>/dev/null
   sleep 2

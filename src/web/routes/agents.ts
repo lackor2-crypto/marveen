@@ -4,6 +4,7 @@ import { homedir, platform, tmpdir } from 'node:os'
 import { execSync } from 'node:child_process'
 import { logger } from '../../logger.js'
 import { isModelProfileId, MODEL_PROFILE_IDS } from '../../model-profiles.js'
+import { isValidModelId, InvalidModelIdError } from '../../model-id.js'
 import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT, APP_LANG, STORE_DIR, CODE_BRIDGE_ENABLED } from '../../config.js'
 import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed, getRecentVerificationsForAgent, logConfigChange } from '../../db.js'
 import { computeReliabilityScore, type ReliabilityScore } from '../../agent-reliability.js'
@@ -1241,6 +1242,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
 
     if (!name) { json(res, { error: 'Name is required' }, 400); return true }
     if (!description) { json(res, { error: 'Description is required' }, 400); return true }
+    if (!isValidModelId(model)) { json(res, { error: new InvalidModelIdError(model).message }, 400); return true }
     if (existsSync(agentDir(name))) { json(res, { error: 'Agent already exists' }, 409); return true }
 
     scaffoldAgentDir(name)
@@ -1885,8 +1887,11 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
 
   // PUT /api/agents/:name/auto-restart -- set the per-agent auto-restart config.
   // Accepts the main orchestrator id too (auto-restart applies to it as well).
-  // The body is normalized server-side, so a partial/garbled payload is coerced
-  // to a safe config rather than rejected.
+  // The body is MERGED over the stored config -- an omitted key keeps its
+  // value, and a valid dailyTime or intervalHours sent alone clears the other
+  // half of the schedule (see writeAutoRestartConfig) -- and the result is
+  // normalized server-side, so a partial/garbled payload is coerced to a safe
+  // config rather than rejected.
   const autoRestartMatch = path.match(/^\/api\/agents\/([^/]+)\/auto-restart$/)
   if (autoRestartMatch && method === 'PUT') {
     const name = decodeURIComponent(autoRestartMatch[1])
@@ -2942,6 +2947,14 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const fieldCheck = checkAgentPutFields(name, data)
     if (!fieldCheck.ok) {
       json(res, { error: fieldCheck.message, rejected: fieldCheck.rejected, writable: AGENT_PUT_WRITABLE_FIELDS }, 400)
+      return true
+    }
+
+    // The model id ends up in the agent's launch command line (upstream #866):
+    // refuse a malformed one BEFORE any of the other fields is written, so a
+    // 400 leaves the agent untouched.
+    if (data.model !== undefined && !isValidModelId(data.model)) {
+      json(res, { error: new InvalidModelIdError(data.model).message }, 400)
       return true
     }
 
