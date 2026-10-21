@@ -1362,18 +1362,18 @@ _write() { # status phase code message
 # notify.sh), because at 4am the Telegram plugin may be down and the finalizer
 # runs detached with no tmux session. Silent (NOTIFY!=1) for manual runs, where
 # the dashboard UI already polls /api/updates/status.
-_notify() { # status
+_notify() { # status [detail for the failed message]
   [ "$NOTIFY" = "1" ] || return 0
   [ -x "$INSTALL_DIR/scripts/notify.sh" ] || [ -f "$INSTALL_DIR/scripts/notify.sh" ] || return 0
   local msg
   case "$1" in
     success)     msg="✅ Auto-update kesz: ${OLD_SHORT} -> ${NEW_SHORT}. A dashboard ujraindult es valaszol (health OK)." ;;
     rolled-back) msg="⚠️ Auto-update: a frissites nem sikerult (a dashboard nem indult), visszaalltunk a korabbi mukodo verziora (${OLD_SHORT}). Reszletek: store/update.log" ;;
-    *)           msg="🔴 Auto-update SIKERTELEN: a dashboard a frissites ES a rollback utan sem valaszol a ${PORT} porton. Kezi beavatkozas kell. Reszletek: store/update.log" ;;
+    *)           msg="🔴 Auto-update SIKERTELEN: ${2:-a dashboard a frissites ES a rollback utan sem valaszol a ${PORT} porton.} Kezi beavatkozas kell. Reszletek: store/update.log" ;;
   esac
   bash "$INSTALL_DIR/scripts/notify.sh" "$msg" >/dev/null 2>&1 || true
 }
-_finish() { _write "$1" "$2" "$3" "$4"; _notify "$1"; exit "$3"; }
+_finish() { _write "$1" "$2" "$3" "$4"; _notify "$1" "$4"; exit "$3"; }
 # Poll window in seconds. A cold dashboard (e.g. the unattended update that runs
 # right after a machine boot, while every agent is still starting) needs well over
 # the old 20 s, and a false "failed" triggers a pointless rollback + a second
@@ -1407,10 +1407,13 @@ if [ -n "$OLD_FULL" ] && [ "$CUR_FULL" != "$OLD_FULL" ]; then
   [ -d "$INSTALL_DIR/dist" ] && echo "$OLD_FULL" > "$BUILT"
   _restart
 fi
-if _health && [ "$ROLLED_BACK" = "0" ]; then
-  # Slow cold start on an unchanged commit: it did come up, so this is a success.
-  _finish success restart 0 ""
-elif _health 1; then
+if [ "$ROLLED_BACK" = "0" ]; then
+  # Nothing was rolled back, so nothing changed since the first poll: this second
+  # window is a pure extra grace period before the red alert. A slow cold start on
+  # an unchanged commit that comes up now is a success.
+  if _health; then _finish success restart 0 ""; fi
+  _finish failed health-check 1 "A dashboard a frissites utan nem valaszol a ${PORT} porton (nem volt mit visszaallitani). Kezi beavatkozas szukseges."
+elif _health; then
   _finish rolled-back health-check 6 "A frissites utan a dashboard nem indult el; visszaalltunk a korabbi mukodo verziora (${OLD_SHORT}). A frissites nem ment ki."
 else
   _finish failed health-check 1 "A dashboard a frissites es a visszaallitas utan sem valaszol a ${PORT} porton. Kezi beavatkozas szukseges."
