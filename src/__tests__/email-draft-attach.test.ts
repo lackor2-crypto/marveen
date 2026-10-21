@@ -12,7 +12,8 @@ const compose = route.slice(route.indexOf("path === '/api/email/compose'"), rout
 
 describe('email draft editing and attaching (#635)', () => {
   it('the Drafts mailbox gets an "edit and send" button that opens the compose window with the draft', () => {
-    expect(app).toContain("emailMailboxRole(mailbox) === 'drafts'")
+    expect(app).toContain("emailRoleOfMailboxName(mailbox) === 'drafts'")
+    expect(app).not.toContain("emailMailboxRole(mailbox)")
     expect(app).toContain('emailShowComposeFromDraft(id, envelope, mailbox, msg)')
     expect(app).toContain("_emailComposeDraft = {")
   })

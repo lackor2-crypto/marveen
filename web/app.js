@@ -33480,7 +33480,7 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
   // the translate control on the right, so they move to the LEFT of the "A levél
   // tartalma" title; only the compact translate group stays on the right.
   const actionsLeft = document.getElementById('emailReaderActionsLeft')
-  const isDraftBox = emailMailboxRole(mailbox) === 'drafts'
+  const isDraftBox = emailRoleOfMailboxName(mailbox) === 'drafts'
   if (actionsLeft) actionsLeft.innerHTML = (isDraftBox ? `<button class="btn-primary btn-compact" id="emailDraftEditBtn">${escapeHtml(t('email.btn.draft_edit'))}</button>` : '') + `
     <button class="btn-secondary btn-compact" id="emailReplyBtn">${escapeHtml(t('email.btn.reply'))}</button>
     <button class="btn-secondary btn-compact" id="emailForwardBtn">${escapeHtml(t('email.btn.forward'))}</button>
