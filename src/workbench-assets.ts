@@ -34,7 +34,7 @@ import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
 import { getProject, listProjects, cleanFolderRel, type ProjectRow } from './projects.js'
 import { resolveLifePath, toLifeRel, trashLife, copyLife } from './life-explorer.js'
-import { mountsInside, fileMountsInside, isFileMount, removeMount } from './life-mounts.js'
+import { mountsInside, fileMountsInside, isFileMount, removeMount, listMounts } from './life-mounts.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
@@ -589,6 +589,30 @@ function linkedAssetRows(project: ProjectRow, folders: string[], files: Record<s
   }
 }
 
+/** #741: a linked file (#601 mount) left at the old place of a file that moved to the Life tree shows in the work folder it
+ *  stood in, flagged `linked`. `boxLife` is the Life path of the box, `box` its project-relative name. */
+function mountedFileRows(boxLife: string, box: string, folders: string[], files: Record<string, WorkFolderFile[]>): void {
+  let mounts: ReturnType<typeof listMounts> = []
+  try { mounts = listMounts().filter((m) => m.file) } catch { return }
+  if (!mounts.length) return
+  const known = new Set([box, ...folders])
+  for (const m of mounts) {
+    const cut = m.rel.lastIndexOf('/')
+    const dir = m.rel.slice(0, cut)
+    if (dir !== boxLife && !dir.startsWith(boxLife + '/')) continue
+    const key = box + dir.slice(boxLife.length)
+    if (!known.has(key)) continue
+    const name = m.rel.slice(cut + 1)
+    if ((files[key] || []).some((f) => f.name === name)) continue
+    const real = resolveLifePath(m.rel)
+    if (!real) continue
+    let size = 0
+    let at: number | undefined
+    try { const st = statSync(real); if (!st.isFile()) continue; size = st.size; at = fileStamp(st) } catch { continue }
+    ;(files[key] = files[key] || []).push({ name, size, ...(at !== undefined ? { at } : {}), rel: m.rel, linked: true })
+  }
+}
+
 /** `outside: false`: only the box (the file actions that check a path against the box need no more). */
 export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] } {
   const box = findWorkItemsBox(project)
@@ -647,6 +671,7 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
   annotateMisplaced(box, files, itemFolders)
   linkedAnnexRows(project, out, files)
   linkedAssetRows(project, out, files)
+  mountedFileRows(t.dirRel, box, out, files)
   return { box, folders: out, truncated, files, outside, root_name: rootName, own_folders: out.filter((f) => ownFolders.has(f)) }
 }
 
