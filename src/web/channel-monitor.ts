@@ -1743,7 +1743,9 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
               `🔐 A command of the ${label} agent asked for permission on the panel, and nobody could answer it (you are on Telegram). I closed it and told the agent this was NOT your decision: it should not wait for you, it should do it in a way that needs no permission, or ask you on Telegram.`,
             ))
           } else {
-            logger.warn({ session: t.session, agent: label }, 'Session parked in a blocking interactive menu -- sending Escape to recover')
+            // The pane text is the only evidence of WHICH menu parked the session (Boss, 2026-10-21: "mi a
+            // kivaltó ok, hogy beragad?"): without it the cause cannot be read back after the Escape.
+            logger.warn({ session: t.session, agent: label, paneTail: paneNow.split('\n').slice(-16).join('\n') }, 'Session parked in a blocking interactive menu -- sending Escape to recover')
             try {
               execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(t.session), 'Escape'], { timeout: 5000 })
             } catch (err) {
