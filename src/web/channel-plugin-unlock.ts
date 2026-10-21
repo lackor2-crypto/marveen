@@ -38,7 +38,7 @@ import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import type { ChannelProviderType } from '../channel-provider.js'
 import { exactTmuxTarget } from './tmux-target.js'
-import { detectsBlockingMenu } from '../pane-state.js'
+import { detectsBlockingMenu, paneLooksIdle } from '../pane-state.js'
 import { tryAcquireSessionSendLane } from './session-send-lock.js'
 
 const TMUX = makeLazyBinResolver('tmux')
@@ -120,22 +120,43 @@ function getSessionClaudePid(session: string): number | null {
   }
 }
 
-// True iff at least one `bun` child is reparented under the claude pid -
-// the plugin spawns its poller as a direct subprocess of the claude main
-// loop, so bun's presence under the claude pid is the most reliable
-// liveness signal we have. Matches the channels.sh `pgrep -P <claude_pid>
-// bun` check so the two paths agree on what "plugin running" means.
-function hasBunChild(claudePid: number): boolean {
-  try {
-    const out = execFileSync('/usr/bin/pgrep', ['-P', String(claudePid), 'bun'], {
-      timeout: 3000,
-      encoding: 'utf-8',
-    }).trim()
-    return out.length > 0
-  } catch {
-    // pgrep exits 1 when there are no matches; treat as "no bun child"
-    return false
+// True iff a `bun` process runs anywhere under the claude pid. The main
+// channels session spawns the plugin's bun directly, but a sub-agent's
+// mcp.json wraps it in the inbound tee (claude -> node channel-inbound-tee.mjs
+// -> bun), so bun is a GRANDCHILD there. The old `pgrep -P <claude_pid> bun`
+// only saw direct children: after every sub-agent respawn it called a healthy
+// plugin "absent" and typed the /mcp unlock sequence into the pane (#730,
+// measured 2026-10-22 00:52 on agent-lackor3: bun under the tee, /mcp fired).
+export function hasBunDescendant(claudePid: number, psOutput?: string): boolean {
+  let out = psOutput
+  if (out === undefined) {
+    try {
+      out = execFileSync('/bin/ps', ['-e', '-o', 'pid=,ppid=,comm='], { timeout: 3000, encoding: 'utf-8' })
+    } catch {
+      return false
+    }
   }
+  const children = new Map<number, Array<{ pid: number; comm: string }>>()
+  for (const line of out.split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/)
+    if (!m) continue
+    const ppid = Number(m[2])
+    const list = children.get(ppid) ?? []
+    list.push({ pid: Number(m[1]), comm: m[3].trim() })
+    children.set(ppid, list)
+  }
+  const queue = [claudePid]
+  const seen = new Set<number>()
+  while (queue.length) {
+    const pid = queue.shift() as number
+    if (seen.has(pid)) continue
+    seen.add(pid)
+    for (const c of children.get(pid) ?? []) {
+      if (c.comm === 'bun') return true
+      queue.push(c.pid)
+    }
+  }
+  return false
 }
 
 // Captured pane lines we use to refuse the keystrokes. Two safety gates:
@@ -154,6 +175,10 @@ function isSessionReadyForUnlock(session: string): boolean {
     // for input. Matches the empirical signature used by detectPaneState
     // for the 'idle' state.
     if (!/bypass permissions on/.test(pane)) return false
+    // The footer is drawn while a turn runs too, so it alone does not mean idle:
+    // keys typed into a working session are queued and the /mcp opens when the
+    // turn ends, with nobody left to close it (#730, 2026-10-22 00:52 -> 00:54).
+    if (!paneLooksIdle(pane)) return false
     // Refuse if any modal is visible.
     if (/Resume from summary/.test(pane)) return false
     if (/Open System Settings/.test(pane)) return false
@@ -286,7 +311,7 @@ function runUnlockProbe(state: UnlockProbeState): void {
     return
   }
 
-  if (hasBunChild(claudePid)) {
+  if (hasBunDescendant(claudePid)) {
     // Plugin is up again -- retire any stale absent verdict so a future
     // down-spell starts from a clean restart budget.
     clearPluginAbsent(state.session)

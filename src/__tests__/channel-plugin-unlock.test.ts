@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { hasBunDescendant } from '../web/channel-plugin-unlock.js'
 
 // Contract tests for the in-process post-respawn channel-plugin unlock helper.
 //
@@ -27,20 +28,19 @@ describe('channel-plugin-unlock helper contract', () => {
     // The bun-child probe is the single most important safety check: if a
     // bun poller is alive, the plugin is running and Up+Enter+Enter would
     // navigate to "Disable", killing a healthy channel.
-    expect(helper).toMatch(/pgrep/)
-    expect(helper).toMatch(/hasBunChild/)
-    // The unlock keystrokes path must be reachable ONLY when hasBunChild is
+    expect(helper).toMatch(/hasBunDescendant/)
+    // The unlock keystrokes path must be reachable ONLY when hasBunDescendant is
     // false - assert by checking the early-return branch precedes the
     // keystroke call inside runUnlockProbe.
     const probeStart = helper.indexOf('function runUnlockProbe')
     expect(probeStart, 'runUnlockProbe not found').toBeGreaterThan(0)
     const probeEnd = helper.indexOf('\n}\n', probeStart)
     const probeBody = helper.slice(probeStart, probeEnd > probeStart ? probeEnd : undefined)
-    const bunIdx = probeBody.indexOf('hasBunChild(')
+    const bunIdx = probeBody.indexOf('hasBunDescendant(')
     const sendIdx = probeBody.indexOf('sendUnlockKeystrokes(')
     expect(bunIdx).toBeGreaterThan(0)
     expect(sendIdx).toBeGreaterThan(bunIdx)
-    // Ensure the hasBunChild branch returns before sendUnlockKeystrokes.
+    // Ensure the hasBunDescendant branch returns before sendUnlockKeystrokes.
     const between = probeBody.slice(bunIdx, sendIdx)
     expect(between).toMatch(/return\b/)
   })
@@ -53,6 +53,11 @@ describe('channel-plugin-unlock helper contract', () => {
     expect(helper).toMatch(/Open System Settings/)
     // Idle footer requirement: bypass-permissions string must be present.
     expect(helper).toMatch(/bypass permissions on/)
+    // #730: the footer shows during a turn too -- the positive idle read is required,
+    // or the /mcp keys queue up in a working session and open the menu when it ends.
+    const readyStart = helper.indexOf('function isSessionReadyForUnlock')
+    const readyBody = helper.slice(readyStart, helper.indexOf('\n}\n', readyStart))
+    expect(readyBody).toMatch(/if \(!paneLooksIdle\(pane\)\) return false/)
   })
 
   it('delivers /mcp, Up, Enter, Enter then Esc, Esc to back the pane out to idle', () => {
@@ -192,5 +197,23 @@ describe('absent-plugin verdict feeds the down-cascade restart budget', () => {
     expect(code).not.toMatch(/execFileSync\(\s*'\/bin\/sleep'/)
     expect(code).toMatch(/async function sendUnlockKeystrokes/)
     expect(code).toMatch(/sendUnlockKeystrokes\([^)]*\)\.finally\(releaseLane\)/)
+  })
+})
+
+// #730 (measured 2026-10-22 00:52, agent-lackor3): a sub-agent's plugin runs under the inbound
+// tee, so bun is a grandchild of claude. The direct-child check called it absent and fired /mcp.
+describe('hasBunDescendant', () => {
+  const tree = (rows: string[]) => rows.join('\n')
+  it('finds the bun of the main session (direct child of claude)', () => {
+    expect(hasBunDescendant(100, tree(['100 1 claude', '101 100 bun', '102 101 bun']))).toBe(true)
+  })
+  it('finds the bun of a sub-agent under the inbound tee (claude -> node -> bun)', () => {
+    expect(hasBunDescendant(100, tree(['100 1 claude', '200 100 node', '201 200 bun', '202 201 bun']))).toBe(true)
+  })
+  it('says absent when no bun runs under claude, even if one runs elsewhere', () => {
+    expect(hasBunDescendant(100, tree(['100 1 claude', '200 100 node', '300 1 bun', '301 300 bun']))).toBe(false)
+  })
+  it('a process tree with a loop does not hang it', () => {
+    expect(hasBunDescendant(100, tree(['100 101 claude', '101 100 node']))).toBe(false)
   })
 })
