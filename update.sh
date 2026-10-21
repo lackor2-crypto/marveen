@@ -1373,7 +1373,11 @@ _notify() { # status
   bash "$INSTALL_DIR/scripts/notify.sh" "$msg" >/dev/null 2>&1 || true
 }
 _finish() { _write "$1" "$2" "$3" "$4"; _notify "$1"; exit "$3"; }
-_health() { local i=0; while [ "$i" -lt 20 ]; do
+# Poll window in seconds. A cold dashboard (e.g. the unattended update that runs
+# right after a machine boot, while every agent is still starting) needs well over
+# the old 20 s, and a false "failed" triggers a pointless rollback + a second
+# restart + the red alert although the dashboard comes up fine.
+_health() { local i=0 max="${1:-150}"; while [ "$i" -lt "$max" ]; do
   curl -fsS -m 3 -o /dev/null "http://127.0.0.1:${PORT}/" 2>/dev/null && return 0
   sleep 1; i=$(( i + 1 )); done; return 1; }
 _restart() { "$INSTALL_DIR/scripts/stop.sh"; "$INSTALL_DIR/scripts/start.sh"; }
@@ -1384,7 +1388,14 @@ if _health; then _finish success restart 0 ""; fi
 # Restart did not bring the dashboard back -> auto-rollback to the pre-update
 # commit (safe: ff-only ancestor, no force-push, no local-change discard) and
 # restart that, so the box ends on a WORKING old version.
-if [ -n "$OLD_FULL" ]; then
+#
+# Skipped when nothing was pulled (HEAD is already OLD_FULL): resetting, reinstalling
+# and rebuilding the SAME commit cannot fix a slow start and only restarts the
+# dashboard a second time.
+CUR_FULL="$(git rev-parse HEAD 2>/dev/null || true)"
+ROLLED_BACK=0
+if [ -n "$OLD_FULL" ] && [ "$CUR_FULL" != "$OLD_FULL" ]; then
+  ROLLED_BACK=1
   git reset --hard "$OLD_FULL" >/dev/null 2>&1 || true
   # --include=dev: same reason as the main npm ci (AUTOUPDNODEENV905) -- under
   # NODE_ENV=production a plain ci prunes the compiler and the rebuild below
@@ -1395,7 +1406,10 @@ if [ -n "$OLD_FULL" ]; then
   [ -d "$INSTALL_DIR/dist" ] && echo "$OLD_FULL" > "$BUILT"
   _restart
 fi
-if _health; then
+if _health && [ "$ROLLED_BACK" = "0" ]; then
+  # Slow cold start on an unchanged commit: it did come up, so this is a success.
+  _finish success restart 0 ""
+elif _health 1; then
   _finish rolled-back health-check 6 "A frissites utan a dashboard nem indult el; visszaalltunk a korabbi mukodo verziora (${OLD_SHORT}). A frissites nem ment ki."
 else
   _finish failed health-check 1 "A dashboard a frissites es a visszaallitas utan sem valaszol a ${PORT} porton. Kezi beavatkozas szukseges."
