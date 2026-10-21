@@ -4,7 +4,7 @@
 // #661: the list may carry a SUGGESTED target per file (the inbox sorter's rules: whose, which area, which case), but it
 // is only a suggestion: nothing moves until the owner approves the list, and a row without a target is not moved.
 
-import { readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { ProjectRow } from './projects.js'
 import { getDb } from './db.js'
@@ -195,7 +195,7 @@ export function movedPairs(results: LifeMoveOutcome[]): Array<{ oldRel: string; 
 type PlanItem = Pick<WorkItemRow, 'folder'> & Partial<Pick<WorkItemRow, 'id' | 'source_path' | 'container_folder' | 'title'>>
 export type LifeMovePlan = { ok: true; folder_rel: string; files: LifeMoveCandidate[]; gates: LifeMoveGate[] } | { ok: false; code: 'no_folder' }
 
-interface OwnerInfo { id: string; title: string; status: SentStatus; owned: Set<string>; sentNames: Set<string> }
+interface OwnerInfo { id: string; title: string; status: SentStatus; owned: Set<string>; finalNames: Set<string>; sentNames: Set<string> }
 
 /** The work items that share the open document's folder (the document itself when it has a folder of its own). */
 export function siblingsOf(project: ProjectRow, item: PlanItem): Array<{ id: string; title: string }> {
@@ -206,11 +206,13 @@ export function siblingsOf(project: ProjectRow, item: PlanItem): Array<{ id: str
   return out.some((o) => o.id === me.id) ? out : [...out, me].filter((o) => o.id)
 }
 
-/** A sent file of this document already stands in the Life tree: a linked file of that name was left in a folder of `arr`. */
+/** A sent file of this document already stands in the Life tree: a linked file of that name was left in a folder of `arr`,
+ *  and the file it points to is still there (a broken link proves nothing: the remaining file must not go to the Trash). */
 function sentAlreadyMoved(arr: LifeMoveCandidate[], sentNames: Set<string>): boolean {
   const dirs = new Set(arr.map((f) => dirname(f.rel)))
+  const alive = (target: string): boolean => { try { const a = resolveLifePath(target); return !!a && existsSync(a) } catch { return false } }
   for (const d of dirs) {
-    try { if (fileMountsInside(d).some((m) => sentNames.has(basename(m.rel)))) return true } catch { /* unreadable list: not proven */ }
+    try { if (fileMountsInside(d).some((m) => sentNames.has(basename(m.rel)) && alive(m.target))) return true } catch { /* unreadable list: not proven */ }
   }
   return false
 }
@@ -221,14 +223,18 @@ function ownerInfo(w: { id: string; title: string }): OwnerInfo {
   const sentNames = new Set<string>()
   const finals = listFinals(w.id)
   const namesOf = (f: (typeof finals)[number]): string[] => [f.pdf_name, basename(f.pdf_path || ''), ...(f.files || []).flatMap((x) => [x.name, basename(x.path || '')])].filter(Boolean)
-  for (const f of finals) for (const n of namesOf(f)) owned.add(n)
+  const finalNames = new Set<string>()
+  for (const f of finals) for (const n of namesOf(f)) { owned.add(n); finalNames.add(n) }
   try {
-    for (const r of getDb().prepare('SELECT path AS p FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(w.id) as { p: string }[]) owned.add(basename(r.p))
+    for (const r of getDb().prepare('SELECT path AS p, support AS s FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(w.id) as { p: string; s: string | null }[]) {
+      owned.add(basename(r.p))
+      if (r.s === 'final') finalNames.add(basename(r.p))
+    }
   } catch { /* no assets table yet: nothing is owned that way */ }
   // The version that really went out: the recorded one, or (marked by hand) the newest final.
   const sentFinal = status.sent ? (finals.find((f) => f.version_id === status.version_id) || finals[0]) : undefined
   if (sentFinal) for (const n of namesOf(sentFinal)) sentNames.add(n)
-  return { id: w.id, title: w.title, status, owned, sentNames }
+  return { id: w.id, title: w.title, status, owned, finalNames, sentNames }
 }
 
 /**
@@ -268,7 +274,9 @@ export function lifeMovePlan(project: ProjectRow, item: PlanItem, uploads: LifeM
     // #742 (Boss TG 4159): the same when the recorded sent PDF is gone from the folder (deleted by hand) and did not move to
     // the Life tree either (no linked file stands for it): the newest remaining file is the document now, never the Trash.
     if (!sentRel.size && (!o.sentNames.size || !sentAlreadyMoved(arr, o.sentNames))) {
-      const newest = [...arr].sort((a, b) => mtimeOf(b.rel) - mtimeOf(a.rel))[0]
+      // a final PDF before any other generated file (a draft preview is never "the one that went out"), then the newest
+      const finalsLeft = arr.filter((f) => o.finalNames.has(f.name))
+      const newest = [...(finalsLeft.length ? finalsLeft : arr)].sort((a, b) => mtimeOf(b.rel) - mtimeOf(a.rel))[0]
       if (newest) sentRel = new Set([newest.rel])
     }
     for (const f of arr) {
