@@ -1196,6 +1196,17 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const promoOnly = url.searchParams.get('promoOnly') === '1'
     if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
     const envelopeCacheKey = envelopeCacheKeyFor(account as string, mailbox, page, query, promoOnly)
+    // The Drafts list is never served from the cache (#729): drafts are saved and deleted from many places (the
+    // workbench, an agent's mail tool, the phone), most of them without passing this server, and the "stale but
+    // instant" answer made a deleted draft come back after a refresh and a new one stay out for minutes. The list
+    // is small and the direct IMAP read on a warm connection is ~0.1 s, so it is read fresh every time.
+    const draftsMailbox = (await resolveSpecialMailboxes(account as string).catch(() => null))?.drafts
+    if (!query && draftsMailbox && mailbox === draftsMailbox) {
+      const live = await fetchEnvelopeList(account as string, mailbox, page, pageSize, query, promoOnly)
+      if (!live.ok) { json(res, { error: live.error }, 502); return true }
+      json(res, live.envelopes)
+      return true
+    }
     const cachedEnvelopes = cacheGet(envelopeListCache, envelopeCacheKey)
     if (cachedEnvelopes) { json(res, cachedEnvelopes); return true }
     const staleEnvelopes = cacheGetStale(envelopeListCache, envelopeCacheKey, ENVELOPE_STALE_MAX_MS)
