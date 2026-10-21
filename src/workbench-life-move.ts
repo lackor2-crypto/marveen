@@ -68,6 +68,22 @@ const MAX_SUGGESTED = 60
 const SUGGEST_BUDGET_MS = 20000
 
 /**
+ * The learned index walks the WHOLE Life tree with a synchronous stat per file (up to 8000): measured 60+ s on the live
+ * depot for every opening of the move list (#741). The tree changes slowly and the index only ranks suggestions, so it is
+ * kept for ten minutes.
+ */
+const INDEX_TTL_MS = 10 * 60_000
+let indexCache: { at: number; value: ReturnType<typeof buildLearnedIndex> } | null = null
+function learnedIndexCached(config: Parameters<typeof buildLearnedIndex>[0]): ReturnType<typeof buildLearnedIndex> {
+  if (indexCache && Date.now() - indexCache.at < INDEX_TTL_MS) return indexCache.value
+  const value = buildLearnedIndex(config)
+  indexCache = { at: Date.now(), value }
+  return value
+}
+/** Tests only. */
+export function _resetLearnedIndexCache(): void { indexCache = null }
+
+/**
  * One suggestion per candidate file, from the same rules the inbox sorter uses (owner by name/content, kind by
  * words). Only an EXISTING folder is ever suggested (nothing is created here), a file that looks like a credential
  * gets none, and the work stops at a time budget so a big folder never holds the dialog up. Never throws: a file
@@ -77,7 +93,7 @@ export async function suggestLifeTargets(files: LifeMoveCandidate[], lang: strin
   const out = new Map<string, LifeMoveSuggestion>()
   let config
   let index
-  try { config = loadLifeConfig(); index = buildLearnedIndex(config) } catch { return out }
+  try { config = loadLifeConfig(); index = learnedIndexCached(config) } catch { return out }
   if (!config.persons.length) return out
   const until = Date.now() + SUGGEST_BUDGET_MS
   for (const f of files.slice(0, MAX_SUGGESTED)) {
