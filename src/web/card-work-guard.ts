@@ -357,8 +357,8 @@ const NOTICE_TEXT: Record<string, { hu: string; en: string }> = {
     en: 'HEADS UP: {to} cannot work right now (its quota is exhausted), so this message will not be handled until it recovers. Do not wait for it, {alt}',
   },
   'msg.warn.recipient_stopped': {
-    hu: 'FIGYELEM: {to} most nem fut, az üzenet addig nem kerül feldolgozásra. Ne várj rá, {alt}',
-    en: 'HEADS UP: {to} is not running, so this message will not be handled until it is back. Do not wait for it, {alt}',
+    hu: 'FIGYELEM: {to} most nem fut, az üzenet addig nem kerül feldolgozásra. Az üzenet SORBAN VÁR, és kézbesül, amint {to} elindul; ha {mins} percig folyamatosan nem fut, failed lesz. Ne küldd újra, amíg az id pending. Ne várj rá, {alt}',
+    en: 'HEADS UP: {to} is not running, so this message will not be handled until it is back. The message is QUEUED and is delivered as soon as {to} starts; if it stays down for {mins} minutes in a row, it becomes failed. Do not re-send while the id is pending. Do not wait for it, {alt}',
   },
   'msg.warn.alt_self': {
     hu: 'ne adj át senkinek, és ne várj: kezdj neki azonnal magad.',

@@ -36,6 +36,10 @@ if [ -z "$CHAT_ID" ]; then
   exit 0
 fi
 CALENDAR_ID="${HEARTBEAT_CALENDAR_ID:-primary}"
+# The install zone for "today" (ISSUE1895 / #1895), not a hardcoded Europe/Budapest.
+. "$INSTALL_DIR/scripts/lib/install-tz.sh"
+BRIEFING_TZ="$(install_tz "$INSTALL_DIR")"
+BRIEFING_TZ="${BRIEFING_TZ:-UTC}"
 
 # Same-day dedup guard: the briefing must go out at most once per calendar
 # day no matter how many times the trigger fires (a timer-unit re-activation
@@ -76,7 +80,7 @@ $CLAUDE --dangerously-skip-permissions \
   -p "Reggeli napindító - készítsd el és küld el Telegramra (chat_id: $CHAT_ID).
 
 1. Email check: search_emails az elmúlt 12 órából, szűrd ki a spam/promo emaileket
-2. Naptár: list-events a mai napra a $CALENDAR_ID naptárból (Europe/Budapest timezone)
+2. Naptár: list-events a mai napra a $CALENDAR_ID naptárból ($BRIEFING_TZ timezone)
 3. AI hírek: WebSearch \"AI news [tegnapi dátum]\"
 4. Küld el Telegramra a reply tool-lal (chat_id: $CHAT_ID)
 

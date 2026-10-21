@@ -1,6 +1,8 @@
 // The "technical trail" of a document as a plain text file a person can open in Notepad (Boss TG 3007): who wrote,
 // checked and confirmed what, and when. The JSON stays available (?format=json) for tools; this is the default.
 
+import { APP_TZ } from './config.js'
+
 type Lang = 'hu' | 'en'
 type Obj = Record<string, unknown>
 
@@ -71,7 +73,7 @@ function when(v: unknown): string {
   if (!s) return ''
   const d = new Date(s)
   if (Number.isNaN(d.getTime())) return s
-  return d.toLocaleString('sv-SE', { timeZone: 'Europe/Budapest' }).slice(0, 16)
+  return d.toLocaleString('sv-SE', { timeZone: APP_TZ }).slice(0, 16)
 }
 
 /** The trail (documentTrail's object) as text; the owner's name is not in it, "te"/"you" stands for the owner. */

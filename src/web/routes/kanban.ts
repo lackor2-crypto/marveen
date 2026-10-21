@@ -4,7 +4,7 @@ import {
   listKanbanCards, createKanbanCard, updateKanbanCard, KANBAN_WRITABLE_FIELDS,
   deleteKanbanCard, moveKanbanCard, archiveKanbanCard, unarchiveKanbanCard,
   getKanbanComments, addKanbanComment, getKanbanCardEvents, listKanbanProjects,
-  getKanbanCard, getChildCards, getDb, parentWouldCycle,
+  getKanbanCard, KANBAN_STATUSES, getChildCards, getDb, parentWouldCycle,
   createAgentMessage, markKanbanCardDispatched,
   getKanbanSeqByIdPrefix,
   listLabels, getLabel, createLabel, updateLabel, deleteLabel,
@@ -15,7 +15,7 @@ import {
   getDbFileSizeMb, getTokenPruneLag, type TokenPruneLag,
 } from '../../db.js'
 import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
-import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS } from '../../config.js'
+import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS, KANBAN_LABEL_COLORS_REJECTED, KANBAN_LABEL_COLORS_OVERFLOW } from '../../config.js'
 import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
 import { isAgentQuotaBlocked } from '../agent-availability.js'
@@ -24,6 +24,7 @@ import { createCardWithRules } from '../../kanban-create.js'
 import { ensureApprovalForWaitingCard, withdrawApprovalForCardLeavingWaiting } from './approvals.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
+import { MAX_LABEL_PALETTE_ENTRIES, resolveLabelColor } from '../../css-color.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { applyCardLabels } from '../kanban-labels.js'
@@ -31,6 +32,15 @@ import type { RouteContext } from './types.js'
 import { checkWaitingMove } from '../waiting-completion-guard.js'
 import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
 import { resolveProjectRef, listActiveProjectIds } from '../../projects.js'
+
+// KANBAN_LABEL_COLORS entries that are not colours were dropped by config.ts
+// (which cannot log); say so once, when the kanban routes load.
+if (KANBAN_LABEL_COLORS_REJECTED.length > 0) {
+  logger.warn({ rejected: KANBAN_LABEL_COLORS_REJECTED.length }, 'KANBAN_LABEL_COLORS: entries that are not a colour (hex, CSS colour name, numeric rgb()/hsl(), var(--token)) were dropped from the label palette')
+}
+if (KANBAN_LABEL_COLORS_OVERFLOW > 0) {
+  logger.warn({ dropped: KANBAN_LABEL_COLORS_OVERFLOW, kept: KANBAN_LABEL_COLORS.length }, `KANBAN_LABEL_COLORS: the label palette is too large; the entries past the size limit (${MAX_LABEL_PALETTE_ENTRIES} distinct colours) were dropped`)
+}
 
 // A headless agent cannot "drag" a card to done, so the dispatch hands it the
 // exact curl commands to (1) post a short, human-readable result summary as a
@@ -238,7 +248,9 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     // Colour is validated against the configured palette (KANBAN_LABEL_COLORS)
     // rather than accepted as free-text, so every label's colour traces back
     // to the single configurable source instead of an arbitrary per-request value.
-    const resolvedColor = color && KANBAN_LABEL_COLORS.includes(color) ? color : KANBAN_LABEL_COLORS[0]
+    // (compared normalized: a palette written as `red` matches a request for red)
+    const { color: resolvedColor, replaced } = resolveLabelColor(color, KANBAN_LABEL_COLORS)
+    if (replaced && color !== undefined) logger.warn({ path }, 'Kanban label POST: colour not in the palette, the first palette colour was used')
     const id = randomUUID().slice(0, 8)
     const label = createLabel({ id, name: name.trim(), color: resolvedColor })
     json(res, label)
@@ -256,7 +268,12 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       fields.name = name.trim()
     }
     if (color !== undefined) {
-      fields.color = KANBAN_LABEL_COLORS.includes(color) ? color : KANBAN_LABEL_COLORS[0]
+      // a client sending a legacy label's current colour back keeps it
+      const existing = getLabel(id)
+      const resolved = resolveLabelColor(color, KANBAN_LABEL_COLORS, existing?.color)
+      // (an unknown id gets a 404 below, not a log line)
+      if (resolved.replaced && existing) logger.warn({ id }, 'Kanban label PUT: colour not in the palette and not the label\'s own, the first palette colour was used')
+      fields.color = resolved.color
     }
     if (updateLabel(id, fields)) { json(res, { ok: true }); return true }
     json(res, { error: 'Címke nem található' }, 404)
@@ -416,9 +433,18 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const id = decodeURIComponent(kanbanMoveMatch[1])
     const body = await readBody(req)
     const parsed = JSON.parse(body.toString())
-    const { status, sort_order, actor } = parsed
+    const { status, sort_order, actor, expected_status } = parsed
+    // Upstream #1975 (rebuilt): optional compare-and-set guard. Absent
+    // (undefined/null) keeps the old unconditional move. Present, it must name a
+    // real status: an unknown value could never match, and a 409 would wrongly
+    // suggest someone else moved the card.
+    const hasExpected = expected_status !== undefined && expected_status !== null
+    if (hasExpected && !(KANBAN_STATUSES as readonly string[]).includes(expected_status)) {
+      json(res, { error: `Invalid expected_status. Accepted: ${KANBAN_STATUSES.join(', ')}` }, 400)
+      return true
+    }
     if (refuseUnfinishedWaiting(ctx, id, status, parsed)) return true
-    if (moveKanbanCard(id, status, sort_order ?? 0, actor)) {
+    if (moveKanbanCard(id, status, sort_order ?? 0, actor, hasExpected ? { expectedStatus: expected_status } : undefined)) {
       // Wake the assigned agent once when the card enters in_progress -- unless
       // that agent is the one who moved it (self-pickup needs no wake-up).
       if (status === 'in_progress') fireKanbanDispatch(id, actor)
@@ -439,6 +465,13 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       // card dragged back to in_progress left its request pending for good.
       else withdrawApprovalForCardLeavingWaiting(id, status, actor)
       json(res, { ok: true })
+      return true
+    }
+    // Nothing changed: a missing card stays the old 404; an existing card means
+    // the guard did not hold, so tell the caller what the status actually is.
+    const current = hasExpected ? getKanbanCard(id) : undefined
+    if (current) {
+      json(res, { error: 'status_conflict', current_status: current.status, expected_status }, 409)
       return true
     }
     json(res, { error: 'Kártya nem található' }, 404)

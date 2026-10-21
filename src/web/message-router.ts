@@ -32,11 +32,7 @@ import { setLastInboundModality } from './voice-modality.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from './agent-message-wrap.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 
-// A message that cannot be delivered within this window (target session never
-// exists / stays busy) is marked failed so it stops clogging the pending
-// queue and we stop re-scanning it forever. Matches the scheduled-task retry
-// window so a long turn that ate one also eats the other.
-const MESSAGE_ABANDON_WINDOW_MS = 60 * 60 * 1000
+import { MESSAGE_ABANDON_WINDOW_MS } from './message-abandon.js'
 // How long a message must have waited before the stale-parked-input janitor is
 // allowed to clear the receiver's input box. Long enough that a brief, genuine
 // "agent parked a draft it is about to submit" never gets clobbered; short
