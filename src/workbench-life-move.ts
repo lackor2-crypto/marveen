@@ -5,8 +5,9 @@
 // is only a suggestion: nothing moves until the owner approves the list, and a row without a target is not moved.
 
 import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { ProjectRow } from './projects.js'
+import { getDb } from './db.js'
 import type { WorkItemRow } from './workbench.js'
 import { projectFileTarget } from './project-files.js'
 import { moveLife, toLifeRel, resolveLifePath } from './life-explorer.js'
@@ -76,9 +77,42 @@ export async function suggestLifeTargets(files: LifeMoveCandidate[], lang: strin
   return out
 }
 
-export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>, uploads: LifeMoveUploads = 'exclude'): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {
+/**
+ * A work item made from a file ("put this file in as a work item, leave it where it is") has no folder of its own: its
+ * files are the source file, the source files of its versions and its finished (attached) files. The same "move to the
+ * Life tree" list offers those, so every document has the button, not only the ones with a folder. The item follows
+ * each file that moves (followMovedItemFileRefs).
+ */
+function ownFileCandidate(item: Partial<Pick<WorkItemRow, 'id' | 'source_path'>>): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {
+  const rels: string[] = []
+  const add = (raw: unknown): void => { if (typeof raw === 'string' && raw.trim()) rels.push(raw.replace(/\\/g, '/').replace(/^\/+/, '').trim()) }
+  add(item.source_path)
+  if (item.id) {
+    try {
+      const db = getDb()
+      for (const r of db.prepare('SELECT source_path AS p FROM work_item_versions WHERE work_item_id = ? AND source_path IS NOT NULL').all(item.id) as { p: string }[]) add(r.p)
+      for (const r of db.prepare('SELECT path AS p FROM work_item_assets WHERE work_item_id = ?').all(item.id) as { p: string }[]) add(r.p)
+    } catch { /* a table that does not exist yet has nothing to offer */ }
+  }
+  const files: LifeMoveCandidate[] = []
+  const seen = new Set<string>()
+  for (const rel of rels) {
+    if (seen.has(rel) || files.length >= MAX_CANDIDATES) continue
+    seen.add(rel)
+    const abs = resolveLifePath(rel)
+    if (!abs) continue
+    try { if (!statSync(abs).isFile()) continue } catch { continue }
+    const name = basename(rel)
+    if (name.startsWith('.') || SKIP_FILES.has(name) || isContextFileName(name) || isTodoFileName(name)) continue
+    files.push({ rel, name, folder: '' })
+  }
+  if (!files.length) return { ok: false, code: 'no_folder' }
+  return { ok: true, folder_rel: dirname(files[0].rel), files }
+}
+
+export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 'folder'> & Partial<Pick<WorkItemRow, 'id' | 'source_path'>>, uploads: LifeMoveUploads = 'exclude'): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {
   const base = String(item.folder ?? '').trim()
-  if (!base) return { ok: false, code: 'no_folder' }
+  if (!base) return uploads === 'only' ? { ok: false, code: 'no_folder' } : ownFileCandidate(item)
   const t = projectFileTarget(project, base)
   if (!t.ok) return { ok: false, code: 'no_folder' }
   const files: LifeMoveCandidate[] = []
@@ -121,7 +155,7 @@ export function movedPairs(results: LifeMoveOutcome[]): Array<{ oldRel: string; 
  * Moves the approved rows. Only files that are CURRENT candidates of this item move (a rel the owner's list did not
  * contain is refused), and moveLife never overwrites: a name clash comes back as a message, not a silent rename.
  */
-export function moveItemFilesToLife(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>, rows: unknown, lang: string, uploads: LifeMoveUploads = 'exclude'): { ok: true; results: LifeMoveOutcome[] } | { ok: false; code: 'no_folder' | 'bad_input' } {
+export function moveItemFilesToLife(project: ProjectRow, item: Pick<WorkItemRow, 'folder'> & Partial<Pick<WorkItemRow, 'id' | 'source_path'>>, rows: unknown, lang: string, uploads: LifeMoveUploads = 'exclude'): { ok: true; results: LifeMoveOutcome[] } | { ok: false; code: 'no_folder' | 'bad_input' } {
   const cands = lifeMoveCandidates(project, item, uploads)
   if (!cands.ok) return { ok: false, code: 'no_folder' }
   if (!Array.isArray(rows) || !rows.length || rows.length > MAX_CANDIDATES) return { ok: false, code: 'bad_input' }
