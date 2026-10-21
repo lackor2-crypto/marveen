@@ -11,7 +11,7 @@ import { getDb } from './db.js'
 import { listWorkItems, type WorkItemRow } from './workbench.js'
 import { projectFileTarget } from './project-files.js'
 import { moveLife, toLifeRel, resolveLifePath, trashLife } from './life-explorer.js'
-import { addMount } from './life-mounts.js'
+import { addMount, fileMountsInside } from './life-mounts.js'
 import { listFinals } from './workbench-docfinal.js'
 import { sentStatus, type SentStatus } from './workbench-docsent.js'
 import { roleOfFolderName } from './workbench-misplaced.js'
@@ -206,6 +206,15 @@ export function siblingsOf(project: ProjectRow, item: PlanItem): Array<{ id: str
   return out.some((o) => o.id === me.id) ? out : [...out, me].filter((o) => o.id)
 }
 
+/** A sent file of this document already stands in the Life tree: a linked file of that name was left in a folder of `arr`. */
+function sentAlreadyMoved(arr: LifeMoveCandidate[], sentNames: Set<string>): boolean {
+  const dirs = new Set(arr.map((f) => dirname(f.rel)))
+  for (const d of dirs) {
+    try { if (fileMountsInside(d).some((m) => sentNames.has(basename(m.rel)))) return true } catch { /* unreadable list: not proven */ }
+  }
+  return false
+}
+
 function ownerInfo(w: { id: string; title: string }): OwnerInfo {
   const status = sentStatus(w.id)
   const owned = new Set<string>()
@@ -256,7 +265,9 @@ export function lifeMovePlan(project: ProjectRow, item: PlanItem, uploads: LifeM
     if (!o.status.sent) { for (const f of arr) { f.action = 'blocked'; f.note = 'not_sent' } continue }
     let sentRel = new Set(arr.filter((f) => o.sentNames.has(f.name)).map((f) => f.rel))
     // Marked as sent but no final on file (an old document): the newest generated file is the one that went out.
-    if (!sentRel.size && !o.sentNames.size) {
+    // #742 (Boss TG 4159): the same when the recorded sent PDF is gone from the folder (deleted by hand) and did not move to
+    // the Life tree either (no linked file stands for it): the newest remaining file is the document now, never the Trash.
+    if (!sentRel.size && (!o.sentNames.size || !sentAlreadyMoved(arr, o.sentNames))) {
       const newest = [...arr].sort((a, b) => mtimeOf(b.rel) - mtimeOf(a.rel))[0]
       if (newest) sentRel = new Set([newest.rel])
     }

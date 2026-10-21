@@ -1,7 +1,7 @@
 // Boss TG 4059-4068: "Move to the Life tree" only moves a document that was SENT; of its generated files only the sent
 // version goes to the Life tree (the older ones to the Trash, restorable); the place is read from where the document lives.
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -21,6 +21,8 @@ const { createProject, updateProject, getProject } = await import('../projects.j
 const { createWorkItem, getWorkItem } = await import('../workbench.js')
 const { lifeMovePlan, moveItemFilesToLife, suggestForPlan } = await import('../workbench-life-move.js')
 const { markSentManually, sentStatus, ensureDocSentTables } = await import('../workbench-docsent.js')
+const { addMount } = await import('../life-mounts.js')
+const { ensureAssetTables } = await import('../workbench-assets.js')
 
 const root = explorerRoot() as string
 if (!root || !root.startsWith(depot)) throw new Error('not on the temporary depot')
@@ -105,6 +107,44 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
     expect(readdirSync(fin)).toEqual(['Sozialamt v1.pdf'])
     expect(readdirSync(join(root, 'Kuka')).length).toBeGreaterThan(0)
     expect(sentStatus(b).sent).toBe(false)
+  })
+
+  // #742 (Boss TG 4159): the recorded sent PDF was deleted by hand; the one generated file left is the letter now.
+  it('a rögzített elküldött PDF kitörölve: a megmaradt végleges PDF megy az Életfába, NEM a Kukába', () => {
+    const { project, b } = setup()
+    markSentManually(b, null)
+    const fin = join(root, 'Projektek', 'Nemet', CONT, FIN)
+    rmSync(join(fin, 'Sozialamt v1.pdf'))
+    writeFileSync(join(fin, 'Sozialamt végleges (2).pdf'), 'sent')
+    ensureAssetTables()
+    getDb().prepare('INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('as1', b, `Projektek/Nemet/${CONT}/${FIN}/Sozialamt végleges (2).pdf`, 'Sozialamt végleges (2).pdf', 'final', '', 0, 1)
+    const item = getWorkItem(b) as any
+    const plan = lifeMovePlan(project, item, 'include')
+    if (!plan.ok) throw new Error('terv')
+    const f = plan.files.find((x) => x.name === 'Sozialamt végleges (2).pdf')
+    expect(f?.action).toBe('move')
+    expect(f?.sent_final).toBe(true)
+    const r = moveItemFilesToLife(project, item, [{ rel: f!.rel, target: 'Bakos Éva/Hatóságok/Németország/Sozialamt' }], 'hu', 'include')
+    if (!r.ok) throw new Error('mozgatas')
+    expect(r.results.some((x) => x.trashed)).toBe(false)
+    expect(existsSync(join(root, 'Bakos Éva', 'Hatóságok', 'Németország', 'Sozialamt', 'Sozialamt végleges (2).pdf'))).toBe(true)
+  })
+
+  it('az elküldött PDF már az Életfában (link maradt a helyén): a régebbi változat mehet a Kukába', () => {
+    const { project, b } = setup()
+    markSentManually(b, null)
+    const fin = join(root, 'Projektek', 'Nemet', CONT, FIN)
+    const target = join(root, 'Bakos Éva', 'Hatóságok', 'Németország', 'Sozialamt')
+    renameSync(join(fin, 'Sozialamt v1.pdf'), join(target, 'Sozialamt v1.pdf'))
+    addMount({ rel: `Projektek/Nemet/${CONT}/${FIN}/Sozialamt v1.pdf`, target: 'Bakos Éva/Hatóságok/Németország/Sozialamt/Sozialamt v1.pdf', kind: 'local', file: true })
+    writeFileSync(join(fin, 'Sozialamt piszkozat.pdf'), 'old')
+    ensureAssetTables()
+    getDb().prepare('INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('as2', b, `Projektek/Nemet/${CONT}/${FIN}/Sozialamt piszkozat.pdf`, 'Sozialamt piszkozat.pdf', 'final', '', 0, 1)
+    const plan = lifeMovePlan(project, getWorkItem(b) as any, 'include')
+    if (!plan.ok) throw new Error('terv')
+    expect(plan.files.find((x) => x.name === 'Sozialamt piszkozat.pdf')?.action).toBe('trash')
   })
 
   it('rögzített küldés: AZ megy, amelyik tényleg elment, még ha nem a legújabb', () => {
