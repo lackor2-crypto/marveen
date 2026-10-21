@@ -7800,6 +7800,7 @@ window._i18n.hu = {
   "workbench.archived_hint": "Ez a projekt archivált, ezért nem készül bele új munkadarab. Hozd vissza a projektet, ha dolgozni akarsz benne.",
   "workbench.err.not_loaded": "A Munkapad most nem töltődött be. Frissítsd az oldalt (Ctrl+Shift+R), és próbáld újra.",
   "workbench.err.http": "A kérés nem sikerült ({status}).",
+  "workbench.err.detail": "A pontos hiba: {detail}",
   "workbench.exp.open": "Exportálás / küldés",
   "workbench.exp.title": "Exportálás",
   "workbench.exp.pdf": "PDF (nyomtatható lap)",

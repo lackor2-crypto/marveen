@@ -7726,6 +7726,7 @@ window._i18n.en = {
   "workbench.archived_hint": "This project is archived, so no new work item is created in it. Bring the project back if you want to work in it.",
   "workbench.err.not_loaded": "The Workbench did not load just now. Refresh the page (Ctrl+Shift+R) and try again.",
   "workbench.err.http": "The request failed ({status}).",
+  "workbench.err.detail": "The exact error: {detail}",
   "workbench.exp.open": "Export / send",
   "workbench.exp.title": "Export",
   "workbench.exp.pdf": "PDF (printable page)",
