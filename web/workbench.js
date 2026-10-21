@@ -6311,7 +6311,7 @@
     render()
   }
 
-  function previewHtml() {
+  function previewHtml(withLifeMove) {
     var p = WB.preview
     if (!p) return '<div class="wb-preview"><p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
     // A sajat reszeit (szoveg + kep) a reszlista mutatja: nem duplazzuk meg.
@@ -6322,7 +6322,7 @@
     if (p.available && p.kind === 'deck') return ''
     var head = '<div class="wb-preview-head"><h4>' + esc(t('workbench.preview.title')) + '</h4>'
       + (p.name ? '<span class="wb-muted">' + esc(p.name) + '</span>' : '')
-      + previewVersionPickerHtml() + '</div>'
+      + previewVersionPickerHtml() + (withLifeMove ? ' ' + lifeMoveBtnHtml() : '') + '</div>'
     // TABLAZAT (#406, 15. pont): nyitva a racs -> az van a helyen.
     if (tableOpen()) return '<div class="wb-preview">' + head + manualStepsHtml(WB.detail && WB.detail.item) + tableHtml() + '</div>'
     // DOKUMENTUM-SZERKESZTES (#444): nyitva a szerkeszto -> az van a helyen.
@@ -15118,7 +15118,8 @@
   // ---- #618: move the item's finished files into the Life tree (list, owner approves, then move) --------------
   function lifeMoveBtnHtml() {
     var it = WB.detail && WB.detail.item
-    if (!it || !it.folder) return ''
+    // Every document has the button: one with a folder lists its folder, one made from a file lists its own files.
+    if (!it) return ''
     return '<button type="button" class="btn-secondary btn-compact" data-wb-act="life-move"' + (archived() ? ' disabled' : '') + ' title="' + escA(t('workbench.lifemove.hint')) + '">' + esc(t('workbench.lifemove.btn')) + '</button>'
   }
   /** #716: after an upload into the Uploads folder: ask what is still there, and only when something is, open the list. */
@@ -16310,10 +16311,10 @@
       var wtp = WB.detail.text_profile
       if (wtp && wtp.word && wtp.candidate && !wtp.on) {
         if (!WB.textImportError) return '<div class="wb-sh-doc-body"><p class="wb-muted wb-center">' + esc(t('workbench.worddoc.reading')) + '</p></div>'
-        return '<div class="wb-sh-doc-body"><p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' + previewHtml() + '</div>'
+        return '<div class="wb-sh-doc-body"><p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' + previewHtml(true) + '</div>'
       }
       docAutoOpen()
-      return '<div class="wb-sh-doc-body">' + (WB.textImportError ? '<p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' : '') + previewHtml() + '</div>'
+      return '<div class="wb-sh-doc-body">' + (WB.textImportError ? '<p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' : '') + previewHtml(true) + '</div>'
     }
     // #536: the file of this document was deleted (it sits in the trash): say so, instead of an empty drafting editor.
     if (!o && WB.detail && WB.detail.item && !WB.detail.item.source_path) {
