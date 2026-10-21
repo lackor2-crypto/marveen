@@ -14,6 +14,7 @@ import {
   migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders, listWorkFolders, migrateFinishedFolder,
 } from '../workbench-assets.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
+import { markSentManually } from '../workbench-docsent.js'
 import { finishedFolderFor } from '../project-files.js'
 import { rootStrays, resolveRootStrays } from '../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../workbench-json-orphans.js'
@@ -115,6 +116,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     if (!c.ok) throw new Error('jeloltek')
     expect(c.files.map((x) => x.name).sort()).toEqual(['kesz.pdf', 'level.pdf'])
     mkdirSync(join(depot, 'Cel'), { recursive: true })
+    markSentManually(item.id, null) // only a sent document may move (Boss TG 4065)
     const rel = c.files.find((x) => x.name === 'kesz.pdf')!.rel
     const other = c.files.find((x) => x.name === 'level.pdf')!.rel
     const r = moveItemFilesToLife(cur, w, [{ rel, target: 'Cel' }, { rel: 'Nincs/a-listan.pdf', target: 'Cel' }, { rel: other, target: '' }], 'hu')

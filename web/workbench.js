@@ -15172,25 +15172,69 @@
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close() })
     overlay.querySelector('#wbLifeMoveClose').addEventListener('click', close)
     var files = []
+    var gates = []
     var target = {}
-    var refreshGo = function () { go.disabled = !Object.keys(target).some(function (k) { return target[k] }) }
+    // The button is live when something is chosen, or when there are older versions waiting for the Trash.
+    var refreshGo = function () {
+      go.disabled = !(Object.keys(target).some(function (k) { return target[k] }) || files.some(function (f) { return f.action === 'trash' }))
+    }
+    var gateHtml = function () {
+      var g = gates.filter(function (x) { return x.item_id === id })[0]
+      if (!g || g.sent || upOnly) return ''
+      return '<div class="wb-lifemove-gate" style="padding:8px;margin-bottom:8px;border:1px solid #d33;border-radius:6px;color:#b00020">'
+        + esc(t('workbench.lifemove.gate_unsent')) + ' <button type="button" class="btn-secondary btn-compact" id="wbLifeMoveMark" title="' + escA(t('workbench.lifemove.gate_mark_hint')) + '">' + esc(t('workbench.lifemove.gate_mark')) + '</button></div>'
+    }
     var draw = function () {
       list.innerHTML = ''
-      if (!files.length) { list.innerHTML = '<p class="wb-muted">' + esc(t('workbench.lifemove.empty')) + '</p>'; return }
+      var gh = gateHtml()
+      if (gh) {
+        var gd = document.createElement('div'); gd.innerHTML = gh; list.appendChild(gd.firstChild)
+        var mk = list.querySelector('#wbLifeMoveMark')
+        if (mk) mk.addEventListener('click', function () {
+          mk.disabled = true
+          api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/sent-mark', { sent: true }).then(function (mr) {
+            if (!mr.ok) { mk.disabled = false; window.showToast(mr.message || t('workbench.lifemove.failed')); return }
+            window.showToast(t('workbench.lifemove.gate_marked'))
+            load()
+          })
+        })
+      }
+      if (!files.length) { var em = document.createElement('p'); em.className = 'wb-muted'; em.textContent = t('workbench.lifemove.empty'); list.appendChild(em); return }
+      var lastGroup = ''
       files.forEach(function (f, i) {
+        if (f.group === 'other' && lastGroup !== 'other:' + f.item_id) {
+          var h = document.createElement('div'); h.style.cssText = 'font-weight:600;margin:10px 0 2px'
+          h.textContent = t('workbench.lifemove.group_other', { title: f.item_title || '' }); list.appendChild(h)
+        }
+        lastGroup = f.group === 'other' ? 'other:' + f.item_id : 'this'
         var row = document.createElement('div')
         row.className = 'wb-lifemove-row'
         row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border,#ddd);flex-wrap:wrap'
         var nm = document.createElement('span')
         nm.style.cssText = 'flex:1 1 220px;min-width:0;word-break:break-word'
-        nm.textContent = '📄 ' + (f.folder ? f.folder + ' / ' : '') + f.name
+        nm.textContent = '📄 ' + (f.folder ? f.folder + ' / ' : '') + f.name + (f.sent_final ? ' (' + t('workbench.lifemove.sent_badge') + ')' : '')
+        row.appendChild(nm)
+        if (f.action === 'trash' || f.action === 'blocked') {
+          var st = document.createElement('span')
+          st.className = 'wb-muted'
+          st.style.cssText = 'flex:1 1 200px;min-width:0;word-break:break-word'
+          st.textContent = f.action === 'trash' ? t('workbench.lifemove.to_trash') : t(f.note === 'unknown_owner' ? 'workbench.lifemove.blocked_owner' : 'workbench.lifemove.blocked_unsent')
+            + (f.action === 'blocked' && f.suggested_target ? ' (' + t('workbench.lifemove.hint_prefix') + ' ' + (f.suggested_display || f.suggested_target) + ')' : '')
+          row.appendChild(st)
+          list.appendChild(row)
+          return
+        }
         var to = document.createElement('span')
         to.className = 'wb-muted'
         to.style.cssText = 'flex:1 1 200px;min-width:0;word-break:break-word'
-        var sugOn = !!(f.suggested_target && target[f.rel] === f.suggested_target)
+        var unsure = !!(f.suggested_target && f.suggested_confident === false)
         var showTo = function () {
           var tg = target[f.rel]
           to.textContent = tg ? '→ ' + (tg === f.suggested_target ? (f.suggested_display || tg) + ' (' + t('workbench.lifemove.suggested') + ')' : tg) : t('workbench.lifemove.no_target')
+          // An unsure place is pre-filled but red until the owner has looked at it (picked it again or accepted it).
+          var red = unsure && tg === f.suggested_target && !f._seen
+          to.style.color = red ? '#b00020' : ''
+          if (red) to.textContent += ' — ' + t('workbench.lifemove.check_red') + (f.suggested_why ? ' (' + f.suggested_why + ')' : '')
         }
         showTo()
         var b = document.createElement('button')
@@ -15198,44 +15242,50 @@
         b.className = 'btn-secondary btn-compact'
         b.textContent = t('workbench.lifemove.choose')
         b.addEventListener('click', function () {
-          pickLifeFile(function (rel) { target[f.rel] = rel; showTo(); if (accept) accept.hidden = true; refreshGo() }, { folder: true, lifeMove: true })
+          pickLifeFile(function (rel) { target[f.rel] = rel; f._seen = true; showTo(); refreshGo() }, { folder: true, lifeMove: true })
         })
-        // A suggestion the sorter is not sure about is only a hint: one click takes it, nothing is pre-filled.
-        var accept = null
-        if (f.suggested_target && !sugOn) {
-          to.textContent = t('workbench.lifemove.hint_prefix') + ' ' + (f.suggested_display || f.suggested_target)
-          accept = document.createElement('button')
-          accept.type = 'button'
-          accept.className = 'btn-primary btn-compact'
-          accept.textContent = t('workbench.lifemove.accept')
-          accept.addEventListener('click', function () { target[f.rel] = f.suggested_target; showTo(); accept.hidden = true; refreshGo() })
+        row.appendChild(to)
+        if (unsure) {
+          var ok = document.createElement('button')
+          ok.type = 'button'
+          ok.className = 'btn-primary btn-compact'
+          ok.textContent = t('workbench.lifemove.accept')
+          ok.addEventListener('click', function () { target[f.rel] = f.suggested_target; f._seen = true; showTo(); ok.hidden = true; refreshGo() })
+          row.appendChild(ok)
         }
-        row.appendChild(nm); row.appendChild(to); if (accept) row.appendChild(accept); row.appendChild(b)
+        row.appendChild(b)
         list.appendChild(row)
       })
     }
-    ;(opts && opts.preload ? Promise.resolve(opts.preload) : api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move' + (upOnly ? '?scope=uploads' : ''))).then(function (r) {
-      if (!overlay.parentNode) return
-      if (!r.ok) { list.innerHTML = ''; var p = document.createElement('p'); p.className = 'wb-error'; p.textContent = r.message || t('workbench.lifemove.failed'); list.appendChild(p); return }
-      files = (r.data && r.data.files) || []
-      // The sorter's confident suggestions are pre-filled; the owner still approves the whole list with the button.
-      files.forEach(function (f) { if (f.suggested_target && f.suggested_confident) target[f.rel] = f.suggested_target })
-      refreshGo()
-      draw()
-    })
+    var load = function () {
+      var first = !files.length && !!(opts && opts.preload)
+      ;(first ? Promise.resolve(opts.preload) : api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move' + (upOnly ? '?scope=uploads' : ''))).then(function (r) {
+        if (!overlay.parentNode) return
+        if (!r.ok) { list.innerHTML = ''; var p = document.createElement('p'); p.className = 'wb-error'; p.textContent = r.message || t('workbench.lifemove.failed'); list.appendChild(p); return }
+        files = (r.data && r.data.files) || []
+        gates = (r.data && r.data.gates) || []
+        target = {}
+        // Every place the sorter found is pre-filled (the owner still approves the whole list); an unsure one is shown in red.
+        files.forEach(function (f) { if (f.action === 'move' && f.suggested_target) target[f.rel] = f.suggested_target })
+        refreshGo()
+        draw()
+      })
+    }
+    load()
     go.addEventListener('click', function () {
-      var moves = files.filter(function (f) { return target[f.rel] }).map(function (f) { return { rel: f.rel, target: target[f.rel] } })
-      if (!moves.length) return
+      var moves = files.filter(function (f) { return f.action === 'move' && target[f.rel] }).map(function (f) { return { rel: f.rel, target: target[f.rel] } })
+      if (!moves.length && !files.some(function (f) { return f.action === 'trash' })) return
       go.disabled = true
       api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move', { moves: moves }).then(function (r) {
         if (!r.ok) { go.disabled = false; window.showToast(r.message || t('workbench.lifemove.failed')); return }
         var res = (r.data && r.data.results) || []
-        var okN = res.filter(function (x) { return x.ok }).length
+        var okN = res.filter(function (x) { return x.ok && !x.trashed }).length
+        var trashN = res.filter(function (x) { return x.ok && x.trashed }).length
         var bad = res.filter(function (x) { return !x.ok })
         close()
         var afterMove = opts && opts.onMoved ? Promise.resolve(opts.onMoved(res)).catch(function () {}) : Promise.resolve()
         afterMove.then(function () { if (WB.selectedId === id) loadDetail(id) })
-        window.showToast(t('workbench.lifemove.done', { n: okN }) + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : '')
+        window.showToast((okN || !trashN ? t('workbench.lifemove.done', { n: okN }) : '') + (trashN ? ' ' + t('workbench.lifemove.trashed', { n: trashN }) : '') + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : '')
           + (r.data && r.data.relinked ? ' ' + t('workbench.lifemove.relinked', { n: r.data.relinked }) : ''))
         if (WB.selectedId === id) loadDetail(id); else render()
       })

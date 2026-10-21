@@ -9,6 +9,7 @@ import { createProject, updateProject, getProject, type ProjectRow } from '../pr
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { ensureWorkItemFolder, attachAsset, listWorkItemAssets, projectRelative } from '../workbench-assets.js'
 import { lifeMoveCandidates, moveItemFilesToLife, movedPairs } from '../workbench-life-move.js'
+import { markSentManually } from '../workbench-docsent.js'
 import { relinkMovedAnnexes } from '../workbench-doc-links.js'
 import { ensureAnnexTables } from '../workbench-docannex.js'
 
@@ -75,6 +76,7 @@ describe('#716: feltoltes -> Eletfa', () => {
     if (!refused.ok) throw new Error('mozgatas')
     expect(refused.results[0].ok).toBe(false)
     expect(existsSync(join(dir, 'Feltöltések', 'aok-level.jpg'))).toBe(true)
+    markSentManually(item.id, null) // only a sent document moves (the gate)
     const r = moveItemFilesToLife(project, item, [{ rel, target: 'Cel' }], 'hu', 'include')
     if (!r.ok) throw new Error('mozgatas')
     expect(r.results[0].ok).toBe(true)
@@ -89,6 +91,7 @@ describe('#716: feltoltes -> Eletfa', () => {
     if (!up.ok) throw new Error('feltoltes: ' + JSON.stringify(up))
     const before = listWorkItemAssets(item.id).find((a) => a.name === 'level2.pdf')!
     mkdirSync(join(depot, 'Cel'), { recursive: true })
+    markSentManually(item.id, null) // only a sent document moves (the gate)
     const r = moveItemFilesToLife(project, item, [{ rel: before.path, target: 'Cel' }], 'hu', 'include')
     if (!r.ok) throw new Error('mozgatas')
     expect(r.results[0].ok).toBe(true)
@@ -115,6 +118,7 @@ describe('#716: feltoltes -> Eletfa', () => {
     if (!w2.ok) throw new Error('munkadarab2')
     ins.run('a2', w2.item.id, 0, projRel, 'masik', 1, 'test')
     mkdirSync(join(depot, 'Cel'), { recursive: true })
+    markSentManually(item.id, null) // only a sent document moves (the gate)
     const r = moveItemFilesToLife(project, item, [{ rel: oldRel, target: 'Cel' }], 'hu', 'include')
     if (!r.ok) throw new Error('mozgatas')
     expect(await relinkMovedAnnexes(project, movedPairs(r.results))).toBe(1)

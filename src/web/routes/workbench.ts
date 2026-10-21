@@ -35,7 +35,7 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { kickItemContextSweep, markPlainItem } from '../../workbench-item-context.js'
-import { lifeMoveCandidates, moveItemFilesToLife, movedPairs, suggestLifeTargets } from '../../workbench-life-move.js'
+import { lifeMovePlan, moveItemFilesToLife, movedPairs, suggestForPlan } from '../../workbench-life-move.js'
 import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
 import { createHash } from 'node:crypto'
@@ -82,7 +82,7 @@ import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
-import { fileOfficialCopy, listSent, recordSent, removeSent, SENT_METHODS } from '../../workbench-docsent.js'
+import { fileOfficialCopy, listSent, markSentManually, recordSent, removeSent, sentStatus, SENT_METHODS, unmarkSentManually } from '../../workbench-docsent.js'
 import { addProjectPlace, removeProjectPlace } from '../../project-places.js'
 import { projectPlacesView } from '../../project-places-auto.js'
 import { projectItemFiles } from '../../project-item-files.js'
@@ -4616,10 +4616,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (method === 'GET') {
       // #716: the button lists everything including the uploads; `scope=uploads` is the list right after an upload.
-      const c = lifeMoveCandidates(owner, item, url.searchParams.get('scope') === 'uploads' ? 'only' : 'include')
+      const c = lifeMovePlan(owner, item, url.searchParams.get('scope') === 'uploads' ? 'only' : 'include')
       if (!c.ok) return fail(res, 404, 'life_move_no_folder', lang)
-      const sug = await suggestLifeTargets(c.files, lang)
-      json(res, { ok: true, files: c.files.map((f) => ({ ...f, ...(sug.get(f.rel) || {}) })), folder_rel: c.folder_rel })
+      const sug = await suggestForPlan(owner, item, c.files, lang)
+      json(res, { ok: true, files: c.files.map((f) => ({ ...f, ...(sug.get(f.rel) || {}) })), folder_rel: c.folder_rel, gates: c.gates })
       return true
     }
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
@@ -4631,6 +4631,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // #716: an annex that stood on the old place becomes a link to the document in the Life tree.
     const relinked = await relinkMovedAnnexes(owner, movedPairs(r.results)).catch(() => 0)
     json(res, { ok: true, results: r.results, relinked, assets: assetsOut(item.id) })
+    return true
+  }
+  // Boss TG 4068 (5A): an old document that was sent before the app knew is marked "sent" by hand, so it may move.
+  if (segs.length === 2 && segs[1] === 'sent-mark' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+    const body = await readJson(req)
+    if (body && body['sent'] === false) unmarkSentManually(item.id)
+    else markSentManually(item.id, actor(ctx))
+    json(res, { ok: true, sent: sentStatus(item.id) })
     return true
   }
   if (segs.length === 2 && segs[1] === 'tidy' && method === 'POST') {
