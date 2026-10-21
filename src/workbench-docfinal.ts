@@ -309,7 +309,7 @@ export type FinalizeCode =
   | 'docpdf_failed'
 
 export type FinalizeOutcome =
-  | { ok: true; final: FinalView & { stale: boolean }; asset_path: string; court: CourtCheckResult | null }
+  | { ok: true; final: FinalView & { stale: boolean }; asset_path: string; court: CourtCheckResult | null; reused?: boolean }
   | { ok: false; code: FinalizeCode | string; detail: string | null; check?: ReturnType<typeof documentCheck>; convert?: string; label?: string }
 
 /**
@@ -330,6 +330,11 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   const review = reviewOf(item.id, hash)
   if (!review) return { ok: false, code: 'outline_not_reviewed', detail: null }
   if (input.accept !== true) return { ok: false, code: 'outline_accept_required', detail: null }
+
+  // #738 (Boss, TG 4110): an unchanged document that is finalized again must not put the same PDF into the Finished materials a
+  // second time. The same content (hash), the same language and the files still on disk -> the new final version points at them.
+  const reused = reusableFinal(item, hash, input.lang)
+  if (reused) return finalizeFromExisting(item, reused, { hash, review, check, by: input.by, lang: input.lang })
 
   const outline = renderInputFor(item, true)
   const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: false, lang: docLangFor(item, input.lang) })
@@ -403,6 +408,44 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
     saveCourtCheck(fresh.id, state.version_id, court)
   }
   return { ok: true, final: state, asset_path: main.path, court }
+}
+
+/** The latest final of this exact content and language whose files are all still on disk, else null (#738). */
+function reusableFinal(item: WorkItemRow, hash: string, lang: 'hu' | 'en'): FinalView | null {
+  const prev = listFinals(item.id)[0]
+  if (!prev || prev.content_hash !== hash || !prev.files || !prev.files.length) return null
+  if (!String(prev.label || '').startsWith(FINAL_LABEL[lang])) return null
+  // The annex mode is a setting, not part of the content hash: a switch (separate <-> combined) needs the files made again.
+  const wanted = listAnnexes(item.id).length ? docSettings(item.id).annex_mode : null
+  if ((prev.annex_mode ?? null) !== wanted) return null
+  for (const f of prev.files) {
+    const abs = resolveLifePath(f.path)
+    if (!abs || !existsSync(abs)) return null
+  }
+  return prev
+}
+
+/** Records a new final version for an unchanged document without writing any file: the earlier PDFs stay the only copies. */
+async function finalizeFromExisting(
+  item: WorkItemRow, prev: FinalView,
+  ctx: { hash: string; review: { reviewed_at: number; reviewed_by: string | null }; check: { items: CheckItem[] }; by: string | null; lang: 'hu' | 'en' },
+): Promise<FinalizeOutcome> {
+  const label = `${FINAL_LABEL[ctx.lang]} – ${localDate()}`
+  const files = prev.files ?? []
+  const main = files.find((f) => f.role === 'main' || f.role === 'bundle') ?? files[0]!
+  const meta: FinalMeta = {
+    final: true, label, content_hash: ctx.hash,
+    pdf_path: main.path, pdf_name: main.name,
+    files, annex_mode: prev.annex_mode, pdfa: prev.pdfa,
+    accepted_by: ctx.by, accepted_at: now(), accepted_text: ACCEPT_TEXT[ctx.lang],
+    reviewed_at: ctx.review.reviewed_at, reviewed_by: ctx.review.reviewed_by,
+    check: ctx.check.items,
+  }
+  const v = createWorkItemVersion(item.id, { prompt: label, created_by: ctx.by, metadata_json: JSON.stringify(meta) })
+  if (!v.ok) return { ok: false, code: 'docpdf_failed', detail: v.code }
+  const state = finalState(v.item, ctx.hash)
+  if (!state) return { ok: false, code: 'docpdf_failed', detail: 'the final version was created but could not be read back' }
+  return { ok: true, final: state, asset_path: main.path, court: null, reused: true }
 }
 
 /** A mellekletjegyzek-cimkehez (K1, Anlage K2 ...) tartozo melleklet azonositoja; csak PDF-forrasnal (annak lehet kereshető masolata). */

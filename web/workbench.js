@@ -10211,7 +10211,7 @@
         if (r.ok && r.data.court) WB.detail.court = r.data.court
       }
       if (r.ok) {
-        WB.docAccept = null; window.showToast(t('workbench.outline.finalized', { label: r.data.final.label }))
+        WB.docAccept = null; window.showToast(t(r.data.reused ? 'workbench.outline.finalized_same' : 'workbench.outline.finalized', { label: r.data.final.label }))
         // #552: the server marked the work item finalized (done) with it; the box and the list follow.
         if (WB.selectedId === id && WB.detail && WB.detail.item) WB.detail.item.status = 'done'
         render()

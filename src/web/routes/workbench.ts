@@ -4122,7 +4122,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       // #552: a successful finalize by the owner also marks the work item finalized (done); a failure returned above.
       try { finalizeWorkItem(item.id, { by: actor(ctx) || 'dashboard' }) } catch { /* the PDF is made; the status is best effort */ }
-      json(res, { ok: true, final: r.final, file: r.asset_path, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id) })
+      json(res, { ok: true, final: r.final, file: r.asset_path, reused: r.reused === true, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id) })
       return true
     }
     // #533: undo / redo on the page. The history is the server's (snapshots of the outline tables), so it
