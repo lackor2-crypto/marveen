@@ -334,8 +334,8 @@ describe('#482 background tasks: a listed task renders (the t() translator is no
     const list = { innerHTML: '' }
     const doc = { getElementById: (id: string) => (id === 'bgTasksList' ? list : id === 'bgShowAll' ? { checked: false } : { value: '' }) }
     const fetchStub = async () => ({ ok: true, json: async () => [{ id: 'bg1', status: 'done', agent_id: 'a1', started_label: 's', prompt: 'p1', output: 'o1' }] })
-    const load = new Function('document', 'fetch', 't', 'esc', 'preserveScrollBegin', body + '\nreturn loadBgTasks')(
-      doc, fetchStub, (k: string) => 'T:' + k, (s: unknown) => String(s), () => () => {},
+    const load = new Function('document', 'fetch', 't', 'esc', 'escapeHtml', 'jsArg', 'preserveScrollBegin', body + '\nreturn loadBgTasks')(
+      doc, fetchStub, (k: string) => 'T:' + k, (s: unknown) => String(s), (s: unknown) => String(s), (s: unknown) => JSON.stringify(String(s)), () => () => {},
     )
     await load()
     expect(list.innerHTML).not.toContain('T:bgTasks.load_error')

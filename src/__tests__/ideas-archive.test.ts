@@ -107,7 +107,7 @@ describe('felulet (#422)', () => {
 
   it('az otlet-kartyan nincs kozvetlen torles, helyette Archival; vegleges torles csak archivaltnal', () => {
     expect(app).not.toMatch(/deleteIdeaItem\(/)
-    expect(app).toMatch(/archiveIdeaItem\('/)
+    expect(app).toMatch(/archiveIdeaItem\(\$\{jsArg\(idea\.id\)\}\)/)
     expect(app).toMatch(/idea\.archived_at \? `[^`]*purgeIdeaItem/)
   })
 
