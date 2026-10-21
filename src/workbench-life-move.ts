@@ -181,7 +181,7 @@ export type LifeMovePlan = { ok: true; folder_rel: string; files: LifeMoveCandid
 interface OwnerInfo { id: string; title: string; status: SentStatus; owned: Set<string>; sentNames: Set<string> }
 
 /** The work items that share the open document's folder (the document itself when it has a folder of its own). */
-function siblingsOf(project: ProjectRow, item: PlanItem): Array<{ id: string; title: string }> {
+export function siblingsOf(project: ProjectRow, item: PlanItem): Array<{ id: string; title: string }> {
   const me = { id: String(item.id ?? ''), title: String(item.title ?? '') }
   const container = String(item.container_folder ?? '').trim()
   if (!container || String(item.folder ?? '').trim()) return me.id ? [me] : []
