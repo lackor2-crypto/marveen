@@ -1,0 +1,123 @@
+// #737 (Boss TG 4102): a court-style document that is finalized, reopened and finalized AGAIN without a change must
+// finalize again; when a PDF step fails, the real error text reaches the screen (the toast), not only the short sentence.
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { readdirSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { initDatabase, getDb } from '../db.js'
+import { createProject, updateProject } from '../projects.js'
+import { createWorkItem } from '../workbench.js'
+import { markPlainItem } from '../workbench-assets.js'
+import { addSection, addBlock } from '../workbench-docmodel.js'
+import { resetLibreOfficeProbe } from '../office-convert.js'
+import { callWorkbench } from './helpers/workbench-route-call.js'
+
+const FAKE_SOFFICE = `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "LibreOffice 7.4.7.2 tesztpeldany"; exit 0; fi
+out=""; prev=""; filter=""
+for a in "$@"; do
+  if [ "$prev" = "--outdir" ]; then out="$a"; fi
+  if [ "$prev" = "--convert-to" ]; then filter="$a"; fi
+  prev="$a"
+done
+case "$filter" in
+  docx*) printf 'PK-docx %s' "$filter" > "$out/doc.docx" ;;
+  *) printf '%%PDF-1.4 %s' "$filter" > "$out/doc.pdf" ;;
+esac
+exit 0
+`
+
+describe('#737 ujra-veglegesites', () => {
+  let depot = ''
+  let itemId = ''
+  const saved: Record<string, string | undefined> = {}
+
+  beforeEach(() => {
+    initDatabase(':memory:')
+    depot = mkdtempSync(join(tmpdir(), 'marveen-refinal-'))
+    for (const k of ['MARVEEN_DEPOT', 'MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE']) saved[k] = process.env[k]
+    process.env['MARVEEN_DEPOT'] = depot
+    process.env['MARVEEN_RENDER_CACHE'] = join(depot, 'render-cache')
+    const fake = join(depot, 'fake-soffice.sh')
+    writeFileSync(fake, FAKE_SOFFICE, 'utf-8')
+    chmodSync(fake, 0o755)
+    process.env['MARVEEN_SOFFICE'] = fake
+    resetLibreOfficeProbe()
+    mkdirSync(join(depot, 'Projektek', 'Iroda'), { recursive: true })
+    const p = createProject({ name: 'Iroda' })
+    if (!p.ok) throw new Error('projekt')
+    updateProject(p.project.id, { folder_path: 'Projektek/Iroda' })
+    const w = createWorkItem({ project_id: p.project.id, title: 'Sozialamt Pflegesituation', type: 'document' })
+    if (!w.ok) throw new Error('munkadarab')
+    itemId = w.item.id
+    const s = addSection(itemId, '1. Tény', { status: 'done' })
+    if (!s.ok) throw new Error('fejezet')
+    addBlock(itemId, s.section.id, { text: 'Sehr geehrte Frau Jäckle,', author: 'owner' })
+    addBlock(itemId, s.section.id, { kind: 'signature', text: 'Chemnitz, 2026.\n\nBakos', author: 'owner' })
+  })
+  afterEach(() => {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+    resetLibreOfficeProbe()
+    rmSync(depot, { recursive: true, force: true })
+  })
+
+  async function review(): Promise<string> {
+    const base = `/api/workbench/items/${itemId}/outline`
+    const o = (await callWorkbench(base, 'GET')).body.outline
+    await callWorkbench(`${base}/pdf?review=${o.content_hash}`, 'GET')
+    return o.content_hash as string
+  }
+
+  it('finalize, reopen, finalize again with no change succeeds', async () => {
+    const base = `/api/workbench/items/${itemId}/outline`
+    const h1 = await review()
+    const f1 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: h1 })
+    expect(f1.status, JSON.stringify(f1.body)).toBe(200)
+    const re = await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })
+    expect(re.status, JSON.stringify(re.body)).toBe(200)
+    const h2 = await review()
+    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: h2 })
+    expect(f2.status, JSON.stringify(f2.body)).toBe(200)
+  })
+
+  /** The case of Boss TG 4102: a plain item (#717) made from a Word file whose file link is gone (the Word import clears it). */
+  function makePlainWithoutFile(container: string): void {
+    markPlainItem(itemId)
+    getDb().prepare('UPDATE work_items SET source_path = NULL, folder = NULL, container_folder = ? WHERE id = ?').run(container, itemId)
+  }
+
+  it('a plain item without a file link finalizes into the Finished materials of the folder it is listed in (no new folder)', async () => {
+    const dir = join(depot, 'Projektek', 'Iroda', 'Munkadarabok', 'Level')
+    mkdirSync(join(dir, 'Elkészített anyagok'), { recursive: true })
+    makePlainWithoutFile('Munkadarabok/Level')
+    const before = readdirSync(join(depot, 'Projektek', 'Iroda', 'Munkadarabok')).sort()
+    const base = `/api/workbench/items/${itemId}/outline`
+    const f = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    expect(f.status, JSON.stringify(f.body)).toBe(200)
+    expect(f.body.file).toMatch(/Munkadarabok\/Level\/Elkészített anyagok\/[^/]+\.pdf$/)
+    expect(existsSync(join(depot, f.body.file))).toBe(true)
+    expect(readdirSync(join(depot, 'Projektek', 'Iroda', 'Munkadarabok')).sort()).toEqual(before)
+    // ... and again after a reopen, nothing changed
+    expect((await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })).status).toBe(200)
+    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    expect(f2.status, JSON.stringify(f2.body)).toBe(200)
+  })
+
+  it('when the folder is really gone the answer says so in a sentence and carries the exact error', async () => {
+    makePlainWithoutFile('Munkadarabok/Nincs')
+    const base = `/api/workbench/items/${itemId}/outline`
+    const f = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review() })
+    expect(f.status).toBe(409)
+    expect(f.body.error).toBe('docpdf_folder_unreachable')
+    expect(f.body.message).toContain('mappája nem érhető el')
+    expect(f.body.detail).toContain('unreachable')
+  })
+
+  it('the screen shows the exact error: the finalize toasts use the text with the detail', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
+    expect(js).toMatch(/text: why && message\.indexOf\(why\) < 0/)
+    expect((js.match(/window\.showToast\(r\.text \|\| r\.message\)/g) || []).length).toBeGreaterThanOrEqual(5)
+    for (const f of ['hu', 'en']) expect(readFileSync(join(__dirname, '..', '..', 'web', 'lang', f + '.js'), 'utf-8')).toContain('"workbench.err.detail"')
+  })
+})

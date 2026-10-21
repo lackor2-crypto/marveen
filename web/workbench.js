@@ -357,7 +357,12 @@
         if (!res.ok) {
           // A test HIBANAL is kell: a szerver ott adja a reszleteket (a VALODI
           // hibauzenetet), es azt meg kell tudnunk mutatni.
-          return { ok: false, status: res.status, code: data && data.error, data: data, message: (data && data.message) || t('workbench.err.http', { status: res.status }) }
+          var message = (data && data.message) || t('workbench.err.http', { status: res.status })
+          // #737 (Boss TG 4102): `text` is what a toast shows -- the sentence AND the real error the server measured
+          // ("a reszletek alatt" must be on the screen, not only in the response nobody sees).
+          var why = data && typeof data.detail === 'string' ? data.detail.trim() : ''
+          return { ok: false, status: res.status, code: data && data.error, data: data, message: message,
+            text: why && message.indexOf(why) < 0 ? message + ' ' + t('workbench.err.detail', { detail: why }) : message }
         }
         return { ok: true, status: res.status, data: data }
       })
@@ -10213,7 +10218,7 @@
         load(WB.projectId)
         return
       }
-      window.showToast(r.message)
+      window.showToast(r.text || r.message)
       render()
     })
   }
@@ -12735,7 +12740,7 @@
     render()
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', { action: 'finalize', pdf: true }).then(function (r) {
       WB.noteFinalBusy = false
-      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (!r.ok) { window.showToast(r.text || r.message); render(); return }
       WB.noteFinal = null
       if (WB.detail && WB.detail.item.id === id) {
         if (r.data && r.data.item) WB.detail.item = r.data.item
@@ -12766,7 +12771,7 @@
     render()
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', { action: 'finalize', pdf: true }).then(function (r) {
       WB.noteFinalBusy = false
-      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (!r.ok) { window.showToast(r.text || r.message); render(); return }
       WB.noteFinal = null
       if (WB.detail && WB.detail.item.id === id) {
         if (r.data && r.data.item) WB.detail.item = r.data.item
@@ -12799,7 +12804,7 @@
     step = !lang ? post(null) : post({ lang: lang })
     step.then(function (r) {
       WB.noteFinalBusy = false
-      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (!r.ok) { window.showToast(r.text || r.message); render(); return }
       WB.noteFinal = null
       if (WB.detail && WB.detail.item.id === id) {
         if (r.data && r.data.item) WB.detail.item = r.data.item
@@ -12864,7 +12869,7 @@
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', body).then(function (r) {
       WB.approvalBusy = false
       if (!WB.detail || WB.detail.item.id !== id) return
-      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (!r.ok) { window.showToast(r.text || r.message); render(); return }
       if (r.data && r.data.item) WB.detail.item = r.data.item
       WB.detail.approval = (r.data && r.data.approval) || null
       if (r.data && r.data.versions) WB.detail.versions = r.data.versions

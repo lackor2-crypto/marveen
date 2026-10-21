@@ -372,7 +372,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   }
   const files: FinalFile[] = []
   const main = save(finalFileName(fresh, docLangFor(fresh, input.lang), listFinals(fresh.id).length + 1), bundle ?? r.pdf, bundle ? 'bundle' : 'main')
-  if (typeof main === 'string') return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + main }
+  if (typeof main === 'string') return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + main, ...(main === 'unreachable' ? { convert: 'folder_unreachable' } : {}) }
   files.push({ ...main, role: bundle ? 'bundle' : 'main' })
   if (!bundle) {
     for (const a of annexes) {

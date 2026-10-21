@@ -1687,6 +1687,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A PDF-ek egyesítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható.',
     en: 'Joining the PDFs failed. The exact error is in the details.',
   },
+  docpdf_folder_unreachable: {
+    hu: 'A PDF elkészült, de a munkadarab mappája nem érhető el (törölték vagy áthelyezték?), ezért nem tudtam elmenteni, és a munkadarab nincs véglegesítve. Nézd meg a Raktárban, hogy megvan-e a mappa, és próbáld újra.',
+    en: 'The PDF was made, but the work item folder cannot be reached (deleted or moved?), so it could not be saved and the work item is not finalized. Check in the Depot that the folder is there, then try again.',
+  },
   docpdf_failed: {
     hu: 'A PDF elkészítése nem sikerült. A pontos hibaüzenet a részleteknél olvasható, okot nem találgatok helyette.',
     en: 'Making the PDF failed. The exact error is in the details; no cause is guessed in its place.',
@@ -2240,6 +2244,7 @@ function outlineOrEmpty(itemId: string): NonNullable<ReturnType<typeof outlineOu
 /** Egy PDF-keszitesi hiba kodja a felhasznalonak (a LibreOffice-hiany kulon mondat). */
 function docPdfCode(code: string): string {
   if (/^(annex_missing|annex_unsupported|annex_convert_failed|merge_not_installed|merge_failed)$/.test(code)) return 'docpdf_' + code
+  if (code === 'folder_unreachable') return 'docpdf_folder_unreachable'
   return code === 'not_installed' ? 'docpdf_not_installed'
     : code === 'check_failed' ? 'docpdf_check_failed'
     : code === 'timeout' ? 'docpdf_timeout' : 'docpdf_failed'
@@ -2248,7 +2253,7 @@ function docPdfCode(code: string): string {
 function docPdfStatus(code: string): number {
   return code === 'docpdf_not_installed' || code === 'docpdf_check_failed' || code === 'docpdf_merge_not_installed' ? 501
     : code === 'docpdf_timeout' ? 504
-    : code === 'docpdf_annex_missing' || code === 'docpdf_annex_unsupported' ? 409 : 500
+    : code === 'docpdf_annex_missing' || code === 'docpdf_annex_unsupported' || code === 'docpdf_folder_unreachable' ? 409 : 500
 }
 
 /** PDF-keszitesi hiba valasza: emberi mondat (a melleklet jelevel, ha arrol szol) + a valodi hibauzenet. */

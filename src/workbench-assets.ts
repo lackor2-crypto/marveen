@@ -1616,6 +1616,16 @@ export function plainItemFolder(project: ProjectRow, item: WorkItemRow): string 
   return t.ok ? dir : null
 }
 
+/**
+ * #737 (Boss TG 4102): a plain item whose file link is gone (a Word file read into the document model clears it) still
+ * sits in the folder it is listed in. That folder is used as it is when it exists -- nothing is made, so #721 holds.
+ * Null: the item is listed at the project root or its folder is gone.
+ */
+export function plainContainerFolder(project: ProjectRow, item: Pick<WorkItemRow, 'container_folder'>): string | null {
+  const c = String(item.container_folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  return c && c !== PROJECT_ROOT_PLACE && projectFileTarget(project, c).ok ? c : null
+}
+
 export function ensureWorkItemFolder(item: WorkItemRow, opts?: { remake?: boolean }): FolderOutcome {
   const r = ensureWorkItemFolderCore(item, opts)
   // #721: a plain item never gets standard subfolders made around its file; each one is made on demand by its first file.
@@ -1641,7 +1651,7 @@ function ensureWorkItemFolderCore(item: WorkItemRow, opts?: { remake?: boolean }
   // own and NEVER gets one made -- not by finalizing, uploading or anything else. It works in the folder its file lies
   // in: the finished PDF goes into that folder's existing "Elkeszitett anyagok", made there on demand.
   if (!known && isPlainItem(item.id)) {
-    const dir = plainItemFolder(project, item)
+    const dir = plainItemFolder(project, item) ?? plainContainerFolder(project, item)
     return dir === null ? { ok: false, code: 'unreachable' } : { ok: true, folder: dir, created: false, plain: true }
   }
   if (known) {
