@@ -172,6 +172,15 @@ describe('amit a felhasznalo lat', () => {
     expect(row.title).toMatch(/Piper/)
   })
 
+  it('hatter-eltavolitas (#669): helyi, kulcs nelkul; telepitesi allapotot mer', async () => {
+    const rows = await describeAllCapabilities('hu', true)
+    const row = rows.find((r) => r.key === 'bg_remove')!
+    expect(row.tier).toBe('extra')
+    expect(['ok', 'not_configured']).toContain(row.state)
+    expect(row.setting).toBe(null)
+    expect(row.testable).toBe(false)
+  })
+
   it('AI-kepszerkesztes (#441, K-2.11): kulcs nelkul csendes "nincs beallitva", a kulcs erteke sosem megy ki', async () => {
     const rows = await describeAllCapabilities('hu', true)
     const row = rows.find((r) => r.key === 'image_gen')!

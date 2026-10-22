@@ -371,6 +371,30 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
       return { state: 'ok', detail: 'local Piper voice installed', version: model, path: voice.voiceOnnxPath(model) }
     },
   },
+  {
+    key: 'bg_remove',
+    tier: 'extra',
+    title: { hu: 'Háttér eltávolítása videóból (helyi, rembg)', en: 'Video background removal (local, rembg)' },
+    what_for: {
+      hu: 'A videó szereplőjének kivágása és a háttér cseréje egyszínűre vagy elmosottra. A számítás a saját gépeden fut, a videó nem megy ki sehová.',
+      en: 'Cutting the subject out of a video and replacing the background with a flat colour or a blurred copy. It runs on your own computer; the video never leaves it.',
+    },
+    affects: {
+      hu: 'A Munkapad minden más része működik. Csak a videó „Háttér eltávolítása” része nem készít új felvételt.',
+      en: 'Every other part of the Workbench works. Only the video "Remove background" section cannot make a new clip.',
+    },
+    how_to: {
+      hu: ['A kivágó eszköz a Marveen hang-eszköztárával együtt települ, külön kulcs nem kell.', 'Ha itt hiányzik, kattints az ágens hang-beállításainál a „Telepítés” gombra (ugyanaz a gomb telepíti), vagy futtasd újra a Marveen telepítőjét.'],
+      en: ['The cut-out tool is installed together with the Marveen voice toolkit; no key is needed.', 'If it is missing here, press "Install" in the agent voice settings (the same button installs it), or run the Marveen installer again.'],
+    },
+    obtain_url: null,
+    testable: false,
+    async measure() {
+      const voice = await import('./web/routes/voice.js')
+      if (!voice.isCutoutInstalled()) return { state: 'not_configured', detail: null, version: null, path: null }
+      return { state: 'ok', detail: 'local rembg + u2netp installed', version: 'u2netp', path: voice.cutoutModelsDir() }
+    },
+  },
 ]
 
 export function getCapability(key: string): CapabilityDescriptor | undefined {

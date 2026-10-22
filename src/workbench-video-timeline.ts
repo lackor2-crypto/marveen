@@ -438,6 +438,17 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         applied.push({ op: name, id: c.id, note: `now ${s.start}s to ${s.end}s of the source` })
         break
       }
+      case 'replaceClipSource': {
+        // A processed copy of the clip's stretch (e.g. with the background removed) takes the clip's place: it starts at 0 and is as long as the stretch was.
+        const c = find(doc.clips, op.id, 'clip')
+        if (isFail(c)) return c
+        if (!isMediaPath(op.src) || !VIDEO_EXT.test(op.src)) return fail('timeline_bad_media', 'a clip needs a video file inside the project')
+        const s = span(0, op.end, 'clip')
+        if (!s.ok) return s
+        c.src = op.src.trim(); c.start = s.start; c.end = s.end
+        applied.push({ op: name, id: c.id, note: `now plays ${c.src} (${s.end}s)` })
+        break
+      }
       case 'moveClip': {
         const idx = doc.clips.findIndex((x) => x.id === op.id)
         if (idx < 0) return fail('timeline_not_found', `no clip with id ${String(op.id)}`)
