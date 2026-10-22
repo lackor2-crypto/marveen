@@ -180,16 +180,14 @@ describe('jovahagyas munkadarabra: a felulet', () => {
   const posts = (h: ReturnType<typeof workbenchHarness>) =>
     h.fetchCalls.filter((c) => c.url.includes('/approval') && c.init?.method === 'POST').map((c) => JSON.parse(String(c.init!.body)))
 
-  it('munkaban levo darab: magyarazat + bekuldes gomb; a gomb bekuldi', async () => {
+  it('munkaban levo darab: nincs "jovahagyasra kuldom" (#756, 1B), a Veglegesites marad', async () => {
     const h = workbenchHarness()
     open(h, 'draft', null)
-    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="approval-submit"'))
-    expect(h.html()).toContain('workbench.approval.intro')
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-act="item-finalize"'))
+    expect(h.html()).not.toContain('data-wb-act="approval-submit"')
+    expect(h.html()).not.toContain('workbench.approval.intro')
     expect(untranslatedHungarian(h.html(), ['Kovács weboldal', 'Ajánlat'])).toBe('')
-    h.click({ 'data-wb-act': 'approval-submit' })
-    await vi.waitFor(() => expect(h.toasts).toContain('⟦workbench.approval.toast.submit⟧'))
-    expect(posts(h)).toEqual([{ action: 'submit' }])
-    expect(h.html()).toContain('data-wb-act="approval-approve"')
+    expect(posts(h)).toEqual([])
   })
 
   it('jovahagyasra var: elfogad / visszadob / visszavon; az indoklas megy a keressel', async () => {

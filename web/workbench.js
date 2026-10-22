@@ -11187,20 +11187,22 @@
     return out
   }
 
-  function contextPanelHtml() {
+  /** #756 (Boss TG 4338): `inFrame` = drawn under the Simple view's frame, which already shows the project and work item
+   *  names (tree head, top bar) and the materials (Uploads tab): those are left out here, the rest stays. */
+  function contextPanelHtml(inFrame) {
     var rows = []
     rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.project')) + '</h3>'
-      + '<p>' + esc(WB.project ? WB.project.name : '-') + (WB.project && WB.project.sensitive ? ' <span class="wb-lock">🔒</span>' : '') + '</p>'
+      + (inFrame ? '' : '<p>' + esc(WB.project ? WB.project.name : '-') + (WB.project && WB.project.sensitive ? ' <span class="wb-lock">🔒</span>' : '') + '</p>')
       + (WB.project ? projectPrivacyHtml() : '') + '</div>')
     if (WB.detail) {
       var it = WB.detail.item
+      var renameBtn = archived() ? '' : '<button type="button" class="wb-linklike" data-wb-act="item-rename">' + esc(t('workbench.rename.button')) + '</button>'
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.work_item')) + '</h3>'
-        + '<p>' + workSeqHtml(it) + esc(it.title) + (archived() ? '' : ' <button type="button" class="wb-linklike" data-wb-act="item-rename">'
-          + esc(t('workbench.rename.button')) + '</button>') + '</p>'
+        + (inFrame ? (renameBtn ? '<p>' + renameBtn + '</p>' : '') : '<p>' + workSeqHtml(it) + esc(it.title) + (renameBtn ? ' ' + renameBtn : '') + '</p>')
         + '<p class="wb-muted">' + esc(t('workbench.context.created', { when: when(it.created_at) })) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.updated', { when: when(it.updated_at) })) + '</p>'
         + itemPrivacyHtml() + '</div>')
-      rows.push(assetsBlockHtml())
+      if (!inFrame) rows.push(assetsBlockHtml())
       if (!archived()) rows.push(sharedBlockHtml(WB.detail.assets || []))
       var versions = WB.detail.versions || []
       var ro = archived() || WB.versionBusy
@@ -12869,12 +12871,15 @@
         out += '<p class="wb-approval-rejected-note"><strong>' + esc(t('workbench.approval.rejected')) + '</strong>'
           + (a.reason ? ' ' + esc(a.reason) : '') + '</p>'
       }
-      out += '<p class="wb-hint">' + esc(t('workbench.approval.intro')) + '</p>'
-        + '<button type="button" class="btn-primary" data-wb-act="approval-submit"' + busy + '>' + esc(t('workbench.approval.submit')) + '</button>'
-        // #552: the owner's own "Finalize" for every kind (a document has its own finalize with the checks and the PDF,
-        // which also marks it finalized when it succeeds).
-        + (it.type === 'document' && !it.source_path ? '' : ' <button type="button" class="btn-secondary btn-compact" data-wb-act="item-finalize"'
-          + busy + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>')
+      // #756 (Boss TG 4370, 1B): "Done, send for approval" is gone; Finalize is the way to close a work item.
+      // #552: the owner's own "Finalize" for every kind (a document has its own finalize with the checks and the PDF,
+      // which also marks it finalized when it succeeds).
+      if (it.type === 'document' && !it.source_path) {
+        if (it.status !== 'review' && !(a && a.status === 'rejected')) return ''
+      } else {
+        out += '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-finalize"'
+          + busy + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
+      }
     }
     return out + '</div>'
   }
@@ -16536,14 +16541,16 @@
         + simpleItemPartsHtml(it)
         + deadlinesBoxHtml()
         + todosBoxHtml()
-        + approvalBoxHtml()
+        // #756: Finalize and the finalized state sit in the frame's top bar; only a request still pending is decided here
+        + (it.status === 'review' ? approvalBoxHtml() : '')
         + '</div>'
       : ''
     var grp = function (key, body) {
       return body ? '<section class="wb-sh-tech-grp"><h3 class="wb-sh-tech-h">' + esc(t(key)) + '</h3>' + body + '</section>' : ''
     }
     var tools = '<div class="wb-head wb-sh-tech-actions">'
-      + ['search', 'wk', 'tl', 'dec', 'pd', 'brand', 'td', 'ho', 'caps'].map(function (k) {
+      // #756: no "pd" (Documents): it stands in the frame's top bar and in the Simple head already
+      + ['search', 'wk', 'tl', 'dec', 'brand', 'td', 'ho', 'caps'].map(function (k) {
         var open = { search: WB.searchOpen, wk: WB.wkOpen, tl: WB.tlOpen, dec: WB.decOpen, pd: WB.pdOpen, brand: WB.brandOpen, td: WB.tdOpen, ho: WB.hoOpen, caps: WB.capsOpen }[k]
         return '<button type="button" class="btn-secondary" data-wb-act="' + k + '-open" aria-pressed="' + !!open + '">' + esc(t('workbench.' + k + '.open')) + '</button>'
       }).join('')
@@ -16556,7 +16563,9 @@
       + '<h2 class="wb-panel-title">' + esc(t('workbench.sh.tech')) + '</h2>'
       + grp('workbench.sh.tech_tools', tools)
       + grp('workbench.sh.tech_item', itemTech)
-      + grp('workbench.sh.tech_project', overviewHtml() + '<div class="wb-grid wb-grid-aside">' + itemsPanelHtml() + contextPanelHtml() + '</div>')
+      // #756: the folder tree stands above (the frame's Projects tab, or the start view's left column), so it is not drawn
+      // twice here.
+      + grp('workbench.sh.tech_project', overviewHtml() + contextPanelHtml(true))
       + '</section>'
   }
 
@@ -19444,7 +19453,9 @@
   function simpleHtml() {
     var hasItem = !!WB.selectedId
     if (hasItem) return frameHtml() + (WB.shMore ? simpleTechHtml() : '')
-    return simpleHeadHtml() + projectDocsPanelHtml() + '<div class="wb-sh-start' + (WB.frChat ? ' wb-sh-start-chat' : '') + '">'
+    // #756 (Boss TG 4376): with no work item open the folder tree is on top too, in a left column like the frame's Projects tab.
+    return simpleHeadHtml() + projectDocsPanelHtml() + '<div class="wb-sh-start wb-sh-start-tree' + (WB.frChat ? ' wb-sh-start-chat' : '') + '">'
+      + '<aside class="wb-fr-panel wb-sh-tree" aria-label="' + escA(t('workbench.fr.tab.projects')) + '">' + itemsPanelHtml(true) + '</aside>'
       + '<div class="wb-sh-main">' + (WB.dbOpen ? dbPanelHtml() : simpleIntakeHtml() + simpleRecentHtml()) + '</div>' + frChatHtml() + '</div>'
       + (WB.shMore ? simpleTechHtml() : '')
   }
@@ -20474,7 +20485,6 @@
     else if (a === 'docx-mail-open') { WB.docxMailFor = WB.docxMailFor === (WB.detail && WB.detail.item.id) ? null : (WB.detail && WB.detail.item.id); render() }
     else if (a === 'docx-mail-close') { WB.docxMailFor = null; render() }
     else if (a === 'item-reopen') approvalAction('reopen')
-    else if (a === 'approval-submit') approvalAction('submit')
     else if (a === 'approval-withdraw') approvalAction('withdraw')
     else if (a === 'approval-approve') approvalAction('approve')
     else if (a === 'approval-reject') approvalAction('reject')

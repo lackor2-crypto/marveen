@@ -69,7 +69,9 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     for (const a of ['search-open', 'wk-open', 'tl-open', 'dec-open', 'brand-open', 'td-open', 'ho-open', 'caps-open']) {
       expect(html).not.toContain('data-wb-act="' + a + '"')
     }
-    expect(html).not.toContain('wb-panel-items')
+    // #756 (Boss TG 4376): the folder tree is on top, in a left column, not behind the ⋮
+    expect(html).toContain('<aside class="wb-fr-panel wb-sh-tree"')
+    expect(html.indexOf('wb-panel-items')).toBeLessThan(html.indexOf('workbench.sh.ask'))
     expect(html).toContain('data-wb-act="sh-more"')
   })
 
@@ -82,10 +84,12 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     for (const a of ['search-open', 'wk-open', 'tl-open', 'dec-open', 'brand-open', 'td-open', 'ho-open', 'caps-open']) {
       expect(html).toContain('data-wb-act="' + a + '"')
     }
-    expect(html).toContain('wb-panel-items')
+    // #756: the tree is drawn once, above (not repeated in the technical details)
+    expect(html.split('wb-panel-items').length - 1).toBe(1)
+    expect(html.indexOf('wb-panel-items')).toBeLessThan(html.indexOf('wbShTech'))
     expect(html).toContain('wb-panel-context')
-    // Tools and search sit at the top of the technical details, above the project lists (Boss, TG 2397).
-    expect(html.indexOf('data-wb-act="search-open"')).toBeLessThan(html.indexOf('wb-panel-items'))
+    // Tools and search sit at the top of the technical details, above the project part (Boss, TG 2397).
+    expect(html.indexOf('data-wb-act="search-open"')).toBeLessThan(html.indexOf('wb-panel-context'))
     h.click({ 'data-wb-act': 'sh-more' })
     expect(h.html()).not.toContain('wbShTech')
   })

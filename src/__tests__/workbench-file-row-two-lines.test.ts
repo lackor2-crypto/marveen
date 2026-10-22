@@ -28,8 +28,10 @@ describe('file row in two lines (#755)', () => {
 })
 
 describe('Technical details grid (#755)', () => {
-  it('draws tree + Context without the width handle', () => {
-    expect(js).toMatch(/'<div class="wb-grid wb-grid-aside">' \+ itemsPanelHtml\(\) \+ contextPanelHtml\(\) \+ '<\/div>'/)
+  it('draws only the Context, no tree beside it (#756: the tree stands above), so there is no grid column to fall into', () => {
+    const tech = js.slice(js.indexOf('  function simpleTechHtml('), js.indexOf('\n  function ', js.indexOf('  function simpleTechHtml(') + 10))
+    expect(tech).toContain('overviewHtml() + contextPanelHtml(true)')
+    expect(tech).not.toContain('wb-grid-aside')
   })
   it('so it has its own two-column grid', () => {
     expect(css).toMatch(/\.wb-sh-tech \.wb-grid-aside \{ grid-template-columns: minmax\(0, 1fr\) minmax\(200px, 1fr\);/)

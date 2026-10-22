@@ -6146,8 +6146,6 @@ window._i18n.en = {
   "workbench.caps.title": "What works on this machine?",
   "workbench.caps.intro": "This is what the Workbench can do on this machine. Anything missing is not an error: the Workbench works without it, and every row says what it affects and how to get it.",
   "workbench.caps.close": "Close",
-  "workbench.approval.intro": "When you are finished, send it for approval: the owner approves it or sends it back with one button. The request also appears on the Approvals page.",
-  "workbench.approval.submit": "Finished, send for approval",
   "workbench.approval.pending": "Waiting for approval.",
   "workbench.approval.since": "sent: {when}",
   "workbench.approval.reason_placeholder": "Note (when sending back, say what to fix)",
