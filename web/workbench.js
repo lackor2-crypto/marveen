@@ -13267,7 +13267,8 @@
     render()
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/research-doc?id=' + encodeURIComponent(rid)).then(function (r) {
       if (!WB.rs || WB.rs.itemId !== id || !WB.rs.doc || WB.rs.doc.id !== rid) return
-      WB.rs.doc = r.ok ? { id: rid, title: r.data.title, text: r.data.text, more: r.data.more } : { id: rid, error: r.message }
+      // The `project: <id>` marker line is bookkeeping for the Research page, not something to read.
+      WB.rs.doc = r.ok ? { id: rid, title: r.data.title, text: String(r.data.text || '').replace(/^project:[ \t]*\S+[ \t]*\n?/m, ''), more: r.data.more } : { id: rid, error: r.message }
       render()
     })
   }
@@ -13310,7 +13311,8 @@
         ? rsGroupHtml('item', d.item, true) + rsGroupHtml('folder', d.folder, false) + rsGroupHtml('others', d.others, false)
         : '<p class="wb-hint">' + esc(t('workbench.rs.empty')) + '</p>'
     }
-    return '<div class="wb-panel wb-rs-panel" id="wbRsPanel">'
+    // wb-caps-panel, not wb-panel: on a phone every .wb-panel that is not the current tab is hidden (like the Documents panel).
+    return '<div class="wb-caps-panel wb-rs-panel" id="wbRsPanel">'
       + '<div class="wb-pd-head"><h2>🔎 ' + esc(t('workbench.rs.title', { item: it.title })) + '</h2>'
       + '<button type="button" class="wb-linklike" data-wb-act="rs-close">' + esc(t('common.close')) + '</button></div>'
       + '<p class="wb-hint">' + esc(t('workbench.rs.hint')) + '</p>'

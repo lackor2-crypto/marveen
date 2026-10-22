@@ -2321,3 +2321,4 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-rs-row { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .wb-rs-title { font-weight: 600; text-align: left; }
 .wb-rs-doc { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; max-height: 50vh; overflow: auto; }
+.wb-rs-doc ul, .wb-rs-doc ol { padding-left: 1.4em; }
