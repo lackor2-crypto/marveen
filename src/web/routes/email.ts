@@ -12,6 +12,7 @@ import { prepareLifeAttachments, EMAIL_ATTACH_LIMIT } from '../../life-send.js'
 import { readAttachmentFlags, saveAttachmentFlags } from '../email-attachment-flag-store.js'
 import type { CacheEntry } from '../email-list-cache.js'
 import { logger } from '../../logger.js'
+import { saveDraftToFolder } from '../email-draft-save.js'
 import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect, checkImapAccountConfig, declareSniffedHtmlCharset, resolveSpecialMailboxes } from '../email-imap.js'
 import type { MailboxRole } from '../email-imap.js'
 import { buildHimalayaSearchArgs, normalizeEmailSearchQuery } from '../email-search.js'
@@ -194,23 +195,17 @@ registerRecoveryMailPort({
 // The workbench's document e-mail draft goes into the Drafts folder of the account chosen as the sender: --save to Drafts and no
 // --send, so nothing leaves the machine.
 registerMailboxDraftPort({
-  save: async (accountId, m) => {
-    if (!isKnownAccount(accountId)) return { ok: false, detail: 'unknown account' }
-    let drafts: string
-    try { drafts = await mailboxFor(accountId, 'drafts') } catch (e) { return { ok: false, detail: e instanceof Error ? e.message : String(e) } }
-    const args = ['-a', accountId, 'message', 'compose', '--from', accountEmail(accountId)]
-    if (m.to) args.push('-t', m.to)
-    if (m.cc) args.push('--cc', m.cc)
-    if (m.subject) args.push('-s', m.subject)
-    args.push('--body', m.body.trim() ? m.body : '\n', '--save', drafts)
-    for (const f of m.files) args.push('--attach', f)
-    // #725 (Boss TG 4003: the first press did not put the draft in, the second did): the known transient IMAP error
-    // ("Resource temporarily unavailable") is retried here like in the reads, instead of failing the owner's one press.
-    const r = await himalayaRead(args)
-    if (!r.ok) return { ok: false, detail: himalayaErrorText(r) }
-    invalidateEnvelopeCache(accountId, drafts)
-    return { ok: true, mailbox: drafts }
-  },
+  // #725/#726 (Boss TG 4003: the first press did not put the draft in, the second did): the folder lookup and the compose call
+  // both retry the transient failure -- see email-draft-save.ts.
+  save: (accountId, m) => saveDraftToFolder({
+    isKnownAccount,
+    accountEmail,
+    resolveFolders: (id) => resolveSpecialMailboxes(id),
+    fallbackFolder: FALLBACK_MAILBOX.drafts,
+    compose: async (args) => { const r = await himalayaRead(args); return { ok: r.ok, text: r.ok ? '' : himalayaErrorText(r) } },
+    onSaved: (id, folder) => invalidateEnvelopeCache(id, folder),
+    warn: (t) => logger.warn(t),
+  }, accountId, m),
 })
 
 // #741: the workbench asks the Sent mailbox whether a document's PDF went out (attachment names, newest messages only).
