@@ -105,6 +105,9 @@ let transcriber: Transcriber = defaultTranscriber
 /** Tests only. */
 export function _setAutoSubDeps(d: { transcribe?: Transcriber } = {}): void { transcriber = d.transcribe || defaultTranscriber }
 
+/** The local recogniser on one prepared wav (16 kHz mono); the same one the automatic subtitles use. */
+export function transcribeWav(wav: string, lang: AutoSubLang, timeoutMs: number = AUTOSUB_TIMEOUT_MS): ReturnType<Transcriber> { return transcriber(wav, lang, timeoutMs) }
+
 export type AutoSubResult =
   | { ok: true; lines: SubLine[]; skipped: string[] }
   | AutoSubFail

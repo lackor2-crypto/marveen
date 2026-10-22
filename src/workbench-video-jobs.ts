@@ -75,6 +75,7 @@ export function createJobStore(): JobStore {
 
 const renderStore = createJobStore()
 export const cutoutStore = createJobStore()
+export const highlightStore = createJobStore()
 
 export function getRenderJob(itemId: string): RenderJob | null { return renderStore.get(itemId) }
 export function startRenderJob<R>(itemId: string, run: (progress: (fraction: number) => void) => Promise<R>): RenderJob<R> | null { return renderStore.start(itemId, run) }
@@ -83,4 +84,5 @@ export function startRenderJob<R>(itemId: string, run: (progress: (fraction: num
 export function _clearRenderJobs(): void {
   renderStore.clear()
   cutoutStore.clear()
+  highlightStore.clear()
 }
