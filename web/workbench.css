@@ -2304,3 +2304,12 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
    the three-column grid of .wb-grid-aside the Context fell into the 10px handle column and wrote one letter per line. */
 .wb-sh-tech .wb-grid-aside { grid-template-columns: minmax(0, 1fr) minmax(200px, 1fr); gap: 0 12px; }
 @media (max-width: 900px) { .wb-sh-tech .wb-grid-aside { grid-template-columns: minmax(0, 1fr); } }
+/* #756 (Boss TG 4376): the Simple start view (no work item open) has its folder tree on top too, in a left column like
+   the frame's Projects tab; the Technical details no longer repeat it. */
+.wb-sh-start-tree { display: flex; gap: 16px; align-items: flex-start; }
+.wb-sh-start-tree > .wb-sh-tree { border: 1px solid var(--border); border-radius: 8px; max-height: 80vh; height: auto; }
+.wb-sh-start-tree > .wb-sh-main { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 900px) {
+  .wb-sh-start-tree { display: block; }
+  .wb-sh-start-tree > .wb-sh-tree { max-height: 50vh; margin-bottom: 12px; }
+}

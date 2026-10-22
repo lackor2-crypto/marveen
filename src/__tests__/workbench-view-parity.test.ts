@@ -43,13 +43,15 @@ describe('Simple view knows what the Manual view knows (#531)', () => {
     const missing = manualHeadActs()
       .filter((a) => a.endsWith('-open'))
       .map((a) => a.replace(/-open$/, ''))
-      // "pd" sits in the Simple head and in the frame top; the "caps" button is part of the same array.
-      .filter((k) => !simpleOpen.has(k))
+      // "pd" sits in the Simple head and in the frame top (#756: not repeated in the technical details); the "caps"
+      // button is part of the same array.
+      .filter((k) => k !== 'pd' && !simpleOpen.has(k))
     expect(missing).toEqual([])
   })
 
   it('every panel the Manual view draws is drawn by the Simple technical details as well', () => {
-    const missing = manualPanels().filter((p) => !tech.includes(`${p}()`) && !fn('simpleHtml').includes(`${p}()`))
+    // #756: the folder tree of an open work item is the frame's Projects tab (itemsPanelHtml(true)), not repeated below
+    const missing = manualPanels().filter((p) => !tech.includes(`${p}(`) && !fn('simpleHtml').includes(`${p}()`))
     expect(missing).toEqual([])
   })
 

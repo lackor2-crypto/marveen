@@ -6220,8 +6220,6 @@ window._i18n.hu = {
   "workbench.caps.title": "Mi működik ezen a gépen?",
   "workbench.caps.intro": "Itt látod, mire képes a Munkapad ezen a gépen. Ami hiányzik, az nem hiba: a Munkapad enélkül is működik, és minden sor megmondja, mire hat, és hogyan szerezheted be.",
   "workbench.caps.close": "Bezárás",
-  "workbench.approval.intro": "Ha elkészültél, küldd jóváhagyásra: a tulajdonos egy gombbal elfogadja vagy visszadobja. A kérés a Jóváhagyások oldalon is megjelenik.",
-  "workbench.approval.submit": "Kész, jóváhagyásra küldöm",
   "workbench.approval.pending": "Jóváhagyásra vár.",
   "workbench.approval.since": "beküldve: {when}",
   "workbench.approval.reason_placeholder": "Megjegyzés (visszadobásnál írd meg, mit javítsunk)",
