@@ -8268,6 +8268,7 @@ window._i18n.en = {
   "workbench.outline.final_current": "Final: {label} (v{n}).",
   "workbench.outline.final_stale": "The document changed after it was finalized ({label}, v{n}), so it is no longer final. Review it and finalize it again.",
   "workbench.outline.final_open": "open",
+  "workbench.outline.final_annexes_hint": "The annexes stay in Attachments; no copy of them is made. When sent, each goes into the package with its cover page.",
   "workbench.outline.finalize_title": "Finalize",
   "workbench.outline.finalize_steps": "1. Open the document and review it. 2. Tick that you stand by its content. 3. Make the final PDF: it goes into the work item folder and a version is saved.",
   "workbench.outline.next_login": "This browser is not signed in with a user name and password, so the review and the finalizing cannot count as your own click. Create a user name and password (the \"Set up sign-in\" button on the main page), sign in with it and reload the page.",

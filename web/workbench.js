@@ -649,7 +649,7 @@
     if (WB.items === null || archived()) return ''
     var tu = WB.treeUp
     var head = '<div class="wb-treeup">'
-      + '<label class="btn-secondary wb-treeup-btn" for="wbTreeUpload" title="' + escA(t('workbench.treeup.hint')) + '">⬆ ' + esc(t('workbench.treeup.button')) + '</label>'
+      + '<label class="btn-secondary wb-treeup-btn" for="wbTreeUpload" title="' + escA(t('workbench.treeup.hint')) + '">' + esc(t('workbench.treeup.button')) + '</label>'
       + '<input type="file" id="wbTreeUpload" class="wb-file-input" multiple>'
     if (!tu) return head + '</div>'
     var n = tu.files.length
@@ -9826,12 +9826,15 @@
     // A keszult fajlok: a beadvany (vagy az egyesitett PDF), es kulon mellekleteknel mindegyik.
     var files = !f ? [] : (f.files && f.files.length ? f.files : [{ path: f.pdf_path, name: f.pdf_name, role: 'main' }])
     var finalLine = !f ? '' : '<p class="' + (f.stale ? 'wb-doc-low' : 'wb-ok') + '">'
-      + (f.stale ? '⚠ ' + esc(t('workbench.outline.final_stale', { label: f.label, n: f.version_no }))
-        : '✓ ' + esc(t('workbench.outline.final_current', { label: f.label, n: f.version_no })))
+      + (f.stale ? '⚠ ' + esc(t('workbench.outline.final_stale', { label: f.label, n: f.final_no || f.version_no }))
+        : '✓ ' + esc(t('workbench.outline.final_current', { label: f.label, n: f.final_no || f.version_no })))
       + ' ' + files.map(function (x) {
         return '<a href="/api/life/file?rel=' + escA(encodeURIComponent(x.path || '')) + '" target="_blank" rel="noopener" title="' + escA(x.name || '') + '">'
           + esc(x.role === 'annex' ? (x.label || x.name || '') : t('workbench.outline.final_open')) + '</a>'
-      }).join(' · ') + '</p>'
+      }).join(' · ')
+      // #753: the annexes are not copied by the final; they stay in Attachments and are packed (with a cover) when sent.
+      + (f.annex_labels && f.annex_labels.length ? ' · <span class="wb-muted" title="' + escA(t('workbench.outline.final_annexes_hint')) + '">'
+        + f.annex_labels.map(function (l) { return esc(l) }).join(', ') + '</span>' : '') + '</p>'
     // The draft PDF button is the same PDF as "Megnyitom es atnezem": with the check done, opening it records the review too
     // (an owner who reads the draft PDF no longer has to find a second button -- the tick stayed grey for exactly that).
     var draftReview = !ro && o.check && o.content_hash ? '&review=' + encodeURIComponent(o.content_hash) : ''

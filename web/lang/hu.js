@@ -8342,6 +8342,7 @@ window._i18n.hu = {
   "workbench.outline.final_current": "Végleges: {label} (v{n}).",
   "workbench.outline.final_stale": "A véglegesítés ({label}, v{n}) óta módosult a dokumentum, ezért a végleges állapot megszűnt. Nézd át, és véglegesítsd újra.",
   "workbench.outline.final_open": "megnyitás",
+  "workbench.outline.final_annexes_hint": "A mellékletek a Mellékletek között maradnak, nem készül róluk másolat. Küldéskor címlappal együtt kerülnek a csomagba.",
   "workbench.outline.finalize_title": "Véglegesítés",
   "workbench.outline.finalize_steps": "1. Nyisd meg, és nézd át a dokumentumot. 2. Pipáld be, hogy vállalod a tartalmát. 3. Készítsd el a végleges PDF-et: a munkadarab mappájába kerül, és verzió készül róla.",
   "workbench.outline.next_login": "Ebben a böngészőben nem felhasználónévvel és jelszóval vagy belépve, ezért az átnézést és a véglegesítést nem lehet a saját kattintásodnak venni. Hozz létre felhasználónevet és jelszót (a főoldali „Belépés beállítása” gomb), jelentkezz be vele, és frissítsd az oldalt.",

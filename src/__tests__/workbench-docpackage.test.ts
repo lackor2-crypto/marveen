@@ -1,16 +1,16 @@
 // #441 (v4 spec 1/A, K-1.25): a beadvany es a mellekletei egy PDF-ben vagy kulon
 // fajlokban, mindegyik melleklet elott boritolappal ("K1. melleklet").
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
-import { createWorkItem, getWorkItem } from '../workbench.js'
+import { createWorkItem, createWorkItemVersion, getWorkItem } from '../workbench.js'
 import { addSection, addBlock } from '../workbench-docmodel.js'
 import { addAnnex, annexPdfKind, setDocSettings } from '../workbench-docannex.js'
-import { contentHash } from '../workbench-docfinal.js'
+import { contentHash, finalPackageFiles, listFinals } from '../workbench-docfinal.js'
 import { annexContentPdf, coverText, mergePdfs } from '../workbench-docpackage.js'
 import { buildCoverFodt, buildTextFodt } from '../workbench-docrender.js'
 import { resolveProjectFile } from '../workbench-docmodel-world.js'
@@ -30,6 +30,10 @@ done
 case "$src" in *.fodt) body=$(grep -o 'CoverLabel">[^<]*' "$src" | head -1; grep -o 'Heading_20_1" text:outline-level="1">[^<]*' "$src" | head -1) ;; *) body=$(basename "$src") ;; esac
 printf '%%PDF-1.4 [%s] %s\\n' "$body" "$filter" > "$out/doc.pdf"
 exit 0
+`
+/** Fake pdftotext: the "text" of a fake PDF is its content (args: -q -enc UTF-8 <file> -). */
+const FAKE_PDFTOTEXT = `#!/bin/sh
+cat "$4"
 `
 /** Hamis pdfunite: a bemeneteket egymas utan irja a kimenetbe. */
 const FAKE_PDFUNITE = `#!/bin/sh
@@ -52,10 +56,10 @@ describe('mellekletek a PDF-ben', () => {
     initDatabase(':memory:')
     depot = mkdtempSync(join(tmpdir(), 'marveen-docpkg-'))
     mkdirSync(join(projDir(), 'Iratok'), { recursive: true })
-    for (const k of ['MARVEEN_DEPOT', 'MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE', 'MARVEEN_PDFUNITE']) saved[k] = process.env[k]
+    for (const k of ['MARVEEN_DEPOT', 'MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE', 'MARVEEN_PDFUNITE', 'MARVEEN_PDFTOTEXT']) saved[k] = process.env[k]
     process.env['MARVEEN_DEPOT'] = depot
     process.env['MARVEEN_RENDER_CACHE'] = join(depot, 'render-cache')
-    for (const [name, body, env] of [['soffice.sh', FAKE_SOFFICE, 'MARVEEN_SOFFICE'], ['pdfunite.sh', FAKE_PDFUNITE, 'MARVEEN_PDFUNITE']] as const) {
+    for (const [name, body, env] of [['soffice.sh', FAKE_SOFFICE, 'MARVEEN_SOFFICE'], ['pdfunite.sh', FAKE_PDFUNITE, 'MARVEEN_PDFUNITE'], ['pdftotext.sh', FAKE_PDFTOTEXT, 'MARVEEN_PDFTOTEXT']] as const) {
       const f = join(depot, name)
       writeFileSync(f, body, 'utf-8')
       chmodSync(f, 0o755)
@@ -133,18 +137,35 @@ describe('mellekletek a PDF-ben', () => {
     const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
     expect(fin.status).toBe(200)
     const files = fin.body.final.files as { path: string; name: string; role: string; label?: string }[]
-    expect(files.map((f) => [f.role, f.label ?? null])).toEqual([['main', null], ['annex', 'K1'], ['annex', 'K2']])
-    expect(files[1]!.name).toBe('K1 – Bérleti szerződés.pdf')
+    // #753 (Boss, TG 4240): only the submission is saved; the annexes stay what Attachments lists, nothing is copied anywhere.
+    expect(files.map((f) => [f.role, f.label ?? null])).toEqual([['main', null]])
+    expect(fin.body.final.annex_labels).toEqual(['K1', 'K2'])
     expect(fin.body.final.annex_mode).toBe('separate')
     expect(fin.body.final.pdfa).toBe(true)
     const main = readFileSync(join(depot, files[0]!.path), 'utf-8')
     expect(main).toContain('SelectPdfVersion')
     expect(main).not.toContain('SZERZODES-TARTALOM')
-    // The Attachments folder lists the annexes themselves (links): the finished annex PDFs stand beside the submission.
-    expect(files.some((f) => /\/Mell[ée]kletek\//.test(f.path))).toBe(false)
     expect(files.every((f) => /\/Elk[ée]sz[ií]tett anyagok\//.test(f.path))).toBe(true)
-    const k1 = readFileSync(join(depot, files[1]!.path), 'utf-8')
+    const pdfsUnder = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir, { recursive: true }) as string[] : []).filter((n) => /\.pdf$/i.test(String(n)))
+    const itemDir = join(depot, dirname(dirname(files[0]!.path)))
+    expect(pdfsUnder(join(itemDir, 'Elkészített anyagok'))).toHaveLength(1)
+    expect(pdfsUnder(join(itemDir, 'Mellékletek'))).toEqual([])
+    // The package as it goes out: the annexes are made again, cover before content, under the names they always had.
+    const item = getWorkItem(itemId)
+    if (!item) throw new Error('munkadarab')
+    const pkg = await finalPackageFiles(item, listFinals(itemId)[0]!, 'hu')
+    if (!pkg.ok) throw new Error('csomag ' + pkg.code)
+    expect(pkg.files.map((f) => [f.role, f.label ?? null, f.path ? 'saved' : 'made'])).toEqual([['main', null, 'saved'], ['annex', 'K1', 'made'], ['annex', 'K2', 'made']])
+    expect(pkg.files[1]!.name).toBe('K1 – Bérleti szerződés.pdf')
+    const k1 = pkg.files[1]!.pdf.toString('utf-8')
     expect(k1.indexOf('K1. melléklet')).toBeLessThan(k1.indexOf('SZERZODES-TARTALOM'))
+
+    // The same content finalized again: no new file at all (#738), the annexes still nowhere.
+    const again = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(again.status).toBe(200)
+    expect(again.body.reused).toBe(true)
+    expect(pdfsUnder(join(itemDir, 'Elkészített anyagok'))).toHaveLength(1)
+    expect(again.body.final.annex_labels).toEqual(['K1', 'K2'])
 
     // Kozos mod: a beallitas a tartalmat nem valtoztatja, de a kovetkezo veglegesites egy fajlt ad.
     setDocSettings(itemId, { annex_mode: 'combined' })
@@ -156,6 +177,71 @@ describe('mellekletek a PDF-ben', () => {
     expect(fin2.body.final.pdfa).toBe(false)
     const all = readFileSync(join(depot, fin2.body.final.files[0].path), 'utf-8')
     expect(all.indexOf('1. Tényállás')).toBeLessThan(all.indexOf('K2. melléklet'))
+  })
+
+  it('#753: an older final whose saved annex PDF was moved away -- the annex is made again when sent, no new final', async () => {
+    readyWithAnnexes()
+    const base = `/api/workbench/items/${itemId}/outline`
+    const hash = (await callWorkbench(base, 'GET')).body.outline.content_hash
+    await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')
+    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(fin.status).toBe(200)
+    const main = fin.body.final.files[0] as { path: string; name: string }
+    // The shape a final had before #753: the annex PDFs saved beside the submission. K1 is gone since, K2 is still there.
+    const dir = dirname(main.path)
+    writeFileSync(join(depot, dir, 'K2 – Fénykép a lakásról.pdf'), '%PDF-1.4 K2-MENTETT')
+    const legacy = {
+      ...fin.body.final, annex_labels: undefined,
+      files: [{ ...main, role: 'main' }, { path: `${dir}/K1 – Bérleti szerződés.pdf`, name: 'K1 – Bérleti szerződés.pdf', role: 'annex', label: 'K1' },
+        { path: `${dir}/K2 – Fénykép a lakásról.pdf`, name: 'K2 – Fénykép a lakásról.pdf', role: 'annex', label: 'K2' }],
+    }
+    const v = createWorkItemVersion(itemId, { prompt: legacy.label, created_by: 'teszt', metadata_json: JSON.stringify(legacy) })
+    if (!v.ok) throw new Error('verzio')
+    const item = getWorkItem(itemId)
+    if (!item) throw new Error('munkadarab')
+    const pkg = await finalPackageFiles(item, listFinals(itemId)[0]!, 'hu')
+    if (!pkg.ok) throw new Error('csomag ' + pkg.code + ' ' + pkg.detail)
+    expect(pkg.files.map((f) => f.name)).toEqual([main.name, 'K1 – Bérleti szerződés.pdf', 'K2 – Fénykép a lakásról.pdf'])
+    expect(pkg.files[1]!.pdf.toString('utf-8')).toContain('SZERZODES-TARTALOM')
+    expect(pkg.files[2]!.pdf.toString('utf-8')).toBe('%PDF-1.4 K2-MENTETT')
+    // Finalizing the unchanged document again reuses it: the missing annex copy does not force a new submission PDF.
+    const again = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(again.status).toBe(200)
+    expect(again.body.reused).toBe(true)
+  })
+
+  it('#753 3A: the same text already in the folder as a PDF (e.g. made from the Word file) becomes the final, no new file', async () => {
+    readyWithAnnexes()
+    const base = `/api/workbench/items/${itemId}/outline`
+    const hash = (await callWorkbench(base, 'GET')).body.outline.content_hash
+    await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')
+    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(fin.status).toBe(200)
+    const made = fin.body.final.files[0] as { path: string; name: string }
+    expect(made.name).toMatch(/ – v1\.pdf$/)
+    const itemDir = dirname(dirname(made.path))
+    // The owner's own PDF of the same text sits beside the Word file; the final's own copy is gone (moved away by hand).
+    const own = `${itemDir}/Válaszbeadvány.pdf`
+    writeFileSync(join(depot, own), readFileSync(join(depot, made.path)))
+    rmSync(join(depot, made.path))
+    // A PDF of other text is never taken for it.
+    writeFileSync(join(depot, itemDir, 'Más levél.pdf'), '%PDF-1.4 [MAS-SZOVEG]')
+    const again = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(again.status).toBe(200)
+    expect(again.body.reused).toBe(true)
+    expect(again.body.final.files).toEqual([{ path: own, name: 'Válaszbeadvány.pdf', role: 'main' }])
+    expect(again.body.final.annex_labels).toEqual(['K1', 'K2'])
+    expect(again.body.final.pdfa).toBe(false)
+    const pdfsUnder = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir, { recursive: true }) as string[] : []).filter((n) => /\.pdf$/i.test(String(n)))
+    expect(pdfsUnder(join(depot, itemDir, 'Elkészített anyagok'))).toEqual([])
+    // The package it sends: that PDF + the annexes made again.
+    const item = getWorkItem(itemId)
+    if (!item) throw new Error('munkadarab')
+    const pkg = await finalPackageFiles(item, listFinals(itemId)[0]!, 'hu')
+    if (!pkg.ok) throw new Error('csomag ' + pkg.code)
+    expect(pkg.files.map((f) => f.name)).toEqual(['Válaszbeadvány.pdf', 'K1 – Bérleti szerződés.pdf', 'K2 – Fénykép a lakásról.pdf'])
+    // The "Final (vN)" line counts finalizations like the file name does, not the work item's version rows.
+    expect(listFinals(itemId).map((f) => f.final_no)).toEqual([2, 1])
   })
 
   it('kicserelt mellekletfajl: uj ujjlenyomat, ujra at kell nezni', () => {
