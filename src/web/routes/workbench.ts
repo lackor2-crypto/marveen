@@ -108,12 +108,13 @@ import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbenc
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS } from '../../workbench-video-timeline.js'
 import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
-import { cutoutStore, getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
+import { cutoutStore, highlightStore, getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
 import { makeVoiceover } from '../../workbench-video-tts.js'
 import { cutoutClip } from '../../workbench-video-cutout.js'
+import { findHighlights } from '../../workbench-video-highlights.js'
 import { recogniseTimeline, applySubtitleLines, AUTOSUB_LANGS, type AutoSubLang } from '../../workbench-video-autosub.js'
 import { opsLabel } from '../../workbench-draft-store.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS, TABLE_MAX_BYTES } from '../../workbench-table.js'
@@ -1190,6 +1191,26 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   cutout_no_ffmpeg: {
     hu: 'A háttér-eltávolításhoz a videóprogram (ffmpeg) kell, de nem érhető el.',
     en: 'Background removal needs the video program (ffmpeg), which is not available.',
+  },
+  highlight_bad_target: {
+    hu: 'A cél hossza 15, 30 vagy 60 másodperc lehet.',
+    en: 'The target length can be 15, 30 or 60 seconds.',
+  },
+  highlight_bad_count: {
+    hu: 'Egyszerre 1 és 3 javaslatot kérhetsz.',
+    en: 'You can ask for 1 to 3 proposals at a time.',
+  },
+  highlight_clip_missing: {
+    hu: 'Ez a klip már nincs az idővonalon.',
+    en: 'That clip is no longer on the timeline.',
+  },
+  highlight_clip_short: {
+    hu: 'Ehhez a klip túl rövid: legalább 20 másodperc és a cél hosszának másfélszerese kell. Hosszabb felvételt válassz, vagy rövidebb célt.',
+    en: 'The clip is too short for this: it needs at least 20 seconds and one and a half times the target length. Pick a longer recording or a shorter target.',
+  },
+  highlight_no_audio: {
+    hu: 'Ebben a klipben nincs hang, így nincs mit felismerni.',
+    en: 'This clip has no sound, so there is no speech to recognise.',
   },
   timeline_cutout_done: {
     hu: 'Kész: a klip háttere cserélve. Ha nem tetszik, a Visszavonás visszahozza az eredetit.',
@@ -5832,6 +5853,37 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
           versions: listWorkItemVersionsView(item.id), summary: timelineSummary(applied.doc), duration: timelineDuration(applied.doc), offsets: clipOffsets(applied.doc),
           ...tlState(), message: msg('timeline_cutout_done', lang),
         }
+      })
+      if (!job) return fail(res, 409, 'video_busy', lang)
+      json(res, { job: jobStatus(job) }, 202)
+      return true
+    }
+
+    // #669 phase C: long to short. The speech of one clip is recognised locally and the best stretches are proposed (nothing is changed until the owner keeps one).
+    if (segs.length === 3 && segs[2] === 'highlights-status' && method === 'GET') {
+      const job = highlightStore.get(item.id)
+      json(res, { job: jobStatus(job), ...(job && job.state === 'done' ? { result: job.result } : {}) })
+      return true
+    }
+    if (segs.length === 3 && segs[2] === 'highlights' && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const project = getProject(item.project_id)
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      const body = (await readJson(req)) || {}
+      const cur0 = store.read(item.id)
+      if (!cur0.ok) return failDetail(res, tlStatus(cur0.code), cur0.code, lang, cur0.detail)
+      const o = { clipId: body['clip'], target: body['target'], count: body['count'], language: body['language'] }
+      const hlStatus = (code: string): number => code === 'autosub_not_installed' || code === 'video_no_ffmpeg' || code === 'video_ffmpeg_check_failed' ? 503
+        : code === 'video_busy' || code === 'autosub_old_toolkit' ? 409 : code === 'highlight_clip_missing' ? 404
+        : code === 'autosub_failed' || code === 'autosub_timeout' || code === 'video_failed' || code === 'video_timeout' ? 500 : 400
+      const pre = await findHighlights(project, item.id, cur0.doc, o, undefined, true)
+      if (!pre.ok) return failDetail(res, hlStatus(pre.code), pre.code, lang, ('detail' in pre && pre.detail) || null)
+      const job = highlightStore.start(item.id, async (progress) => {
+        const cur = store.read(item.id)
+        if (!cur.ok) throw { status: tlStatus(cur.code), code: cur.code, detail: cur.detail ?? null }
+        const found = await findHighlights(project, item.id, cur.doc, o, progress)
+        if (!found.ok) throw { status: hlStatus(found.code), code: found.code, detail: ('detail' in found && found.detail) || null }
+        return { ok: true, clip: found.clipId, target: found.target, highlights: found.highlights, heardWords: found.heardWords }
       })
       if (!job) return fail(res, 409, 'video_busy', lang)
       json(res, { job: jobStatus(job) }, 202)

@@ -7745,6 +7745,7 @@
         // A render started before this page was (re)loaded may still be running: show its progress again.
         if (WB.vt && !WB.vtRender) vtRenderResume(itemId)
         if (WB.vt && !WB.vtCut) vtCutResume(itemId)
+        if (WB.vt && !WB.vtHl) vtHlResume(itemId)
       }
       render()
       loadVideoMedia()
@@ -8075,6 +8076,124 @@
       + '<p class="wb-hint">' + esc(t('workbench.vt.co_hint')) + '</p>'
   }
 
+  // #669 phase C: long to short. The speech of a clip is recognised on this machine and the best stretches are proposed; nothing changes until one is kept.
+  var vtHlTimer = null
+  function vtHlLabel() {
+    var c = WB.vtHl || {}
+    var secs = c.secs || 0
+    return t('workbench.vt.hl_busy', { time: Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2) })
+  }
+  function vtHlPaint() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var btns = document.querySelectorAll('[data-wb-act="vt-hl-make"]')
+    for (var i = 0; i < btns.length; i += 1) btns[i].textContent = vtHlLabel()
+  }
+  function vtHlPoll(itemId) {
+    if (vtHlTimer) { clearTimeout(vtHlTimer); vtHlTimer = null }
+    vtHlTimer = setTimeout(function () {
+      vtHlTimer = null
+      api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/timeline/highlights-status').then(function (r) {
+        if (WB.selectedId !== itemId) { WB.vtHl = null; return }
+        var job = r.ok && r.data ? r.data.job : null
+        if (r.ok && job && job.state === 'running') {
+          WB.vtHl = { secs: job.elapsed || 0 }
+          vtHlPaint()
+          vtHlPoll(itemId)
+          return
+        }
+        if (!r.ok) { vtHlPoll(itemId); return }
+        WB.vtHl = null
+        if (job && job.state === 'done' && r.data.result) {
+          WB.vtHlRes = r.data.result
+          if (!(r.data.result.highlights || []).length) window.showToast(t('workbench.vt.hl_none'))
+        } else if (job && job.state === 'error' && job.error) {
+          WB.vtError = { message: t('workbench.vt.hl_failed', { code: job.error.code }), detail: job.error.detail || '' }
+        } else {
+          WB.vtError = { message: t('workbench.vt.hl_interrupted'), detail: '' }
+        }
+        render()
+      })
+    }, 2000)
+  }
+  function vtHlResume(itemId) {
+    api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/timeline/highlights-status').then(function (r) {
+      if (!r.ok || WB.selectedId !== itemId || WB.vtHl) return
+      var job = r.data && r.data.job
+      if (job && job.state === 'running') {
+        WB.vtHl = { secs: job.elapsed || 0 }
+        render()
+        vtHlPoll(itemId)
+      }
+    })
+  }
+  function vtMakeHighlights() {
+    if (!WB.selectedId || WB.vtHl || WB.vtBusy || WB.vtRender || archived()) return
+    var clip = vtText('hl-clip')
+    if (!clip) { window.showToast(t('workbench.vt.hl_pick')); return }
+    var itemId = WB.selectedId
+    var body = { clip: clip, target: Number(vtText('hl-target')) || 30, count: Number(vtText('hl-count')) || 3, language: vtText('hl-lang') || 'hu' }
+    WB.vtHlDraft = body
+    WB.vtHlRes = null
+    WB.vtHl = { secs: 0 }
+    WB.vtError = null
+    render()
+    api('POST', vtUrl('/highlights'), body).then(function (r) {
+      if (r.ok || (r.data && r.data.error === 'video_busy')) { vtHlPoll(itemId); return }
+      WB.vtHl = null
+      vtFail(r)
+      render()
+    })
+  }
+  /** Keep one proposal (the clip is trimmed to it) or all of them (the clip is replaced by them, one after another); Undo brings the original back. */
+  function vtHlKeep(which) {
+    var res = WB.vtHlRes
+    var doc = vtDoc()
+    if (!res || !doc) return
+    var idx = -1
+    for (var i = 0; i < doc.clips.length; i += 1) if (doc.clips[i].id === res.clip) idx = i
+    if (idx < 0) { window.showToast(t('workbench.vt.hl_clip_gone')); return }
+    var list = res.highlights || []
+    var ops
+    if (which === 'all') {
+      ops = list.map(function (h, k) { return { op: 'addClip', src: doc.clips[idx].src, start: h.start, end: h.end, at: idx + 1 + k } })
+      ops.push({ op: 'removeClip', id: res.clip })
+    } else {
+      var h = list[Number(which)]
+      if (!h) return
+      ops = [{ op: 'trimClip', id: res.clip, start: h.start, end: h.end }]
+    }
+    WB.vtHlRes = null
+    vtOps(ops)
+  }
+  function vtHlHtml(doc) {
+    var d = WB.vtHlDraft || {}
+    var clips = (doc.clips || []).map(function (c, i) {
+      return '<option value="' + escA(c.id) + '"' + (c.id === d.clip ? ' selected' : '') + '>' + (i + 1) + '. ' + esc(c.src.split('/').pop()) + ' (' + esc(vtSecs(c.end - c.start)) + ' s)</option>'
+    }).join('')
+    if (!clips) return ''
+    var off = WB.vtBusy || WB.vtRender || WB.vtHl || archived() ? ' disabled' : ''
+    var opts = function (list, cur, label) {
+      return list.map(function (v) { return '<option value="' + v + '"' + (Number(cur) === v ? ' selected' : '') + '>' + esc(label(v)) + '</option>' }).join('')
+    }
+    var html = '<h5>' + esc(t('workbench.vt.hl')) + '</h5>'
+      + '<p><select class="wb-input" id="wbVt-hl-clip" aria-label="' + escA(t('workbench.vt.hl_clip')) + '">' + clips + '</select> '
+      + '<select class="wb-input" id="wbVt-hl-target" aria-label="' + escA(t('workbench.vt.hl_target')) + '">' + opts([15, 30, 60], d.target || 30, function (v) { return t('workbench.vt.hl_target_n', { n: v }) }) + '</select> '
+      + '<select class="wb-input" id="wbVt-hl-count" aria-label="' + escA(t('workbench.vt.hl_count')) + '">' + opts([1, 2, 3], d.count || 3, function (v) { return t('workbench.vt.hl_count_n', { n: v }) }) + '</select> '
+      + '<select class="wb-input" id="wbVt-hl-lang" aria-label="' + escA(t('workbench.vt.auto_lang')) + '">'
+      + ['hu', 'en', 'de'].map(function (l) { return '<option value="' + l + '"' + (l === (d.language || window._lang || 'hu') ? ' selected' : '') + '>' + esc(t('workbench.vt.auto_lang_' + l)) + '</option>' }).join('') + '</select> '
+      + '<button type="button" class="wb-btn" data-wb-act="vt-hl-make"' + off + '>' + esc(WB.vtHl ? vtHlLabel() : t('workbench.vt.hl_make')) + '</button></p>'
+    var res = WB.vtHlRes
+    if (res && (res.highlights || []).length) {
+      html += '<ol class="wb-vt-hl">' + res.highlights.map(function (h, k) {
+        return '<li class="wb-vt-row"><span>' + esc(vtSecs(h.start)) + ' - ' + esc(vtSecs(h.end)) + ' s (' + esc(t('workbench.vt.hl_score', { n: h.score })) + ')</span> '
+          + '<em>' + esc(h.text) + '</em> '
+          + '<button type="button" class="wb-btn" data-wb-act="vt-hl-keep" data-wb-id="' + k + '"' + off + '>' + esc(t('workbench.vt.hl_keep')) + '</button></li>'
+      }).join('') + '</ol>'
+      if (res.highlights.length > 1) html += '<p><button type="button" class="wb-btn" data-wb-act="vt-hl-keep" data-wb-id="all"' + off + '>' + esc(t('workbench.vt.hl_keep_all')) + '</button></p>'
+    }
+    return html + '<p class="wb-hint">' + esc(t('workbench.vt.hl_hint')) + '</p>'
+  }
+
   function vtInput(name, id) {
     return document.getElementById('wbVt-' + name + (id ? '-' + id : ''))
   }
@@ -8212,7 +8331,7 @@
 
   function vtBtn(act, label, id, extra) {
     return '<button type="button" class="wb-btn" data-wb-act="' + act + '"' + (id ? ' data-wb-id="' + escA(id) + '"' : '')
-      + (extra || '') + (WB.vtBusy || WB.vtRender || WB.vtCut || archived() ? ' disabled' : '') + '>' + esc(label) + '</button> '
+      + (extra || '') + (WB.vtBusy || WB.vtRender || WB.vtCut || WB.vtHl || archived() ? ' disabled' : '') + '>' + esc(label) + '</button> '
   }
 
   function vtClipsHtml(doc) {
@@ -8336,7 +8455,7 @@
       + vtBtn('vt-version', t('workbench.vt.version')) + '</p>'
       + '<p class="wb-vt-bg"><span class="wb-muted">' + esc(t('workbench.vt.bg.label')) + '</span> ' + backgrounds + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.bg.' + bgNow + '_hint')) + '</p>'
-      + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtCutoutHtml(doc) + vtOverlaysHtml(doc)
+      + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtCutoutHtml(doc) + vtHlHtml(doc) + vtOverlaysHtml(doc)
       + '<p>' + vtNumField('clip-volume', '', Math.round(doc.clip_volume * 100), t('workbench.vt.clip_volume')) + vtBtn('vt-volume', t('workbench.vt.save')) + '</p>'
       + '<p><button type="button" class="btn-primary" data-wb-act="vt-render"' + (WB.vtBusy || WB.vtRender || archived() || !doc.clips.length ? ' disabled' : '') + '>'
       + esc(WB.vtRender ? vtRenderLabel() : t('workbench.vt.render')) + '</button></p>' + vtRenderBarHtml()
@@ -20931,6 +21050,8 @@
     else if (a === 'vt-music-save') vtSaveMusic()
     else if (a === 'vt-music-del') vtOps([{ op: 'clearMusic' }])
     else if (a === 'vt-co-make') vtMakeCutout()
+    else if (a === 'vt-hl-make') vtMakeHighlights()
+    else if (a === 'vt-hl-keep') vtHlKeep(act.getAttribute('data-wb-id'))
     else if (a === 'vt-vo-make') vtMakeVoiceover()
     else if (a === 'vt-vo-save') vtSaveVoiceover(act.getAttribute('data-wb-id'))
     else if (a === 'vt-vo-del') vtOps([{ op: 'removeVoiceover', id: act.getAttribute('data-wb-id') }])
