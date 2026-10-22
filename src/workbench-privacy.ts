@@ -134,7 +134,7 @@ export function sensitiveItemIds(projectId: string): string[] {
 // ---------------------------------------------------------------------------
 
 /** A Munkapad Agentjen (Claude) KIVULI szolgaltatasok fajtai. */
-export type ExternalService = 'web_search' | 'image_edit' | 'image_generate' | 'ocr_external'
+export type ExternalService = 'web_search' | 'image_edit' | 'image_generate' | 'video_generate' | 'ocr_external'
 
 /**
  * Kaphat-e adatot egy kulso szolgaltatas ettol a munkadarabtol? Erzekenynel a

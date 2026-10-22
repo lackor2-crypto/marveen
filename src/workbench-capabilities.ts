@@ -26,6 +26,7 @@
 import { probeCommand, resetProbeCache, type CommandProbe } from './capability-probe.js'
 import { configuredSoffice, sofficeCandidates, probeLibreOffice, OFFICE_CONVERTIBLE } from './office-convert.js'
 import { getEffectiveSettingValue } from './settings-store.js'
+import { videoGenModel, videoKeyPresent } from './workbench-video-gen-jobs.js'
 import { getSettingDefinition } from './config-registry.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { listAIProviders } from './workbench-agent/provider.js'
@@ -332,19 +333,23 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   {
     key: 'video_gen',
     tier: 'extra',
-    title: { hu: 'Videógenerálás (Veo)', en: 'Video generation (Veo)' },
-    what_for: { hu: 'Videó készítése szöveges leírásból, a Munkapadon belül.', en: 'Creating a video from a text description, inside the Workbench.' },
+    title: { hu: 'AI-videógenerálás (OpenRouter)', en: 'AI video generation (OpenRouter)' },
+    what_for: { hu: 'Rövid videó készítése szöveges leírásból (hanggal, függőleges képarányban is), a videószerkesztőben. Az eredmény új verzió, a régi megmarad.', en: 'Making a short video from a text description (with sound, also in portrait format), in the video editor. The result is a new version; the old one is kept.' },
     affects: {
-      hu: 'A Munkapad minden más része működik. Saját videót most is feltölthetsz.',
-      en: 'Every other part of the Workbench works. You can still upload your own video.',
+      hu: 'A Munkapad minden más része működik. Saját videót most is feltölthetsz és szerkeszthetsz. Csak az AI-videógenerálás nem fut.',
+      en: 'Every other part of the Workbench works. You can still upload and edit your own video. Only AI video generation does not run.',
     },
     how_to: {
-      hu: ['Ebben a verzióban még nincs bekötve, ezért nincs mit beállítani hozzá.'],
-      en: ['It is not wired up in this version, so there is nothing to configure.'],
+      hu: ['Az OpenRouter-kulcs a Vaultban van („openrouter-fleet-key”), külön beállítás nem kell.', 'Az OpenRouter-egyenlegen legyen pénz: a videó fizetős, minden indítás előtt kiírom a becsült árat.', 'A modellt és a havi keretet a Beállításokban választhatod.'],
+      en: ['The OpenRouter key is in the Vault ("openrouter-fleet-key"); no extra setting is needed.', 'There must be money on the OpenRouter balance: video is paid, and I show the estimated price before every start.', 'You can pick the model and the monthly limit in Settings.'],
     },
-    obtain_url: null,
+    obtain_url: 'https://openrouter.ai/settings/credits',
+    // Nincs "Ellenorzes most": minden probafutas penzbe kerulne.
     testable: false,
-    async measure() { return { state: 'not_implemented', detail: null, version: null, path: null } },
+    async measure() {
+      if (!videoKeyPresent()) return { state: 'not_configured', detail: null, version: null, path: null }
+      return { state: 'ok', detail: 'key in the vault, not tested (a test run would cost money)', version: videoGenModel(), path: null }
+    },
   },
   {
     key: 'tts',

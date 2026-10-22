@@ -111,6 +111,8 @@ import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-vide
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS } from '../../workbench-video-timeline.js'
 import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
 import { cutoutStore, highlightStore, getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
+import { parseVideoParams, previewVideoGen, retryVideoDownload, startVideoGeneration, videoKeyPresent, videoMonthlyBudgetUsd } from '../../workbench-video-gen-jobs.js'
+import { listVideoGens } from '../../workbench-video-gen-store.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
@@ -1503,6 +1505,35 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ilyen platformméretet nem ismerek. Válassz a listából.',
     en: 'I do not know this platform size. Pick one from the list.',
   },
+  video_sensitive: { hu: 'Ez a munkadarab (vagy a projektje) érzékenynek van jelölve, ezért nem mehet ki külső AI-szolgáltatóhoz. A videógenerálás itt nem érhető el.', en: 'This work item (or its project) is marked sensitive, so it cannot go to an outside AI service. Video generation is not available here.' },
+  video_no_key: { hu: 'Nincs OpenRouter-kulcs a Vaultban, ezért a videógenerálás nem indulhat.', en: 'There is no OpenRouter key in the Vault, so video generation cannot start.' },
+  video_no_prompt: { hu: 'Írd le, milyen videót szeretnél.', en: 'Describe the video you want.' },
+  video_confirm_cost: { hu: 'A videógenerálás pénzbe kerül: előbb nézd meg a várható költséget, és azzal indítsd.', en: 'Video generation costs money: check the expected cost first and start it from there.' },
+  video_already_running: { hu: 'Ennél a munkadarabnál már fut egy videógenerálás. Várd meg a végét.', en: 'A video is already being generated for this work item. Wait for it to finish.' },
+  video_price_unknown: { hu: 'Ennek a modellnek az árát most nem ismerem, ezért nem indítom el (nem találok ki számot, és a havi keretet sem tudnám védeni).', en: 'I do not know this model\'s price right now, so I will not start it (I will not invent a number, and could not protect the monthly limit).' },
+  video_over_budget: { hu: 'Ez a generálás átlépné a havi videókeretet, ezért nem indítom el. A keretet a Beállításokban módosíthatod.', en: 'This generation would exceed the monthly video limit, so I will not start it. You can change the limit in Settings.' },
+  video_model_unavailable: { hu: 'A beállított videómodell nincs az OpenRouter mostani listáján. Állíts be másikat a Beállításokban.', en: 'The configured video model is not on the current OpenRouter list. Set another one in Settings.' },
+  video_models_failed: { hu: 'Az OpenRouter modelllistáját most nem tudtam lekérni.', en: 'I could not fetch the OpenRouter model list right now.' },
+  video_models_unreachable: { hu: 'Az OpenRouter nem érhető el (hálózati hiba). Próbáld később.', en: 'OpenRouter cannot be reached (network error). Try later.' },
+  video_bad_duration: { hu: 'Ez a hossz nem választható ennél a modellnél. A részletekben a megengedett értékek.', en: 'This length is not available for this model. The allowed values are in the details.' },
+  video_bad_resolution: { hu: 'Ez a felbontás nem választható ennél a modellnél. A részletekben a megengedett értékek.', en: 'This resolution is not available for this model. The allowed values are in the details.' },
+  video_bad_aspect: { hu: 'Ez a képarány nem választható ennél a modellnél. A részletekben a megengedett értékek.', en: 'This aspect ratio is not available for this model. The allowed values are in the details.' },
+  video_audio_unknown: { hu: 'Ez a modell a listája szerint nem készít hangot. Kapcsold ki a hangot, vagy válassz másik modellt.', en: 'By its list this model makes no sound. Turn sound off or pick another model.' },
+  video_key_rejected: { hu: 'Az OpenRouter elutasította a kulcsot. Nézd meg a Vaultban.', en: 'OpenRouter rejected the key. Check it in the Vault.' },
+  video_no_credit: { hu: 'Az OpenRouter-egyenleg elfogyott vagy nincs rajta pénz. Tölts fel, és indítsd újra.', en: 'The OpenRouter balance is empty. Top it up and start again.' },
+  video_start_failed: { hu: 'Az OpenRouter nem fogadta el a kérést. A részletekben az ő üzenete. Pénz nem ment el.', en: 'OpenRouter did not accept the request. Its own message is in the details. No money was spent.' },
+  video_start_unsure: { hu: 'Nem biztos, hogy a kérés elindult-e (időtúllépés vagy hálózati hiba). NEM próbálom újra magamtól, nehogy kétszer fizess. Nézd meg az OpenRouter tevékenységei között, és ha nincs ott, indítsd újra.', en: 'It is not certain the request started (timeout or network error). I will NOT retry by myself, so you are not charged twice. Check the OpenRouter activity page, and start again if it is not there.' },
+  video_interrupted_before_id: { hu: 'A program leállt, mielőtt a feladat azonosítója elmentődött. Lehet, hogy a generálás elindult: nézd meg az OpenRouter tevékenységei között, mielőtt újra próbálod.', en: 'The app stopped before the job id was saved. The generation may have started: check the OpenRouter activity page before trying again.' },
+  video_generation_failed: { hu: 'A modell nem tudta elkészíteni a videót. A részletekben az ő üzenete.', en: 'The model could not make the video. Its own message is in the details.' },
+  video_gen_timeout: { hu: 'A videó nem készült el a várható időn belül. A részletekben a feladat azonosítója az OpenRouternél.', en: 'The video did not finish in the expected time. The job id at OpenRouter is in the details.' },
+  video_download_failed: { hu: 'A kész videót nem sikerült letölteni. Újra letöltheted fizetés nélkül.', en: 'The finished video could not be downloaded. You can download it again without paying.' },
+  video_download_unreachable: { hu: 'A kész videó letöltése megszakadt. Újra letöltheted fizetés nélkül.', en: 'Downloading the finished video was interrupted. You can download it again without paying.' },
+  video_download_empty: { hu: 'A letöltött videó üres. Újra letöltheted fizetés nélkül.', en: 'The downloaded video is empty. You can download it again without paying.' },
+  video_write_failed: { hu: 'A kész videót nem sikerült a projektbe menteni. Újra próbálhatod fizetés nélkül.', en: 'The finished video could not be saved into the project. You can try again without paying.' },
+  video_not_found: { hu: 'Ilyen videógenerálási feladat nincs.', en: 'There is no such video generation job.' },
+  video_not_retryable: { hu: 'Ezt a feladatot nem lehet újra letölteni.', en: 'This job cannot be downloaded again.' },
+  video_status_failed: { hu: 'Az OpenRouter állapot-lekérdezése nem sikerült.', en: 'The OpenRouter status check failed.' },
+  video_status_unreachable: { hu: 'Az OpenRouter állapot-lekérdezése megszakadt.', en: 'The OpenRouter status check was interrupted.' },
   ai_edit_done: {
     hu: 'Kész: az AI-val szerkesztett kép új fájlként mentve ({name}), a régi megmaradt. Tényleges költség: {cost}. A Visszavonás (Ctrl+Z) visszateszi a régit.',
     en: 'Done: the AI-edited picture was saved as a new file ({name}); the old one is kept. Actual cost: {cost}. Undo (Ctrl+Z) puts the old one back.',
@@ -5623,6 +5654,45 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       message: msg('canvas_variant_made', lang).replace('{name}', pf.label[lang]),
     }, 201)
     return true
+  }
+
+  // AI-VIDEOGENERALAS (munkadarab "Video fejlesztes"): OpenRouteren at, tartos feladatkent.
+  //   GET  .../videogen?duration=&resolution=&aspect_ratio=&audio=  -- becsles, keret, valaszthato ertekek, a korabbi feladatok
+  //   POST .../videogen {prompt, duration, resolution, aspect_ratio, audio, confirm_cost}  -- indit (202)
+  //   POST .../videogen/:id/retry-download  -- a kesz videot ujra letolti (fizetes nelkul)
+  // A POST csak `confirm_cost: true`-val fut: a tulajdonos LATTA az arat.
+  if (segs[1] === 'videogen') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (segs.length === 2 && method === 'GET') {
+      const pre = await previewVideoGen(parseVideoParams({
+        duration: url.searchParams.get('duration'), resolution: url.searchParams.get('resolution'),
+        aspect_ratio: url.searchParams.get('aspect_ratio') || '9:16', audio: url.searchParams.get('audio') !== '0',
+      }))
+      json(res, {
+        key_set: videoKeyPresent(), sensitive: privacyState(item.project_id, item.id).sensitive,
+        budget_usd: videoMonthlyBudgetUsd(), jobs: listVideoGens(item.id),
+        preview: pre.ok ? pre : { error: pre.code, message: msg(pre.code, lang), detail: pre.detail },
+      })
+      return true
+    }
+    if (segs.length === 2 && method === 'POST') {
+      const body = (await readJson(req)) || {}
+      if (body['confirm_cost'] !== true) return fail(res, 400, 'video_confirm_cost', lang)
+      if (!owner) return fail(res, 404, 'project_not_found', lang)
+      const r = await startVideoGeneration({ item, project: owner, prompt: String(body['prompt'] ?? ''), params: parseVideoParams(body) })
+      if (!r.ok) return failDetail(res, r.status, r.code, lang, r.detail)
+      json(res, { ok: true, job: r.row, jobs: listVideoGens(item.id) }, 202)
+      return true
+    }
+    if (segs.length === 4 && segs[3] === 'retry-download' && method === 'POST') {
+      const mine = listVideoGens(item.id).find((j) => j.id === segs[2])
+      if (!mine) return fail(res, 404, 'video_not_found', lang)
+      const r = await retryVideoDownload(mine.id)
+      if (!r.ok) return failDetail(res, r.status, r.code, lang, r.detail)
+      json(res, { ok: true, job: r.row, jobs: listVideoGens(item.id) })
+      return true
+    }
   }
 
   // AI-KEPSZERKESZTES (K-2.11 .. K-2.13) egy kepelemen.

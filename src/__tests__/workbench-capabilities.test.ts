@@ -152,15 +152,12 @@ describe('amit a felhasznalo lat', () => {
     expect(video.affects).toMatch(/működik/i)
   })
 
-  it('amihez nincs megvalositasunk, azt KIMONDJUK -- nem igerunk varazslot', async () => {
+  it('az AI-videogeneralas (OpenRouter) be van kotve: a Vault kulcsa dont, nem kell kulon beallitas, nem mer penzert', async () => {
     const rows = await describeAllCapabilities('hu', true)
-    for (const key of ['video_gen']) {
-      const row = rows.find((r) => r.key === key)!
-      expect(row.state).toBe('not_implemented')
-      expect(row.setting).toBe(null)
-      expect(row.testable).toBe(false)
-      expect(row.message).toMatch(/nincs bekötve/i)
-    }
+    const row = rows.find((r) => r.key === 'video_gen')!
+    expect(['ok', 'not_configured']).toContain(row.state)
+    expect(row.setting).toBe(null)
+    expect(row.testable).toBe(false)
   })
 
   it('felolvasas (#669): helyi hang, kulcs nelkul; telepitesi allapotot mer, nem igeret', async () => {

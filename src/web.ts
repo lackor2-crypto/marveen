@@ -164,6 +164,7 @@ import { tryHandleVaultSsh } from './web/routes/vault-ssh.js'
 import { tryHandleFleet } from './web/routes/fleet.js'
 import { tryHandleVaultSshKeys } from './web/routes/vault-ssh-keys.js'
 import { tryHandleBrowser } from './web/routes/browser.js'
+import { resumeVideoGenerations } from './workbench-video-gen-jobs.js'
 import type { RouteContext } from './web/routes/types.js'
 import { isMalformedBodyError } from './web/malformed-body.js'
 
@@ -462,6 +463,8 @@ export function startWebServer(port = 3420): http.Server {
 
   server.listen(port, WEB_HOST, () => {
     logger.info({ port }, `Web dashboard: http://localhost:${port}`)
+    // Az AI-videogeneralas felbehagyott feladatai: ami az OpenRouternel fut, tovabb figyeljuk (a Marvin ujrainditasa nem veszit el egy kifizetett klipet).
+    try { const r = resumeVideoGenerations(); if (r.orphaned || r.resumed) logger.info(r, 'video generation resume') } catch (err) { logger.warn({ err }, 'video generation resume failed') }
     // Az email-oldal listai hideg indulasnal masodpercekig tartanak (ures
     // cache + hideg IMAP: merve 12,3 illetve 19,3 mp, melegen 0,85 mp). Ezt
     // ne az elso latogato fizesse ki: par masodperccel a bootolas utan, amikor
