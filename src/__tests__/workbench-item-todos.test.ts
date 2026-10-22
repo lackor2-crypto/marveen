@@ -91,6 +91,18 @@ describe('to-do panel in the Workbench page (TG 3462)', () => {
   })
 })
 
+describe('to-do panel beside a video (#754)', () => {
+  const js = readFileSync('web/workbench.js', 'utf8')
+  const css = readFileSync('web/workbench.css', 'utf8')
+  it('a video offers the toggle and draws the list on the right of the player and timeline, in both views', () => {
+    expect(js).toMatch(/return isDocSurface\(it\) \|\| frIsVideo\(it\)/)
+    expect(js).toContain("(isVid ? tpBesideHtml(main + strip) : main + strip)")
+    expect(js).toContain("? tpBesideHtml(videoTimelineHtml()) +")
+    expect(js).toMatch(/wb-fr-tl-len[^\n]*\n\s*\+ tpToggleHtml\(\)/)
+    expect(css).toMatch(/\.wb-tp-cols \{ display: flex; flex-wrap: wrap;/)
+  })
+})
+
 describe('zoom covers the side panels (TG 3467)', () => {
   it('the translation and to-do panels scale with the slider', () => {
     expect(readFileSync('web/workbench.css', 'utf8')).toMatch(/\.wb-fr-scroll \.wb-tw-right \{ zoom: var\(--wb-zoom/)

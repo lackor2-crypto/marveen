@@ -8163,7 +8163,7 @@
     var it = WB.detail && WB.detail.item
     if (!it || it.type !== 'video') return ''
     var headOf = function (extra) {
-      return '<div class="wb-can"><div class="wb-can-head"><h4>' + esc(t('workbench.vt.title')) + '</h4>' + (extra || '') + '</div>'
+      return '<div class="wb-can"><div class="wb-can-head"><h4>' + esc(t('workbench.vt.title')) + '</h4>' + (extra || '') + tpToggleHtml() + '</div>'
     }
     if (WB.vtError && !WB.vt) {
       return headOf()
@@ -9286,7 +9286,7 @@
             ? 'workbench.upload.busy'
             : 'workbench.upload.drop_item')) + '</p>')
             + (canvasFirst ? canvasHtml() + previewHtml() : previewHtml() + canvasHtml())
-            + videoTimelineHtml()
+            + (frIsVideo(it) ? tpBesideHtml(videoTimelineHtml()) : videoTimelineHtml()) // #754
             + deckHtml()
             + (partsAreTechnical(it) ? partsTechHtml() : partsHtml())
             + postPreviewHtml())
@@ -15016,7 +15016,15 @@
     return WB.tp
   }
   function tpAvailable() {
-    return isDocSurface(WB.detail && WB.detail.item)
+    var it = WB.detail && WB.detail.item
+    return isDocSurface(it) || frIsVideo(it) // #754: a video has to-dos too
+  }
+  /** #754: the video (player + timeline) with the to-do list on its right, when the list is switched on. */
+  function tpBesideHtml(inner) {
+    if (!tpAvailable() || !tpState().on) return inner
+    tpEnsure()
+    return '<div class="wb-tp-cols"><div class="wb-tp-main">' + inner + '</div>'
+      + '<aside class="wb-tw-right wb-tp-right" id="wbTpPanel" aria-label="' + escA(t('workbench.tp.title')) + '">' + tpPanelInnerHtml() + '</aside></div>'
   }
   // ---- #625: unused drawing / deck JSON files: a list, the owner approves, they go to the Trash ------------------
   // #660: the entry is global (the scan walks every project), so it lives on the Projects page (jsonCleanOpen is exposed below), not inside one work item.
@@ -16480,7 +16488,7 @@
       // Egyszeru nezet: a kesz kep/oldal van legfelul, a szerkeszto gombok alatta (ures vaszon is latszik azonnal).
       // Videonal es diasornal az idosav / a diak a fo tartalom, az (ilyenkor ures) elonezet csak alattuk jon.
       inner = (it.type === 'video' || it.type === 'presentation'
-        ? videoTimelineHtml() + deckHtml() + previewHtml() + canvasHtml()
+        ? tpBesideHtml(videoTimelineHtml()) + deckHtml() + previewHtml() + canvasHtml()
         : previewHtml() + canvasHtml() + videoTimelineHtml() + deckHtml())
         // A sajat .md/.txt fajlu jegyzet tartalma a fajl: az elonezet mutatja, az "ures Tartalom" doboz felesleges.
         + (partsAreTechnical(it) || (it.type === 'note' && it.source_path) ? '' : partsHtml())
@@ -17424,6 +17432,7 @@
       + (archived() ? '' : '<button type="button" class="btn-primary wb-fr-tl-render" data-wb-act="vt-render"' + (busy || !clips.length ? ' disabled' : '')
         + ' title="' + escA(t('workbench.fr.vid.render_hint')) + '">' + esc(WB.vtRender ? vtRenderLabel() : t('workbench.fr.vid.render')) + '</button>')
       + '<span class="wb-muted wb-fr-tl-len">' + esc(t('workbench.vt.length', { s: vtSecs((WB.vt && WB.vt.duration) || 0) })) + '</span>'
+      + tpToggleHtml()
       + (archived() ? '' : frVtAddRowHtml())
       + '</div>'
       + (clips.length
@@ -19235,7 +19244,7 @@
     // The zoom bar is no longer inside this column: it sits slim at the very bottom of the frame
     // (frameHtml), so the content above gets the room (Boss, TG 2252/2258).
     WB.frShowBar = !(isVid || tbl)
-    return '<div class="wb-fr-center' + (isVid ? ' wb-fr-center-vid' : '') + '">' + noteFinalPanelHtml() + main + strip + '</div>'
+    return '<div class="wb-fr-center' + (isVid ? ' wb-fr-center-vid' : '') + '">' + noteFinalPanelHtml() + (isVid ? tpBesideHtml(main + strip) : main + strip) + '</div>'
   }
 
   /** Alul: nagyitas, oldalszam. */
@@ -20411,7 +20420,7 @@
     else if (a === 'life-move') lifeMoveOpen()
     else if (a === 'tp-toggle') {
       var tpS = tpState(); tpS.on = !tpS.on; writePref('wb.tp.on', tpS.on ? '1' : '')
-      if (tpS.on && WB.frTab) { WB.frTab = null; writePref('wb.fr.tab', '') }
+      if (tpS.on && WB.frTab && !frIsVideo(WB.detail && WB.detail.item)) { WB.frTab = null; writePref('wb.fr.tab', '') }
       render()
     }
     else if (a === 'tw-run') twRun()
