@@ -33,6 +33,7 @@ import { createFromBrandTemplate } from '../workbench-brand-templates.js'
 import { readCanvas } from '../workbench-canvas-store.js'
 import { addTodo, resolveAgentDue, TODO_TEXT_MAX, TODOS_PER_ITEM_MAX } from '../workbench-todos.js'
 import { getWorkItem } from '../workbench.js'
+import { linkResearch, readProjectResearch, researchForItem } from '../workbench-research.js'
 
 export const IDEA_LIST_MAX = 50
 export const COMMENT_MAX_CHARS = 4000
@@ -88,7 +89,7 @@ export function researchSlug(title: string): string {
   return base || 'kutatas'
 }
 
-export function researchSave(project: ProjectRow, input: Record<string, unknown>): ToolResult {
+export function researchSave(project: ProjectRow, input: Record<string, unknown>, workItemId: string | null = null): ToolResult {
   const title = str(input.title)
   const text = input.text === undefined || input.text === null ? '' : String(input.text)
   if (!title) return { ok: false, code: 'bad_input', detail: 'title is required' }
@@ -104,8 +105,44 @@ export function researchSave(project: ProjectRow, input: Record<string, unknown>
   for (let i = 2; existsSync(join(dir, name)); i++) name = `${slug}-${i}.md`
   const body = text.replace(/^\s*#\s+.*\n?/, '')
   writeFileSync(join(dir, name), `# ${title}\n\nproject: ${project.id}\n\n${body.trimStart()}\n`, { flag: 'wx' })
-  linkObject(project.id, 'research', researchObjectId(MAIN_AGENT_ID, name), 'workbench')
-  return { ok: true, data: { name, agent: MAIN_AGENT_ID, project: project.id, note: 'it shows up on the Research page, filtered to this project' } }
+  const rid = researchObjectId(MAIN_AGENT_ID, name)
+  linkObject(project.id, 'research', rid, 'workbench')
+  // #757: saved from a work item -> linked to it, so its Research panel and the next turn find it.
+  const item = workItemId ? getWorkItem(workItemId) : null
+  const linked = item && item.project_id === project.id ? linkResearch(item, rid, 'agent').ok : false
+  return { ok: true, data: { id: rid, name, agent: MAIN_AGENT_ID, project: project.id, linkedToWorkItem: linked ? item!.id : null, note: 'it shows up on the Research page, filtered to this project' + (linked ? ', and in the Research panel of the work item' : '') } }
+}
+
+export function researchList(project: ProjectRow, workItemRef: string): ToolResult {
+  const item = (workItemRef ? getWorkItem(workItemRef) : null) ?? null
+  if (workItemRef && (!item || item.project_id !== project.id)) {
+    return { ok: false, code: 'work_item_not_found', detail: `no work item ${workItemRef} in this project` }
+  }
+  const r = researchForItem(project.id, item)
+  const total = r.item.length + r.folder.length + r.others.length
+  const row = (d: { id: string; title: string; updated: string }) => ({ id: d.id, title: d.title, updated: d.updated })
+  return {
+    ok: true,
+    data: {
+      count: total,
+      note: total ? '' : 'the Research page of this project was read and it has no document yet',
+      linkedToThisItem: r.item.map(row),
+      sameFolder: r.folder.map(row),
+      restOfProject: r.others.map(row),
+    },
+  }
+}
+
+export function researchRead(project: ProjectRow, input: Record<string, unknown>): ToolResult {
+  const id = str(input.id)
+  if (!id) return { ok: false, code: 'bad_input', detail: 'id is required ("agent/name.md", as research.list shows it)' }
+  const r = readProjectResearch(project.id, id, Number(input.offset) || 0)
+  if (!r.ok) {
+    return r.code === 'other_project'
+      ? { ok: false, code: 'other_project', detail: `${id} is not research of this project` }
+      : { ok: false, code: 'not_found', detail: `no research document ${id} (use research.list)` }
+  }
+  return { ok: true, data: { ...r.doc, next: r.doc.more ? r.doc.offset + r.doc.text.length : null } }
 }
 
 // ---- kanban: komment + osszekotes ------------------------------------------------------

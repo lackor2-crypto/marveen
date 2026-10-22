@@ -51,7 +51,10 @@ describe('Simple view knows what the Manual view knows (#531)', () => {
 
   it('every panel the Manual view draws is drawn by the Simple technical details as well', () => {
     // #756: the folder tree of an open work item is the frame's Projects tab (itemsPanelHtml(true)), not repeated below
-    const missing = manualPanels().filter((p) => !tech.includes(`${p}(`) && !fn('simpleHtml').includes(`${p}()`))
+    // #757: a panel the frame opens as a popup under its top bar (researchPanelHtml -> researchPopupHtml) is drawn too
+    const top = fn('frTopHtml')
+    const missing = manualPanels().filter((p) => !tech.includes(`${p}(`) && !fn('simpleHtml').includes(`${p}()`)
+      && !(top.includes(`${p.replace(/PanelHtml$/, 'PopupHtml')}()`) && fn(p.replace(/PanelHtml$/, 'PopupHtml')).includes(`${p}()`)))
     expect(missing).toEqual([])
   })
 
