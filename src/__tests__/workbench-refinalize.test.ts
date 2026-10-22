@@ -131,6 +131,17 @@ describe('#737 ujra-veglegesites', () => {
     expect(f2.status, JSON.stringify(f2.body)).toBe(200)
   })
 
+  it('a plain item without a file link that is listed in the project folder itself finalizes there (the root is a folder too)', async () => {
+    makePlainWithoutFile('@project')
+    const base = `/api/workbench/items/${itemId}/outline`
+    const f = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
+    expect(f.status, JSON.stringify(f.body)).toBe(200)
+    // as for a linked plain item at the root (finishedFolderFor has no subfolder there): the PDF lies in the folder itself, no folder is made
+    expect(f.body.file).toMatch(/^Projektek\/Iroda\/[^/]+\.pdf$/)
+    expect(existsSync(join(depot, f.body.file))).toBe(true)
+    expect(readdirSync(join(depot, 'Projektek', 'Iroda'), { withFileTypes: true }).filter((e) => e.isDirectory())).toEqual([])
+  })
+
   it('when the folder is really gone the answer says so in a sentence and carries the exact error', async () => {
     makePlainWithoutFile('Munkadarabok/Nincs')
     const base = `/api/workbench/items/${itemId}/outline`
