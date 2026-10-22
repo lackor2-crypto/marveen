@@ -79,6 +79,11 @@ describe('heavy-job-gate.py (PreToolUse)', () => {
     'cd x && npm run build',
     'WEB_ONLY=true node dist/index.js',
     'node pw-click.js --headless',
+    'nice -n 10 npx vitest run',
+    'cd x && nice -n 10 npx vitest run > /tmp/suite.log 2>&1',
+    'npx vitest run > /tmp/suite.log',
+    'npx vitest run 2>&1 | tail -5',
+    'nohup npx vitest run >log 2>&1 &',
     'python3 -c "from playwright.sync_api import sync_playwright"',
   ])('denies %s', (cmd) => {
     const r = gate(cmd)
@@ -94,6 +99,8 @@ describe('heavy-job-gate.py (PreToolUse)', () => {
     'bash scripts/heavy-job.sh build -- npm run build',
     'scripts/heavy-job.sh pw -- node pw-click.js',
     'git status',
+    'nice -n 10 npx vitest run src/__tests__/lang-parity.test.ts > /tmp/x.log 2>&1',
+    'npx vitest run src/__tests__/lang-parity.test.ts 2>&1 | tail -5',
   ])('allows %s', (cmd) => {
     expect(gate(cmd).status).toBe(0)
   })

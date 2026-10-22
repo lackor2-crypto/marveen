@@ -52,14 +52,45 @@ def deny(msg):
     sys.exit(2)
 
 
+REDIRECT = re.compile(r"^(\d*|&)(>>?|<)(&?\d*|.*)$")
+
+
+def strip_redirections(toks):
+    """Drop `> file`, `2>&1`, `>>file` ...: a redirect target is not a test-file argument
+    (2026-10-22 `npx vitest run > log` looked narrowed to one file and ran the whole suite)."""
+    out = []
+    skip = False
+    for t in toks:
+        if skip:
+            skip = False
+            continue
+        if t == "&":
+            continue  # trailing background marker
+        m = REDIRECT.match(t)
+        if m:
+            if not m.group(3):
+                skip = True  # bare operator: the next word is its target
+            continue
+        out.append(t)
+    return out
+
+
 def words(segment):
     try:
         toks = shlex.split(segment, posix=True)
     except Exception:
         toks = segment.split()
-    # drop leading VAR=value assignments, `env`, `time`, `sudo`-free wrappers
-    while toks and (ENV_ASSIGN.match(toks[0]) or toks[0] in ("env", "time", "nice", "exec")):
+    toks = strip_redirections(toks)
+    # drop leading VAR=value assignments, `env`, `time`, `sudo`-free wrappers and their own options
+    # (`nice -n 10 npx vitest run`: the `-n 10` is nice's, not the command's -- 2026-10-22 it slipped past the gate)
+    while toks and (ENV_ASSIGN.match(toks[0]) or toks[0] in ("env", "time", "nice", "exec", "ionice", "nohup")):
+        wrapper = toks[0]
         toks = toks[1:]
+        if wrapper in ("nice", "ionice"):
+            while toks and (re.match(r"^-\d+$", toks[0]) or re.match(r"^-n\d+$", toks[0]) or toks[0].startswith("--adjustment=")):
+                toks = toks[1:]
+            if toks and toks[0] in ("-n", "--adjustment", "-c", "-p") and len(toks) > 1:
+                toks = toks[2:]
     return toks
 
 
