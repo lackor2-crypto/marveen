@@ -7744,6 +7744,7 @@
         WB.vt = r.data && r.data.timeline ? r.data : null
         // A render started before this page was (re)loaded may still be running: show its progress again.
         if (WB.vt && !WB.vtRender) vtRenderResume(itemId)
+        if (WB.vt && !WB.vtCut) vtCutResume(itemId)
       }
       render()
       loadVideoMedia()
@@ -7987,6 +7988,93 @@
       + '<p class="wb-hint">' + esc(t('workbench.vt.vo_hint')) + '</p>'
   }
 
+
+  // #669 phase C: replace the background behind the subject of a clip (on this machine; a job that takes minutes).
+  var vtCutTimer = null
+  function vtCutLabel() {
+    var c = WB.vtCut || {}
+    var secs = c.secs || 0
+    return t('workbench.vt.co_busy', { pct: Math.min(99, Math.floor((c.pct || 0) * 100)), time: Math.floor(secs / 60) + ':' + ('0' + (secs % 60)).slice(-2) })
+  }
+  function vtCutPaint() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var btns = document.querySelectorAll('[data-wb-act="vt-co-make"]')
+    for (var i = 0; i < btns.length; i += 1) btns[i].textContent = vtCutLabel()
+  }
+  function vtCutPoll(itemId) {
+    if (vtCutTimer) { clearTimeout(vtCutTimer); vtCutTimer = null }
+    vtCutTimer = setTimeout(function () {
+      vtCutTimer = null
+      api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/timeline/cutout-status').then(function (r) {
+        if (WB.selectedId !== itemId) { WB.vtCut = null; return }
+        var job = r.ok && r.data ? r.data.job : null
+        if (r.ok && job && job.state === 'running') {
+          WB.vtCut = { pct: job.progress || 0, secs: job.elapsed || 0 }
+          vtCutPaint()
+          vtCutPoll(itemId)
+          return
+        }
+        if (!r.ok) { vtCutPoll(itemId); return }   // a network blip: keep asking
+        WB.vtCut = null
+        if (job && job.state === 'done' && r.data.result) {
+          vtTake(r.data.result)
+          window.showToast(r.data.result.message || t('workbench.vt.co_done'))
+        } else if (job && job.state === 'error' && job.error) {
+          WB.vtError = { message: t('workbench.vt.co_failed', { code: job.error.code }), detail: job.error.detail || '' }
+        } else {
+          WB.vtError = { message: t('workbench.vt.co_interrupted'), detail: '' }
+        }
+        render()
+      })
+    }, 2000)
+  }
+  /** A removal that is already running (started before a reload, or in another window): follow it. */
+  function vtCutResume(itemId) {
+    api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/timeline/cutout-status').then(function (r) {
+      if (!r.ok || WB.selectedId !== itemId || WB.vtCut) return
+      var job = r.data && r.data.job
+      if (job && job.state === 'running') {
+        WB.vtCut = { pct: job.progress || 0, secs: job.elapsed || 0 }
+        render()
+        vtCutPoll(itemId)
+      }
+    })
+  }
+  function vtMakeCutout() {
+    if (!WB.selectedId || WB.vtCut || WB.vtBusy || WB.vtRender || archived()) return
+    var clip = vtText('co-clip')
+    if (!clip) { window.showToast(t('workbench.vt.co_pick')); return }
+    var itemId = WB.selectedId
+    var body = { clip: clip, mode: vtText('co-mode') || 'color', color: vtText('co-color') || undefined }
+    WB.vtCutDraft = body
+    WB.vtCut = { pct: 0, secs: 0 }
+    WB.vtError = null
+    render()
+    api('POST', vtUrl('/cutout'), body).then(function (r) {
+      if (r.ok || (r.data && r.data.error === 'video_busy')) { vtCutPoll(itemId); return }
+      WB.vtCut = null
+      vtFail(r)
+      render()
+    })
+  }
+  function vtCutoutHtml(doc) {
+    var d = WB.vtCutDraft || {}
+    var clips = (doc.clips || []).map(function (c, i) {
+      return '<option value="' + escA(c.id) + '"' + (c.id === d.clip ? ' selected' : '') + '>' + (i + 1) + '. ' + esc(c.src.split('/').pop()) + ' (' + esc(vtSecs(c.end - c.start)) + ' s)</option>'
+    }).join('')
+    if (!clips) return ''
+    var mode = d.mode === 'blur' ? 'blur' : 'color'
+    var off = WB.vtBusy || WB.vtRender || WB.vtCut || archived() ? ' disabled' : ''
+    return '<h5>' + esc(t('workbench.vt.cutout')) + '</h5>'
+      + '<p><select class="wb-input" id="wbVt-co-clip" aria-label="' + escA(t('workbench.vt.co_clip')) + '">' + clips + '</select> '
+      + '<select class="wb-input" id="wbVt-co-mode" aria-label="' + escA(t('workbench.vt.co_mode')) + '">'
+      + '<option value="color"' + (mode === 'color' ? ' selected' : '') + '>' + esc(t('workbench.vt.co_mode_color')) + '</option>'
+      + '<option value="blur"' + (mode === 'blur' ? ' selected' : '') + '>' + esc(t('workbench.vt.co_mode_blur')) + '</option></select> '
+      + '<label class="wb-muted">' + esc(t('workbench.vt.co_color')) + ' <input type="color" id="wbVt-co-color" value="#' + escA(String(d.color || '00b140').replace(/^#/, '')) + '"></label> '
+      + '<button type="button" class="wb-btn" data-wb-act="vt-co-make"' + off + '>' + esc(WB.vtCut ? vtCutLabel() : t('workbench.vt.co_make')) + '</button></p>'
+      + '<p class="wb-hint">' + esc(t('workbench.vt.co_hint')) + '</p>'
+  }
+
   function vtInput(name, id) {
     return document.getElementById('wbVt-' + name + (id ? '-' + id : ''))
   }
@@ -8124,7 +8212,7 @@
 
   function vtBtn(act, label, id, extra) {
     return '<button type="button" class="wb-btn" data-wb-act="' + act + '"' + (id ? ' data-wb-id="' + escA(id) + '"' : '')
-      + (extra || '') + (WB.vtBusy || WB.vtRender || archived() ? ' disabled' : '') + '>' + esc(label) + '</button> '
+      + (extra || '') + (WB.vtBusy || WB.vtRender || WB.vtCut || archived() ? ' disabled' : '') + '>' + esc(label) + '</button> '
   }
 
   function vtClipsHtml(doc) {
@@ -8248,7 +8336,7 @@
       + vtBtn('vt-version', t('workbench.vt.version')) + '</p>'
       + '<p class="wb-vt-bg"><span class="wb-muted">' + esc(t('workbench.vt.bg.label')) + '</span> ' + backgrounds + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.bg.' + bgNow + '_hint')) + '</p>'
-      + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtOverlaysHtml(doc)
+      + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtCutoutHtml(doc) + vtOverlaysHtml(doc)
       + '<p>' + vtNumField('clip-volume', '', Math.round(doc.clip_volume * 100), t('workbench.vt.clip_volume')) + vtBtn('vt-volume', t('workbench.vt.save')) + '</p>'
       + '<p><button type="button" class="btn-primary" data-wb-act="vt-render"' + (WB.vtBusy || WB.vtRender || archived() || !doc.clips.length ? ' disabled' : '') + '>'
       + esc(WB.vtRender ? vtRenderLabel() : t('workbench.vt.render')) + '</button></p>' + vtRenderBarHtml()
@@ -20842,6 +20930,7 @@
     else if (a === 'vt-music-set') vtSetMusic()
     else if (a === 'vt-music-save') vtSaveMusic()
     else if (a === 'vt-music-del') vtOps([{ op: 'clearMusic' }])
+    else if (a === 'vt-co-make') vtMakeCutout()
     else if (a === 'vt-vo-make') vtMakeVoiceover()
     else if (a === 'vt-vo-save') vtSaveVoiceover(act.getAttribute('data-wb-id'))
     else if (a === 'vt-vo-del') vtOps([{ op: 'removeVoiceover', id: act.getAttribute('data-wb-id') }])

@@ -2,7 +2,8 @@
 # Voice components installer for the Marveen agent fleet.
 #
 # Installs: faster-whisper (STT) + piper-tts (TTS) + ffmpeg/libopus
-#           + Hungarian TTS voice models (imre, anna) + fleet helper scripts.
+#           + Hungarian TTS voice models (imre, anna) + fleet helper scripts
+#           + rembg/onnxruntime + the u2netp model (video background removal).
 #
 # Usage:
 #   ./scripts/install-voice.sh                     # installs to ~/.local/share/marveen-voice
@@ -125,6 +126,33 @@ fi
   || _fail "PyAV >= 19 is incompatible with faster-whisper (av.open metadata_errors)"
 _pass "PyAV pinned below 19"
 
+# --- Step 3b: background removal for the video editor (#669): rembg + onnxruntime + the small u2netp model ---
+# Runs on this machine only (the video never leaves it). Not needed for STT/TTS, but it travels with the toolkit
+# so one install button covers the whole voice-and-video toolbox.
+if "$DEST/venv/bin/python" -c "import rembg, onnxruntime, PIL, numpy" 2>/dev/null; then
+  _skip "background removal packages already installed"
+else
+  "$DEST/venv/bin/pip" install --quiet rembg onnxruntime pillow numpy
+  "$DEST/venv/bin/python" -c "import rembg, onnxruntime, PIL, numpy" || _fail "background removal import check failed"
+  _pass "rembg + onnxruntime installed"
+fi
+U2_DIR="$DEST/models/u2netp"
+U2_FILE="$U2_DIR/u2netp.onnx"
+MIN_U2_BYTES=4000000
+mkdir -p "$U2_DIR"
+u2_size=0
+[[ -f "$U2_FILE" ]] && u2_size=$(stat -c%s "$U2_FILE" 2>/dev/null || stat -f%z "$U2_FILE" 2>/dev/null || echo 0)
+if [[ "$u2_size" -ge "$MIN_U2_BYTES" ]]; then
+  _skip "u2netp model present (${u2_size} bytes)"
+else
+  curl -sSL --retry 3 --retry-delay 3 --connect-timeout 30 -o "$U2_FILE" \
+    "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx" \
+    || { rm -f "$U2_FILE"; _fail "download failed: u2netp.onnx"; }
+  u2_size=$(stat -c%s "$U2_FILE" 2>/dev/null || stat -f%z "$U2_FILE")
+  [[ "$u2_size" -ge "$MIN_U2_BYTES" ]] || { rm -f "$U2_FILE"; _fail "u2netp.onnx too small (${u2_size} bytes) -- download incomplete"; }
+  _pass "u2netp model: ${u2_size} bytes"
+fi
+
 # --- Step 4: Hungarian voice models ---
 _step "[4/5] Hungarian TTS voice models"
 MIN_ONNX_BYTES=50000000
@@ -162,6 +190,7 @@ cp "$VOICE_SRC/_vtools.py" "$DEST/_vtools.py"
 cp "$VOICE_SRC/stt.sh"     "$DEST/stt.sh"
 cp "$VOICE_SRC/tts.sh"     "$DEST/tts.sh"
 cp "$VOICE_SRC/canary.sh"  "$DEST/canary.sh"
+cp "$VOICE_SRC/cutout.py"  "$DEST/cutout.py"
 chmod +x "$DEST/stt.sh" "$DEST/tts.sh" "$DEST/_vtools.py"
 _pass "stt.sh, tts.sh, _vtools.py deployed"
 

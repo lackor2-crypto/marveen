@@ -19,51 +19,68 @@ export interface RenderJob<R = unknown> {
   error: { status: number; code: string; detail: string | null } | null
 }
 
-const jobs = new Map<string, RenderJob>()
-/** A finished job stays readable for this long, so a slow poll or a reload still gets the answer. */
-export const RENDER_JOB_KEEP_MS = 30 * 60_000
-
-function sweep(now: number): void {
-  for (const [k, j] of jobs) if (j.state !== 'running' && j.finishedAt !== null && now - j.finishedAt > RENDER_JOB_KEEP_MS) jobs.delete(k)
-}
-
-export function getRenderJob(itemId: string): RenderJob | null {
-  sweep(Date.now())
-  return jobs.get(itemId) ?? null
-}
-
 /** The public face of a job (no result body): what a poll needs. */
 export function jobStatus(j: RenderJob | null, now = Date.now()): { id: string; state: RenderJobState; progress: number; elapsed: number; error: RenderJob['error'] } | null {
   if (!j) return null
   return { id: j.id, state: j.state, progress: j.progress, elapsed: Math.max(0, Math.round(((j.finishedAt ?? now) - j.startedAt) / 1000)), error: j.error }
 }
 
-/**
- * Starts `run` in the background. Returns null when a job of this item is already running.
- * `run` reports progress and returns the result body, or throws a `{status, code, detail}` failure.
- */
-export function startRenderJob<R>(itemId: string, run: (progress: (fraction: number) => void) => Promise<R>): RenderJob<R> | null {
-  const old = jobs.get(itemId)
-  if (old && old.state === 'running') return null
-  const job: RenderJob<R> = { id: `${itemId}-${Date.now().toString(36)}`, itemId, state: 'running', progress: 0, startedAt: Date.now(), finishedAt: null, result: null, error: null }
-  jobs.set(itemId, job as RenderJob)
-  void (async () => {
-    try {
-      job.result = await run((f) => { if (Number.isFinite(f)) job.progress = Math.max(job.progress, Math.min(1, Math.max(0, f))) })
-      job.progress = 1
-      job.state = 'done'
-    } catch (e) {
-      const x = e as { status?: number; code?: string; detail?: string | null }
-      job.error = { status: x.status ?? 500, code: x.code ?? 'video_failed', detail: x.detail ?? (e instanceof Error ? e.message : null) }
-      job.state = 'error'
-    } finally {
-      job.finishedAt = Date.now()
-    }
-  })()
-  return job
+/** A finished job stays readable for this long, so a slow poll or a reload still gets the answer. */
+export const RENDER_JOB_KEEP_MS = 30 * 60_000
+
+export interface JobStore {
+  get(itemId: string): RenderJob | null
+  /**
+   * Starts `run` in the background. Returns null when a job of this item is already running.
+   * `run` reports progress and returns the result body, or throws a `{status, code, detail}` failure.
+   */
+  start<R>(itemId: string, run: (progress: (fraction: number) => void) => Promise<R>): RenderJob<R> | null
+  clear(): void
 }
+
+/** One job per work item in each store; the render and the background removal each have their own, so one does not block the status of the other. */
+export function createJobStore(): JobStore {
+  const jobs = new Map<string, RenderJob>()
+  const sweep = (now: number): void => {
+    for (const [k, j] of jobs) if (j.state !== 'running' && j.finishedAt !== null && now - j.finishedAt > RENDER_JOB_KEEP_MS) jobs.delete(k)
+  }
+  return {
+    get(itemId) {
+      sweep(Date.now())
+      return jobs.get(itemId) ?? null
+    },
+    start<R>(itemId: string, run: (progress: (fraction: number) => void) => Promise<R>): RenderJob<R> | null {
+      const old = jobs.get(itemId)
+      if (old && old.state === 'running') return null
+      const job: RenderJob<R> = { id: `${itemId}-${Date.now().toString(36)}`, itemId, state: 'running', progress: 0, startedAt: Date.now(), finishedAt: null, result: null, error: null }
+      jobs.set(itemId, job as RenderJob)
+      void (async () => {
+        try {
+          job.result = await run((f) => { if (Number.isFinite(f)) job.progress = Math.max(job.progress, Math.min(1, Math.max(0, f))) })
+          job.progress = 1
+          job.state = 'done'
+        } catch (e) {
+          const x = e as { status?: number; code?: string; detail?: string | null }
+          job.error = { status: x.status ?? 500, code: x.code ?? 'video_failed', detail: x.detail ?? (e instanceof Error ? e.message : null) }
+          job.state = 'error'
+        } finally {
+          job.finishedAt = Date.now()
+        }
+      })()
+      return job
+    },
+    clear() { jobs.clear() },
+  }
+}
+
+const renderStore = createJobStore()
+export const cutoutStore = createJobStore()
+
+export function getRenderJob(itemId: string): RenderJob | null { return renderStore.get(itemId) }
+export function startRenderJob<R>(itemId: string, run: (progress: (fraction: number) => void) => Promise<R>): RenderJob<R> | null { return renderStore.start(itemId, run) }
 
 /** Tests only. */
 export function _clearRenderJobs(): void {
-  jobs.clear()
+  renderStore.clear()
+  cutoutStore.clear()
 }

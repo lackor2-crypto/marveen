@@ -108,11 +108,12 @@ import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbenc
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS } from '../../workbench-video-timeline.js'
 import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
-import { getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
+import { cutoutStore, getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
 import { makeVoiceover } from '../../workbench-video-tts.js'
+import { cutoutClip } from '../../workbench-video-cutout.js'
 import { recogniseTimeline, applySubtitleLines, AUTOSUB_LANGS, type AutoSubLang } from '../../workbench-video-autosub.js'
 import { opsLabel } from '../../workbench-draft-store.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS, TABLE_MAX_BYTES } from '../../workbench-table.js'
@@ -1161,6 +1162,38 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   tts_write_failed: {
     hu: 'A felolvasott hangfájlt nem tudtam elmenteni a munkadarab mappájába.',
     en: 'I could not save the spoken sound file into the work item folder.',
+  },
+  cutout_not_installed: {
+    hu: 'A háttér-eltávolító még nincs telepítve. A Beállítások önellenőrzésében a „Háttér-eltávolítás” sor megmondja, mit kell tenni (a hang-eszköztár telepítése).',
+    en: 'The background remover is not installed yet. The "Background removal" row of the Settings self-check says what to do (install the voice toolkit).',
+  },
+  cutout_bad_mode: {
+    hu: 'A háttér cseréje „szín” vagy „elmosás” lehet.',
+    en: 'The background can be replaced by a "colour" or a "blur".',
+  },
+  cutout_bad_color: {
+    hu: 'A színt hat jegyű hexa kóddal add meg, például 00b140.',
+    en: 'Give the colour as a six-digit hex code, for example 00b140.',
+  },
+  cutout_too_long: {
+    hu: 'Egyszerre legfeljebb 30 másodpercnyi klipet lehet így feldolgozni. Vágd rövidebbre a klipet (vagy szeleteld fel), és próbáld újra.',
+    en: 'At most 30 seconds of a clip can be processed at a time. Trim the clip shorter (or split it) and try again.',
+  },
+  cutout_clip_missing: {
+    hu: 'Ez a klip már nincs az idővonalon.',
+    en: 'That clip is no longer on the timeline.',
+  },
+  cutout_failed: {
+    hu: 'A háttér-eltávolítás nem sikerült. A részletek megmondják, mit írt a program.',
+    en: 'The background removal did not work. The details say what the program wrote.',
+  },
+  cutout_no_ffmpeg: {
+    hu: 'A háttér-eltávolításhoz a videóprogram (ffmpeg) kell, de nem érhető el.',
+    en: 'Background removal needs the video program (ffmpeg), which is not available.',
+  },
+  timeline_cutout_done: {
+    hu: 'Kész: a klip háttere cserélve. Ha nem tetszik, a Visszavonás visszahozza az eredetit.',
+    en: 'Done: the clip background is replaced. If you do not like it, Undo brings the original back.',
   },
   timeline_voiceover_done: {
     hu: 'Kész a felolvasás: a hang rákerült az idővonalra. Mozgathatod, halkíthatod vagy törölheted.',
@@ -5758,6 +5791,50 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         versions: listWorkItemVersionsView(item.id), summary: timelineSummary(applied.doc), duration: timelineDuration(applied.doc), offsets: clipOffsets(applied.doc),
         ...tlState(), message: msg('timeline_autosub_done', lang),
       }, commit.created ? 201 : 200)
+      return true
+    }
+
+    // #669 phase C: the background behind the subject of a clip is replaced (colour or blur), on this machine. A job: it takes minutes.
+    if (segs.length === 3 && segs[2] === 'cutout-status' && method === 'GET') {
+      const job = cutoutStore.get(item.id)
+      json(res, { job: jobStatus(job), ...(job && job.state === 'done' ? { result: job.result } : {}) })
+      return true
+    }
+    if (segs.length === 3 && segs[2] === 'cutout' && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const project = getProject(item.project_id)
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      const body = (await readJson(req)) || {}
+      const cur0 = store.read(item.id)
+      if (!cur0.ok) return failDetail(res, tlStatus(cur0.code), cur0.code, lang, cur0.detail)
+      // Quick refusals answer at once; only the slow part runs as a job.
+      const pre = await cutoutClip(project, item, cur0.doc, { clipId: body['clip'], mode: body['mode'], color: body['color'] }, undefined, true)
+      if (!pre.ok) {
+        const status = pre.code === 'cutout_not_installed' || pre.code === 'cutout_no_ffmpeg' ? 503 : pre.code === 'video_busy' ? 409 : pre.code === 'cutout_clip_missing' ? 404 : 400
+        return failDetail(res, status, pre.code, lang, ('detail' in pre && pre.detail) || null)
+      }
+      const job = cutoutStore.start(item.id, async (progress) => {
+        const cur = store.read(item.id)
+        if (!cur.ok) throw { status: tlStatus(cur.code), code: cur.code, detail: cur.detail ?? null }
+        const made = await cutoutClip(project, item, cur.doc, { clipId: body['clip'], mode: body['mode'], color: body['color'] }, progress)
+        if (!made.ok) {
+          const status = made.code === 'cutout_not_installed' || made.code === 'cutout_no_ffmpeg' ? 503 : made.code === 'video_busy' ? 409 : made.code === 'cutout_failed' || made.code === 'video_failed' || made.code === 'video_timeout' ? 500 : 400
+          throw { status, code: made.code, detail: ('detail' in made && made.detail) || null }
+        }
+        const fresh = store.read(item.id)
+        if (!fresh.ok) throw { status: tlStatus(fresh.code), code: fresh.code, detail: fresh.detail ?? null }
+        const applied = applyTimelineOps(fresh.doc, [{ op: 'replaceClipSource', id: made.clipId, src: made.rel, end: made.dur }])
+        if (!applied.ok) throw { status: 400, code: applied.code, detail: applied.detail ?? null }
+        const commit = store.commit(item, applied.doc, { source: 'owner', grp: 'ui:cutout', label: 'replaceClipSource', actor: actor(ctx), name: fresh.name })
+        if (!commit.ok) throw { status: commit.code === 'project_not_found' ? 404 : 400, code: commit.code, detail: commit.detail ?? null }
+        return {
+          ok: true, rel: made.rel, dur: made.dur, timeline: applied.doc, changed: commit.changed, item: getWorkItem(item.id) || item,
+          versions: listWorkItemVersionsView(item.id), summary: timelineSummary(applied.doc), duration: timelineDuration(applied.doc), offsets: clipOffsets(applied.doc),
+          ...tlState(), message: msg('timeline_cutout_done', lang),
+        }
+      })
+      if (!job) return fail(res, 409, 'video_busy', lang)
+      json(res, { job: jobStatus(job) }, 202)
       return true
     }
 

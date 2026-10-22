@@ -16,7 +16,7 @@
 
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
@@ -26,7 +26,7 @@ import { buildTtsDirective, resolveAgentChannelStateDir, inboundIsAudio } from '
 import { PROJECT_ROOT, STORE_DIR } from '../../config.js'
 import type { RouteContext } from './types.js'
 
-const VOICE_DIR = join(homedir(), '.local', 'share', 'marveen-voice')
+export const VOICE_DIR = join(homedir(), '.local', 'share', 'marveen-voice')
 export const VTOOLS_PY = join(VOICE_DIR, '_vtools.py')
 export const VENV_PY = join(VOICE_DIR, 'venv', 'bin', 'python')
 
@@ -65,6 +65,16 @@ export function voiceOnnxPath(model: string): string | null {
   if (!KNOWN_VOICE_MODELS.has(model)) return null
   const p = join(VOICE_DIR, 'voices', `${model}.onnx`)
   return existsSync(p) ? p : null
+}
+
+/** The video background remover (#669): rembg + onnxruntime in the toolkit's venv, and the small u2netp model. A cheap file check, no Python started. */
+export const cutoutModelsDir = (): string => join(VOICE_DIR, 'models')
+export function isCutoutInstalled(): boolean {
+  if (!existsSync(VENV_PY) || !existsSync(join(cutoutModelsDir(), 'u2netp', 'u2netp.onnx'))) return false
+  const lib = join(VOICE_DIR, 'venv', 'lib')
+  try {
+    return readdirSync(lib).some((d) => existsSync(join(lib, d, 'site-packages', 'rembg')) && existsSync(join(lib, d, 'site-packages', 'onnxruntime')))
+  } catch { return false }
 }
 
 export function isVoiceInstalled(): boolean {
@@ -317,7 +327,7 @@ export async function tryHandleVoice(ctx: RouteContext): Promise<boolean> {
   // are present, spawns install-voice.sh with SKIP_SYSTEM_DEPS=1 (no root
   // needed) and returns immediately; the client polls /api/voice/status.
   if (path === '/api/voice/install' && method === 'POST') {
-    if (isVoiceInstalled()) {
+    if (isVoiceInstalled() && isCutoutInstalled()) {
       json(res, { ok: true, alreadyInstalled: true })
       return true
     }
