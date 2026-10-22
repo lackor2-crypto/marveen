@@ -14382,7 +14382,6 @@
     }
     out += dbButtonHtml('btn-secondary wb-sh-docs')
       + '<button type="button" class="btn-secondary wb-sh-docs" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
-      + rsButtonHtml('btn-secondary wb-sh-docs')
       + viewSwitchHtml()
       + '<button type="button" class="btn-secondary wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '"'
       + ' aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
