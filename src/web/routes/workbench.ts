@@ -80,6 +80,8 @@ import { pageBreaksFor } from '../../workbench-docpages.js'
 import { finalizeTextItem, hasTextFinalPanel } from '../../workbench-notefinal.js'
 import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefinal.js'
 import { finalizeDocxItem, hasDocxFinalPanel } from '../../workbench-docxfinal.js'
+import { decideWorkmodeProposal, DEFAULT_WORKMODE, getWorkmode, listWorkmodeProposals, resetWorkmode, setWorkmode, sheetWithRule, WORKMODE_MAX_CHARS } from '../../workbench-workmode.js'
+import { checkPlacementAfter, lifeMoveIssues } from '../../workbench-placement-check.js'
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { syncCheckTodos } from '../../workbench-check-todos.js'
@@ -790,6 +792,15 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez a fájl már nincs a listán (átnevezték, áthelyezték vagy törölték). Frissítsd az oldalt.',
     en: 'This file is no longer on the list (renamed, moved or deleted). Refresh the page.',
   },
+  workmode_text_required: { hu: 'A Munkamód lap nem lehet üres. Ha az alapszöveget szeretnéd vissza, nyomd meg az "Alapszöveg visszaállítása" gombot.', en: 'The Work mode sheet cannot be empty. To get the built-in text back, press "Restore the default".' },
+  workmode_text_too_long: { hu: 'A Munkamód lap túl hosszú (legfeljebb 8000 karakter). Rövidíts rajta, mielőtt mented vagy újabb szabályt fogadsz el.', en: 'The Work mode sheet is too long (at most 8000 characters). Shorten it before you save it or accept another rule.' },
+  workmode_rule_required: { hu: 'A javasolt szabály üres.', en: 'The proposed rule is empty.' },
+  workmode_rule_too_long: { hu: 'A javasolt szabály túl hosszú.', en: 'The proposed rule is too long.' },
+  workmode_reason_too_long: { hu: 'A javaslat indoklása túl hosszú.', en: 'The reason of the proposal is too long.' },
+  workmode_too_many_pending: { hu: 'Túl sok javaslat vár döntésre. Döntsd el előbb a nyitottakat.', en: 'Too many proposals wait for a decision. Decide the open ones first.' },
+  workmode_duplicate: { hu: 'Ugyanez a szabály már vár döntésre.', en: 'The same rule is already waiting for a decision.' },
+  workmode_not_found: { hu: 'Ez a javaslat már nincs meg. Frissítsd az oldalt.', en: 'This proposal is gone. Reload the page.' },
+  workmode_already_decided: { hu: 'Erről a javaslatról már döntöttél.', en: 'You already decided this proposal.' },
   life_move_no_folder: {
     hu: 'Ennek a munkadarabnak még nincs mappája, így nincs mit az Életfába költöztetni.',
     en: 'This work item has no folder yet, so there is nothing to move into the Life tree.',
@@ -2513,6 +2524,45 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = await restoreFromFolders({ adoptOrphans: body['adopt_orphans'] === true, deep: body['deep'] === true })
     json(res, { ok: true, ...r })
     return true
+  }
+
+  // #758 (1A, 2A): the assistant's Work mode sheet (one for the whole install) and the rules it proposed.
+  //   GET  /api/workbench/workmode                      -- the sheet, the built-in default, the open proposals with preview
+  //   PUT  /api/workbench/workmode                      -- save the owner's edit ({ text })
+  //   POST /api/workbench/workmode/reset                -- back to the built-in default
+  //   POST /api/workbench/workmode/proposals/:id        -- the owner's decision ({ accept: true | false })
+  if (path === '/api/workbench/workmode' || path.startsWith('/api/workbench/workmode/')) {
+    const out = (): Record<string, unknown> => {
+      const st = getWorkmode(lang)
+      return {
+        ...st, default_text: DEFAULT_WORKMODE[lang], max_chars: WORKMODE_MAX_CHARS,
+        proposals: listWorkmodeProposals('pending').map((p) => ({ ...p, preview: sheetWithRule(st.text, p.rule) })),
+      }
+    }
+    if (path === '/api/workbench/workmode' && method === 'GET') { json(res, out()); return true }
+    if (path === '/api/workbench/workmode' && method === 'PUT') {
+      const body = await readJson(req)
+      if (!body) return fail(res, 400, 'bad_json', lang)
+      const r = setWorkmode(body['text'], actor(ctx))
+      if (!r.ok) return fail(res, 400, r.code, lang)
+      json(res, { ok: true, ...out() })
+      return true
+    }
+    if (path === '/api/workbench/workmode/reset' && method === 'POST') {
+      resetWorkmode(lang)
+      json(res, { ok: true, ...out() })
+      return true
+    }
+    const pm = /^\/api\/workbench\/workmode\/proposals\/([^/]+)$/.exec(path)
+    if (pm && method === 'POST') {
+      const body = await readJson(req)
+      if (!body || typeof body['accept'] !== 'boolean') return fail(res, 400, 'bad_json', lang)
+      const r = decideWorkmodeProposal(decodeURIComponent(pm[1]), body['accept'], actor(ctx), lang)
+      if (!r.ok) return fail(res, r.code === 'workmode_not_found' ? 404 : r.code === 'workmode_already_decided' ? 409 : 400, r.code, lang)
+      json(res, { ok: true, decided: r.proposal.status, ...out() })
+      return true
+    }
+    return fail(res, 404, 'not_found', lang)
   }
 
   if (path === '/api/workbench/capabilities' && method === 'GET') {
@@ -4273,7 +4323,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       // #552: a successful finalize by the owner also marks the work item finalized (done); a failure returned above.
       try { finalizeWorkItem(item.id, { by: actor(ctx) || 'dashboard' }) } catch { /* the PDF is made; the status is best effort */ }
-      json(res, { ok: true, final: r.final, file: r.asset_path, reused: r.reused === true, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id) })
+      json(res, { ok: true, final: r.final, file: r.asset_path, reused: r.reused === true, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id), placement: checkPlacementAfter(item, 'finalize', lang) })
       return true
     }
     // #533: undo / redo on the page. The history is the server's (snapshots of the outline tables), so it
@@ -4577,6 +4627,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     json(res, {
       ok: true, asset: r.asset, folder: r.folder, folder_created: r.folderCreated,
       renamed: r.renamed, name: r.asset.name, assets: assetsOut(item.id),
+      // #758 (3A): the machine self-check of the item's folders; a note goes into the chat when something is off.
+      placement: checkPlacementAfter(getWorkItem(item.id) || item, 'upload', lang),
     }, 201)
     return true
   }
@@ -4791,7 +4843,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r.ok) return fail(res, r.code === 'no_folder' ? 404 : 400, r.code === 'no_folder' ? 'life_move_no_folder' : 'life_move_bad_input', lang)
     // #716: an annex that stood on the old place becomes a link to the document in the Life tree.
     const relinked = await relinkMovedAnnexes(owner, movedPairs(r.results)).catch(() => 0)
-    json(res, { ok: true, results: r.results, relinked, assets: assetsOut(item.id) })
+    const placement = checkPlacementAfter(getWorkItem(item.id) || item, 'life_move', lang, lifeMoveIssues(movedPairs(r.results)))
+    json(res, { ok: true, results: r.results, relinked, assets: assetsOut(item.id), placement })
     return true
   }
   // Boss TG 4068 (5A): an old document that was sent before the app knew is marked "sent" by hand, so it may move.
@@ -4890,7 +4943,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (action === 'finalize' && body['pdf'] === true && hasTextFinalPanel(item)) {
         const tf = await finalizeTextItem(item, { by: who || 'dashboard', lang: body['lang'] == null ? null : String(body['lang']), text: typeof body['text'] === 'string' ? body['text'] : null })
         if (!tf.ok) return failDetail(res, tf.code === 'note_final_already_done' ? 409 : tf.code === 'note_final_not_text' || tf.code === 'note_final_bad_translation' || tf.code === 'note_final_no_variant' ? 400 : 500, tf.code, lang, tf.detail)
-        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name } })
+        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name }, placement: checkPlacementAfter(item, 'finalize', lang) })
         return true
       }
       // #719: a Word (.docx) item is finalized from its own panel; the PDF lands NEXT TO the Word file (no folder is made).
@@ -4900,20 +4953,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
           if (df.code === 'convert') return docEditFail(res, { code: df.convert || 'convert_failed', detail: df.detail }, lang)
           return failDetail(res, df.code === 'docx_final_already_done' ? 409 : df.code === 'docx_final_not_docx' ? 400 : 500, df.code, lang, df.detail)
         }
-        json(res, { item: df.item, approval: workItemApprovalState(item.id), final: { path: df.pdf_path, name: df.pdf_name, pdf_name: df.pdf_name } })
+        json(res, { item: df.item, approval: workItemApprovalState(item.id), final: { path: df.pdf_path, name: df.pdf_name, pdf_name: df.pdf_name }, placement: checkPlacementAfter(item, 'finalize', lang) })
         return true
       }
       // #674: a table item is finalized from its own panel; the workbook (and a PDF, when LibreOffice is there) lands in Finished materials.
       if (action === 'finalize' && body['pdf'] === true && hasTableFinalPanel(item)) {
         const tf = await finalizeTableItem(item, { by: who || 'dashboard' })
         if (!tf.ok) return failDetail(res, tf.code === 'table_final_already_done' ? 409 : tf.code === 'table_final_not_table' ? 400 : 500, tf.code, lang, tf.detail)
-        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name, pdf_name: tf.pdf_name, pdf_note: tf.pdf_note } })
+        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name, pdf_name: tf.pdf_name, pdf_note: tf.pdf_note }, placement: checkPlacementAfter(item, 'finalize', lang) })
         return true
       }
       r = action === 'finalize' ? finalizeWorkItem(item.id, { by: who || 'dashboard' }) : reopenWorkItem(item.id, { by: who || 'dashboard', lang })
     } else return fail(res, 400, 'approval_bad_action', lang)
     if (!r.ok) return fail(res, r.code === 'reason_too_long' ? 400 : 409, 'approval_' + r.code, lang)
-    json(res, { item: r.item, approval: r.approval, ...(action === 'reopen' ? { versions: listWorkItemVersionsView(item.id) } : {}) })
+    json(res, { item: r.item, approval: r.approval, ...(action === 'reopen' ? { versions: listWorkItemVersionsView(item.id) } : { placement: checkPlacementAfter(item, 'finalize', lang) }) })
     return true
   }
 

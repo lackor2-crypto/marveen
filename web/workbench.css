@@ -2322,3 +2322,22 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-rs-title { font-weight: 600; text-align: left; }
 .wb-rs-doc { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; max-height: 50vh; overflow: auto; }
 .wb-rs-doc ul, .wb-rs-doc ol { padding-left: 1.4em; }
+
+/* #758: the assistant's Work mode sheet on the Settings page (AI Workbench tab) */
+.wb-wm-card { display: block; }
+.wb-wm-title { font-weight: 600; margin-bottom: 4px; }
+.wb-wm-subtitle { font-weight: 600; margin: 14px 0 6px; }
+.wb-wm-hint, .wb-wm-state { margin: 4px 0 8px; opacity: .8; font-size: .92em; }
+.wb-wm-err { color: var(--danger, #c0392b); }
+.wb-wm-label { display: block; font-size: .9em; margin-bottom: 4px; }
+.wb-wm-text { width: 100%; box-sizing: border-box; min-height: 260px; font: inherit; font-size: .92em; line-height: 1.45; resize: vertical; }
+.wb-wm-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 6px; }
+.wb-wm-count { font-size: .85em; opacity: .7; }
+.wb-wm-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.wb-wm-prop { border: 1px solid var(--border, rgba(127,127,127,.3)); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.wb-wm-rule { font-weight: 600; overflow-wrap: anywhere; }
+.wb-wm-reason { font-size: .9em; opacity: .8; margin-top: 4px; overflow-wrap: anywhere; }
+.wb-wm-preview { margin: 8px 0; }
+.wb-wm-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; font-size: .85em; margin: 6px 0 0; }
+.wb-wm-preview mark { padding: 0 2px; }
+.wb-wm-card .btn-primary, .wb-wm-card .btn-secondary { width: auto; }
