@@ -75,7 +75,17 @@ export type PaneState = 'idle' | 'busy' | 'typing' | 'unknown' | 'error'
 // scrollback still will not match; it needs the shift+tab hint or a `·`
 // separated idle action, which is UI chrome that prose does not carry.
 // `← for agents` is the FleetView tail on current builds; older tails kept.
-const IDLE_FOOTER_RX = /(?:[A-Za-z][\w-]* ){1,3}on(?: \(shift\+tab to cycle\)| · [^\n]*?(?:ctrl\+t|↓ to manage|← for agents))|\? for shortcuts/
+//
+// BARE COUNT TAIL (#752). Claude Code 2.1.30x renders the idle footer of a
+// session with a running background shell as just
+// `⏵⏵ bypass permissions on · 1 shell` -- no `↓ to manage` / `ctrl+t` tail at
+// all. That frame read 'unknown', so a session whose turn had ended but whose
+// background shell kept running (a command blocked on stdin) refused every
+// scheduled task and message for 8.5 hours (2026-10-22, lackor3). The bare form
+// is accepted only as a WHOLE LINE that starts with the mode glyph (⏵⏵ / ⏸):
+// that glyph is UI chrome, so a quoted `... on · 1 shell` inside reply text or
+// a log line still does not count as a live footer.
+const IDLE_FOOTER_RX = /(?:[A-Za-z][\w-]* ){1,3}on(?: \(shift\+tab to cycle\)| · [^\n]*?(?:ctrl\+t|↓ to manage|← for agents))|\? for shortcuts|^[ \t]*[⏵⏸]+[ \t]*(?:[A-Za-z][\w-]* ){1,3}on · [1-9]\d* (?:monitors?|(?:background |local )?(?:shells?|tasks?|agents?|workflows?))(?: · [1-9]\d* (?:monitors?|(?:background |local )?(?:shells?|tasks?|agents?|workflows?)))*[ \t]*$/m
 
 // Positive busy signals. ANY match anywhere in the pane means the turn
 // is mid-flight, even if the footer looks idle for a frame.

@@ -495,30 +495,47 @@ describe('detectPaneState', () => {
     expect(detectPaneState(IDLE_BACKGROUND_ONE_SHELL_HIDDEN)).toBe('idle')
   })
 
-  it('does NOT classify a truncated "· N shell" prefix as idle', () => {
-    // Defense in depth: the shells-variant requires either the
-    // "· N shells · ctrl+t" marker or the "· N shells · ↓ to manage"
-    // marker, not just the bare "· N shell(s)" prefix. Two reasons we
-    // pin this down with an explicit negative test:
-    //   1. A malformed or partially rendered footer (terminal
-    //      corruption, mid-render frame) must classify as 'unknown'
-    //      so we do not deliver a prompt into a pane that is not
-    //      really ready.
-    //   2. The "bypass permissions on · 1 shell" substring could
-    //      appear in scrollback as quoted log output or an echoed
-    //      message, and the regex must not be tricked into treating
-    //      that as a live footer.
-    // The fixture is deliberately minimal: no other idle markers
-    // (no "(shift+tab to cycle)", no "? for shortcuts") so the
-    // assertion isolates the truncated-shells path specifically.
-    const truncated = [
+  it('#752: the bare "· 1 shell" footer of current Claude Code is idle', () => {
+    // Captured 2026-10-22 from a live 2.1.307 session whose turn had ended
+    // while one background shell kept running: the footer carries no
+    // "↓ to manage" / "ctrl+t" tail at all. It used to read 'unknown', and the
+    // session refused every scheduled task and message for 8.5 hours.
+    const live = [
+      '✻ Sautéed for 3m 56s · done 12:59 PM · 1 shell still running',
       '',
       SEP,
       '❯ ',
       SEP,
-      '  ⏵⏵ bypass permissions on · 1 shell',
+      '  Opus 5.5 | Ctx 17% | 5h 21% | 7d 75%',
+      '  ⏵⏵ bypass permissions on · 1 shell                          ',
     ].join('\n')
-    expect(detectPaneState(truncated)).toBe('unknown')
+    expect(detectPaneState(live)).toBe('idle')
+    expect(isReadyForPrompt(live)).toBe(true)
+    const many = live.replace('· 1 shell', '· 2 shells · 1 monitor')
+    expect(detectPaneState(many)).toBe('idle')
+    const typed = live.replace('❯ ', '❯ half-typed text')
+    expect(detectPaneState(typed)).toBe('typing')
+  })
+
+  it('#752: a quoted "on · 1 shell" without the mode glyph or mid-line is not a footer', () => {
+    // The bare tail is only trusted as a whole line led by the ⏵⏵ / ⏸ glyph
+    // (UI chrome). Quoted log text or prose carrying the phrase stays 'unknown'.
+    const quoted = [
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  bypass permissions on · 1 shell',
+    ].join('\n')
+    expect(detectPaneState(quoted)).toBe('unknown')
+    const midLine = [
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  the log said ⏵⏵ bypass permissions on · 1 shell and then stopped',
+    ].join('\n')
+    expect(detectPaneState(midLine)).toBe('unknown')
   })
 
   it('detects busy when "esc to interrupt" footer marker is present', () => {
