@@ -526,6 +526,13 @@ export const TOOLS: ToolDef[] = [
     input: 'id: the research id exactly as listed ("agent/name.md"); offset (optional): where to continue reading',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
+  // #758 (2A): the assistant learns -- but it only PROPOSES a rule for the owner's Work mode sheet.
+  {
+    name: 'workmode.propose',
+    description: 'Propose ONE new rule for the Work mode sheet (how you work in every work item), when the owner corrected you or asked for the same thing again. It does not change the sheet: the owner sees the rule with a preview and accepts or rejects it on the Settings page (AI Workbench -> Work mode). Tell the owner that you proposed it and where to accept it.',
+    input: 'rule: the rule in one sentence (at most 600 characters); reason: why, from what the owner said or corrected (at most 400 characters)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
   {
     name: 'kanban.comment',
     description: 'Write a comment on an existing kanban card of THIS project (progress, a finding, a question). Continuing an open card is done this way, not with a new card.',

@@ -364,11 +364,36 @@
           return { ok: false, status: res.status, code: data && data.error, data: data, message: message,
             text: why && message.indexOf(why) < 0 ? message + ' ' + t('workbench.err.detail', { detail: why }) : message }
         }
+        notePlacement(data)
         return { ok: true, status: res.status, data: data }
       })
     }).catch(function () {
       return { ok: false, status: 0, code: 'network', message: t('workbench.err.network') }
     })
+  }
+
+  /** #758 (3A): after an upload, a finalisation or a move the server machine-checks where the item's files lie and
+   *  writes a note into the item's chat. The chat on the screen shows it at once (the server keeps it for the next
+   *  load), and a toast says where to look. One toast per burst: a multi-file upload answers once per file. */
+  var placementToastTimer = null
+  function notePlacement(data) {
+    var pl = data && data.placement
+    if (!pl || !pl.note || !pl.item_id) return
+    var st = WB.chat && WB.chat[pl.item_id]
+    if (st && st.loaded) {
+      var last = null
+      for (var i = st.turns.length - 1; i >= 0; i--) { if (st.turns[i].role === 'agent') { last = st.turns[i]; break } }
+      if (!last || last.text !== pl.note) {
+        st.turns.push({ role: 'agent', text: pl.note, tools: [], notices: [], error: null, done: true, model: null, via: null })
+        if (WB.selectedId === pl.item_id && typeof renderChat === 'function') renderChat()
+      }
+    }
+    if (placementToastTimer) clearTimeout(placementToastTimer)
+    var n = pl.issues
+    placementToastTimer = setTimeout(function () {
+      placementToastTimer = null
+      if (typeof window.showToast === 'function') window.showToast(t('workbench.placement.toast', { n: n }))
+    }, 700)
   }
 
   // ---- adatbetoltes ---------------------------------------------------------
@@ -2928,6 +2953,7 @@
     return fetch(url, { method: 'POST', body: file }).then(function (res) {
       return res.json().catch(function () { return null }).then(function (data) {
         if (!res.ok) return { ok: false, data: data, message: (data && data.message) || t('workbench.err.http', { status: res.status }) }
+        notePlacement(data)
         return { ok: true, data: data }
       })
     }).catch(function () { return { ok: false, message: t('workbench.err.network') } })
@@ -23523,9 +23549,113 @@
     return card
   }
 
+  /** #758 (1A, 2A): the Work mode sheet of the assistant on the Settings page (AI Workbench tab). The assistant reads
+   *  it in every turn; the owner edits it here, and accepts or rejects the rules the assistant proposed, each with a
+   *  preview of the whole sheet after it. A load error is said as an error, never shown as an empty sheet. */
+  function workmodeSettingCard() {
+    var card = document.createElement('div')
+    card.className = 'settings-row wb-wm-card'
+    card.id = 'wbWorkmodeCard'
+    var S = { data: null, error: null, busy: false, text: null }
+    function draw() {
+      var h = '<div class="wb-wm-title">' + esc(t('workbench.wm.title')) + '</div>'
+        + '<p class="wb-wm-hint">' + esc(t('workbench.wm.hint')) + '</p>'
+      if (S.error) {
+        h += '<p class="wb-wm-err" role="alert">' + esc(t('workbench.wm.load_error', { message: S.error })) + '</p>'
+          + '<button type="button" class="btn-secondary" data-wm="reload">' + esc(t('workbench.wm.retry')) + '</button>'
+        card.innerHTML = h
+        return
+      }
+      if (!S.data) { card.innerHTML = h + '<p class="wb-wm-hint">' + esc(t('workbench.wm.loading')) + '</p>'; return }
+      var d = S.data
+      var text = S.text != null ? S.text : d.text
+      h += '<p class="wb-wm-state">' + esc(d.custom
+        ? t('workbench.wm.state_custom', { when: d.updated_at ? new Date(d.updated_at * 1000).toLocaleString() : '' })
+        : t('workbench.wm.state_default')) + '</p>'
+        + '<label class="wb-wm-label" for="wbWmText">' + esc(t('workbench.wm.text_label')) + '</label>'
+        + '<textarea id="wbWmText" class="wb-wm-text" rows="18" maxlength="' + escA(String(d.max_chars || 8000)) + '" aria-label="' + escA(t('workbench.wm.text_label')) + '">' + esc(text) + '</textarea>'
+        + '<div class="wb-wm-row"><span class="wb-wm-count" id="wbWmCount">' + esc(t('workbench.wm.count', { n: text.length, max: d.max_chars || 8000 })) + '</span>'
+        + '<span class="wb-wm-btns">'
+        + '<button type="button" class="btn-primary" data-wm="save"' + (S.busy ? ' disabled' : '') + '>' + esc(t('workbench.wm.save')) + '</button> '
+        + '<button type="button" class="btn-secondary" data-wm="reset"' + (S.busy || !d.custom ? ' disabled' : '') + ' title="' + escA(t('workbench.wm.reset_title')) + '">' + esc(t('workbench.wm.reset')) + '</button>'
+        + '</span></div>'
+      var ps = d.proposals || []
+      h += '<div class="wb-wm-props"><div class="wb-wm-subtitle">' + esc(t('workbench.wm.props_title', { n: ps.length })) + '</div>'
+      if (!ps.length) h += '<p class="wb-wm-hint">' + esc(t('workbench.wm.props_none')) + '</p>'
+      ps.forEach(function (p) {
+        var lines = String(p.preview || '').split('\n')
+        var added = lines.pop()
+        h += '<div class="wb-wm-prop" data-wm-id="' + escA(p.id) + '">'
+          + '<div class="wb-wm-rule">' + esc(p.rule) + '</div>'
+          + (p.reason ? '<div class="wb-wm-reason">' + esc(t('workbench.wm.reason', { reason: p.reason })) + '</div>' : '')
+          + '<details class="wb-wm-preview"><summary>' + esc(t('workbench.wm.preview')) + '</summary>'
+          + '<pre>' + esc(lines.join('\n')) + '\n<mark>' + esc(added || '') + '</mark></pre></details>'
+          + '<div class="wb-wm-btns"><button type="button" class="btn-primary" data-wm="accept" data-wm-id="' + escA(p.id) + '"' + (S.busy ? ' disabled' : '') + '>' + esc(t('workbench.wm.accept')) + '</button> '
+          + '<button type="button" class="btn-secondary" data-wm="reject" data-wm-id="' + escA(p.id) + '"' + (S.busy ? ' disabled' : '') + '>' + esc(t('workbench.wm.reject')) + '</button></div>'
+          + '</div>'
+      })
+      h += '</div>'
+      card.innerHTML = h
+    }
+    function load() {
+      S.error = null
+      api('GET', '/api/workbench/workmode').then(function (r) {
+        if (!r.ok) { S.error = r.message; draw(); return }
+        S.data = r.data; S.text = null; draw()
+      })
+    }
+    function done(r, okKey) {
+      S.busy = false
+      if (!r.ok) { draw(); window.showToast(r.text || r.message); return }
+      S.data = r.data; S.text = null; draw()
+      window.showToast(t(okKey))
+    }
+    // The new rule stands at the END of the preview: opening it scrolls there, so the owner sees what is added.
+    card.addEventListener('toggle', function (e) {
+      var d = e.target
+      if (!d || !d.classList || !d.classList.contains('wb-wm-preview') || !d.open) return
+      var pre = d.querySelector('pre')
+      if (pre) pre.scrollTop = pre.scrollHeight
+    }, true)
+    card.addEventListener('input', function (e) {
+      if (!e.target || e.target.id !== 'wbWmText') return
+      S.text = e.target.value
+      var c = card.querySelector('#wbWmCount')
+      if (c && S.data) c.textContent = t('workbench.wm.count', { n: S.text.length, max: S.data.max_chars || 8000 })
+    })
+    card.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-wm]') : null
+      if (!b || S.busy) return
+      var a = b.getAttribute('data-wm')
+      if (a === 'reload') { load(); return }
+      if (a === 'save') {
+        var ta = card.querySelector('#wbWmText')
+        S.busy = true; draw()
+        api('PUT', '/api/workbench/workmode', { text: ta ? ta.value : (S.text || '') }).then(function (r) { done(r, 'workbench.wm.saved') })
+        return
+      }
+      if (a === 'reset') {
+        if (!window.confirm(t('workbench.wm.reset_confirm'))) return
+        S.busy = true; draw()
+        api('POST', '/api/workbench/workmode/reset').then(function (r) { done(r, 'workbench.wm.reset_done') })
+        return
+      }
+      if (a === 'accept' || a === 'reject') {
+        if (S.text != null && S.data && S.text !== S.data.text && !window.confirm(t('workbench.wm.unsaved_confirm'))) return
+        S.busy = true; draw()
+        api('POST', '/api/workbench/workmode/proposals/' + encodeURIComponent(b.getAttribute('data-wm-id') || ''), { accept: a === 'accept' })
+          .then(function (r) { done(r, a === 'accept' ? 'workbench.wm.accepted' : 'workbench.wm.rejected') })
+      }
+    })
+    draw()
+    load()
+    return card
+  }
+
   window.MarvinWorkbench = {
     open: openWorkbench,
     viewSettingCard: viewSettingCard,
+    workmodeCard: workmodeSettingCard,
     close: closeWorkbench,
     jsonCleanOpen: jsonCleanOpen,
     reset: resetWorkbench,

@@ -28283,6 +28283,10 @@ async function loadSettings() {
       if (mod === 'system' && window.MarvinWorkbench && window.MarvinWorkbench.viewSettingCard) {
         panel.appendChild(window.MarvinWorkbench.viewSettingCard())
       }
+      // #758: the assistant's Work mode sheet and its proposed rules (saved by the card itself, not by the save bar).
+      if (mod === 'munkapad' && window.MarvinWorkbench && window.MarvinWorkbench.workmodeCard) {
+        panel.appendChild(window.MarvinWorkbench.workmodeCard())
+      }
       tabPanels.appendChild(panel)
     }
 

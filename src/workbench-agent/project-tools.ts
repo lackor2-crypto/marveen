@@ -34,6 +34,7 @@ import { readCanvas } from '../workbench-canvas-store.js'
 import { addTodo, resolveAgentDue, TODO_TEXT_MAX, TODOS_PER_ITEM_MAX } from '../workbench-todos.js'
 import { getWorkItem } from '../workbench.js'
 import { linkResearch, readProjectResearch, researchForItem } from '../workbench-research.js'
+import { proposeWorkmodeRule, WORKMODE_REASON_MAX_CHARS, WORKMODE_RULE_MAX_CHARS } from '../workbench-workmode.js'
 
 export const IDEA_LIST_MAX = 50
 export const COMMENT_MAX_CHARS = 4000
@@ -238,6 +239,20 @@ export function decisionRecord(project: ProjectRow, input: Record<string, unknow
     return { ok: false, code: r.code === 'text_required' || r.code === 'text_too_long' ? 'bad_input' : r.code, detail }
   }
   return { ok: true, data: { id: r.decision.id, text: r.decision.text, project: project.id, projectName: project.name } }
+}
+
+/** #758 (2A): a rule PROPOSAL for the Work mode sheet; the owner accepts it on the Settings page. */
+export function workmodePropose(project: ProjectRow, input: Record<string, unknown>, workItemId: string | null | undefined): ToolResult {
+  const r = proposeWorkmodeRule({ rule: input.rule ?? input.text, reason: input.reason, projectId: project.id, workItemId: workItemId || null })
+  if (!r.ok) {
+    const detail = r.code === 'workmode_rule_required' ? 'rule is required'
+      : r.code === 'workmode_rule_too_long' ? `the rule is longer than ${WORKMODE_RULE_MAX_CHARS} characters; shorten it`
+      : r.code === 'workmode_reason_too_long' ? `the reason is longer than ${WORKMODE_REASON_MAX_CHARS} characters; shorten it`
+      : r.code === 'workmode_duplicate' ? 'the same rule is already waiting for the owner; do not propose it again'
+      : 'too many proposals wait for the owner; ask them to decide the open ones first (Settings -> AI Workbench -> Work mode)'
+    return { ok: false, code: r.code, detail }
+  }
+  return { ok: true, data: { id: r.proposal.id, rule: r.proposal.rule, status: 'pending', where: 'Settings -> AI Workbench -> Work mode (Beállítások -> AI Munkapad -> Munkamód)' } }
 }
 
 /** #406, 14. pont: kis teendo hataridovel egy munkadarabon. */
