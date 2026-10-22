@@ -90,6 +90,29 @@ describe('#674 table work item: finalize puts the workbook into Finished materia
     expect(getWorkItem(id)?.status).toBe('done')
   })
 
+  it('#738: finalizing an UNCHANGED workbook again makes no twin in Finished materials; a changed one is saved anew', async () => {
+    setup(FAKE_SOFFICE)
+    const id = mk('Projektek/Iroda/Koltsegvetes.xlsx')
+    const r1 = await approval(id, { action: 'finalize', pdf: true })
+    expect(r1.status).toBe(200)
+    const dir = join(depot, r1.body.final.path, '..')
+    expect(readdirSync(dir).sort()).toEqual(['Koltsegvetes.pdf', 'Koltsegvetes.xlsx'])
+    expect((await approval(id, { action: 'reopen' })).status).toBe(200)
+    const r2 = await approval(id, { action: 'finalize', pdf: true })
+    expect(r2.status).toBe(200)
+    expect(r2.body.final.path).toBe(r1.body.final.path)
+    expect(r2.body.final.pdf_name).toBe('Koltsegvetes.pdf')
+    expect(r2.body.final.pdf_note).toBe('made')
+    expect(readdirSync(dir).sort()).toEqual(['Koltsegvetes.pdf', 'Koltsegvetes.xlsx'])
+    // a real change makes a new copy (and a new PDF) again
+    writeFileSync(join(depot, 'Projektek', 'Iroda', 'Koltsegvetes.xlsx'), Buffer.concat([XLSX, Buffer.from(' valtozott')]))
+    expect((await approval(id, { action: 'reopen' })).status).toBe(200)
+    const r3 = await approval(id, { action: 'finalize', pdf: true })
+    expect(r3.status).toBe(200)
+    expect(r3.body.final.path).not.toBe(r1.body.final.path)
+    expect(readdirSync(dir).length).toBe(4)
+  })
+
   it('without LibreOffice: the xlsx still lands, the answer says no PDF was made', async () => {
     setup(null)
     const id = mk('Projektek/Iroda/Koltsegvetes.xlsx')
