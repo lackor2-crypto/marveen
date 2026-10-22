@@ -2158,7 +2158,7 @@ type OutlineOut = ReturnType<typeof documentOutline> & {
   /** #530, phase 3: when, to whom and how the final was sent, and where its official copy is filed. */
   sent: ReturnType<typeof listSent>
   sent_methods: typeof SENT_METHODS
-  /** The e-mail draft (.eml) with the document and its annexes as PDF attachments, or null when there is none yet. */
+  /** The e-mail draft (a stored row, no file; #725) for the document and its annexes as PDF attachments, or null when there is none yet. */
   mail_draft: ReturnType<typeof mailDraftView> | null
   check: ReturnType<typeof documentCheck>
   /** #751: set when the check changed the to-do list, so the page reloads its to-dos. */
@@ -4280,8 +4280,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true, rel: r.rel, outline: outlineOrEmpty(item.id) }, 201)
       return true
     }
-    // E-MAIL DRAFT: POST .../outline/mail-draft {to?, cc?, subject?, body?} makes (or remakes) the .eml with the document and its
-    // annexes as PDF attachments; DELETE stops tracking it (the file stays). It is refreshed by itself when the document changes.
+    // E-MAIL DRAFT: POST .../outline/mail-draft {from_account?, to?, cc?, subject?, body?} stores the draft (a row, no .eml file; #725);
+    // the page then puts it into the Drafts folder with POST .../mail-draft/mailbox (the document and its annexes as PDFs).
+    // DELETE forgets the stored row.
     if (sub === 'mail-draft' && segs.length === 3 && method === 'POST') {
       // The sender: an Iroda mail account (its id), and its address for the From line. Only a known account is accepted.
       let sender: { from_account?: string; from_addr?: string } = {}

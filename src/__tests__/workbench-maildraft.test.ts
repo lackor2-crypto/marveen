@@ -1,5 +1,6 @@
-// The e-mail draft of a document (Boss TG, 2026-10-16): an .eml with the document and its annexes as PDF attachments,
-// made by Marveen and refreshed by itself, so a fresh install attaches the current PDF without anybody doing it by hand.
+// The e-mail draft of a document (Boss TG, 2026-10-16): the document and its annexes as PDF attachments, made by Marveen,
+// so a fresh install attaches the current PDF without anybody doing it by hand. #725: no .eml file lies beside the work
+// item; the draft is a row and goes into the Drafts folder of the chosen account.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

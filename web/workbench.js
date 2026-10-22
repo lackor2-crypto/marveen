@@ -9898,9 +9898,9 @@
   }
 
   /**
-   * E-MAIL DRAFT (.eml) of the document: the document and every annex as PDF attachments, made by Marveen and refreshed by
-   * itself when the text or an annex changes -- so the PDF in the mail is never an older one. Nothing is sent: the .eml
-   * opens in the mail program as a message still to be sent.
+   * E-MAIL DRAFT of the document (#725: no .eml file): the document and every annex as PDF attachments, made by Marveen when
+   * the button is pressed -- so the PDF in the mail is never an older one. It goes into the Drafts folder of the chosen
+   * account. Nothing is sent: the owner presses Send in the mail program.
    */
   function mailSize(n) {
     return n >= 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(n / 1024)) + ' kB'

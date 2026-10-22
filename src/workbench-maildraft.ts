@@ -1,17 +1,16 @@
 // E-MAIL DRAFT OF A DOCUMENT (Boss TG, 2026-10-16): "attach the German PDF to the draft as a PDF -- and it must be
 // built into Marveen, so a fresh install does it too".
 //
-// A document work item can have ONE e-mail draft: an .eml file (X-Unsent: 1, so Outlook / Thunderbird / Apple Mail open it
-// as a message still to be sent) lying in the item's own folder. Its attachments are made by Marveen, never by hand:
+// A document work item can have ONE e-mail draft. #725 (Boss TG 3970): no .eml file lies beside the work item at all -- the
+// recipients, subject, text and sender are a database row, and the message itself goes into the Drafts folder of the chosen
+// Iroda mail account (saveDraftToMailbox). Its attachments are made by Marveen, never by hand:
 //   - the document itself as a PDF (the plain twin, no watermark -- what the Word copy says right now);
 //   - every annex as its own PDF, named "<label> – <title>.pdf" (annex mode "separate"), or ONE PDF with the annex covers
 //     (annex mode "combined").
-// The draft is a MIRROR like the Word copy: whenever the document or an annex changes, the attachments are rebuilt, so the
-// PDF in the mail is never an older one than the text on the screen. A file the owner edited or saved elsewhere (its hash
-// differs from what we wrote) is left alone; an explicit "make it" then writes a new file next to it, nothing is overwritten.
+// The page says "outdated" when the document or an annex changed since the draft was made; the next press makes the
+// attachments again, so the PDF in the mail is never an older one than the text on the screen.
 //
-// This does NOT send anything. The owner opens the .eml and presses send in the mail program, or has it put into the
-// Drafts folder of the chosen Iroda mail account (saveDraftToMailbox: still nothing is sent).
+// This does NOT send anything. The owner presses send in the mail program of the Drafts folder's account.
 
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -170,7 +169,7 @@ const getRow = (itemId: string): Row | undefined => {
 
 export interface MailDraftAttachment { name: string; bytes: number; kind: 'document' | 'annex' | 'package' }
 export interface MailDraftView {
-  /** Where the file lies (project-relative), and its name. */
+  /** #725: no file is kept beside the work item any more, so both are always empty (the shape stays for old callers). */
   file: string
   file_name: string
   /** The mail account (Iroda) the draft is for, and its address (the From line). */
@@ -183,8 +182,8 @@ export interface MailDraftView {
   attachments: MailDraftAttachment[]
   total_bytes: number
   updated_at: number
-  /** ok: the file is the one we wrote and it matches the document; the rest says what the owner must do. */
-  state: 'current' | 'outdated' | 'edited' | 'missing'
+  /** current: the attachments match the document as it is now; outdated: the document or an annex changed since. */
+  state: 'current' | 'outdated'
 }
 
 /** Mail servers refuse messages above roughly this size (a base64 attachment is a third bigger than the file). */
@@ -324,7 +323,7 @@ const SUBJECT_MAX = 300
 /**
  * Make (or remake) the draft. The owner's explicit action: whatever the page shows is what is written. Fields left out keep
  * the stored value; with no stored value the subject is the document's title and the body a short default text in the
- * document's own language. A file the owner changed is not overwritten: the new one gets a free name next to it.
+ * document's own language. Only the database row is written (#725: no file); the page then puts the message into the Drafts folder.
  */
 export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui: 'hu' | 'en'): Promise<MailDraftOutcome> {
   // #723 (Boss TG 3935: "egy kodsort hasznaljunk csak"): a finalized Word item makes its mail here too, with the sender.
@@ -359,15 +358,12 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
 }
 
 /**
- * The automatic part, called after every refresh of the Word / PDF twin: when the item has a draft that we wrote, nobody
- * touched, and the document (or an annex) has changed since, the attachments are made again -- the mail never carries an
- * older PDF than the text. Best effort and silent: a failure leaves the old file, and the page says "outdated".
+ * Called after every refresh of the Word / PDF twin. #725: nothing to do -- no file is kept beside the item, so there is
+ * nothing to remake; the page says "outdated" when the document changed, and the next press makes the attachments again.
  */
-export async function refreshMailDraft(_item: WorkItemRow, _ui: 'hu' | 'en'): Promise<void> {
-  // #725: no file is kept beside the item any more, so there is nothing to remake; the page says "outdated" when the document changed.
-}
+export async function refreshMailDraft(_item: WorkItemRow, _ui: 'hu' | 'en'): Promise<void> { /* nothing to remake (#725) */ }
 
-/** Stop tracking (the file itself stays where it is). */
+/** Forget the stored draft row (a message already in the Drafts folder stays there). */
 export function forgetMailDraft(itemId: string): boolean {
   ensureMailDraftTable()
   return getDb().prepare('DELETE FROM wb_doc_maildraft WHERE work_item_id = ?').run(itemId).changes > 0
