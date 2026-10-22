@@ -12,7 +12,9 @@ MIT CSINAL (kartya #683): megallit egy Bash parancsot, ha
     suite helye a CI (scripts/land-pr.sh);
  2. Playwright / chromium futast inditana (node/python script, `npx playwright`);
  3. web-only peldanyt (`WEB_ONLY=true ...`) inditana;
- 4. `npm run build`-et futtatna
+ 4. `npm run build`-et futtatna;
+ 5. `tsc` tipusellenorzest (`npx tsc --noEmit`) inditana: ~700 MB mindegyik, tobb agensnel
+    parhuzamosan ez is a gepet fagyasztotta (2026-10-23, Boss)
  -- es NEM a `scripts/heavy-job.sh <nev> -- <parancs>` soron at. A tiltas
 uzenete kiirja a helyes parancsot.
 
@@ -143,6 +145,14 @@ def full_suite(toks):
     return False
 
 
+def is_tsc(toks):
+    """True for `tsc ...` / `npx tsc ...` / `node_modules/.bin/tsc ...` (a type check run)."""
+    for i, t in enumerate(toks[:4]):
+        if os.path.basename(t) == "tsc" and (i == 0 or toks[i - 1] in ("npx", "bunx", "exec", "--no-install", "-y", "-p")):
+            return True
+    return False
+
+
 def is_build(toks):
     return len(toks) >= 3 and toks[0] in ("npm", "pnpm", "yarn") and toks[1] == "run" and toks[2] == "build"
 
@@ -183,6 +193,11 @@ def main():
                 what="A TELJES tesztsuite helyben nem futhat (csak celzott fajlok).",
                 hint="Celzott fajl: npx vitest run src/__tests__/<fajl>.test.ts\n"
                      "A teljes suite helye a CI: scripts/land-pr.sh \"cim\" (branch -> PR -> CI).",
+            ))
+        if is_tsc(toks):
+            deny(MSG.format(
+                what="A tsc tipusellenorzes csak a soron at futhat.",
+                hint="  scripts/heavy-job.sh tsc -- npx tsc --noEmit",
             ))
         if is_build(toks):
             deny(MSG.format(
