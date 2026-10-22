@@ -1470,6 +1470,13 @@
 /* To-do panel (Boss TG 3462): rows with alternating background, green tick = done, red X = not yet. */
 .wb-tw-cols.has-both { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr); }
 
+/* #754: the video with the to-do list on its right (Simple and Manual view). */
+/* Flex-wrap, not a fixed grid: in a narrow center (side tab + assistant open) the list drops below the video instead of squeezing it. */
+.wb-tp-cols { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.wb-tp-main { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; }
+.wb-tp-cols > .wb-tp-right { flex: 0 1 260px; min-width: 200px; }
+.wb-fr-center-vid .wb-tp-right { margin-top: 8px; }
+@media (max-width: 900px) { .wb-tp-cols > .wb-tp-right { flex-basis: 100%; position: static; max-height: none; } }
 .wb-tp-head { margin-bottom: 8px; }
 .wb-tp-list { list-style: none; margin: 0; padding: 0; }
 .wb-tp-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 6px; line-height: 1.4; }
