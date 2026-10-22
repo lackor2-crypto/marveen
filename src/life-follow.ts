@@ -114,11 +114,16 @@ function relocateMountPoint(from: string, to: string): MountPointRename {
   if (to === from) return { ok: false, code: 'same' }
   const oldAbs = join(root, ...from.split('/'))
   const newAbs = join(root, ...to.split('/'))
-  if (lst(newAbs)) return { ok: false, code: 'exists', detail: name }
+  // Another link already showing under that name is as taken as a real file there.
+  if (lst(newAbs) || listMounts().some((m) => m.rel === to)) return { ok: false, code: 'exists', detail: name }
 
   const here = lst(oldAbs)
   try {
-    if (here && here.isSymbolicLink()) {
+    if (mount.file) {
+      // #745: a linked FILE has nothing on disk at its place (only the registry knows it): only the parent
+      // must exist. Making a folder here would leave an empty "name.pdf" folder beside the moved link.
+      mkdirSync(dirname(newAbs), { recursive: true })
+    } else if (here && here.isSymbolicLink()) {
       // Our own junction: take it down, the new one is made below. A link
       // that is not ours is somebody else's -- we do not move it.
       if (removeMountLink(mount).outcome !== 'removed') return { ok: false, code: 'foreign_link' }
