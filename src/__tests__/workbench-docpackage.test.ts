@@ -31,6 +31,10 @@ case "$src" in *.fodt) body=$(grep -o 'CoverLabel">[^<]*' "$src" | head -1; grep
 printf '%%PDF-1.4 [%s] %s\\n' "$body" "$filter" > "$out/doc.pdf"
 exit 0
 `
+/** Fake pdftotext: the "text" of a fake PDF is its content (args: -q -enc UTF-8 <file> -). */
+const FAKE_PDFTOTEXT = `#!/bin/sh
+cat "$4"
+`
 /** Hamis pdfunite: a bemeneteket egymas utan irja a kimenetbe. */
 const FAKE_PDFUNITE = `#!/bin/sh
 out=""; for a in "$@"; do out="$a"; done
@@ -52,10 +56,10 @@ describe('mellekletek a PDF-ben', () => {
     initDatabase(':memory:')
     depot = mkdtempSync(join(tmpdir(), 'marveen-docpkg-'))
     mkdirSync(join(projDir(), 'Iratok'), { recursive: true })
-    for (const k of ['MARVEEN_DEPOT', 'MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE', 'MARVEEN_PDFUNITE']) saved[k] = process.env[k]
+    for (const k of ['MARVEEN_DEPOT', 'MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE', 'MARVEEN_PDFUNITE', 'MARVEEN_PDFTOTEXT']) saved[k] = process.env[k]
     process.env['MARVEEN_DEPOT'] = depot
     process.env['MARVEEN_RENDER_CACHE'] = join(depot, 'render-cache')
-    for (const [name, body, env] of [['soffice.sh', FAKE_SOFFICE, 'MARVEEN_SOFFICE'], ['pdfunite.sh', FAKE_PDFUNITE, 'MARVEEN_PDFUNITE']] as const) {
+    for (const [name, body, env] of [['soffice.sh', FAKE_SOFFICE, 'MARVEEN_SOFFICE'], ['pdfunite.sh', FAKE_PDFUNITE, 'MARVEEN_PDFUNITE'], ['pdftotext.sh', FAKE_PDFTOTEXT, 'MARVEEN_PDFTOTEXT']] as const) {
       const f = join(depot, name)
       writeFileSync(f, body, 'utf-8')
       chmodSync(f, 0o755)
@@ -204,6 +208,40 @@ describe('mellekletek a PDF-ben', () => {
     const again = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
     expect(again.status).toBe(200)
     expect(again.body.reused).toBe(true)
+  })
+
+  it('#753 3A: the same text already in the folder as a PDF (e.g. made from the Word file) becomes the final, no new file', async () => {
+    readyWithAnnexes()
+    const base = `/api/workbench/items/${itemId}/outline`
+    const hash = (await callWorkbench(base, 'GET')).body.outline.content_hash
+    await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')
+    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(fin.status).toBe(200)
+    const made = fin.body.final.files[0] as { path: string; name: string }
+    expect(made.name).toMatch(/ – v1\.pdf$/)
+    const itemDir = dirname(dirname(made.path))
+    // The owner's own PDF of the same text sits beside the Word file; the final's own copy is gone (moved away by hand).
+    const own = `${itemDir}/Válaszbeadvány.pdf`
+    writeFileSync(join(depot, own), readFileSync(join(depot, made.path)))
+    rmSync(join(depot, made.path))
+    // A PDF of other text is never taken for it.
+    writeFileSync(join(depot, itemDir, 'Más levél.pdf'), '%PDF-1.4 [MAS-SZOVEG]')
+    const again = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(again.status).toBe(200)
+    expect(again.body.reused).toBe(true)
+    expect(again.body.final.files).toEqual([{ path: own, name: 'Válaszbeadvány.pdf', role: 'main' }])
+    expect(again.body.final.annex_labels).toEqual(['K1', 'K2'])
+    expect(again.body.final.pdfa).toBe(false)
+    const pdfsUnder = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir, { recursive: true }) as string[] : []).filter((n) => /\.pdf$/i.test(String(n)))
+    expect(pdfsUnder(join(depot, itemDir, 'Elkészített anyagok'))).toEqual([])
+    // The package it sends: that PDF + the annexes made again.
+    const item = getWorkItem(itemId)
+    if (!item) throw new Error('munkadarab')
+    const pkg = await finalPackageFiles(item, listFinals(itemId)[0]!, 'hu')
+    if (!pkg.ok) throw new Error('csomag ' + pkg.code)
+    expect(pkg.files.map((f) => f.name)).toEqual(['Válaszbeadvány.pdf', 'K1 – Bérleti szerződés.pdf', 'K2 – Fénykép a lakásról.pdf'])
+    // The "Final (vN)" line counts finalizations like the file name does, not the work item's version rows.
+    expect(listFinals(itemId).map((f) => f.final_no)).toEqual([2, 1])
   })
 
   it('kicserelt mellekletfajl: uj ujjlenyomat, ujra at kell nezni', () => {

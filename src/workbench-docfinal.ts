@@ -17,7 +17,9 @@
  * - TECHNIKAI NYOM (K-1.23/b): ki, mikor, mit irt, ellenorzott, erositett meg.
  *   A Marveen NEM minositi, hogy ez mire eleg jogilag -- csak rogziti.
  */
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join as joinPath } from 'node:path'
 import { getDb } from './db.js'
 import { resolveLifePath } from './life-explorer.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
@@ -26,12 +28,12 @@ import { consistencyIssues } from './workbench-doccheck.js'
 import { imageSize, outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderImage, type RenderResult } from './workbench-docrender.js'
 import { variantOf } from './workbench-doclang.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
-import { attachAsset } from './workbench-assets.js'
+import { attachAsset, listWorkItemAssets, syncFolderAssets } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
 import { annexPdfs, mergePdfs, type PackageError } from './workbench-docpackage.js'
 import { checkFiles, getProfile, itemProfileId, profileFileName, saveCourtCheck, type CheckFile, type CourtCheckResult } from './workbench-courtprofile.js'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { resolveProjectFile } from './workbench-docmodel-world.js'
 import { getProject } from './projects.js'
 import type { RenderOutline } from './workbench-docrender.js'
@@ -193,6 +195,8 @@ export interface FinalMeta {
 export interface FinalView extends FinalMeta {
   version_id: string
   version_no: number
+  /** The number of the finalization (1 = the first): the same number the final PDF's name carries ("… – v1.pdf"). */
+  final_no: number
   created_at: number
 }
 
@@ -204,10 +208,11 @@ export function listFinals(itemId: string): FinalView[] {
     try {
       const m = JSON.parse(v.metadata_json) as Partial<FinalMeta>
       if (m && m.final === true && typeof m.content_hash === 'string') {
-        out.push({ ...(m as FinalMeta), version_id: v.id, version_no: v.version_no, created_at: v.created_at })
+        out.push({ ...(m as FinalMeta), version_id: v.id, version_no: v.version_no, final_no: 0, created_at: v.created_at })
       }
     } catch { /* rossz JSON: nem veglegesites */ }
   }
+  out.forEach((f, i) => { f.final_no = out.length - i })
   return out
 }
 
@@ -369,6 +374,13 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   const fresh = getWorkItem(item.id)
   if (!fresh || contentHash(fresh) !== hash) return { ok: false, code: 'outline_changed', detail: null }
 
+  // #753 (Boss, TG 4258 "3A"): a PDF of this document that is already in its folder (made earlier from the Word file, by hand,
+  // or by an older final) and says word for word what the fresh one says IS the final: no second copy is written.
+  if (!bundle) {
+    const same = await samePdfInFolder(fresh, r.pdf)
+    if (same) return finalizeOnFile(fresh, same, { hash, review, check, by: input.by, lang: input.lang, annexes, mode })
+  }
+
   const label = `${FINAL_LABEL[input.lang]} – ${localDate()}`
   // Celbirosag-profil (K-1.36): a fajlnevek a profil szabalya szerint (pl. ERVB: 01_Klage.pdf).
   const profile = getProfile(itemProfileId(fresh.id))
@@ -453,6 +465,76 @@ async function finalizeFromExisting(
   const state = finalState(v.item, ctx.hash)
   if (!state) return { ok: false, code: 'docpdf_failed', detail: 'the final version was created but could not be read back' }
   return { ok: true, final: state, asset_path: main.path, court: null, reused: true }
+}
+
+/** The words of a PDF, whitespace folded (line breaks and column layout differ between makers), or null without pdftotext. */
+function pdfWords(abs: string): Promise<string | null> {
+  return new Promise((done) => {
+    execFile(process.env['MARVEEN_PDFTOTEXT'] || 'pdftotext', ['-q', '-enc', 'UTF-8', abs, '-'], { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }, (err, out) => {
+      done(err ? null : String(out).split(/\s+/).filter(Boolean).join(' '))
+    })
+  })
+}
+
+/** A PDF of the work item (its own file, not a shared one) whose text is the same as the fresh render's, else null (#753). */
+async function samePdfInFolder(item: WorkItemRow, pdf: Buffer): Promise<{ path: string; name: string; abs: string } | null> {
+  // A PDF the owner put into the folder by hand is listed too, not only what the app wrote there.
+  try { syncFolderAssets(item.id) } catch { /* the known files are still compared */ }
+  const annexPaths = new Set(listAnnexes(item.id).map((a) => a.path))
+  const candidates = listWorkItemAssets(item.id).filter((a) => a.present && !a.shared && /\.pdf$/i.test(a.name) && !annexPaths.has(a.path))
+  if (!candidates.length) return null
+  const dir = mkdtempSync(joinPath(tmpdir(), 'wb-final-'))
+  try {
+    const own = joinPath(dir, 'fresh.pdf')
+    writeFileSync(own, pdf)
+    const want = await pdfWords(own)
+    if (!want) return null
+    // Newest first: of two equal copies the latest one is the one the owner has been working with.
+    for (const a of [...candidates].reverse()) {
+      const abs = resolveLifePath(a.path)
+      if (!abs) continue
+      if ((await pdfWords(abs)) === want) return { path: a.path, name: a.name, abs }
+    }
+    return null
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** Records the final on a PDF already in the folder (#753 3A): nothing is written, the court check still runs on the file. */
+async function finalizeOnFile(
+  item: WorkItemRow, file: { path: string; name: string; abs: string },
+  ctx: { hash: string; review: { reviewed_at: number; reviewed_by: string | null }; check: { items: CheckItem[] }; by: string | null; lang: 'hu' | 'en'; annexes: { label: string; title: string; pdf: Buffer }[]; mode: FinalMeta['annex_mode'] },
+): Promise<FinalizeOutcome> {
+  const label = `${FINAL_LABEL[ctx.lang]} – ${localDate()}`
+  const meta: FinalMeta = {
+    final: true, label, content_hash: ctx.hash,
+    pdf_path: file.path, pdf_name: file.name,
+    files: [{ path: file.path, name: file.name, role: 'main' }], annex_mode: ctx.annexes.length ? ctx.mode : null,
+    ...(ctx.annexes.length ? { annex_labels: ctx.annexes.map((a) => a.label) } : {}),
+    // Made by another program (e.g. Word / LibreOffice): it is not known to be PDF/A.
+    pdfa: false,
+    accepted_by: ctx.by, accepted_at: now(), accepted_text: ACCEPT_TEXT[ctx.lang],
+    reviewed_at: ctx.review.reviewed_at, reviewed_by: ctx.review.reviewed_by,
+    check: ctx.check.items,
+  }
+  const v = createWorkItemVersion(item.id, { prompt: label, created_by: ctx.by, metadata_json: JSON.stringify(meta) })
+  if (!v.ok) return { ok: false, code: 'docpdf_failed', detail: v.code }
+  const state = finalState(v.item, ctx.hash)
+  if (!state) return { ok: false, code: 'docpdf_failed', detail: 'the final version was created but could not be read back' }
+  const profile = getProfile(itemProfileId(item.id))
+  let court: CourtCheckResult | null = null
+  if (profile) {
+    const total = 1 + ctx.annexes.length
+    const checkIn: CheckFile[] = [{ name: file.name, pdf: readFileSync(file.abs), role: 'main', path: file.path }]
+    ctx.annexes.forEach((a, i) => {
+      const annexId = annexIdOf(item.id, a.label)
+      checkIn.push({ name: annexFinalName(a, profile, i + 1, total), pdf: a.pdf, role: 'annex', label: a.label, ...(annexId ? { annex_id: annexId } : {}) })
+    })
+    court = await checkFiles(profile, checkIn)
+    saveCourtCheck(item.id, state.version_id, court)
+  }
+  return { ok: true, final: state, asset_path: file.path, court, reused: true }
 }
 
 /** The file name an annex of the package carries when sent: "<label> – <title>.pdf", numbered by the court profile. */
@@ -603,7 +685,7 @@ export function documentTrail(item: WorkItemRow): Record<string, unknown> {
     consistency: consistencyIssues(item.id).map((i) => ({ kind: i.kind, values: i.values, section: i.where, marked_intentional_by: i.acked_by, marked_intentional_at: iso(i.acked_at) })),
     reviews: reviews.map((r) => ({ content_hash: r.content_hash, reviewed_at: iso(r.reviewed_at), reviewed_by: r.reviewed_by })),
     finals: listFinals(item.id).map((f) => ({
-      version_no: f.version_no, label: f.label, content_hash: f.content_hash, file: f.pdf_path, files: f.files ?? null, annex_mode: f.annex_mode ?? null,
+      version_no: f.version_no, final_no: f.final_no, label: f.label, content_hash: f.content_hash, file: f.pdf_path, files: f.files ?? null, annex_mode: f.annex_mode ?? null,
       accepted_by: f.accepted_by, accepted_at: iso(f.accepted_at), accepted_text: f.accepted_text,
       reviewed_at: iso(f.reviewed_at), reviewed_by: f.reviewed_by, check: f.check,
       still_current: f.content_hash === hash,

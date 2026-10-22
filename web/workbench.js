@@ -649,7 +649,7 @@
     if (WB.items === null || archived()) return ''
     var tu = WB.treeUp
     var head = '<div class="wb-treeup">'
-      + '<label class="btn-secondary wb-treeup-btn" for="wbTreeUpload" title="' + escA(t('workbench.treeup.hint')) + '">⬆ ' + esc(t('workbench.treeup.button')) + '</label>'
+      + '<label class="btn-secondary wb-treeup-btn" for="wbTreeUpload" title="' + escA(t('workbench.treeup.hint')) + '">' + esc(t('workbench.treeup.button')) + '</label>'
       + '<input type="file" id="wbTreeUpload" class="wb-file-input" multiple>'
     if (!tu) return head + '</div>'
     var n = tu.files.length
@@ -9826,8 +9826,8 @@
     // A keszult fajlok: a beadvany (vagy az egyesitett PDF), es kulon mellekleteknel mindegyik.
     var files = !f ? [] : (f.files && f.files.length ? f.files : [{ path: f.pdf_path, name: f.pdf_name, role: 'main' }])
     var finalLine = !f ? '' : '<p class="' + (f.stale ? 'wb-doc-low' : 'wb-ok') + '">'
-      + (f.stale ? '⚠ ' + esc(t('workbench.outline.final_stale', { label: f.label, n: f.version_no }))
-        : '✓ ' + esc(t('workbench.outline.final_current', { label: f.label, n: f.version_no })))
+      + (f.stale ? '⚠ ' + esc(t('workbench.outline.final_stale', { label: f.label, n: f.final_no || f.version_no }))
+        : '✓ ' + esc(t('workbench.outline.final_current', { label: f.label, n: f.final_no || f.version_no })))
       + ' ' + files.map(function (x) {
         return '<a href="/api/life/file?rel=' + escA(encodeURIComponent(x.path || '')) + '" target="_blank" rel="noopener" title="' + escA(x.name || '') + '">'
           + esc(x.role === 'annex' ? (x.label || x.name || '') : t('workbench.outline.final_open')) + '</a>'
