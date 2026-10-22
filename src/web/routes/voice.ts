@@ -61,7 +61,7 @@ function isSafeStateDir(dir: string): boolean {
   return false
 }
 
-function voiceOnnxPath(model: string): string | null {
+export function voiceOnnxPath(model: string): string | null {
   if (!KNOWN_VOICE_MODELS.has(model)) return null
   const p = join(VOICE_DIR, 'voices', `${model}.onnx`)
   return existsSync(p) ? p : null

@@ -222,6 +222,8 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
     else args.push('-loop', '1', '-framerate', String(RENDER_FPS), '-t', fnum(total), '-i', inp.abs[o.src])
     ovIdx.push(idx++)
   }
+  const voIdx: number[] = []
+  for (const vo of doc.voiceovers ?? []) { args.push('-i', inp.abs[vo.src]); voIdx.push(idx++) }
 
   // Every clip: cut, fill the frame (the picture sits on a blurred copy of itself, so a
   // 16:9 clip in a 9:16 video has no black bars), same frame rate and sound format.
@@ -257,18 +259,30 @@ export function buildRender(doc: TimelineDoc, inp: RenderInputs): string[] {
     v = 'vs'
   }
 
+  // Voiceovers (#669 phase C): each spoken line is delayed to its start and mixed into the clips' sound, so the music below ducks under it as well.
+  let speech = 'ac'
+  const vos = doc.voiceovers ?? []
+  if (vos.length) {
+    vos.forEach((vo, k) => {
+      const ms = Math.round(vo.start * 1000)
+      f.push(`[${voIdx[k]}:a]aresample=48000,aformat=channel_layouts=stereo,volume=${fnum(vo.volume)},adelay=${ms}|${ms}[vo${k}a]`)
+    })
+    f.push(`[ac]${vos.map((_, k) => `[vo${k}a]`).join('')}amix=inputs=${vos.length + 1}:duration=first:normalize=0:dropout_transition=0[acv]`)
+    speech = 'acv'
+  }
+
   // Music: looped, cut to the length of the video, lowered while the clips speak.
-  let a = 'ac'
+  let a = speech
   if (doc.music && musicIdx >= 0) {
     f.push(`[${musicIdx}:a]atrim=0:${fnum(total)},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=${fnum(doc.music.volume)}[mus]`)
     if (doc.music.duck) {
       f.push(
-        '[ac]asplit=2[ac1][ac2]',
+        `[${speech}]asplit=2[ac1][ac2]`,
         '[mus][ac1]sidechaincompress=threshold=0.04:ratio=10:attack=20:release=500[md]',
         '[ac2][md]amix=inputs=2:duration=first:normalize=0[am]',
       )
     } else {
-      f.push('[ac][mus]amix=inputs=2:duration=first:normalize=0[am]')
+      f.push(`[${speech}][mus]amix=inputs=2:duration=first:normalize=0[am]`)
     }
     a = 'am'
   }
@@ -352,7 +366,7 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
     const ff = await videoTool()
     if (!ff.ok) return ff
     const abs: Record<string, string> = {}
-    const srcs = new Set<string>([...doc.clips.map((c) => c.src), ...doc.overlays.map((o) => o.src), ...(doc.music ? [doc.music.src] : [])])
+    const srcs = new Set<string>([...doc.clips.map((c) => c.src), ...doc.overlays.map((o) => o.src), ...(doc.music ? [doc.music.src] : []), ...(doc.voiceovers ?? []).map((v) => v.src)])
     for (const s of srcs) {
       const r = resolveMedia(project, s)
       if (!r.ok) return r

@@ -349,16 +349,27 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   {
     key: 'tts',
     tier: 'extra',
-    title: { hu: 'Felolvasás (ElevenLabs)', en: 'Text to speech (ElevenLabs)' },
-    what_for: { hu: 'A megírt szöveg felolvastatása, hangfájlba.', en: 'Reading the written text aloud into an audio file.' },
-    affects: { hu: 'A Munkapad minden más része működik.', en: 'Every other part of the Workbench works.' },
+    title: { hu: 'Felolvasás (helyi hang, Piper)', en: 'Text to speech (local voice, Piper)' },
+    what_for: {
+      hu: 'Egy megírt szöveg felolvastatása magyar hangon a videó időrendjén (szinkronhang). A hang a saját gépeden készül, a szöveg nem megy ki sehová.',
+      en: 'Reading a written text aloud in a Hungarian voice on the video timeline (voiceover). The voice is made on your own computer; the text never leaves it.',
+    },
+    affects: {
+      hu: 'A Munkapad minden más része működik. Csak a videó „Felolvasás” része nem készít hangot.',
+      en: 'Every other part of the Workbench works. Only the video "Voiceover" section cannot make a voice.',
+    },
     how_to: {
-      hu: ['Ebben a verzióban még nincs bekötve, ezért nincs mit beállítani hozzá.'],
-      en: ['It is not wired up in this version, so there is nothing to configure.'],
+      hu: ['A felolvasó hang a Marveen hang-eszköztárával települ (a telepítő része), külön kulcs nem kell.', 'Ha itt hiányzik, futtasd újra a Marveen telepítőjét, vagy kérd meg a Marveent, hogy telepítse a hang-eszköztárat.'],
+      en: ['The voice comes with the Marveen voice toolkit (part of the installer); no key is needed.', 'If it is missing here, run the Marveen installer again, or ask Marveen to install the voice toolkit.'],
     },
     obtain_url: null,
     testable: false,
-    async measure() { return { state: 'not_implemented', detail: null, version: null, path: null } },
+    async measure() {
+      const voice = await import('./web/routes/voice.js')
+      const model = 'hu_HU-imre-medium'
+      if (!voice.isVoiceInstalled() || !voice.voiceOnnxPath(model)) return { state: 'not_configured', detail: null, version: null, path: null }
+      return { state: 'ok', detail: 'local Piper voice installed', version: model, path: voice.voiceOnnxPath(model) }
+    },
   },
 ]
 

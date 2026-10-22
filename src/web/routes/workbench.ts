@@ -111,6 +111,7 @@ import { getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-j
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
+import { makeVoiceover } from '../../workbench-video-tts.js'
 import { recogniseTimeline, applySubtitleLines, AUTOSUB_LANGS, type AutoSubLang } from '../../workbench-video-autosub.js'
 import { opsLabel } from '../../workbench-draft-store.js'
 import { loadTableSource, readTable, writeTable, normalizeSheets, blankXlsx, TABLE_MAX_ROWS, TABLE_MAX_COLS, TABLE_MAX_CELLS, TABLE_MAX_BYTES } from '../../workbench-table.js'
@@ -1118,6 +1119,38 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   timeline_autosub_done: {
     hu: 'Kész az automatikus felirat. Nézd át: a beszédfelismerés téved, főleg nevekben és számokban. Szerkesztheted vagy törölheted őket.',
     en: 'The automatic subtitles are ready. Please check them: speech recognition makes mistakes, especially with names and numbers. You can edit or delete them.',
+  },
+  tts_not_installed: {
+    hu: 'A felolvasó hang nincs telepítve ezen a gépen. A Beállítások / Varázslóban telepítheted a hangcsomagot, utána működik.',
+    en: 'The reading voice is not installed on this machine. You can install the voice package in Settings / Wizard; then it works.',
+  },
+  tts_bad_voice: {
+    hu: 'Ilyen felolvasó hang nincs. Válassz a listából.',
+    en: 'There is no such reading voice. Pick one from the list.',
+  },
+  tts_text_required: {
+    hu: 'Írd be, mit olvasson fel a hang.',
+    en: 'Write what the voice should read aloud.',
+  },
+  tts_text_too_long: {
+    hu: 'A felolvasandó szöveg túl hosszú (legfeljebb 2000 karakter). Bontsd több részre.',
+    en: 'The text to read aloud is too long (2000 characters at most). Split it into parts.',
+  },
+  tts_failed: {
+    hu: 'A felolvasás nem sikerült. A részletek megmondják, mit írt a program.',
+    en: 'The reading did not work. The details say what the program wrote.',
+  },
+  tts_no_ffmpeg: {
+    hu: 'A felolvasás hosszának méréséhez a videó-szerkesztő programja (FFmpeg) kell, és nincs telepítve.',
+    en: 'Measuring the length of the speech needs the video editing program (FFmpeg), which is not installed.',
+  },
+  tts_write_failed: {
+    hu: 'A felolvasott hangfájlt nem tudtam elmenteni a munkadarab mappájába.',
+    en: 'I could not save the spoken sound file into the work item folder.',
+  },
+  timeline_voiceover_done: {
+    hu: 'Kész a felolvasás: a hang rákerült az idővonalra. Mozgathatod, halkíthatod vagy törölheted.',
+    en: 'The voiceover is ready: the sound is on the timeline. You can move it, turn it down or delete it.',
   },
   timeline_rendered: {
     hu: 'Kész a videó. Új fájl lett belőle a projekt mappájában, a régi videók érintetlenek.',
@@ -5674,6 +5707,34 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         ok: true, added: applied.added, skipped: heard.skipped, timeline: applied.doc, changed: commit.changed, item: getWorkItem(item.id) || item,
         versions: listWorkItemVersionsView(item.id), summary: timelineSummary(applied.doc), duration: timelineDuration(applied.doc), offsets: clipOffsets(applied.doc),
         ...tlState(), message: msg('timeline_autosub_done', lang),
+      }, commit.created ? 201 : 200)
+      return true
+    }
+
+    // #669 phase C: a written line is read aloud by the local voice and put on the timeline as a voiceover.
+    if (segs.length === 3 && segs[2] === 'voiceover' && method === 'POST') {
+      if (tlArchived()) return fail(res, 409, 'project_archived', lang)
+      const project = getProject(item.project_id)
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      const body = (await readJson(req)) || {}
+      const cur = store.read(item.id)
+      if (!cur.ok) return failDetail(res, tlStatus(cur.code), cur.code, lang, cur.detail)
+      const made = await makeVoiceover(project, item, body['text'], body['voice'])
+      if (!made.ok) {
+        const status = made.code === 'tts_not_installed' || made.code === 'tts_no_ffmpeg' ? 503
+          : made.code === 'tts_failed' || made.code === 'tts_write_failed' ? 500 : 400
+        return failDetail(res, status, made.code, lang, made.detail)
+      }
+      const applied = applyTimelineOps(cur.doc, [{ op: 'addVoiceover', src: made.rel, start: body['start'] ?? 0, dur: made.dur, volume: body['volume'], text: made.text }])
+      if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
+      const commit = store.commit(item, applied.doc, {
+        source: 'owner', grp: 'ui:voiceover', label: 'addVoiceover', actor: actor(ctx), name: cur.name,
+      })
+      if (!commit.ok) return failDetail(res, commit.code === 'project_not_found' ? 404 : 400, commit.code, lang, commit.detail)
+      json(res, {
+        ok: true, id: applied.applied[0]?.id ?? null, rel: made.rel, dur: made.dur, timeline: applied.doc, changed: commit.changed, item: getWorkItem(item.id) || item,
+        versions: listWorkItemVersionsView(item.id), summary: timelineSummary(applied.doc), duration: timelineDuration(applied.doc), offsets: clipOffsets(applied.doc),
+        ...tlState(), message: msg('timeline_voiceover_done', lang),
       }, commit.created ? 201 : 200)
       return true
     }
