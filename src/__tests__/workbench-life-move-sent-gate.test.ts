@@ -196,6 +196,35 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
     expect(by['Antrag v2.pdf'].action).toBe('trash')
   })
 
+  // #736: the other document of the folder has its own gate; marking IT as sent (the open document stays unsent) frees its files.
+  it('a másik irat saját kapuja: külön jelölhető elküldöttnek, utána a fájlja költözik és link marad, a nyitott irat blokkolt marad', () => {
+    // an earlier test's link at the same place would make the file look moved already
+    rmSync(join(store, 'life-mounts.json'), { force: true })
+    const { project, a, b } = setup()
+    const item = getWorkItem(a) as any
+    const before = lifeMovePlan(project, item, 'include')
+    if (!before.ok) throw new Error('terv')
+    expect(before.gates.find((g) => g.item_id === a)?.sent).toBe(false)
+    expect(before.gates.find((g) => g.item_id === b)?.sent).toBe(false)
+    expect(before.files.find((f) => f.name === 'Sozialamt v1.pdf')).toMatchObject({ group: 'other', item_id: b, action: 'blocked', note: 'not_sent' })
+
+    markSentManually(b, null)
+    const plan = lifeMovePlan(project, item, 'include')
+    if (!plan.ok) throw new Error('terv')
+    expect(plan.gates.find((g) => g.item_id === a)?.sent).toBe(false)
+    expect(plan.gates.find((g) => g.item_id === b)?.sent).toBe(true)
+    const other = plan.files.find((f) => f.name === 'Sozialamt v1.pdf')
+    expect(other).toMatchObject({ group: 'other', item_id: b, action: 'move', sent_final: true })
+    expect(plan.files.find((f) => f.name === 'Antrag v2.pdf')?.action).toBe('blocked')
+
+    const r = moveItemFilesToLife(project, item, [{ rel: other!.rel, target: 'Bakos Éva/Hatóságok/Németország/Sozialamt' }], 'hu', 'include')
+    if (!r.ok) throw new Error('mozgatas')
+    expect(r.results.find((x) => !x.trashed)?.ok).toBe(true)
+    expect(existsSync(join(root, 'Bakos Éva', 'Hatóságok', 'Németország', 'Sozialamt', 'Sozialamt v1.pdf'))).toBe(true)
+    // the unmarked document's file stays where it was
+    expect(existsSync(join(root, 'Projektek', 'Nemet', CONT, FIN, 'Antrag v2.pdf'))).toBe(true)
+  })
+
   it('javaslat: a mappa nevéből Bakos Éva / Hatóságok / Németország, bizonytalan hivatalnál pirosra jelölve', async () => {
     const { project, a } = setup()
     markSentManually(a, null)
