@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem } from '../workbench.js'
+import { finalPackageFiles, listFinals } from '../workbench-docfinal.js'
 import { addSection, addBlock, addClaim } from '../workbench-docmodel.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
 import { addAnnex, listAnnexes, setAnnexPath, setDocSettings } from '../workbench-docannex.js'
@@ -314,8 +315,15 @@ describe('veglegesites celbirosag-profillal', () => {
     expect(fin.status, JSON.stringify(fin.body)).toBe(200)
     const names = fin.body.final.files.map((f: { name: string }) => f.name)
     expect(names[0]).toMatch(/^01_\d{4}-\d{2}-\d{2}_Klage_gegen_Muster_HU_v1\.pdf$/)
-    for (const n of names) expect(n).toMatch(/^[A-Za-zÄÖÜäöüß0-9_-]+\.pdf$/)
-    expect(names[1]).toMatch(/^02_Anlage_K1_Mietvertrag\.pdf$/)
+    // #753: only the submission is saved; the annex is made again when sent, under the profile's numbered name.
+    expect(names).toHaveLength(1)
+    const item = getWorkItem(itemId)
+    if (!item) throw new Error('munkadarab')
+    const pkg = await finalPackageFiles(item, listFinals(itemId)[0]!, 'hu')
+    if (!pkg.ok) throw new Error('csomag ' + pkg.code)
+    const all = pkg.files.map((f) => f.name)
+    for (const n of all) expect(n).toMatch(/^[A-Za-zÄÖÜäöüß0-9_-]+\.pdf$/)
+    expect(all[1]).toMatch(/^02_Anlage_K1_Mietvertrag\.pdf$/)
     const court = fin.body.court
     expect(court.check_current).toBe(true)
     expect(court.check.result.version).toBe('ERVB 2025')

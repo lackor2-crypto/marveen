@@ -10,7 +10,7 @@ import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { addBlock, addSection, updateBlock } from '../workbench-docmodel.js'
 import { addAnnex, setDocSettings } from '../workbench-docannex.js'
-import { resolverFor } from '../workbench-docfinal.js'
+import { contentHash, finalizeDocument, recordReview, resolverFor } from '../workbench-docfinal.js'
 import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { markPlainItem } from '../workbench-assets.js'
@@ -230,6 +230,29 @@ describe('the e-mail draft of a work item', () => {
     expect(r.draft.state).toBe('current')
     expect(r.draft.attachments.map((a) => a.kind)).toEqual(['document', 'annex', 'annex'])
     expect(emlFiles()).toHaveLength(0)
+  })
+
+  // #753 (Boss TG 4240): the final saves only the submission; the mail still carries every annex, cover before content.
+  it('a finalized document with annexes: only the submission is saved, the mail carries the annexes made again', async () => {
+    write('Text eins')
+    annexes()
+    const it0 = item()
+    const hash = contentHash(it0)
+    recordReview(itemId, hash, 'owner')
+    const f = await finalizeDocument(it0, { accept: true, hash, by: 'owner', lang: 'hu' })
+    if (!f.ok) throw new Error('finalize ' + f.code + ' ' + f.detail)
+    expect(f.final.files!.map((x) => x.role)).toEqual(['main'])
+    const dir = join(projDir(), ...getWorkItem(itemId)!.folder!.split('/'))
+    const pdfs = (readdirSync(dir, { recursive: true }) as string[]).filter((n) => /\.pdf$/i.test(String(n)))
+    expect(pdfs).toEqual([f.final.files![0]!.path.split('/').slice(-2).join('/')])
+    const d = await saveMailDraft(item(), { from_account: 'work', to: 'amt@stadt.de', subject: 'Nachreichung' }, 'hu')
+    if (!d.ok) throw new Error('save: ' + d.code + ' ' + d.detail)
+    expect(d.draft.attachments.map((a) => a.kind)).toEqual(['document', 'annex', 'annex'])
+    const got = await boxSave(item())
+    expect(got.attachments).toEqual([f.final.pdf_name, 'K1 – Mietvertrag (Korpás László).pdf', 'K2 – Bescheid vom 04.07.2026.pdf'])
+    // the cover page (made by the fake LibreOffice) comes first, then the annex itself
+    expect(got.contents[1]!.startsWith('%PDF-1.4 SRC-')).toBe(true)
+    expect(got.contents[1]!.indexOf('SRC-')).toBeLessThan(got.contents[1]!.indexOf('VERTRAG-INHALT'))
   })
 
   it('"combined" annex mode attaches ONE PDF', async () => {

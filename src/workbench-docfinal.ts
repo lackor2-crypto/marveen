@@ -176,6 +176,11 @@ export interface FinalMeta {
   /** Minden keszult fajl (a beadvany, a mellekletek, vagy az egyesitett PDF). Regebbi veglegesitesnel hianyzik. */
   files?: FinalFile[]
   annex_mode?: 'separate' | 'combined' | null
+  /**
+   * #753: the annexes of a "separate" final that are made when the package is sent (cover + content), not saved as files:
+   * the Attachments folder already lists them. Absent on older finals, whose annex PDFs are in `files`.
+   */
+  annex_labels?: string[]
   pdfa?: boolean
   accepted_by: string | null
   accepted_at: number
@@ -370,30 +375,25 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   const total = bundle ? 1 : 1 + annexes.length
   let index = 0
   const checkIn: CheckFile[] = []
-  const save = (name: string, pdf: Buffer, role: FinalFile['role'], a?: { label: string }): { path: string; name: string } | string => {
-    // The Attachments folder lists the annexes themselves (linked Life-tree documents stand there as links): the finished
-    // annex PDFs (cover + content) go to Finished materials with the submission, so that folder is never doubled (Boss, 2026-10-16).
-    const x = attachAsset(fresh, profileFileName(name, profile, index++, total), pdf, { force: true, createdBy: input.by, into: 'finished' as const })
-    if (!x.ok) return x.code
-    const annexId = a ? annexIdOf(fresh.id, a.label) : undefined
-    checkIn.push({ name: x.asset.name, pdf, role, ...(a ? { label: a.label } : {}), ...(annexId ? { annex_id: annexId } : {}), path: x.asset.path })
-    return { path: x.asset.path, name: x.asset.name }
-  }
-  const files: FinalFile[] = []
-  const main = save(finalFileName(fresh, docLangFor(fresh, input.lang), listFinals(fresh.id).length + 1), bundle ?? r.pdf, bundle ? 'bundle' : 'main')
-  if (typeof main === 'string') return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + main, ...(main === 'unreachable' ? { convert: 'folder_unreachable' } : {}) }
-  files.push({ ...main, role: bundle ? 'bundle' : 'main' })
+  // Only the submission (or the one combined file) goes to Finished materials. #753 (Boss, TG 4240): the annexes are listed
+  // in Attachments already (linked Life-tree documents stand there as links), so their cover + content PDFs are NOT saved
+  // anywhere -- they are checked here and made again, the same, when the package is sent (the content hash covers them).
+  const x = attachAsset(fresh, profileFileName(finalFileName(fresh, docLangFor(fresh, input.lang), listFinals(fresh.id).length + 1), profile, index++, total), bundle ?? r.pdf, { force: true, createdBy: input.by, into: 'finished' as const })
+  if (!x.ok) return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + x.code, ...(x.code === 'unreachable' ? { convert: 'folder_unreachable' } : {}) }
+  const main = { path: x.asset.path, name: x.asset.name }
+  checkIn.push({ name: main.name, pdf: bundle ?? r.pdf, role: bundle ? 'bundle' : 'main', path: main.path })
+  const files: FinalFile[] = [{ ...main, role: bundle ? 'bundle' : 'main' }]
   if (!bundle) {
     for (const a of annexes) {
-      const f = save(`${fileStem(a.label)} – ${fileStem(a.title)}.pdf`, a.pdf, 'annex', a)
-      if (typeof f === 'string') return { ok: false, code: 'docpdf_failed', detail: `the annex ${a.label} could not be saved into the work item folder: ${f}` }
-      files.push({ ...f, role: 'annex', label: a.label })
+      const annexId = annexIdOf(fresh.id, a.label)
+      checkIn.push({ name: annexFinalName(a, profile, index++, total), pdf: a.pdf, role: 'annex', label: a.label, ...(annexId ? { annex_id: annexId } : {}) })
     }
   }
   const meta: FinalMeta = {
     final: true, label, content_hash: hash,
     pdf_path: main.path, pdf_name: main.name,
     files, annex_mode: annexes.length ? mode : null,
+    ...(!bundle && annexes.length ? { annex_labels: annexes.map((a) => a.label) } : {}),
     // A beadvany PDF-je PDF/A-2b; az egyesitett fajl es a mellekletek (a csatolt PDF-ek) nem feltetlenul.
     pdfa: !bundle,
     accepted_by: input.by, accepted_at: now(), accepted_text: ACCEPT_TEXT[input.lang],
@@ -414,7 +414,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   return { ok: true, final: state, asset_path: main.path, court }
 }
 
-/** The latest final of this exact content and language whose files are all still on disk, else null (#738). */
+/** The latest final of this exact content and language whose submission file is still on disk, else null (#738). */
 function reusableFinal(item: WorkItemRow, hash: string, lang: 'hu' | 'en'): FinalView | null {
   const prev = listFinals(item.id)[0]
   if (!prev || prev.content_hash !== hash || !prev.files || !prev.files.length) return null
@@ -423,6 +423,8 @@ function reusableFinal(item: WorkItemRow, hash: string, lang: 'hu' | 'en'): Fina
   const wanted = listAnnexes(item.id).length ? docSettings(item.id).annex_mode : null
   if ((prev.annex_mode ?? null) !== wanted) return null
   for (const f of prev.files) {
+    // #753: an annex PDF an older final saved is made again when sent, so its being gone does not need a new final.
+    if (f.role === 'annex') continue
     const abs = resolveLifePath(f.path)
     if (!abs || !existsSync(abs)) return null
   }
@@ -441,6 +443,7 @@ async function finalizeFromExisting(
     final: true, label, content_hash: ctx.hash,
     pdf_path: main.path, pdf_name: main.name,
     files, annex_mode: prev.annex_mode, pdfa: prev.pdfa,
+    ...(prev.annex_labels ? { annex_labels: prev.annex_labels } : {}),
     accepted_by: ctx.by, accepted_at: now(), accepted_text: ACCEPT_TEXT[ctx.lang],
     reviewed_at: ctx.review.reviewed_at, reviewed_by: ctx.review.reviewed_by,
     check: ctx.check.items,
@@ -450,6 +453,62 @@ async function finalizeFromExisting(
   const state = finalState(v.item, ctx.hash)
   if (!state) return { ok: false, code: 'docpdf_failed', detail: 'the final version was created but could not be read back' }
   return { ok: true, final: state, asset_path: main.path, court: null, reused: true }
+}
+
+/** The file name an annex of the package carries when sent: "<label> – <title>.pdf", numbered by the court profile. */
+function annexFinalName(a: { label: string; title: string }, profile: ReturnType<typeof getProfile>, index: number, total: number): string {
+  return profileFileName(`${fileStem(a.label)} – ${fileStem(a.title)}.pdf`, profile, index, total)
+}
+
+/** The language a final was made in (its label says it), for the annex cover pages made again when it is sent. */
+export function finalLang(f: { label: string }, fallback: 'hu' | 'en'): 'hu' | 'en' {
+  const l = String(f.label || '')
+  return l.startsWith(FINAL_LABEL.en) ? 'en' : l.startsWith(FINAL_LABEL.hu) ? 'hu' : fallback
+}
+
+export interface PackageFile { name: string; pdf: Buffer; role: FinalFile['role']; label?: string; path?: string }
+
+/**
+ * Every file of a final's package, as it goes out: the saved submission (or combined file) and -- #753 -- the annexes made
+ * now (cover + content) when the final did not save them. Older finals saved their annex PDFs: those are read from `files`.
+ * Null when a saved file is gone or an annex cannot be made.
+ */
+export async function finalPackageFiles(item: WorkItemRow, f: FinalView, lang: 'hu' | 'en'): Promise<{ ok: true; files: PackageFile[] } | { ok: false; code: string; detail: string | null }> {
+  const list: FinalFile[] = f.files && f.files.length ? f.files : [{ path: f.pdf_path, name: f.pdf_name, role: 'main' }]
+  const out: PackageFile[] = []
+  // An older final's saved annex PDF that is gone (moved away as a duplicate, #753) is made again instead, under its name.
+  const remake: { at: number; label: string; name: string }[] = []
+  for (const x of list) {
+    const abs = resolveLifePath(x.path)
+    if (!abs || !existsSync(abs)) {
+      if (x.role !== 'annex' || !x.label) return { ok: false, code: 'court_file_missing', detail: x.name }
+      remake.push({ at: out.length, label: x.label, name: x.name })
+      out.push({ name: x.name, pdf: Buffer.alloc(0), role: 'annex', label: x.label })
+      continue
+    }
+    out.push({ name: x.name, pdf: readFileSync(abs), role: x.role, ...(x.label ? { label: x.label } : {}), path: x.path })
+  }
+  const labels = f.annex_labels ?? []
+  if (!labels.length && !remake.length) return { ok: true, files: out }
+  const resolve = resolverFor(item)
+  if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
+  // skipBroken + the label list: the annexes the owner finalized, an annex left out then ("finalize anyway") stays out.
+  const ax = await annexPdfs(item.id, resolve, { lang, skipBroken: true })
+  if (!ax.ok) return { ok: false, code: ax.code, detail: ax.detail ?? null }
+  for (const r of remake) {
+    const a = ax.annexes.find((y) => y.label === r.label)
+    if (!a) return { ok: false, code: 'court_file_missing', detail: r.name }
+    out[r.at] = { name: r.name, pdf: a.pdf, role: 'annex', label: r.label }
+  }
+  const profile = getProfile(itemProfileId(item.id))
+  const total = 1 + labels.length
+  let index = 1
+  for (const label of labels) {
+    const a = ax.annexes.find((y) => y.label === label)
+    if (!a) return { ok: false, code: 'annex_missing', detail: label }
+    out.push({ name: annexFinalName(a, profile, index++, total), pdf: a.pdf, role: 'annex', label })
+  }
+  return { ok: true, files: out }
 }
 
 /** A mellekletjegyzek-cimkehez (K1, Anlage K2 ...) tartozo melleklet azonositoja; csak PDF-forrasnal (annak lehet kereshető masolata). */
@@ -471,16 +530,13 @@ export async function recheckFinal(item: WorkItemRow): Promise<CourtRecheck> {
   if (!profile) return { ok: false, code: 'court_no_profile', detail: null }
   const f = listFinals(item.id)[0]
   if (!f) return { ok: false, code: 'court_no_final', detail: null }
-  const list: FinalFile[] = f.files && f.files.length ? f.files : [{ path: f.pdf_path, name: f.pdf_name, role: 'main' }]
-  const files: CheckFile[] = []
-  for (const x of list) {
-    // A vegleges fajlok utja a Raktarhoz kepest van (mint minden anyage), nem a projektmappahoz.
-    const abs = resolveLifePath(x.path)
-    if (!abs || !existsSync(abs)) return { ok: false, code: 'court_file_missing', detail: x.name }
-    const got = { abs }
+  // A vegleges fajlok utja a Raktarhoz kepest van (mint minden anyage), nem a projektmappahoz.
+  const pkg = await finalPackageFiles(item, f, finalLang(f, 'hu'))
+  if (!pkg.ok) return { ok: false, code: 'court_file_missing', detail: pkg.detail }
+  const files: CheckFile[] = pkg.files.map((x) => {
     const annexId = x.label ? annexIdOf(item.id, x.label) : undefined
-    files.push({ name: x.name, pdf: readFileSync(got.abs), role: x.role, ...(x.label ? { label: x.label } : {}), ...(annexId ? { annex_id: annexId } : {}), path: x.path })
-  }
+    return { ...x, ...(annexId ? { annex_id: annexId } : {}) }
+  })
   const court = await checkFiles(profile, files)
   saveCourtCheck(item.id, f.version_id, court)
   return { ok: true, court }
