@@ -7966,6 +7966,130 @@
     if (vol !== undefined) op.volume = Math.max(0, Math.min(1, vol / 100))
     vtOps([op])
   }
+
+  // ---- AI-videogeneralas (OpenRouter) ---------------------------------------
+  // A panel elobb megkerdezi a szervert (kulcs, modell, valaszthato ertekek, becsles, havi keret), az inditas csak a
+  // kiirt arral megy (confirm_cost). A generalas percekig fut a szerveren; a panel 15 mp-enkent kerdez, a kesz klip
+  // a munkadarab uj verzioja lesz, es egy gombbal az idovonalra tehető.
+  var vgenTimer = null
+  function vgenUrl() { return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/videogen' }
+  function vgenQuery() {
+    var g = WB.vgen || {}
+    return '?duration=' + encodeURIComponent(g.duration || '') + '&resolution=' + encodeURIComponent(g.resolution || '')
+      + '&aspect_ratio=' + encodeURIComponent(g.aspect || '9:16') + '&audio=' + (g.audio === false ? '0' : '1')
+  }
+  function vgenRunning(g) { return !!(g && g.info && (g.info.jobs || []).some(function (j) { return j.state === 'preparing' || j.state === 'running' })) }
+  function vgenLoad() {
+    var itemId = WB.selectedId
+    if (!itemId) return
+    var g = WB.vgen
+    api('GET', vgenUrl() + vgenQuery()).then(function (r) {
+      if (!WB.vgen || WB.selectedId !== itemId) return
+      var was = vgenRunning(WB.vgen)
+      WB.vgen.info = r.ok ? r.data : { error: r.message }
+      var p = WB.vgen.info && WB.vgen.info.preview
+      if (p && p.ok) {
+        var o = p.options
+        if (!WB.vgen.duration || o.durations.indexOf(Number(WB.vgen.duration)) < 0) WB.vgen.duration = String(o.durations.indexOf(8) >= 0 ? 8 : o.durations[0])
+        if (!WB.vgen.resolution || o.resolutions.indexOf(WB.vgen.resolution) < 0) WB.vgen.resolution = o.resolutions.indexOf('720p') >= 0 ? '720p' : o.resolutions[0]
+        if (!WB.vgen.aspect || o.aspect_ratios.indexOf(WB.vgen.aspect) < 0) WB.vgen.aspect = o.aspect_ratios.indexOf('9:16') >= 0 ? '9:16' : o.aspect_ratios[0]
+      }
+      var now = vgenRunning(WB.vgen)
+      if (was && !now) { // a generalas befejezodott: a kesz klip a munkadarab uj verzioja
+        var last = (WB.vgen.info.jobs || [])[0]
+        window.showToast(last && last.state === 'done' ? t('workbench.vgen.done') : t('workbench.vgen.failed'))
+        loadPreview(WB.selectedId, null, true)
+        loadVideoTimeline(WB.selectedId)
+      }
+      vgenSchedule()
+      render()
+    })
+  }
+  function vgenSchedule() {
+    if (vgenTimer) { clearTimeout(vgenTimer); vgenTimer = null }
+    if (WB.vgen && WB.vgen.open && vgenRunning(WB.vgen)) vgenTimer = setTimeout(vgenLoad, 15000)
+  }
+  function vgenToggle() {
+    if (WB.vgen && WB.vgen.open) { WB.vgen.open = false; vgenSchedule(); render(); return }
+    WB.vgen = Object.assign(WB.vgen || { prompt: '', audio: true }, { open: true })
+    render()
+    vgenLoad()
+  }
+  function vgenRead() {
+    var g = WB.vgen
+    if (!g) return
+    var el = document.getElementById('wbVgenPrompt'); if (el) g.prompt = el.value
+    var d = document.getElementById('wbVgenDur'); if (d) g.duration = d.value
+    var rs = document.getElementById('wbVgenRes'); if (rs) g.resolution = rs.value
+    var a = document.getElementById('wbVgenAsp'); if (a) g.aspect = a.value
+    var au = document.getElementById('wbVgenAudio'); if (au) g.audio = !!au.checked
+  }
+  function vgenStart() {
+    var g = WB.vgen
+    if (!g || g.busy || !WB.selectedId || archived()) return
+    vgenRead()
+    if (!String(g.prompt || '').trim()) { window.showToast(t('workbench.vgen.need_prompt')); return }
+    g.busy = true
+    render()
+    api('POST', vgenUrl(), { prompt: g.prompt, duration: Number(g.duration), resolution: g.resolution, aspect_ratio: g.aspect, audio: g.audio !== false, confirm_cost: true }).then(function (r) {
+      if (WB.vgen) WB.vgen.busy = false
+      if (!r.ok) { window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : '')); render(); return }
+      window.showToast(t('workbench.vgen.started'))
+      vgenLoad()
+    })
+  }
+  function vgenRetry(id) {
+    if (!id || !WB.selectedId) return
+    api('POST', vgenUrl() + '/' + encodeURIComponent(id) + '/retry-download', {}).then(function (r) {
+      if (!r.ok) window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+      loadPreview(WB.selectedId, null, true)
+      vgenLoad()
+    })
+  }
+  function vgenUsd(n) { return n == null ? '?' : '$' + Number(n).toFixed(2) }
+  function vgenHtml() {
+    var g = WB.vgen
+    var head = '<h5>' + esc(t('workbench.vgen.title')) + '</h5>'
+    if (!g || !g.open) return head + '<p><button type="button" class="wb-btn" data-wb-act="vgen-toggle">' + esc(t('workbench.vgen.open')) + '</button></p>'
+    var info = g.info
+    if (!info) return head + '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
+    var close = '<button type="button" class="wb-btn" data-wb-act="vgen-toggle">' + esc(t('common.cancel')) + '</button>'
+    if (info.error) return head + '<p class="wb-preview-bad">' + esc(info.error) + '</p><p>' + close + '</p>'
+    var jobs = (info.jobs || []).slice(0, 6).map(function (j) {
+      var label = t('workbench.vgen.state_' + j.state)
+      var cost = j.state === 'done' ? vgenUsd(j.cost_usd) : (j.state === 'failed' ? '' : '~' + vgenUsd(j.est_usd))
+      var retry = j.state === 'failed' && j.remote_id && /^video_(download|write)/.test(j.error_code || '')
+        ? ' <button type="button" class="wb-btn" data-wb-act="vgen-retry" data-wb-id="' + escA(j.id) + '">' + esc(t('workbench.vgen.retry')) + '</button>' : ''
+      var add = j.state === 'done' && j.file_rel ? ' <button type="button" class="wb-btn" data-wb-act="fr-vt-add-path" data-wb-path="' + escA(j.file_rel) + '">' + esc(t('workbench.vgen.add_to_timeline')) + '</button>' : ''
+      var err = j.state === 'failed' ? '<br><span class="wb-preview-bad">' + esc(j.error_detail || j.error_code || '') + '</span>' : ''
+      return '<li class="wb-vt-row"><b>' + esc(label) + '</b> ' + esc(j.model) + ' ' + esc(cost) + ' <span class="wb-muted">' + esc((j.prompt || '').slice(0, 60)) + '</span>' + retry + add + err + '</li>'
+    }).join('')
+    var pre = info.preview
+    var running = vgenRunning(g)
+    var off = (g.busy || running || archived() || info.sensitive || !info.key_set) ? ' disabled' : ''
+    var notice = info.sensitive ? t('workbench.vgen.sensitive') : (!info.key_set ? t('workbench.vgen.no_key') : '')
+    var form = ''
+    if (pre && pre.ok) {
+      var o = pre.options
+      var opt = function (arr, cur) { return arr.map(function (v) { return '<option value="' + escA(v) + '"' + (String(v) === String(cur) ? ' selected' : '') + '>' + esc(v) + '</option>' }).join('') }
+      var after = pre.month_spent_usd
+      form = '<p><textarea class="wb-input" id="wbVgenPrompt" rows="3" maxlength="2000" style="width:100%" placeholder="' + escA(t('workbench.vgen.prompt')) + '">' + esc(g.prompt || '') + '</textarea></p>'
+        + '<p><select class="wb-input" id="wbVgenDur" aria-label="' + escA(t('workbench.vgen.duration')) + '">' + opt(o.durations, g.duration) + '</select> '
+        + '<select class="wb-input" id="wbVgenRes" aria-label="' + escA(t('workbench.vgen.resolution')) + '">' + opt(o.resolutions, g.resolution) + '</select> '
+        + '<select class="wb-input" id="wbVgenAsp" aria-label="' + escA(t('workbench.vgen.aspect')) + '">' + opt(o.aspect_ratios, g.aspect) + '</select> '
+        + '<label class="wb-muted"><input type="checkbox" id="wbVgenAudio"' + (g.audio === false ? '' : ' checked') + '> ' + esc(t('workbench.vgen.audio')) + '</label></p>'
+        + '<p class="wb-hint">' + esc(pre.estimate_usd == null ? t('workbench.vgen.cost_unknown', { model: pre.name }) : t('workbench.vgen.cost', { usd: vgenUsd(pre.estimate_usd), model: pre.name })) + ' '
+        + esc(t('workbench.vgen.budget', { spent: vgenUsd(after), budget: vgenUsd(pre.month_budget_usd) })) + '</p>'
+        + '<p><button type="button" class="btn-primary" data-wb-act="vgen-start"' + off + (pre.estimate_usd == null ? ' disabled' : '') + '>'
+        + esc(g.busy || running ? t('workbench.vgen.running') : t('workbench.vgen.run', { usd: vgenUsd(pre.estimate_usd) })) + '</button> '
+        + '<button type="button" class="wb-btn" data-wb-act="vgen-refresh">' + esc(t('workbench.vgen.refresh')) + '</button> ' + close + '</p>'
+        + '<p class="wb-hint">' + esc(t('workbench.vgen.hint')) + '</p>'
+    } else {
+      form = '<p class="wb-preview-bad">' + esc((pre && pre.message) || '') + (pre && pre.detail ? ' (' + esc(pre.detail) + ')' : '') + '</p><p>' + close + '</p>'
+    }
+    return head + (notice ? '<p class="wb-hint">' + esc(notice) + '</p>' : '') + (jobs ? '<ul class="wb-vt-list">' + jobs + '</ul>' : '') + form
+  }
+
   function vtVoiceoverHtml(doc) {
     var d = WB.vtVoDraft || {}
     var rows = (doc.voiceovers || []).map(function (v) {
@@ -8455,7 +8579,7 @@
       + vtBtn('vt-version', t('workbench.vt.version')) + '</p>'
       + '<p class="wb-vt-bg"><span class="wb-muted">' + esc(t('workbench.vt.bg.label')) + '</span> ' + backgrounds + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.bg.' + bgNow + '_hint')) + '</p>'
-      + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtCutoutHtml(doc) + vtHlHtml(doc) + vtOverlaysHtml(doc)
+      + vgenHtml() + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtCutoutHtml(doc) + vtHlHtml(doc) + vtOverlaysHtml(doc)
       + '<p>' + vtNumField('clip-volume', '', Math.round(doc.clip_volume * 100), t('workbench.vt.clip_volume')) + vtBtn('vt-volume', t('workbench.vt.save')) + '</p>'
       + '<p><button type="button" class="btn-primary" data-wb-act="vt-render"' + (WB.vtBusy || WB.vtRender || archived() || !doc.clips.length ? ' disabled' : '') + '>'
       + esc(WB.vtRender ? vtRenderLabel() : t('workbench.vt.render')) + '</button></p>' + vtRenderBarHtml()
@@ -21036,6 +21160,10 @@
     else if (a === 'vt-render') vtRenderNow()
     else if (a === 'open-capcut') openInCapcut()
     else if (a === 'vt-autosub') vtAutoSubtitle()
+    else if (a === 'vgen-toggle') vgenToggle()
+    else if (a === 'vgen-start') vgenStart()
+    else if (a === 'vgen-refresh') { vgenRead(); vgenLoad() }
+    else if (a === 'vgen-retry') vgenRetry(act.getAttribute('data-wb-id'))
     else if (a === 'vt-aspect') vtOps([{ op: 'setAspect', aspect: act.getAttribute('data-wb-v') }])
     else if (a === 'vt-background') vtOps([{ op: 'setBackground', background: act.getAttribute('data-wb-v') }])
     else if (a === 'vt-clip-add') vtAddClip()
