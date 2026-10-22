@@ -1498,6 +1498,8 @@
       if (!r.ok) { window.showToast(r.message); return }
       WB.detail = r.data
       render()
+      // #757: an open Research panel follows the newly opened work item.
+      if (WB.rsOpen && (!WB.rs || WB.rs.itemId !== id)) rsLoad()
       scheduleDocPoll(id)
       rootGuardCheck(id)
       // A rajz-fajta munkadarabnal magatol megnezzuk, van-e mar vaszon. Mas
@@ -13218,6 +13220,109 @@
     return inner ? '<div class="wb-fr-pop wb-fr-pop-docs" id="wbPdPop">' + inner + '</div>' : ''
   }
 
+  // ---- #757 (Boss TG 4390, "A"): the work item's Research ---------------------------------------------------------
+  // The project's research (the Research page) seen from the open work item: linked to THIS item, linked to another
+  // item in the same folder, the rest of the project. The project's Research tab keeps showing all of it.
+  function rsItem() { return WB.detail && WB.detail.item ? WB.detail.item : null }
+
+  function rsButtonHtml(cls) {
+    if (!rsItem()) return ''
+    return '<button type="button" class="' + cls + (WB.rsOpen && cls.indexOf('wb-fr-tbtn') >= 0 ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="rs-open" aria-pressed="' + !!WB.rsOpen + '" title="' + escA(t('workbench.rs.open_hint')) + '">🔎 ' + esc(t('workbench.rs.open')) + '</button>'
+  }
+
+  function rsLoad() {
+    var it = rsItem()
+    if (!it) return
+    var id = it.id
+    WB.rs = { itemId: id, data: null, error: null, doc: null }
+    render()
+    return api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/research').then(function (r) {
+      if (!WB.rs || WB.rs.itemId !== id) return
+      // A failed read is said as such: "could not look" is not "there is none".
+      if (!r.ok) WB.rs.error = r.message
+      else WB.rs.data = r.data
+      render()
+    })
+  }
+
+  function rsLink(rid, on) {
+    var it = rsItem()
+    if (!it) return
+    var id = it.id
+    return api(on ? 'POST' : 'DELETE', '/api/workbench/items/' + encodeURIComponent(id) + '/research', { id: rid }).then(function (r) {
+      if (!WB.rs || WB.rs.itemId !== id) return
+      if (!r.ok) { window.showToast(r.text || r.message); return }
+      WB.rs.data = r.data
+      window.showToast(t(on ? 'workbench.rs.linked' : 'workbench.rs.unlinked'))
+      render()
+    })
+  }
+
+  function rsShow(rid) {
+    var it = rsItem()
+    if (!it || !WB.rs) return
+    if (WB.rs.doc && WB.rs.doc.id === rid) { WB.rs.doc = null; render(); return }
+    var id = it.id
+    WB.rs.doc = { id: rid, loading: true }
+    render()
+    return api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/research-doc?id=' + encodeURIComponent(rid)).then(function (r) {
+      if (!WB.rs || WB.rs.itemId !== id || !WB.rs.doc || WB.rs.doc.id !== rid) return
+      WB.rs.doc = r.ok ? { id: rid, title: r.data.title, text: r.data.text, more: r.data.more } : { id: rid, error: r.message }
+      render()
+    })
+  }
+
+  function rsRowHtml(d, linked) {
+    var open = WB.rs && WB.rs.doc && WB.rs.doc.id === d.id ? WB.rs.doc : null
+    var body = ''
+    if (open) {
+      if (open.loading) body = '<p class="wb-hint">' + esc(t('workbench.rs.loading')) + '</p>'
+      else if (open.error) body = '<p class="wb-error">' + esc(open.error) + '</p>'
+      else body = '<div class="wb-rs-doc">' + (typeof window.renderMarkdown === 'function' ? window.renderMarkdown(open.text || '') : '<pre class="wb-preview-text">' + esc(open.text || '') + '</pre>')
+        + (open.more ? '<p class="wb-hint">' + esc(t('workbench.rs.more')) + '</p>' : '') + '</div>'
+    }
+    var ro = archived()
+    return '<li class="wb-rs-row" data-wb-rs-row="' + escA(d.id) + '">'
+      + '<button type="button" class="wb-linklike wb-rs-title" data-wb-act="rs-show" data-wb-rs="' + escA(d.id) + '" aria-expanded="' + !!open + '">📄 ' + esc(d.title || d.name) + '</button>'
+      + ' <span class="wb-muted">' + esc(d.updated || '') + '</span>'
+      + (ro ? '' : ' <button type="button" class="wb-linklike" data-wb-act="' + (linked ? 'rs-unlink' : 'rs-link') + '" data-wb-rs="' + escA(d.id) + '">'
+        + esc(t(linked ? 'workbench.rs.unlink' : 'workbench.rs.link')) + '</button>')
+      + body + '</li>'
+  }
+
+  function rsGroupHtml(key, list, linked) {
+    return '<h3 class="wb-rs-h">' + esc(t('workbench.rs.group.' + key, { n: list.length })) + '</h3>'
+      + (list.length ? '<ul class="wb-rs-list">' + list.map(function (d) { return rsRowHtml(d, linked) }).join('') + '</ul>'
+        : '<p class="wb-hint">' + esc(t('workbench.rs.none.' + key)) + '</p>')
+  }
+
+  function researchPanelHtml() {
+    var it = rsItem()
+    if (!WB.rsOpen || !it) return ''
+    var rs = WB.rs
+    var body
+    if (!rs || rs.itemId !== it.id || (!rs.data && !rs.error)) body = '<p class="wb-hint">' + esc(t('workbench.rs.loading')) + '</p>'
+    else if (rs.error) body = '<p class="wb-error">' + esc(t('workbench.rs.load_failed', { msg: rs.error })) + '</p>'
+    else {
+      var d = rs.data
+      var total = d.item.length + d.folder.length + d.others.length
+      body = total
+        ? rsGroupHtml('item', d.item, true) + rsGroupHtml('folder', d.folder, false) + rsGroupHtml('others', d.others, false)
+        : '<p class="wb-hint">' + esc(t('workbench.rs.empty')) + '</p>'
+    }
+    return '<div class="wb-panel wb-rs-panel" id="wbRsPanel">'
+      + '<div class="wb-pd-head"><h2>🔎 ' + esc(t('workbench.rs.title', { item: it.title })) + '</h2>'
+      + '<button type="button" class="wb-linklike" data-wb-act="rs-close">' + esc(t('common.close')) + '</button></div>'
+      + '<p class="wb-hint">' + esc(t('workbench.rs.hint')) + '</p>'
+      + body + '</div>'
+  }
+
+  /** In the Simple view's frame: a popup under the top bar, like the Documents panel. */
+  function researchPopupHtml() {
+    var inner = researchPanelHtml()
+    return inner ? '<div class="wb-fr-pop wb-fr-pop-docs wb-fr-pop-rs">' + inner + '</div>' : ''
+  }
+
   // #530 (Boss TG 2857 "A"): with a work item open the Iratok panel shows THAT item's documents (its attachments and the
   // files of its own folder); the whole project's documents are one switch away. No item open -> the whole project.
   function pdScopeNow() {
@@ -14275,6 +14380,7 @@
     }
     out += dbButtonHtml('btn-secondary wb-sh-docs')
       + '<button type="button" class="btn-secondary wb-sh-docs" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
+      + rsButtonHtml('btn-secondary wb-sh-docs')
       + viewSwitchHtml()
       + '<button type="button" class="btn-secondary wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '"'
       + ' aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
@@ -16887,12 +16993,13 @@
       + (sizeOn ? '<button type="button" class="wb-fr-tbtn' + (WB.frLive ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="fr-live" aria-pressed="' + !!WB.frLive + '" title="' + escA(t('workbench.fr.live_title')) + '">&#128065; ' + esc(t(WB.frLive ? 'workbench.fr.live_on' : 'workbench.fr.live_off')) + '</button>' : '')
       + dbButtonHtml('wb-fr-tbtn wb-fr-docs')
       + '<button type="button" class="wb-fr-tbtn wb-fr-docs' + (WB.pdOpen ? ' wb-fr-tbtn-on' : '') + '" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '" title="' + escA(t('workbench.pd.simple_hint')) + '">📑 ' + esc(t('workbench.pd.open')) + '</button>'
+      + rsButtonHtml('wb-fr-tbtn wb-fr-docs')
       + finalizeTopHtml(it)
       + viewSwitchHtml()
       + '<button type="button" class="wb-fr-export" data-wb-act="' + (exportIsOpen() ? 'export-close' : 'export-open') + '" aria-expanded="' + exportIsOpen() + '">' + esc(t('workbench.exp.open')) + '</button>'
       + '<button type="button" class="wb-fr-tbtn wb-sh-more" data-wb-act="sh-more" aria-expanded="' + !!WB.shMore + '" aria-label="' + escA(t('workbench.sh.more')) + '" title="' + escA(t('workbench.sh.more')) + '">&#8942;</button>'
       + '</div>'
-    return out + frMenuHtml() + projectDocsPopupHtml() + (exportIsOpen() ? '<div class="wb-fr-pop wb-fr-pop-export">' + frDeckExportHtml() + exportPanelHtml() + '</div>' : '')
+    return out + frMenuHtml() + projectDocsPopupHtml() + researchPopupHtml() + (exportIsOpen() ? '<div class="wb-fr-pop wb-fr-pop-export">' + frDeckExportHtml() + exportPanelHtml() + '</div>' : '')
   }
 
   /** A megnyitott menu (Fajl / Meretezes): a fejlec alatt lenyilo doboz. */
@@ -18131,7 +18238,7 @@
     WB.dbOpen = !WB.dbOpen
     if (WB.dbOpen) {
       // One panel in the middle at a time: the button pressed last wins (Boss TG 2926).
-      WB.pdOpen = false; WB.shFinal = false
+      WB.pdOpen = false; WB.shFinal = false; WB.rsOpen = false
       dbLoadModels()
       if (dbState().tpl.list === null) dbLoadTemplates()
       if (dbState().past === null) dbLoadPast()
@@ -19776,6 +19883,7 @@
       + '<button type="button" class="btn-secondary" data-wb-act="dec-open" aria-pressed="' + !!WB.decOpen + '">' + esc(t('workbench.dec.open')) + '</button>'
       + dbButtonHtml('btn-secondary')
       + '<button type="button" class="btn-secondary" data-wb-act="pd-open" aria-pressed="' + !!WB.pdOpen + '">' + esc(t('workbench.pd.open')) + '</button>'
+      + rsButtonHtml('btn-secondary')
       + '<button type="button" class="btn-secondary" data-wb-act="brand-open" aria-pressed="' + !!WB.brandOpen + '">' + esc(t('workbench.brand.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="td-open" aria-pressed="' + !!WB.tdOpen + '">' + esc(t('workbench.td.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="ho-open" aria-pressed="' + !!WB.hoOpen + '">' + esc(t('workbench.ho.open')) + '</button>'
@@ -19788,6 +19896,7 @@
       + weeklyPanelHtml()
       + decisionsPanelHtml()
       + projectDocsPanelHtml()
+      + researchPanelHtml()
       + (WB.dbOpen ? dbPanelHtml() : '')
       + brandPanelHtml()
       + todosPanelHtml()
@@ -20194,6 +20303,8 @@
     WB.decOpen = false
     WB.decisions = null
     WB.pdOpen = false
+    WB.rsOpen = false
+    WB.rs = null
     WB.dbOpen = false
     WB.db = null
     WB.pdocs = null
@@ -20605,8 +20716,12 @@
     else if (a === 'brand-tpl-use') useBrandTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'brand-tpl-del') deleteBrandTemplate(act.getAttribute('data-wb-tpl'))
     else if (a === 'dec-open') { WB.decOpen = !WB.decOpen; render(); if (WB.decOpen) loadDecisions() }
-    else if (a === 'pd-open') { WB.pdOpen = !WB.pdOpen; if (WB.pdOpen) { WB.dbOpen = false; WB.shFinal = false } render(); if (WB.pdOpen) loadProjectDocs() }
+    else if (a === 'pd-open') { WB.pdOpen = !WB.pdOpen; if (WB.pdOpen) { WB.dbOpen = false; WB.shFinal = false; WB.rsOpen = false } render(); if (WB.pdOpen) loadProjectDocs() }
     else if (a === 'pd-close') { WB.pdOpen = false; render() }
+    else if (a === 'rs-open') { WB.rsOpen = !WB.rsOpen; if (WB.rsOpen) { WB.pdOpen = false; WB.dbOpen = false; WB.shFinal = false; rsLoad() } else render() }
+    else if (a === 'rs-close') { WB.rsOpen = false; render() }
+    else if (a === 'rs-show') rsShow(act.getAttribute('data-wb-rs'))
+    else if (a === 'rs-link' || a === 'rs-unlink') rsLink(act.getAttribute('data-wb-rs'), a === 'rs-link')
     else if (a === 'pd-add') {
       var pdRoleEl = document.getElementById('wbPdRole')
       var pdRole = pdRoleEl && pdRoleEl.value ? pdRoleEl.value : 'source'

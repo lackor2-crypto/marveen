@@ -121,42 +121,51 @@ function walk(realRoot: string, rel: string, depth: number, out: string[]): void
   }
 }
 
+export interface ResearchDoc { name: string; title: string; project: string | null; updated: string; ms: number }
+
+/**
+ * Every agent's research docs, newest first. `pf` filters by project: '' = all,
+ * 'none' = no project, otherwise a project id. A file's project: an explicit
+ * link, else the `project: ...` line at its top (src/project-scope.ts). The
+ * Research page and the Workbench (#757: the work item's Research panel and its
+ * assistant) read the SAME list, so they never disagree.
+ */
+export function listResearchDocs(pf = ''): { agent: string; docs: ResearchDoc[] }[] {
+  const agents = [MAIN_AGENT_ID, ...listAgentNames()]
+  return agents.map(agent => {
+    const realRoot = realResearchRoot(agent)
+    const names: string[] = []
+    if (realRoot) walk(realRoot, '', 1, names)
+    const docs = names
+      .map(name => {
+        let title = name
+        let ms = 0
+        let content = ''
+        try {
+          const file = join(realRoot!, name)
+          content = readFileSync(file, 'utf-8')
+          title = titleOf(content, name)
+          ms = statSync(file).mtimeMs
+        } catch {
+          /* keep filename as title */
+        }
+        return { name, title, ms, project: projectOf(agent, name, content) }
+      })
+      .filter(d => !pf || (pf === 'none' ? !d.project : d.project === pf))
+      .sort((a, b) => (b.ms - a.ms) || a.name.localeCompare(b.name))
+      .map(({ name, title, ms, project }) => ({ name, title, project, updated: new Date(ms).toISOString().slice(0, 10), ms }))
+    return { agent, docs }
+  }).filter(a => a.docs.length > 0)
+    // Newest first everywhere: the agent group holding the freshest document comes first.
+    .sort((a, b) => (b.docs[0].ms - a.docs[0].ms) || a.agent.localeCompare(b.agent))
+}
+
 export async function tryHandleResearch(ctx: RouteContext): Promise<boolean> {
   const { res, path, method, url } = ctx
 
   if (path === '/api/research' && method === 'GET') {
-    const agents = [MAIN_AGENT_ID, ...listAgentNames()]
-    // ?project=<id> / ?project=none -- a projektre szurt Kutatas-oldal. A fajl
-    // projektje: kifejezett kotes, kulonben a `project: ...` sor az elejen
-    // (src/project-scope.ts).
-    const pf = url.searchParams.get('project') || ''
-    const result = agents.map(agent => {
-      const realRoot = realResearchRoot(agent)
-      const names: string[] = []
-      if (realRoot) walk(realRoot, '', 1, names)
-      const docs = names
-        .map(name => {
-          let title = name
-          let ms = 0
-          let content = ''
-          try {
-            const file = join(realRoot!, name)
-            content = readFileSync(file, 'utf-8')
-            title = titleOf(content, name)
-            ms = statSync(file).mtimeMs
-          } catch {
-            /* keep filename as title */
-          }
-          return { name, title, ms, project: projectOf(agent, name, content) }
-        })
-        .filter(d => !pf || (pf === 'none' ? !d.project : d.project === pf))
-        .sort((a, b) => (b.ms - a.ms) || a.name.localeCompare(b.name))
-        .map(({ name, title, ms, project }) => ({ name, title, project, updated: new Date(ms).toISOString().slice(0, 10), ms }))
-      return { agent, docs }
-    }).filter(a => a.docs.length > 0)
-      // Newest first everywhere: the agent group holding the freshest document comes first.
-      .sort((a, b) => (b.docs[0].ms - a.docs[0].ms) || a.agent.localeCompare(b.agent))
-    json(res, result)
+    // ?project=<id> / ?project=none -- the Research page filtered to a project.
+    json(res, listResearchDocs(url.searchParams.get('project') || ''))
     return true
   }
 

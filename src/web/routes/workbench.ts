@@ -43,6 +43,7 @@ import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
 import { findCapcut, openInCapcut } from '../../open-in-capcut.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
+import { linkResearch, readProjectResearch, researchForItem, unlinkResearch } from '../../workbench-research.js'
 import { APP_LANG, DASHBOARD_PUBLIC_URL, MAIN_AGENT_ID } from '../../config.js'
 import { executeTool, runTool } from '../../workbench-agent/execute.js'
 import { getTool, decideTool } from '../../workbench-agent/tools.js'
@@ -296,6 +297,19 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   preview_unreadable: {
     hu: 'A fájl ott van, de nem tudtam elolvasni. A pontos hibát a részletek mutatják.',
     en: 'The file is there, but it could not be read. The details show the exact error.',
+  },
+  // #757: the Research panel of a work item.
+  research_item_not_found: {
+    hu: 'Ez a munkadarab már nincs meg (lehet, hogy közben törölték). Frissítsd az oldalt.',
+    en: 'This work item is no longer there (it may have been deleted meanwhile). Refresh the page.',
+  },
+  research_not_found: {
+    hu: 'Ez a kutatás már nincs meg a Kutatás oldalon (lehet, hogy átnevezték vagy törölték). Frissítsd a listát.',
+    en: 'This research is no longer on the Research page (it may have been renamed or deleted). Refresh the list.',
+  },
+  research_other_project: {
+    hu: 'Ez a kutatás egy másik projekthez tartozik, ezért ide nem köthető. A projekt Kutatás fülén át tudod sorolni ide.',
+    en: 'This research belongs to another project, so it cannot be linked here. You can move it to this project on the project\'s Research tab.',
   },
   project_archived: {
     hu: 'Ez a projekt archiválva van, ezért csak olvasható. Ha dolgozni akarsz benne, előbb állítsd vissza a Projektek oldalon.',
@@ -2648,6 +2662,42 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const r = method === 'DELETE' ? removeProjectDoc(project.id, m[1] as string) : updateProjectDoc(project.id, m[1] as string, { role: body['role'], note: body['note'], ai: body['ai'] })
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'pdoc_' + r.code, lang, r.detail)
       json(res, { ok: true, ...projectDocsOut(project.id) })
+      return true
+    }
+  }
+
+  // #757 (Boss TG 4390, "A"): the work item's Research panel -- the project's research, this item's own first.
+  {
+    const m = /^\/api\/workbench\/items\/([A-Za-z0-9-]{1,40})\/research$/.exec(path)
+    if (m && (method === 'GET' || method === 'POST' || method === 'DELETE')) {
+      const item = getWorkItem(m[1] as string)
+      if (!item || item.deleted_at) return fail(res, 404, 'research_item_not_found', lang)
+      if (method !== 'GET') {
+        const project = getProject(item.project_id)
+        if (project && project.archived_at != null) return fail(res, 409, 'project_archived', lang)
+        let body: Record<string, unknown> = {}
+        try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+        const rid = typeof body['id'] === 'string' ? body['id'].trim() : ''
+        if (!rid) return fail(res, 404, 'research_not_found', lang)
+        if (method === 'POST') {
+          const r = linkResearch(item, rid, actor(ctx))
+          if (!r.ok) return fail(res, r.code === 'other_project' ? 409 : 404, 'research_' + r.code, lang)
+        } else {
+          unlinkResearch(item.id, rid)
+        }
+      }
+      json(res, { ok: true, ...researchForItem(item.project_id, item) })
+      return true
+    }
+  }
+  {
+    const m = /^\/api\/workbench\/items\/([A-Za-z0-9-]{1,40})\/research-doc$/.exec(path)
+    if (m && method === 'GET') {
+      const item = getWorkItem(m[1] as string)
+      if (!item || item.deleted_at) return fail(res, 404, 'research_item_not_found', lang)
+      const r = readProjectResearch(item.project_id, (url.searchParams.get('id') || '').trim(), 0)
+      if (!r.ok) return fail(res, r.code === 'other_project' ? 409 : 404, 'research_' + r.code, lang)
+      json(res, { ok: true, ...r.doc })
       return true
     }
   }

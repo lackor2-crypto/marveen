@@ -40,7 +40,7 @@ import { ensureWorkbenchTables } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { timelineGet, timelineEdit, timelineRender, timelineAutoSubtitle } from './timeline-tools.js'
 import { deckGet, deckEdit, deckExport } from './deck-tools.js'
-import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, decisionList, decisionRecord, todoAdd, brandGet, brandCheck, brandUseTemplate } from './project-tools.js'
+import { ideaCreate, ideaList, kanbanComment, kanbanRelate, researchSave, researchList, researchRead, decisionList, decisionRecord, todoAdd, brandGet, brandCheck, brandUseTemplate } from './project-tools.js'
 import { webSearch } from './web-search.js'
 import { searchBlock } from '../workbench-privacy.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
@@ -1178,7 +1178,9 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     // #404 H5: a projekt tobbi feluleve (Otletlada, Kutatas, meglevo kartyak).
     case 'idea.list': return ideaList(project)
     case 'idea.create': return ideaCreate(project, input)
-    case 'research.save': return researchSave(project, input)
+    case 'research.save': return researchSave(project, input, ctx.workItemId)
+    case 'research.list': return researchList(project, asString(input.id) || ctx.workItemId || '')
+    case 'research.read': return researchRead(project, input)
     case 'kanban.comment': return kanbanComment(project, input, ctx.actor || MAIN_AGENT_ID)
     case 'kanban.relate': return kanbanRelate(project, input)
     case 'brand.get': return brandGet(project)

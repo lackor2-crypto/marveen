@@ -509,9 +509,22 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'research.save',
-    description: 'Save background research (collected facts, notes, sources) as a markdown note on the Research page, filed under THIS project. It never overwrites: a taken name gets a free one.',
+    description: 'Save background research (collected facts, notes, sources) as a markdown note on the Research page, filed under THIS project and linked to the open work item, so it is found there next time. It never overwrites: a taken name gets a free one. Save what you found on the web this way, so it is not searched again.',
     input: 'title: the title of the note; text: the content in markdown',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  // #757: the research is read back, not only written.
+  {
+    name: 'research.list',
+    description: 'List the research documents of THIS project (the Research page) in three groups: linked to the open work item, linked to another work item in the same folder, and the rest of the project. Look here BEFORE you search the web.',
+    input: 'id: the work item id (optional, defaults to the open one)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'research.read',
+    description: 'Read one research document of THIS project. A long one comes in parts: the answer says whether there is more and from which offset.',
+    input: 'id: the research id exactly as listed ("agent/name.md"); offset (optional): where to continue reading',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
     name: 'kanban.comment',

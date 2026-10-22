@@ -2313,3 +2313,11 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
   .wb-sh-start-tree { display: block; }
   .wb-sh-start-tree > .wb-sh-tree { max-height: 50vh; margin-bottom: 12px; }
 }
+
+/* #757: the work item's Research panel. */
+.wb-rs-panel .wb-pd-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wb-rs-h { font-size: 0.95rem; margin: 14px 0 6px; }
+.wb-rs-list { list-style: none; margin: 0; padding: 0; }
+.wb-rs-row { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.wb-rs-title { font-weight: 600; text-align: left; }
+.wb-rs-doc { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; max-height: 50vh; overflow: auto; }
