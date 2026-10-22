@@ -1668,11 +1668,13 @@ export function plainItemFolder(project: ProjectRow, item: WorkItemRow): string 
 /**
  * #737 (Boss TG 4102): a plain item whose file link is gone (a Word file read into the document model clears it) still
  * sits in the folder it is listed in. That folder is used as it is when it exists -- nothing is made, so #721 holds.
- * Null: the item is listed at the project root or its folder is gone.
+ * An item listed in the project folder itself works there ('' = the root), as a linked plain item at the root does.
+ * Null: the item is listed nowhere or its folder is gone.
  */
 export function plainContainerFolder(project: ProjectRow, item: Pick<WorkItemRow, 'container_folder'>): string | null {
+  if (item.container_folder === PROJECT_ROOT_PLACE) return projectFileTarget(project, '').ok ? '' : null
   const c = String(item.container_folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-  return c && c !== PROJECT_ROOT_PLACE && projectFileTarget(project, c).ok ? c : null
+  return c && projectFileTarget(project, c).ok ? c : null
 }
 
 export function ensureWorkItemFolder(item: WorkItemRow, opts?: { remake?: boolean }): FolderOutcome {
