@@ -83,9 +83,14 @@ def words(segment):
     toks = strip_redirections(toks)
     # drop leading VAR=value assignments, `env`, `time`, `sudo`-free wrappers and their own options
     # (`nice -n 10 npx vitest run`: the `-n 10` is nice's, not the command's -- 2026-10-22 it slipped past the gate)
-    while toks and (ENV_ASSIGN.match(toks[0]) or toks[0] in ("env", "time", "nice", "exec", "ionice", "nohup")):
+    while toks and (ENV_ASSIGN.match(toks[0]) or toks[0] in ("env", "time", "nice", "exec", "ionice", "nohup", "timeout")):
         wrapper = toks[0]
         toks = toks[1:]
+        if wrapper == "timeout":
+            # `timeout [-s SIG] [-k DUR] DURATION cmd`: drop its options and the duration
+            while toks and toks[0].startswith("-"):
+                toks = toks[2:] if toks[0] in ("-s", "-k", "--signal", "--kill-after") else toks[1:]
+            toks = toks[1:]
         if wrapper in ("nice", "ionice"):
             while toks and (re.match(r"^-\d+$", toks[0]) or re.match(r"^-n\d+$", toks[0]) or toks[0].startswith("--adjustment=")):
                 toks = toks[1:]
