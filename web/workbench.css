@@ -2282,3 +2282,18 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-word-warn { opacity: 1; margin: 6px 0; padding: 8px 12px; border: 1px solid #f59e0b; border-radius: 6px; background: rgba(245, 158, 11, 0.08); }
 .wb-word-warn ul { margin: 4px 0 4px 18px; padding: 0; }
 .wb-word-warn p { margin: 2px 0; }
+
+/* #755 (Boss TG 4324): a loose file is TWO lines everywhere (Manual tree, Simple panel, Technical details): the name on
+   the first, size and date side by side on the second, the tick box on the left of both -- never a row of its own.
+   At the end of the file so it outranks the narrow-column rules above (.wb-sh-tech / .wb-fr-panel / max-width 700px). */
+.wb-item-row.wb-file-row { flex-wrap: nowrap; align-items: center; }
+.wb-item-row.wb-file-row .wb-file-link { order: 0; flex: 1 1 0; min-width: 0; display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; column-gap: 10px; row-gap: 0; }
+.wb-item-row.wb-file-row .wb-file-link .wb-item-title { flex: 1 1 100%; min-width: min(100%, 8ch); max-width: 100%; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-item-row.wb-file-row .wb-file-link .wb-item-meta { flex: 0 0 auto; margin: 0; max-width: none; white-space: nowrap; }
+/* The work item row in the Technical details keeps its star beside the name, not under it. */
+.wb-sh-tech .wb-item-row:not(.wb-file-row) { flex-wrap: nowrap; }
+.wb-sh-tech .wb-item-row:not(.wb-file-row) .wb-item { order: 0; flex: 1 1 0; min-width: 0; }
+/* #755 (Boss TG 4335): the Technical details draw the tree and the Context WITHOUT the width handle between them, so on
+   the three-column grid of .wb-grid-aside the Context fell into the 10px handle column and wrote one letter per line. */
+.wb-sh-tech .wb-grid-aside { grid-template-columns: minmax(0, 1fr) minmax(200px, 1fr); gap: 0 12px; }
+@media (max-width: 900px) { .wb-sh-tech .wb-grid-aside { grid-template-columns: minmax(0, 1fr); } }
