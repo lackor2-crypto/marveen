@@ -283,6 +283,24 @@ export function isFileMount(rel: string): boolean {
 }
 
 /**
+ * #745: put a linked FILE at another place of the tree (move or rename): only its `rel` changes, the file it
+ * points at stays where it is. False when it is no linked file, another link already shows there, or the
+ * store is corrupt.
+ */
+export function moveFileMount(fromRel: string, toRel: string): boolean {
+  const from = norm(fromRel)
+  const to = norm(toRel)
+  if (!from || !to || from === to) return false
+  const store = load()
+  if (store.corrupt) return false
+  const m = store.mounts.find((x) => x.file && x.rel === from)
+  if (!m || store.mounts.some((x) => x.rel === to)) return false
+  m.rel = to
+  save(store)
+  return true
+}
+
+/**
  * A folder moved: the mounts inside it follow it (only the `rel` -- where it
  * shows in the tree -- changes; the target stays). Returns how many moved.
  * Refuses on a corrupt store: rewriting a half-read file would lose mounts.

@@ -34,7 +34,7 @@ import { getDb } from './db.js'
 import { APP_LANG } from './config.js'
 import { getProject, listProjects, cleanFolderRel, type ProjectRow } from './projects.js'
 import { resolveLifePath, toLifeRel, trashLife, copyLife } from './life-explorer.js'
-import { mountsInside, fileMountsInside, isFileMount, removeMount, listMounts } from './life-mounts.js'
+import { mountsInside, fileMountsInside, isFileMount, removeMount, listMounts, moveFileMount } from './life-mounts.js'
 import { safeLifeName, lifeName } from './life-tree.js'
 import { fileKind } from './file-kind.js'
 import { isCanvasFile } from './workbench-graphic.js'
@@ -1109,7 +1109,20 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
     const dst = join(target.dirAbs, name)
     const blocked = writeBlockReason(newRel)
     if (!src || blocked) { skipped.push({ name, reason: 'failed' }); continue }
-    if (existsSync(dst)) { skipped.push({ name, reason: 'name_taken' }); continue }
+    if (existsSync(dst) || isFileMount(newRel)) { skipped.push({ name, reason: 'name_taken' }); continue }
+    // #745: a linked file (left at the old place by the Life-tree move) is only a pointer: the link moves,
+    // the real file it leads to stays in the Life tree. resolveLifePath gives the TARGET, renaming that
+    // would carry the Life-tree file off.
+    if (isFileMount(rel)) {
+      if (!moveFileMount(rel, newRel)) { skipped.push({ name, reason: 'failed' }); continue }
+      if (inUse.has(rel) || docUsed.has(projRelOf(rel))) {
+        try { repointMovedFileRefs(project, rel, newRel, projRelOf(rel), c.folder ? `${c.folder}/${name}` : name) } catch {
+          if (moveFileMount(newRel, rel)) { skipped.push({ name, reason: 'failed' }); continue }
+        }
+      }
+      moved.push(name)
+      continue
+    }
     try { renameSync(src, dst) } catch { skipped.push({ name, reason: 'failed' }); continue }
     // #486: if a work item references this file, its reference follows to the new path (no dead link).
     // The registry repoint is one transaction, so a throw means nothing was rewritten: the file goes back to
@@ -1284,8 +1297,19 @@ export function renameLooseFile(project: ProjectRow, rel: unknown, newName: unkn
   const blocked = writeBlockReason(newRel)
   if (!src || !dst || blocked) return { ok: false, code: 'write_failed', message: blocked ?? undefined }
   // A case-only rename ("a.png" -> "A.png") names the same file on a case-insensitive disk: not a clash.
-  if (clean.toLowerCase() !== oldName.toLowerCase() && existsSync(dst)) return { ok: false, code: 'file_name_taken' }
+  if (clean.toLowerCase() !== oldName.toLowerCase() && (existsSync(dst) || isFileMount(newRel))) return { ok: false, code: 'file_name_taken' }
   const used = loosePathsInUse(project, [from]).has(from)
+  // #745: a linked file is renamed as a link: the real file behind it keeps its name and place.
+  if (isFileMount(from)) {
+    if (!moveFileMount(from, newRel)) return { ok: false, code: 'write_failed' }
+    if (used) {
+      try { repointMovedFileRefs(project, from, newRel) } catch (e) {
+        moveFileMount(newRel, from)
+        return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) }
+      }
+    }
+    return { ok: true, name: clean, renamed: true }
+  }
   try { renameSync(src, dst) } catch (e) { return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) } }
   if (used) {
     try { repointMovedFileRefs(project, from, newRel) } catch (e) {
