@@ -21,7 +21,10 @@ import { createDraftStore, type DraftKind, type DraftStore } from './workbench-d
 export const TIMELINE_MAX_CLIPS = 100
 export const TIMELINE_MAX_SUBTITLES = 500
 export const TIMELINE_MAX_OVERLAYS = 50
+export const TIMELINE_MAX_VOICEOVERS = 100
 export const TIMELINE_TEXT_MAX = 300
+/** A spoken line is longer than a subtitle: a paragraph of narration. */
+export const VOICEOVER_TEXT_MAX = 2000
 export const TIMELINE_MIN_CLIP = 0.1
 export const TIMELINE_MAX_SECONDS = 4 * 3600
 export const TIMELINE_EXT = '.timeline.json'
@@ -94,6 +97,8 @@ export interface TimelineOverlay {
   /** Make this background colour of the picture transparent (green screen, a logo on white, ...). */
   key?: OverlayKey
 }
+/** A spoken line read aloud by the local voice (#669 phase C): an audio file inside the project, played from `start` on the finished timeline. `dur` is its length in seconds (measured when it was made); `text` is what is said, kept for editing and for the list. */
+export interface TimelineVoiceover { id: string; src: string; start: number; dur: number; volume: number; text?: string }
 export interface TimelineDoc {
   version: 1
   aspect: TimelineAspect
@@ -105,6 +110,8 @@ export interface TimelineDoc {
   subtitles: TimelineSubtitle[]
   music: TimelineMusic | null
   overlays: TimelineOverlay[]
+  /** Left out = none, so stored timelines stay exactly as they were. */
+  voiceovers?: TimelineVoiceover[]
 }
 
 export function emptyTimeline(): TimelineDoc {
@@ -328,6 +335,19 @@ export function parseTimeline(raw: unknown): TimelineParse {
     if (keyRaw !== undefined && !OVERLAY_KEYS.includes(keyRaw as OverlayKey)) return fail('timeline_bad_style', `the overlay key must be one of: none, ${OVERLAY_KEYS.join(', ')}`)
     doc.overlays.push({ id: id(o, 'o'), src: o.src.trim(), start: s.start, end: s.end, x: round3(x), y: round3(y), width: round3(w), opacity: round3(op), ...(keyRaw ? { key: keyRaw as OverlayKey } : {}) })
   }
+  const vos = list('voiceovers', TIMELINE_MAX_VOICEOVERS)
+  if (!Array.isArray(vos)) return vos
+  for (const c of vos) {
+    const o = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>
+    if (!isMediaPath(o.src) || !AUDIO_EXT.test(o.src)) return fail('timeline_bad_media', 'a voiceover needs an audio file inside the project')
+    const start = num(o.start ?? 0), dur = num(o.dur), vol = o.volume === undefined ? 1 : num(o.volume)
+    if (start === null || start < 0 || start > TIMELINE_MAX_SECONDS) return fail('timeline_bad_time', 'voiceover: the start must be a second on the timeline')
+    if (dur === null || dur < TIMELINE_MIN_CLIP || dur > TIMELINE_MAX_SECONDS) return fail('timeline_bad_time', 'voiceover: the length must be known (seconds)')
+    if (vol === null || vol < 0 || vol > 1) return fail('timeline_bad_value', 'the voiceover volume must be between 0 and 1')
+    const text = typeof o.text === 'string' ? o.text.replace(/\r/g, '').trim().slice(0, VOICEOVER_TEXT_MAX) : ''
+    if (!doc.voiceovers) doc.voiceovers = []
+    doc.voiceovers.push({ id: id(o, 'v'), src: o.src.trim(), start: round3(start), dur: round3(dur), volume: round3(vol), ...(text ? { text } : {}) })
+  }
   return { ok: true, doc }
 }
 
@@ -379,7 +399,7 @@ type Op = Record<string, unknown>
  * addSubtitle {text,start,end,look?,anim?,pos?} (look classic|bold|yellow|box|title, anim none|fade|pop|slideup, pos bottom|middle|top),
  * updateSubtitle {id,text?,start?,end?,look?,anim?,pos?} ("" or the default clears a style field), removeSubtitle {id}, setMusic {src,volume?,duck?},
  * updateMusic {volume?,duck?}, clearMusic, addOverlay {src,start,end,x?,y?,width?,opacity?,key? green|blue|white|black},
- * updateOverlay {id,...}, removeOverlay {id}, setAspect {aspect}, setBackground {background} (blur|letterbox|crop: what fills the frame when a clip does not match the output shape), setClipVolume {volume}.
+ * updateOverlay {id,...}, removeOverlay {id}, addVoiceover {src,start,dur,volume?,text?} (a spoken line made by the local voice: an audio file in the project, dur = its seconds), updateVoiceover {id,start?,volume?}, removeVoiceover {id}, setAspect {aspect}, setBackground {background} (blur|letterbox|crop: what fills the frame when a clip does not match the output shape), setClipVolume {volume}.
  */
 export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineOpsResult {
   if (!Array.isArray(rawOps) || !rawOps.length) return fail('timeline_bad_op', 'ops must be a non-empty list')
@@ -617,6 +637,34 @@ export function applyTimelineOps(input: TimelineDoc, rawOps: unknown): TimelineO
         applied.push({ op: name, id: String(op.id), note: 'removed' })
         break
       }
+      case 'addVoiceover': {
+        if ((doc.voiceovers?.length ?? 0) >= TIMELINE_MAX_VOICEOVERS) return fail('timeline_too_many', `at most ${TIMELINE_MAX_VOICEOVERS} voiceovers`)
+        const p = parseTimeline({ voiceovers: [{ src: op.src, start: op.start, dur: op.dur, volume: op.volume, text: op.text }] })
+        if (!p.ok) return p
+        const id = nextId('v', (doc.voiceovers ?? []).map((x) => x.id))
+        ;(doc.voiceovers ??= []).push({ ...p.doc.voiceovers![0], id })
+        doc.voiceovers.sort((a, b) => a.start - b.start)
+        applied.push({ op: name, id, note: 'added' })
+        break
+      }
+      case 'updateVoiceover': {
+        const c = find(doc.voiceovers ?? [], op.id, 'voiceover')
+        if (isFail(c)) return c
+        const p = parseTimeline({ voiceovers: [{ src: c.src, start: op.start ?? c.start, dur: c.dur, volume: op.volume ?? c.volume, text: c.text }] })
+        if (!p.ok) return p
+        Object.assign(c, { ...p.doc.voiceovers![0], id: c.id })
+        doc.voiceovers!.sort((a, b) => a.start - b.start)
+        applied.push({ op: name, id: c.id, note: 'updated' })
+        break
+      }
+      case 'removeVoiceover': {
+        const idx = (doc.voiceovers ?? []).findIndex((x) => x.id === op.id)
+        if (idx < 0) return fail('timeline_not_found', `no voiceover with id ${String(op.id)}`)
+        doc.voiceovers!.splice(idx, 1)
+        if (!doc.voiceovers!.length) delete doc.voiceovers
+        applied.push({ op: name, id: String(op.id), note: 'removed' })
+        break
+      }
       case 'setAspect': {
         if (!(TIMELINE_ASPECTS as readonly unknown[]).includes(op.aspect)) return fail('timeline_bad_aspect', 'aspect must be 16:9, 9:16 or 1:1')
         doc.aspect = op.aspect as TimelineAspect
@@ -649,7 +697,7 @@ export function timelineSummary(doc: TimelineDoc): string {
   const d = timelineDuration(doc)
   const tr = doc.clips.filter((_, i) => effectiveTransition(doc, i)).length
   return `${doc.clips.length} clips (${d}s${tr ? `, ${tr} transitions` : ''}), ${doc.subtitles.length} subtitles, `
-    + `${doc.music ? 'music' : 'no music'}, ${doc.overlays.length} overlays, ${doc.aspect}`
+    + `${doc.music ? 'music' : 'no music'}, ${doc.overlays.length} overlays, ${doc.voiceovers?.length ?? 0} voiceovers, ${doc.aspect}`
 }
 
 // ---- undo patches and the shared draft store ---------------------------------------
@@ -701,7 +749,7 @@ export const timelineKind: DraftKind<TimelineDoc, TimelinePatch> = {
     const lost = before.clips.filter((c) => !ids.has(c.id)).length
     return lost >= 2 || before.aspect !== after.aspect
   },
-  count: (doc) => doc.clips.length + doc.subtitles.length + doc.overlays.length,
+  count: (doc) => doc.clips.length + doc.subtitles.length + doc.overlays.length + (doc.voiceovers?.length ?? 0),
 }
 
 let store: DraftStore<TimelineDoc> | null = null

@@ -154,13 +154,22 @@ describe('amit a felhasznalo lat', () => {
 
   it('amihez nincs megvalositasunk, azt KIMONDJUK -- nem igerunk varazslot', async () => {
     const rows = await describeAllCapabilities('hu', true)
-    for (const key of ['video_gen', 'tts']) {
+    for (const key of ['video_gen']) {
       const row = rows.find((r) => r.key === key)!
       expect(row.state).toBe('not_implemented')
       expect(row.setting).toBe(null)
       expect(row.testable).toBe(false)
       expect(row.message).toMatch(/nincs bekötve/i)
     }
+  })
+
+  it('felolvasas (#669): helyi hang, kulcs nelkul; telepitesi allapotot mer, nem igeret', async () => {
+    const rows = await describeAllCapabilities('hu', true)
+    const row = rows.find((r) => r.key === 'tts')!
+    expect(row.tier).toBe('extra')
+    expect(['ok', 'not_configured']).toContain(row.state)
+    expect(row.setting).toBe(null)
+    expect(row.title).toMatch(/Piper/)
   })
 
   it('AI-kepszerkesztes (#441, K-2.11): kulcs nelkul csendes "nincs beallitva", a kulcs erteke sosem megy ki', async () => {

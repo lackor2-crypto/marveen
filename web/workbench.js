@@ -7932,6 +7932,59 @@
     })
   }
 
+  /** #669 phase C: a written line read aloud by the voice on THIS machine; the sound lands on the timeline as a voiceover. */
+  function vtMakeVoiceover() {
+    if (!WB.selectedId || WB.vtBusy || WB.vtRender || WB.vtVoicing || archived()) return
+    var text = vtText('vo-text').trim()
+    if (!text) { window.showToast(t('workbench.vt.vo_text_needed')); return }
+    var st = vtNum('vo-start'), vol = vtNum('vo-volume')
+    if (vtBad(st) || vtBad(vol)) return
+    var body = { text: text, voice: vtText('vo-voice') || undefined, start: st === undefined ? 0 : st }
+    if (vol !== undefined) body.volume = Math.max(0, Math.min(1, vol / 100))
+    WB.vtVoDraft = { text: text, voice: body.voice, start: st, volume: vol }
+    WB.vtVoicing = true
+    WB.vtError = null
+    render()
+    api('POST', vtUrl('/voiceover'), body).then(function (r) {
+      WB.vtVoicing = false
+      if (!r.ok) { vtFail(r); render(); return }
+      WB.vtVoDraft = null
+      vtTake(r.data)
+      window.showToast(r.data.message || t('workbench.vt.saved'))
+      render()
+    })
+  }
+  function vtSaveVoiceover(id) {
+    var st = vtNum('vo-start', id), vol = vtNum('vo-volume', id)
+    if (vtBad(st) || vtBad(vol)) return
+    var op = { op: 'updateVoiceover', id: id }
+    if (st !== undefined) op.start = st
+    if (vol !== undefined) op.volume = Math.max(0, Math.min(1, vol / 100))
+    vtOps([op])
+  }
+  function vtVoiceoverHtml(doc) {
+    var d = WB.vtVoDraft || {}
+    var rows = (doc.voiceovers || []).map(function (v) {
+      var label = v.text ? (v.text.length > 48 ? v.text.slice(0, 47) + '\u2026' : v.text) : v.src.split('/').pop()
+      return '<li class="wb-vt-row"><span title="' + escA(v.text || v.src) + '">' + esc(label) + '</span> '
+        + vtNumField('vo-start', v.id, v.start, t('workbench.vt.from')) + '<span class="wb-muted">(' + esc(t('workbench.vt.vo_len', { s: vtSecs(v.dur) })) + ')</span> '
+        + vtNumField('vo-volume', v.id, Math.round(v.volume * 100), t('workbench.vt.volume_pct'))
+        + vtBtn('vt-vo-save', t('workbench.vt.save'), v.id) + vtBtn('vt-vo-del', t('workbench.vt.remove_item'), v.id) + '</li>'
+    }).join('')
+    var voices = ['hu_HU-imre-medium', 'hu_HU-anna-medium'].map(function (m) {
+      return '<option value="' + m + '"' + (m === (d.voice || 'hu_HU-imre-medium') ? ' selected' : '') + '>' + esc(t('workbench.vt.vo_voice_' + (m.indexOf('anna') >= 0 ? 'anna' : 'imre'))) + '</option>'
+    }).join('')
+    var off = WB.vtBusy || WB.vtRender || WB.vtVoicing || archived() ? ' disabled' : ''
+    return '<h5>' + esc(t('workbench.vt.voiceover')) + '</h5>'
+      + (rows ? '<ul class="wb-vt-list">' + rows + '</ul>' : '')
+      + '<p><textarea class="wb-input" id="wbVt-vo-text" rows="3" maxlength="2000" style="width:100%" placeholder="' + escA(t('workbench.vt.vo_text')) + '">' + esc(d.text || '') + '</textarea></p>'
+      + '<p><select class="wb-input" id="wbVt-vo-voice" aria-label="' + escA(t('workbench.vt.vo_voice')) + '">' + voices + '</select> '
+      + vtNumField('vo-start', '', d.start === undefined ? 0 : d.start, t('workbench.vt.vo_start'))
+      + vtNumField('vo-volume', '', d.volume === undefined ? 100 : d.volume, t('workbench.vt.volume_pct'))
+      + '<button type="button" class="wb-btn" data-wb-act="vt-vo-make"' + off + '>' + esc(WB.vtVoicing ? t('workbench.vt.vo_busy') : t('workbench.vt.vo_make')) + '</button></p>'
+      + '<p class="wb-hint">' + esc(t('workbench.vt.vo_hint')) + '</p>'
+  }
+
   function vtInput(name, id) {
     return document.getElementById('wbVt-' + name + (id ? '-' + id : ''))
   }
@@ -8193,7 +8246,7 @@
       + vtBtn('vt-version', t('workbench.vt.version')) + '</p>'
       + '<p class="wb-vt-bg"><span class="wb-muted">' + esc(t('workbench.vt.bg.label')) + '</span> ' + backgrounds + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.bg.' + bgNow + '_hint')) + '</p>'
-      + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtOverlaysHtml(doc)
+      + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtOverlaysHtml(doc)
       + '<p>' + vtNumField('clip-volume', '', Math.round(doc.clip_volume * 100), t('workbench.vt.clip_volume')) + vtBtn('vt-volume', t('workbench.vt.save')) + '</p>'
       + '<p><button type="button" class="btn-primary" data-wb-act="vt-render"' + (WB.vtBusy || WB.vtRender || archived() || !doc.clips.length ? ' disabled' : '') + '>'
       + esc(WB.vtRender ? vtRenderLabel() : t('workbench.vt.render')) + '</button></p>' + vtRenderBarHtml()
@@ -17294,6 +17347,7 @@
       + '<div class="wb-fr-vovl" id="wbVOvl"></div><div class="wb-fr-vsub" id="wbVSub"></div>'
       + '</div></div>'
       + (vtDoc().music && vtDoc().music.src ? '<audio id="wbVMusic" preload="auto" loop src="' + escA('/api/life/file?rel=' + encodeURIComponent(vtDoc().music.src) + '&lang=' + encodeURIComponent(window._lang || 'hu')) + '"></audio>' : '')
+      + ((vtDoc().voiceovers || []).map(function (vo) { return '<audio class="wbVVo" data-vo="' + escA(vo.id) + '" preload="auto" src="' + escA('/api/life/file?rel=' + encodeURIComponent(vo.src) + '&lang=' + encodeURIComponent(window._lang || 'hu')) + '"></audio>' }).join(''))
       + '<div class="wb-fr-vctl"><button type="button" class="wb-fr-tbtn2" id="wbVPlay" aria-label="' + escA(t('workbench.fr.vid.play')) + '" title="' + escA(t('workbench.fr.vid.play')) + '">\u25B6</button>'
       + '<input type="range" id="wbVSeek" min="0" max="1" step="0.01" value="0" aria-label="' + escA(t('workbench.fr.vid.seek')) + '">'
       + '<span class="wb-muted" id="wbVTime">0,0 s</span>'
@@ -17764,6 +17818,29 @@
     }
   }
 
+  /** The voiceovers follow the player: each plays while the timeline time is inside its window, and is put in step when it drifts. */
+  function frVtVoiceSync(force) {
+    var v = document.getElementById('wbVideo')
+    var doc = vtDoc()
+    if (!v || !doc || !doc.voiceovers || !doc.voiceovers.length) return
+    var gt = frVtGlobalTime()
+    var list = document.querySelectorAll('audio.wbVVo')
+    for (var i = 0; i < list.length; i += 1) {
+      var au = list[i]
+      var id = au.getAttribute('data-vo')
+      var vo = null
+      for (var k = 0; k < doc.voiceovers.length; k += 1) if (doc.voiceovers[k].id === id) vo = doc.voiceovers[k]
+      if (!vo) continue
+      au.volume = Math.max(0, Math.min(1, vo.volume))
+      au.muted = !!v.muted
+      var want = gt - vo.start
+      var inside = want >= 0 && want < vo.dur
+      if (!inside || v.paused) { if (!au.paused) au.pause(); continue }
+      if (force || Math.abs((au.currentTime || 0) - want) > 0.35) { try { au.currentTime = want } catch (_e) { /* not loaded yet */ } }
+      if (au.paused) { var pp = au.play(); if (pp && pp.catch) pp.catch(function () { /* refused */ }) }
+    }
+  }
+
   /** The own control bar: button, scrubber and time follow the player; the cut [start,end] is the whole range. */
   function frVtCtlSync() {
     var v = document.getElementById('wbVideo')
@@ -17803,6 +17880,7 @@
     frVtApplyFade()
     frVtOverlaysUpdate()
     frVtMusicSync(false)
+    frVtVoiceSync(false)
     frVtCtlSync()
     frVtPlayheadSync()
     if (!v.paused && typeof window.requestAnimationFrame === 'function') vtLive.raf = window.requestAnimationFrame(frVtTick)
@@ -17845,7 +17923,7 @@
     v.addEventListener('loadedmetadata', relayout)
     v.addEventListener('play', function () { if (bg) { try { bg.currentTime = v.currentTime; bg.play() } catch (_e) { /* ignore */ } } frVtKick() })
     v.addEventListener('pause', function () { if (bg) { try { bg.pause() } catch (_e) { /* ignore */ } } frVtKick() })
-    v.addEventListener('seeked', function () { if (bg) { try { bg.currentTime = v.currentTime } catch (_e) { /* ignore */ } } frVtMusicSync(true); frVtKick() })
+    v.addEventListener('seeked', function () { if (bg) { try { bg.currentTime = v.currentTime } catch (_e) { /* ignore */ } } frVtMusicSync(true); frVtVoiceSync(true); frVtKick() })
     v.addEventListener('timeupdate', frVtKick)
     var pb = document.getElementById('wbVPlay')
     if (pb) pb.addEventListener('click', function () {
@@ -20638,6 +20716,9 @@
     else if (a === 'vt-music-set') vtSetMusic()
     else if (a === 'vt-music-save') vtSaveMusic()
     else if (a === 'vt-music-del') vtOps([{ op: 'clearMusic' }])
+    else if (a === 'vt-vo-make') vtMakeVoiceover()
+    else if (a === 'vt-vo-save') vtSaveVoiceover(act.getAttribute('data-wb-id'))
+    else if (a === 'vt-vo-del') vtOps([{ op: 'removeVoiceover', id: act.getAttribute('data-wb-id') }])
     else if (a === 'vt-ov-add') vtAddOverlay()
     else if (a === 'vt-ov-save') vtSaveOverlay(act.getAttribute('data-wb-id'))
     else if (a === 'vt-ov-del') vtOps([{ op: 'removeOverlay', id: act.getAttribute('data-wb-id') }])
