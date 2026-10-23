@@ -28,6 +28,8 @@ const SKIP_FOLDERS = new Set(['verziók', 'versions', 'agent', 'agentnek', 'for 
 const UPLOAD_FOLDERS = new Set(['feltöltések', 'uploads'])
 const SKIP_FILES = new Set(['marveen-item.json', '.marveen-id'])
 const MAX_CANDIDATES = 200
+/** #748: the item's own content JSON (drawing / deck): part of the work item itself, never something to move or trash. */
+const OWN_CONTENT_JSON = /\.(canvas|deck)\.json$/i
 
 export interface LifeMoveCandidate {
   /** Life-tree relative path of the file (what moveLife takes). */
@@ -155,12 +157,27 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
   const t = projectFileTarget(project, base)
   if (!t.ok) return container ? ownFileCandidate(item) : { ok: false, code: 'no_folder' }
   const files: LifeMoveCandidate[] = []
+  // #748: the item's OWN files are never candidates -- the file it points to (source_path, its versions' source files)
+  // can sit in any subfolder, Finished materials included, where it would otherwise be moved or sent to the Trash.
+  const ownAbs = new Set<string>()
+  const addOwn = (raw: unknown): void => {
+    if (typeof raw !== 'string' || !raw.trim()) return
+    const abs = project.folder_path ? resolveLifePath(`${project.folder_path}/${raw.trim().replace(/\\/g, '/').replace(/^\/+/, '')}`) : null
+    if (abs) ownAbs.add(abs)
+  }
+  addOwn(item.source_path)
+  if (item.id) {
+    try {
+      for (const r of getDb().prepare('SELECT source_path AS p FROM work_item_versions WHERE work_item_id = ? AND source_path IS NOT NULL').all(item.id) as { p: string }[]) addOwn(r.p)
+    } catch { /* no versions table yet: nothing else is the item's own file */ }
+  }
   const take = (dirAbs: string, folder: string, upload = false): void => {
     let names: string[] = []
     try { names = readdirSync(dirAbs) } catch { return }
     for (const name of names.sort((a, b) => a.localeCompare(b))) {
       if (files.length >= MAX_CANDIDATES) return
-      if (name.startsWith('.') || SKIP_FILES.has(name) || isContextFileName(name) || isTodoFileName(name)) continue
+      if (name.startsWith('.') || SKIP_FILES.has(name) || OWN_CONTENT_JSON.test(name) || isContextFileName(name) || isTodoFileName(name)) continue
+      if (ownAbs.has(join(dirAbs, name))) continue
       let st
       try { st = statSync(join(dirAbs, name)) } catch { continue }
       if (!st.isFile()) continue
