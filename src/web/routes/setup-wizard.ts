@@ -21,9 +21,12 @@ import { PROJECT_ROOT, STORE_DIR } from '../../config.js'
 import { logger } from '../../logger.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { json, readBody } from '../http-helpers.js'
-import { buildSetupSummary, overrideStoredKeys, writableEnvKeys } from '../setup-wizard-registry.js'
+import { buildSetupSummary, overrideStoredKeys, writableEnvKeys, writableVaultItems, SETUP_ITEMS, type SetupItem } from '../setup-wizard-registry.js'
 import { setOverride } from '../../settings-store.js'
-import { wizardValues } from '../setup-wizard-values.js'
+import { wizardValues, vaultConfigured } from '../setup-wizard-values.js'
+import { getSecret, setSecret, vaultFileState } from '../vault.js'
+import { checkBuffer, checkCloudinary, checkOpenRouter, normalizeCloudinaryInput, normalizePlainKey, type CheckResult } from '../../video-requirements.js'
+import { isVoiceInstalled } from './voice.js'
 import { claudeAuthPresent, channelConfigured, paired } from './onboarding.js'
 import { connectedGoogleAccountCount } from '../google-auth-runner.js'
 import { existsSync } from 'node:fs'
@@ -67,7 +70,19 @@ function externalState(): Record<string, boolean> {
     'system-programs': systemProgramsComplete(systemDepsSnapshot()),
     // WSL memory limit (card #683): only a readable .wslconfig holding both limits counts.
     'wsl-memory': measureWslMemory().state === 'ok',
+    // The voice toolkit (speech recognition + local voice) that automatic subtitles and voiceover use.
+    'voice-toolkit': isVoiceInstalled(),
   }
+}
+
+/** Vault-key items' state. An unreadable Vault is reported as such, never as "nothing set". */
+function vaultState(): { state: Record<string, boolean>; unreadable: boolean } {
+  try { return { state: vaultConfigured(), unreadable: false } } catch { return { state: {}, unreadable: true } }
+}
+
+/** A value typed for a 'vault' item, cleaned by the item's rule; the refusal is a code the page can word. */
+function cleanVaultValue(item: SetupItem, raw: string): { ok: true; value: string } | { ok: false; code: string } {
+  return item.vaultFormat === 'cloudinary-url' ? normalizeCloudinaryInput(raw) : normalizePlainKey(raw)
 }
 
 /** Items that do not apply here: the WSL memory limit on an install that is not WSL. */
@@ -86,7 +101,8 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
   // GET /api/setup-wizard -- the whole picture: every capability and its state.
   if (path === '/api/setup-wizard' && method === 'GET') {
     const env = wizardValues()
-    const ext = externalState()
+    const vault = vaultState()
+    const ext = { ...externalState(), ...vault.state }
     const summary = buildSetupSummary(env, ext, hiddenItemIds())
     // The channel token is an env key AND provider state; if either says
     // configured, it is. Without this the wizard nags for a token that is
@@ -96,7 +112,36 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
     }
     summary.missingRequired = summary.items.filter(i => i.required && !i.configured).length
     summary.availableUnused = summary.items.filter(i => !i.required && !i.configured).length
-    json(res, summary)
+    json(res, { ...summary, vaultUnreadable: vault.unreadable })
+    return true
+  }
+
+  // POST /api/setup-wizard/check {id, value?} -- "Try it": ask the service itself whether the key works. With
+  // `value` it tries what was just typed (nothing is saved here); without it, the key already in the Vault.
+  // The answer is a code and plain numbers, never the key.
+  if (path === '/api/setup-wizard/check' && method === 'POST') {
+    let body: { id?: unknown; value?: unknown }
+    try {
+      body = JSON.parse((await readBody(req)).toString()) as typeof body
+    } catch {
+      json(res, { error: 'Invalid JSON' }, 400)
+      return true
+    }
+    const item = SETUP_ITEMS.find(i => i.id === body.id && i.kind === 'vault' && i.checkId)
+    if (!item) { json(res, { error: 'unknown_check' }, 404); return true }
+    let key: string | null = null
+    if (typeof body.value === 'string' && body.value.trim()) {
+      const clean = cleanVaultValue(item, body.value)
+      if (!clean.ok) { json(res, { tone: 'bad', code: clean.code } satisfies CheckResult); return true }
+      key = clean.value
+    } else {
+      if (vaultFileState() === 'unreadable') { json(res, { tone: 'unknown', code: 'vault_unreadable' } satisfies CheckResult); return true }
+      try { key = getSecret(item.vaultIds![0]!) } catch { key = null }
+    }
+    const result: CheckResult = item.checkId === 'openrouter' ? await checkOpenRouter({ key })
+      : item.checkId === 'cloudinary' ? await checkCloudinary({ url: key })
+        : await checkBuffer({ key })
+    json(res, result)
     return true
   }
 
@@ -165,10 +210,30 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
     // so an unknown key is refused rather than passed through.
     const allowed = writableEnvKeys()
     const overrideKeys = overrideStoredKeys()
+    const vaultItems = writableVaultItems()
     let envWritten = 0
     const written: string[] = []
     const rejected: string[] = []
+    // Why a Vault value was refused, so the page can say it in words (a key is never echoed).
+    const invalid: Array<{ key: string; code: string }> = []
     for (const [key, raw] of Object.entries(values)) {
+      const vaultItem = vaultItems.get(key)
+      if (vaultItem) {
+        if (typeof raw !== 'string') { rejected.push(key); continue }
+        if (!raw.trim()) continue // empty = "leave it alone"
+        // A damaged vault.json reads as empty; saving into it would overwrite every key the install owns.
+        if (vaultFileState() === 'unreadable') { invalid.push({ key, code: 'vault_unreadable' }); continue }
+        const clean = cleanVaultValue(vaultItem, raw)
+        if (!clean.ok) { invalid.push({ key, code: clean.code }); continue }
+        try {
+          setSecret(key, vaultItem.vaultLabel ?? key, clean.value, { category: 'api' })
+          written.push(key)
+        } catch (err) {
+          logger.warn({ key, err: err instanceof Error ? err.message : String(err) }, 'Setup wizard could not write a Vault key')
+          invalid.push({ key, code: 'vault_write_failed' })
+        }
+        continue
+      }
       if (!allowed.has(key)) { rejected.push(key); continue }
       if (typeof raw !== 'string') { rejected.push(key); continue }
       const value = raw.trim()
@@ -197,7 +262,7 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
     // Nothing re-reads .env in place: a running process captured its config at
     // start. Say so plainly instead of letting the operator wonder why the
     // setting "did not take".
-    json(res, { written, rejected, restartRequired: envWritten > 0 })
+    json(res, { written, rejected, invalid, restartRequired: envWritten > 0 })
     return true
   }
 

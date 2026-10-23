@@ -1,11 +1,7 @@
 {
   "_doc": "#766: Vault ids the code reads that have NO row in the setup wizard yet. Every entry needs a reason; remove it when the wizard row (SetupItem.vaultIds) lands. The gate also fails on an entry the code no longer uses, or one the wizard already covers.",
   "exceptions": [
-    { "vaultId": "cloudinary-url", "reason": "video publishing host; wizard + self-check row is card #765", "card": 765 },
-    { "vaultId": "buffer-api-key", "reason": "social publishing; wizard + self-check row is card #765", "card": 765 },
-    { "vaultId": "openrouter-fleet-key", "reason": "video generation / debate; wizard + self-check row is card #765", "card": 765 },
-    { "vaultId": "openrouter-management-key", "reason": "OpenRouter usage; wizard row is card #765", "card": 765 },
-    { "vaultId": "openrouter-account-email", "reason": "OpenRouter account; wizard row is card #765", "card": 765 },
+    { "vaultId": "openrouter-account-email", "reason": "display-only label next to the OpenRouter balance: not a credential, not needed for video or for the balance itself; deliberately has no wizard row (#765)", "card": 765 },
     { "vaultId": "DEEPSEEK_API_KEY", "reason": "no wizard row yet; listed so the gate starts green, tracked by #766", "card": 766 },
     { "vaultId": "zai-coding-key", "reason": "GLM subscription key, managed on the Vault key-slots screen; no wizard row yet, tracked by #766", "card": 766 },
     { "vaultId": "groq-stt-key", "reason": "voice transcription key, managed on the key-services screen; no wizard row yet, tracked by #766", "card": 766 },

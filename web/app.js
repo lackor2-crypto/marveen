@@ -22556,7 +22556,9 @@ async function renderOverviewConnections() {
     const glNames = String((h.params && h.params.names) || '')
     rows.push({
       label: t('health.' + h.id, h.params || {}),
-      desc: t('health.' + h.id + '_action', h.params || {}),
+      desc: (h.id.startsWith('integration_') && h.params && h.params.actionKey)
+        ? t(h.params.actionKey, h.params || {})
+        : t('health.' + h.id + '_action', h.params || {}),
       // A bejelentkezes sora nem a Fiokok oldalra dob, hanem oda, ahol
       // ELVEGEZHETO: a varazslo bejelentkezteto lepesere. Ugyanez all a
       // "meg sosem futott / megallt" sorra: az nem teendo, hanem egy gomb --
@@ -28208,7 +28210,15 @@ document.addEventListener('DOMContentLoaded', () => {
   wireBranchDriftBanner()
 })
 
-async function loadSettings() {
+// The in-flight build of the Settings page. switchPage('settings') starts it without waiting; a caller that wants to
+// draw INTO the page (openWizardItem) has to wait for it, or the build replaces the panel it just drew.
+let _settingsLoadPromise = Promise.resolve()
+function loadSettings() {
+  _settingsLoadPromise = loadSettingsInner()
+  return _settingsLoadPromise
+}
+
+async function loadSettingsInner() {
   const tabNav = document.getElementById('settingsTabNav')
   const tabPanels = document.getElementById('settingsTabPanels')
   if (!tabNav || !tabPanels) return
@@ -28730,17 +28740,26 @@ let _wizardData = null
 let _wizardStepIdx = 0
 let _wizardPending = {}
 
+// Opening the tab starts one render and openWizardItem() starts another: the one that started LAST owns the panel.
+// Without this the older fetch could land after the step was drawn and paint the list over it, so a self-check row
+// meant to open a wizard step opened the list instead.
+let _wizardRenderSeq = 0
+
 async function renderSetupWizardPanel(host) {
   if (!host) return
+  const seq = ++_wizardRenderSeq
   host.innerHTML = `<p style="padding:16px;color:var(--text-muted);font-size:13px">${t('settings.loading')}</p>`
+  let data
   try {
     const res = await fetch('/api/setup-wizard')
     if (!res.ok) throw new Error('fetch failed')
-    _wizardData = await res.json()
+    data = await res.json()
   } catch {
-    host.innerHTML = `<p style="padding:16px;color:var(--danger);font-size:13px">${t('settings.error')}</p>`
+    if (seq === _wizardRenderSeq) host.innerHTML = `<p style="padding:16px;color:var(--danger);font-size:13px">${t('settings.error')}</p>`
     return
   }
+  if (seq !== _wizardRenderSeq) return
+  _wizardData = data
   _wizardPending = {}
   renderWizardHome(host)
 }
@@ -28759,6 +28778,10 @@ function renderWizardHome(host) {
          ${escapeHtml(t('wizard.all_good'))}
        </div>`
 
+  // An unreadable Vault looks like "no keys at all"; say so instead of listing every key as missing.
+  const vaultWarn = d.vaultUnreadable
+    ? `<div class="c-danger" style="margin-top:8px;font-size:13px">${escapeHtml(t('wizard.vault_unreadable'))}</div>` : ''
+
   const tiers = WIZARD_TIER_ORDER.map((tier) => {
     const items = (d.items || []).filter(i => i.tier === tier)
     if (!items.length) return ''
@@ -28775,6 +28798,7 @@ function renderWizardHome(host) {
       <h3 style="margin:0 0 4px">${escapeHtml(t('wizard.title'))}</h3>
       <p style="margin:0 0 10px;color:var(--text-muted);font-size:13px">${escapeHtml(t('wizard.subtitle'))}</p>
       ${banner}
+      ${vaultWarn}
     </div>
     <div class="card" style="margin-bottom:16px">
       <p style="margin:0 0 10px;font-size:13px">${escapeHtml(t('wizard.start_desc'))}</p>
@@ -28785,6 +28809,9 @@ function renderWizardHome(host) {
 
   const btn = document.getElementById('wizardStartBtn')
   if (btn) btn.addEventListener('click', () => { _wizardStepIdx = 0; renderWizardStep(host) })
+  for (const it of (d.items || [])) {
+    if (it.configured && it.checkId) wireWizardCheck(it.id, null, 'wizRowCheck-' + it.id, 'wizRowCheckMsg-' + it.id)
+  }
 }
 
 // === A Claude-bejelentkezes a varazsloban, HELYBEN ========================
@@ -29118,6 +29145,7 @@ async function _wizClaudeTick() {
 // volt, es a hibauzenet nem er semmit, ha nincs mellette az ut a megoldasig.
 async function openClaudeLoginStep() {
   switchPage('settings')
+  await _settingsLoadPromise.catch(() => {})
   activateSettingsTab('wizard')
   const host = document.getElementById('setupWizardPanel')
   if (!host) return
@@ -29136,6 +29164,7 @@ async function openClaudeLoginStep() {
 // is not among the to-dos, so the full list is shown instead.
 async function openWizardItem(id) {
   switchPage('settings')
+  await _settingsLoadPromise.catch(() => {})
   activateSettingsTab('wizard')
   const host = document.getElementById('setupWizardPanel')
   if (!host) return
@@ -29147,6 +29176,7 @@ async function openWizardItem(id) {
 
 async function openSystemDepsStep() {
   switchPage('settings')
+  await _settingsLoadPromise.catch(() => {})
   activateSettingsTab('wizard')
   const host = document.getElementById('setupWizardPanel')
   if (!host) return
@@ -29308,6 +29338,86 @@ function showVisionInstallFailure(s) {
     (s.log_tail ? `<pre style="white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto;font-size:11px;margin:0">${escapeHtml(s.log_tail)}</pre>` : '')
 }
 
+// The key a wizard step stores its typed value under: the .env name, or the Vault id for a Vault item.
+function wizardPendingKey(item) {
+  return item.envKey || (item.vaultIds && item.vaultIds[0]) || ''
+}
+
+// "Try it" (#765): asks the service itself whether the key works. With something typed it tries THAT (nothing is
+// saved by this); with the field empty it tries the key already in the Vault. The answer is worded here from a code.
+function wireWizardCheck(itemId, inputId, btnId, msgId) {
+  const btn = document.getElementById(btnId)
+  const msg = document.getElementById(msgId)
+  if (!btn || !msg) return
+  btn.addEventListener('click', async () => {
+    const input = inputId ? document.getElementById(inputId) : null
+    const value = input ? (input.value || '').trim() : ''
+    btn.disabled = true
+    msg.style.color = 'var(--text-muted)'
+    msg.textContent = t('wizard.check.running')
+    try {
+      const res = await fetch('/api/setup-wizard/check', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(value ? { id: itemId, value } : { id: itemId }),
+      })
+      const r = await res.json()
+      const key = 'wizard.check.' + (r.code || 'unexpected')
+      const text = t(key, r.params || {})
+      msg.style.color = r.tone === 'ok' ? '#10b981' : r.tone === 'bad' ? '#ef4444' : r.tone === 'warn' ? '#f59e0b' : 'var(--text-muted)'
+      msg.textContent = text !== key ? text : t('wizard.check.unexpected', { status: res.status })
+    } catch {
+      msg.style.color = 'var(--text-muted)'
+      msg.textContent = t('wizard.check.unreachable')
+    } finally {
+      btn.disabled = false
+    }
+  })
+}
+
+// The voice toolkit step (#765): the install button runs scripts/install-voice.sh in the background and the page
+// asks /api/voice/status until it is there -- or shows the one line to paste when the machine lacks a system package.
+function wizardVoiceInstallHtml() {
+  return `
+    <div style="margin-top:12px;padding:10px;border:1px solid var(--border);border-radius:8px">
+      <button type="button" class="btn-primary btn-compact" id="wizVoiceInstallBtn">${escapeHtml(t('wizard.voice.install'))}</button>
+      <p id="wizVoiceMsg" style="margin:8px 0 0;font-size:12px;line-height:1.5;color:var(--text-muted)" role="status"></p>
+    </div>`
+}
+
+let _wizVoicePoll = null
+function wireWizardVoiceInstall() {
+  const btn = document.getElementById('wizVoiceInstallBtn')
+  const msg = document.getElementById('wizVoiceMsg')
+  if (!btn || !msg) return
+  const say = (text, color) => { msg.textContent = text; msg.style.color = color || 'var(--text-muted)' }
+  btn.addEventListener('click', async () => {
+    btn.disabled = true
+    say(t('wizard.voice.starting'))
+    try {
+      const r = await (await fetch('/api/voice/install', { method: 'POST' })).json()
+      if (r.alreadyInstalled) { say(t('wizard.voice.done'), '#10b981'); btn.disabled = false; return }
+      if (r.needsSudo) {
+        say(t('wizard.voice.needs_sudo', { cmd: r.sudoCommand || '' }), '#f59e0b')
+        btn.disabled = false
+        return
+      }
+      if (!r.ok) { say(t('wizard.voice.failed'), '#ef4444'); btn.disabled = false; return }
+      say(t('wizard.voice.running'))
+      clearInterval(_wizVoicePoll)
+      _wizVoicePoll = setInterval(async () => {
+        if (!document.getElementById('wizVoiceInstallBtn')) { clearInterval(_wizVoicePoll); return }
+        try {
+          const s = await (await fetch('/api/voice/status')).json()
+          if (s.installed) { clearInterval(_wizVoicePoll); say(t('wizard.voice.done'), '#10b981'); btn.disabled = false }
+        } catch { /* the next tick asks again */ }
+      }, 8000)
+    } catch {
+      say(t('wizard.voice.failed'), '#ef4444')
+      btn.disabled = false
+    }
+  })
+}
+
 // One capability per screen: what it is, why you might want it, what to click,
 // where to go, what to type. That is the difference between a wizard and a
 // settings list with a wizard label on top of it.
@@ -29337,16 +29447,23 @@ function renderWizardStep(host) {
   // Egy lepes, amit a felulten VEGIG lehet csinalni, ne kuldjon senkit
   // terminalba. Ez a doboz maga a folyamat, nem a leirasa.
   const flow = item.flowId === 'claude-login' ? wizardClaudeLoginHtml()
+    : item.flowId === 'voice-install' ? wizardVoiceInstallHtml()
     : item.flowId === 'system-deps' ? wizardSystemDepsHtml()
     : item.flowId === 'google-oauth-client' ? wizardGoogleClientHtml(item) : ''
 
   const example = item.exampleKey ? t(item.exampleKey) : (item.placeholder || '')
+  // A Vault key (#765) is written under its Vault id, never under an .env name; like any secret it is never
+  // pre-filled, and the "Try it" button asks the service itself whether what was typed works.
+  const pendKey = wizardPendingKey(item)
+  const isSecretish = item.kind === 'secret' || item.kind === 'vault'
   const field = item.kind === 'external' ? '' : `
     <label style="display:block;margin-top:12px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.example'))}: ${escapeHtml(example)}</label>
-    <input type="${item.kind === 'secret' ? 'password' : 'text'}" class="input" id="wizardStepInput"
+    <input type="${isSecretish ? 'password' : 'text'}" class="input" id="wizardStepInput"
       placeholder="${escapeAttr(item.placeholder || '')}"
-      value="${escapeAttr(item.kind === 'secret' ? '' : (_wizardPending[item.envKey] ?? item.value ?? ''))}"
-      autocomplete="off" style="margin-top:4px">`
+      value="${escapeAttr(isSecretish ? '' : (_wizardPending[pendKey] ?? item.value ?? ''))}"
+      autocomplete="off" style="margin-top:4px">
+    ${item.checkId ? `<div style="margin-top:8px"><button type="button" class="btn-secondary btn-compact" id="wizardCheckBtn">${escapeHtml(t('wizard.check.button'))}</button>
+      <span id="wizardCheckMsg" style="margin-left:10px;font-size:12px;line-height:1.5" role="status"></span></div>` : ''}`
 
   const badgeFg = item.tier === 'extra' ? 'var(--bg)' : '#fff'
   // Saving happens once, at the end. That is right -- a half-finished
@@ -29380,12 +29497,14 @@ function renderWizardStep(host) {
   // input the moment you press Back is worse than a form.
   const stash = () => {
     const input = document.getElementById('wizardStepInput')
-    if (input && item.envKey) {
+    if (input && pendKey) {
       const v = (input.value || '').trim()
-      if (v) _wizardPending[item.envKey] = v
-      else delete _wizardPending[item.envKey]
+      if (v) _wizardPending[pendKey] = v
+      else delete _wizardPending[pendKey]
     }
   }
+  if (item.checkId) wireWizardCheck(item.id, 'wizardStepInput', 'wizardCheckBtn', 'wizardCheckMsg')
+  if (item.flowId === 'voice-install') wireWizardVoiceInstall()
   if (item.flowId === 'claude-login') wireWizardClaudeLogin()
   if (item.flowId === 'system-deps') void loadWizardSystemDeps(false)
   if (item.flowId === 'google-oauth-client') wireWizardGoogleClient()
@@ -29463,6 +29582,8 @@ function wireWizardGoogleClient() {
 // should not leave the install half-configured.
 async function renderWizardDone(host) {
   let saved = 0
+  let restartRequired = false
+  let invalid = []
   if (Object.keys(_wizardPending).length > 0) {
     try {
       const res = await fetch('/api/setup-wizard', {
@@ -29470,20 +29591,34 @@ async function renderWizardDone(host) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ values: _wizardPending }),
       })
-      if (res.ok) saved = ((await res.json()).written || []).length
+      if (res.ok) {
+        const out = await res.json()
+        saved = (out.written || []).length
+        invalid = out.invalid || []
+        // Only .env keys need a restart; a Vault key or a settings override is read on the next use.
+        restartRequired = out.restartRequired === true
+      }
     } catch { /* falls through to the "nothing saved" message */ }
   }
+  // A refused Vault value is said by name and reason (never echoed): "saved 0" alone would hide it.
+  const refused = invalid.map((x) => {
+    const it = (_wizardData.items || []).find((i) => i.vaultIds && i.vaultIds[0] === x.key)
+    const k = 'wizard.invalid.' + x.code
+    const why = t(k) !== k ? t(k) : t('wizard.invalid.key_format')
+    return `<p class="c-danger" style="margin:0 0 6px;font-size:13px">${escapeHtml((it ? t(it.labelKey) : x.key) + ': ' + why)}</p>`
+  }).join('')
   host.innerHTML = `
     <div class="card">
       <h3 style="margin:0 0 8px">${escapeHtml(t('wizard.done_title'))}</h3>
-      <p style="margin:0 0 6px;font-size:13px">${escapeHtml(saved > 0 ? t('wizard.saved', { n: saved }) : t('wizard.saved_none'))}</p>
-      <p style="margin:0 0 12px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.restart_note'))}</p>
+      <p style="margin:0 0 6px;font-size:13px">${escapeHtml(saved > 0 ? t(restartRequired ? 'wizard.saved' : 'wizard.saved_live', { n: saved }) : t('wizard.saved_none'))}</p>
+      ${refused}
+      ${saved === 0 || restartRequired ? `<p style="margin:0 0 12px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.restart_note'))}</p>` : ''}
       <button class="btn-secondary" id="wizardDoneBtn">${escapeHtml(t('wizard.list_view'))}</button>
       <div id="wizardRestartSlot"></div>
     </div>`
   document.getElementById('wizardDoneBtn').addEventListener('click', () => renderSetupWizardPanel(host))
   // A varazslo is csak kimondta, hogy "ujrainditas utan lep eletbe" -- itt a gomb hozza.
-  if (saved > 0) void mountRestartButton(document.getElementById('wizardRestartSlot'), '')
+  if (saved > 0 && restartRequired) void mountRestartButton(document.getElementById('wizardRestartSlot'), '')
 }
 
 function wizardRowHtml(item) {
@@ -29501,12 +29636,18 @@ function wizardRowHtml(item) {
     : (item.links || []).map(l =>
       `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;margin-right:10px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
 
+  // A key that is SET can still be expired or revoked (a Buffer key lasts at most a year): the list offers the check.
+  const tryIt = (item.configured && item.checkId)
+    ? `<div style="margin-top:6px"><button type="button" class="btn-secondary btn-compact" id="wizRowCheck-${escapeAttr(item.id)}">${escapeHtml(t('wizard.check.button_saved'))}</button>
+       <span id="wizRowCheckMsg-${escapeAttr(item.id)}" style="margin-left:10px;font-size:12px;line-height:1.5" role="status"></span></div>`
+    : ''
   return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
     <div style="display:flex;align-items:center;gap:8px">
       <strong style="font-size:13px">${escapeHtml(t(item.labelKey))}</strong>${badge}
     </div>
     <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);line-height:1.55">${escapeHtml(t(item.helpKey || item.descKey))}</p>
     ${links ? `<div style="margin-top:4px">${links}</div>` : ''}
+    ${tryIt}
   </div>`
 }
 
