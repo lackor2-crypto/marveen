@@ -34,7 +34,8 @@ describe('the menu watcher uses it (wiring)', () => {
     const at = src.indexOf('const quiet = quietVerdictFor(')
     expect(at).toBeGreaterThan(0)
     const branch = src.slice(at, src.indexOf('} else if (paneNow == null) {', at))
-    expect(branch).toContain('if (quiet.quiet && !(paneNow != null && detectsLoginInProgress(paneNow))) {')
+    expect(branch).toContain('if ((quiet.quiet || limitScreen) && !(paneNow != null && detectsLoginInProgress(paneNow))) {')
+    expect(branch).toContain('paneShowsLimitBlock(paneNow)')
     expect(branch).not.toContain('sendAlert(')
     expect(branch).not.toContain('send-keys')
     // every agent alike: the main agent is looked up by its configured id, never by a name in the code

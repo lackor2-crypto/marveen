@@ -38,7 +38,7 @@ import { reapChannelOrphans, reapDetachedChannelClaudes, collectPollerEvidence }
 import { probeTelegramConflict } from './channel-conflict-probe.js'
 import { schedulePluginUnlockAfterRespawn, wasPluginConfirmedAbsent, clearPluginAbsent } from './channel-plugin-unlock.js'
 import {
-  detectPaneState, decidePaneErrorAlert, detectsBlockingMenu, detectsFirstRunGate, detectsModelConsentDialog, detectsLoginInProgress, detectsPermissionPrompt, type PaneErrorAlertState, type PaneState,
+  detectPaneState, decidePaneErrorAlert, detectsBlockingMenu, detectsFirstRunGate, detectsModelConsentDialog, detectsLoginInProgress, detectsPermissionPrompt, paneShowsLimitBlock, type PaneErrorAlertState, type PaneState,
   stuckInputSignature, decideStuckInputRecovery, parkedChannelInput,
   parkedInputText, shouldClearTruncatedPreamble,
   parkedInputRowCount, submitLanded, decideStuckInputAction,
@@ -1694,8 +1694,12 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
           // progress is the one thing still reported, because the owner is doing that by hand. When availability
           // cannot be read the verdict is "not quiet" and everything below runs as before.
           const quiet = quietVerdictFor(t.isMarveen ? MAIN_AGENT_ID : (t.agentName ?? ''))
-          if (quiet.quiet && !(paneNow != null && detectsLoginInProgress(paneNow))) {
-            logger.info({ session: t.session, agent: label, reason: quiet.reason, resetsAt: quiet.resetsAt }, 'Blocking menu seen on an unavailable agent -- no alert, no keystroke until it is available again')
+          // The panel itself is proof too: the limit screen ("Stop and wait for limit to reset") appears up to a
+          // measurement interval BEFORE availability flips to quota (2026-10-23, lackor3: the menu was seen at 09:14:11,
+          // availability flipped at 09:14:13 -- the watcher alerted and sent Escape in that gap).
+          const limitScreen = paneNow != null && paneShowsLimitBlock(paneNow)
+          if ((quiet.quiet || limitScreen) && !(paneNow != null && detectsLoginInProgress(paneNow))) {
+            logger.info({ session: t.session, agent: label, reason: quiet.quiet ? quiet.reason : 'limit-screen', resetsAt: quiet.quiet ? quiet.resetsAt : null }, 'Blocking menu seen on an unavailable agent -- no alert, no keystroke until it is available again')
           } else if (paneNow == null) {
             // NEM LATOK ODA -- es ez NEM azonos azzal, hogy "sima menu".
             //
