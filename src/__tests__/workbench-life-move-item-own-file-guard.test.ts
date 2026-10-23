@@ -64,4 +64,15 @@ describe('#748: a munkadarab saját fájlja nem költöztetési jelölt', () => 
     expect(names).not.toContain('Level.canvas.json')
     expect(plan.files.filter((f) => f.action === 'trash').map((f) => f.name)).toEqual(['Level v1.pdf'])
   })
+
+  it('ugyanez, ha a source_path Eletfa-relativ (megnyitas utan ezt tarolja a munkadarab)', () => {
+    const { project, id } = setup()
+    const lifeRel = `Projektek/Iroda/${FOLDER}/${FIN}/Level.xlsx`
+    getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(lifeRel, id)
+    getDb().prepare('UPDATE work_item_versions SET source_path = ? WHERE work_item_id = ? AND source_path IS NOT NULL').run(lifeRel, id)
+    const plan = lifeMovePlan(project, getWorkItem(id) as any, 'include')
+    if (!plan.ok) throw new Error('terv')
+    expect(plan.files.map((f) => f.name)).not.toContain('Level.xlsx')
+    expect(plan.files.filter((f) => f.action === 'trash').map((f) => f.name)).toEqual(['Level v1.pdf'])
+  })
 })
