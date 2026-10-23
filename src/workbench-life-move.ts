@@ -162,8 +162,13 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
   const ownAbs = new Set<string>()
   const addOwn = (raw: unknown): void => {
     if (typeof raw !== 'string' || !raw.trim()) return
-    const abs = project.folder_path ? resolveLifePath(`${project.folder_path}/${raw.trim().replace(/\\/g, '/').replace(/^\/+/, '')}`) : null
-    if (abs) ownAbs.add(abs)
+    const rel = raw.trim().replace(/\\/g, '/').replace(/^\/+/, '')
+    // The stored path comes in two spellings: relative to the project folder (a fresh item) and relative to the Life
+    // tree (once the item has been opened and its first version recorded). Both name the same file.
+    for (const full of [project.folder_path ? `${project.folder_path}/${rel}` : '', rel]) {
+      const abs = full ? resolveLifePath(full) : null
+      if (abs) ownAbs.add(abs)
+    }
   }
   addOwn(item.source_path)
   if (item.id) {
