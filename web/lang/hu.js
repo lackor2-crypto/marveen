@@ -8296,7 +8296,7 @@ window._i18n.hu = {
   "workbench.rename.button": "átnevezés",
   "workbench.rename.prompt": "A munkadarab új neve:",
   "workbench.rename.row_hint": "Munkadarab átnevezése",
-  "workbench.rename.row_label": "Szerkesztés",
+  "workbench.rename.row_label": "Átnevezés",
   "workbench.rename.done": "Átneveztem.",
   "workbench.shared.open": "Közös anyagok (logó, márkaelemek)",
   "workbench.shared.title": "Közös anyagok",
