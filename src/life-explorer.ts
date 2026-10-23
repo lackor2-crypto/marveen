@@ -263,7 +263,12 @@ export function resolveLifePath(rel: string): string | null {
   // MEDIA/FOTOK aga mogott peldaul a fotok/<fiok> mappa all), es csak
   // UTANA jon a kilepes-ellenorzes -- vagyis egy bekotes sem tud
   // kivezetni a fabol.
-  const mounted = resolveMount(asked)
+  let mounted = resolveMount(asked)
+  // #716: a file link left behind by a move to the Life tree points at the Life-tree copy. If that copy is gone and a
+  // real file stands at the link's own place (a new upload with the same name), the real file wins, the dangling
+  // link must not hide it.
+  if (mounted && mounted.mount.file && asked === mounted.mount.rel
+      && !existsSync(resolve(realRoot, mounted.target)) && existsSync(resolve(realRoot, asked))) mounted = null
   const clean = mounted ? mounted.target : asked
   const target = resolve(realRoot, clean)
 
