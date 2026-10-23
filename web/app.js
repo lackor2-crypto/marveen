@@ -23727,8 +23727,9 @@ function _guideSteps() {
   if (_selfCheckGuideTab === 'permanent') {
     return [
       { html: t('guide.perm_1'), btn: { label: t('guide.perm_open_btn'), href: _guideConsoleUrl() } },
-      { html: t('guide.perm_2') },
       { html: t('guide.perm_brand') },
+      { html: t('guide.perm_domain') },
+      { html: t('guide.perm_2') },
       { html: t('guide.perm_3') },
       { html: t('guide.perm_4') },
       // A csapda, amibe enelkul mindenki belesetal: az elesites a MAR kiadott
