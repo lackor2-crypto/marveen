@@ -31,6 +31,11 @@ export type SetupItemKind =
   | 'secret'
   /** Configured outside .env (a login, a file drop). The wizard explains, and links. */
   | 'external'
+  /**
+   * A secret that lives in the Vault, not in .env (an API key the code reads through getSecret()).
+   * Writable from the wizard, never sent back to the browser; `vaultIds[0]` is the entry it writes.
+   */
+  | 'vault'
 
 export interface SetupItem {
   id: string
@@ -94,7 +99,21 @@ export interface SetupItem {
    * megjelennie hanem az autorizacios panelnak". A link plus a terminal command
    * is not a walkthrough; a step that CAN be done on the page must be.
    */
-  flowId?: 'claude-login' | 'system-deps' | 'google-oauth-client'
+  flowId?: 'claude-login' | 'system-deps' | 'google-oauth-client' | 'voice-install'
+  /**
+   * A live "try it now" the wizard offers under the field (POST /api/setup-wizard/check): it asks the
+   * service itself whether the saved key works, so the answer is a measurement, not "a value is there".
+   */
+  checkId?: 'openrouter' | 'cloudinary' | 'buffer'
+  /** Shape a 'vault' value must have before it is saved (the wizard refuses the rest with a plain reason). */
+  vaultFormat?: 'cloudinary-url'
+  /** Label of the Vault card the wizard creates for a 'vault' item. */
+  vaultLabel?: string
+  /**
+   * i18n key of the self-check sentence for a MISSING item: what stops working without it. The generic
+   * integration sentence says "extra feature"; a recommended one (video) must not claim that.
+   */
+  selfcheckKey?: string
   /**
    * Where the value lives. Default: the .env file. 'override' means the key is
    * a settings-registry key another screen already writes as an override
@@ -295,6 +314,87 @@ export const SETUP_ITEMS: SetupItem[] = [
     exampleKey: 'wizard.item.ollama_example',
     required: false, tier: 'extra', placeholder: 'http://localhost:11434',
   },
+  // --- Video making (#765): the minimum a video needs, one row each. -------------------------------------
+  // Boss (TG 10228): the wizard must offer these on a fresh install and the Overview self-check must
+  // watch them. Recommended (orange), never essential (red): Marveen works without video.
+  // Free plans only (Boss): Cloudinary free (25 shared credits a month, 100 MB per video) and Buffer free
+  // (3 channels: Facebook, Instagram, TikTok). The one paid part is the OpenRouter balance for generating.
+  {
+    id: 'video-openrouter', group: 'integrations', kind: 'vault', vaultIds: ['openrouter-fleet-key'],
+    vaultLabel: 'OpenRouter', checkId: 'openrouter',
+    labelKey: 'wizard.item.video_openrouter', descKey: 'wizard.item.video_openrouter_desc',
+    helpKey: 'wizard.item.video_openrouter_help', selfcheckKey: 'wizard.item.video_openrouter_selfcheck',
+    stepKeys: [
+      'wizard.item.video_openrouter_step1', 'wizard.item.video_openrouter_step2',
+      'wizard.item.video_openrouter_step3', 'wizard.item.video_openrouter_step4',
+      'wizard.item.video_openrouter_step5',
+    ],
+    links: [
+      { url: 'https://openrouter.ai/sign-up', labelKey: 'wizard.link.openrouter_signup' },
+      { url: 'https://openrouter.ai/settings/credits', labelKey: 'wizard.link.openrouter_credits' },
+      { url: 'https://openrouter.ai/settings/keys', labelKey: 'wizard.link.openrouter_keys' },
+    ],
+    exampleKey: 'wizard.item.video_openrouter_example',
+    required: false, tier: 'recommended', placeholder: 'sk-or-v1-...',
+  },
+  {
+    id: 'video-cloudinary', group: 'integrations', kind: 'vault', vaultIds: ['cloudinary-url'],
+    vaultLabel: 'Cloudinary', vaultFormat: 'cloudinary-url', checkId: 'cloudinary',
+    labelKey: 'wizard.item.video_cloudinary', descKey: 'wizard.item.video_cloudinary_desc',
+    helpKey: 'wizard.item.video_cloudinary_help', selfcheckKey: 'wizard.item.video_cloudinary_selfcheck',
+    stepKeys: [
+      'wizard.item.video_cloudinary_step1', 'wizard.item.video_cloudinary_step2',
+      'wizard.item.video_cloudinary_step3', 'wizard.item.video_cloudinary_step4',
+      'wizard.item.video_cloudinary_step5',
+    ],
+    links: [
+      { url: 'https://cloudinary.com/users/register_free', labelKey: 'wizard.link.cloudinary_signup' },
+      { url: 'https://console.cloudinary.com/settings/api-keys', labelKey: 'wizard.link.cloudinary_keys' },
+    ],
+    exampleKey: 'wizard.item.video_cloudinary_example',
+    required: false, tier: 'recommended', placeholder: 'cloudinary://123456789012345:abcDEF_secret@my-cloud',
+  },
+  {
+    id: 'video-buffer', group: 'integrations', kind: 'vault', vaultIds: ['buffer-api-key'],
+    vaultLabel: 'Buffer', checkId: 'buffer',
+    labelKey: 'wizard.item.video_buffer', descKey: 'wizard.item.video_buffer_desc',
+    helpKey: 'wizard.item.video_buffer_help', selfcheckKey: 'wizard.item.video_buffer_selfcheck',
+    stepKeys: [
+      'wizard.item.video_buffer_step1', 'wizard.item.video_buffer_step2',
+      'wizard.item.video_buffer_step3', 'wizard.item.video_buffer_step4',
+      'wizard.item.video_buffer_step5',
+    ],
+    links: [
+      { url: 'https://login.buffer.com/signup', labelKey: 'wizard.link.buffer_signup' },
+      { url: 'https://publish.buffer.com/settings/api', labelKey: 'wizard.link.buffer_api' },
+      { url: 'https://support.buffer.com/article/984-how-to-create-your-buffer-api-key', labelKey: 'wizard.link.buffer_help' },
+    ],
+    exampleKey: 'wizard.item.video_buffer_example',
+    required: false, tier: 'recommended', placeholder: 'paste-the-copied-key-here',
+  },
+  {
+    // Optional: the OpenRouter balance widget on the Overview. A second, read-only key.
+    id: 'openrouter-balance', group: 'integrations', kind: 'vault', vaultIds: ['openrouter-management-key'],
+    vaultLabel: 'OpenRouter (management)',
+    labelKey: 'wizard.item.openrouter_balance', descKey: 'wizard.item.openrouter_balance_desc',
+    helpKey: 'wizard.item.openrouter_balance_help',
+    stepKeys: [
+      'wizard.item.openrouter_balance_step1', 'wizard.item.openrouter_balance_step2',
+      'wizard.item.openrouter_balance_step3',
+    ],
+    links: [{ url: 'https://openrouter.ai/settings/management-keys', labelKey: 'wizard.link.openrouter_mgmt' }],
+    exampleKey: 'wizard.item.openrouter_balance_example',
+    required: false, tier: 'extra', placeholder: 'sk-or-v1-...',
+  },
+  {
+    // The voice toolkit: speech recognition (automatic subtitles) and the local voice (voiceover).
+    // The Overview already has its own row (voice_stt_*); this is the wizard step it never had.
+    id: 'voice-toolkit', group: 'maintenance', kind: 'external', flowId: 'voice-install',
+    labelKey: 'wizard.item.voice_toolkit', descKey: 'wizard.item.voice_toolkit_desc',
+    helpKey: 'wizard.item.voice_toolkit_help',
+    stepKeys: ['wizard.item.voice_toolkit_step1', 'wizard.item.voice_toolkit_step2', 'wizard.item.voice_toolkit_step3'],
+    required: false, tier: 'recommended',
+  },
   // Optional keyed third-party services go here with group 'integrations'
   // (image, video, voice generation, ...): the Overview self-check then gets
   // a row for each on its own (integrationRows). See the
@@ -341,7 +441,8 @@ export function buildSetupSummary(
   hiddenIds: ReadonlySet<string> = new Set(),
 ): SetupSummary {
   const items: SetupItemState[] = SETUP_ITEMS.filter((item) => !hiddenIds.has(item.id)).map((item) => {
-    if (item.kind === 'external') {
+    if (item.kind === 'external' || item.kind === 'vault') {
+      // A Vault secret, like an external login, reports only whether it is set: the value never leaves the server.
       return { ...item, configured: externalState[item.id] === true }
     }
     const raw = (item.envKey ? envValues[item.envKey] : undefined) ?? ''
@@ -378,6 +479,13 @@ export function buildSetupSummary(
 /** Keys the wizard reads and writes through the settings override store. */
 export function overrideStoredKeys(): Set<string> {
   return new Set(SETUP_ITEMS.filter(i => i.store === 'override' && i.envKey).map(i => i.envKey!))
+}
+
+/** The 'vault' items the wizard may write, by the Vault id. Anything else is refused. */
+export function writableVaultItems(): Map<string, SetupItem> {
+  const out = new Map<string, SetupItem>()
+  for (const i of SETUP_ITEMS) if (i.kind === 'vault' && i.vaultIds?.[0]) out.set(i.vaultIds[0], i)
+  return out
 }
 
 export function writableEnvKeys(): Set<string> {

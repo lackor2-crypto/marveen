@@ -340,8 +340,8 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
       en: 'Every other part of the Workbench works. You can still upload and edit your own video. Only AI video generation does not run.',
     },
     how_to: {
-      hu: ['Az OpenRouter-kulcs a Vaultban van („openrouter-fleet-key”), külön beállítás nem kell.', 'Az OpenRouter-egyenlegen legyen pénz: a videó fizetős, minden indítás előtt kiírom a becsült árat.', 'A modellt és a havi keretet a Beállításokban választhatod.'],
-      en: ['The OpenRouter key is in the Vault ("openrouter-fleet-key"); no extra setting is needed.', 'There must be money on the OpenRouter balance: video is paid, and I show the estimated price before every start.', 'You can pick the model and the monthly limit in Settings.'],
+      hu: ['Az OpenRouter-kulcsot a Beállítások → Varázsló „Videó: OpenRouter-kulcs” lépésében add meg (a Vaultba kerül, „openrouter-fleet-key” néven); ott ki is próbálhatod.', 'Az OpenRouter-egyenlegen legyen pénz: a videó fizetős, minden indítás előtt kiírom a becsült árat.', 'A modellt és a havi keretet a Beállításokban választhatod.'],
+      en: ['Give the OpenRouter key in Settings → Wizard, step "Video: OpenRouter key" (it goes into the Vault as "openrouter-fleet-key"); you can try it there too.', 'There must be money on the OpenRouter balance: video is paid, and I show the estimated price before every start.', 'You can pick the model and the monthly limit in Settings.'],
     },
     obtain_url: 'https://openrouter.ai/settings/credits',
     // Nincs "Ellenorzes most": minden probafutas penzbe kerulne.

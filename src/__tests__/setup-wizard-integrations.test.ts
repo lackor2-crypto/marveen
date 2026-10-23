@@ -65,21 +65,20 @@ describe('keyed services reach the setup wizard', () => {
     // An override wins over .env: a wizard writing .env for such a key would
     // be silently shadowed by what the owning screen saved.
     const registry = new Set(SETTINGS_REGISTRY.map(d => d.key))
-    for (const item of SETUP_ITEMS.filter(i => i.group === 'integrations')) {
+    for (const item of SETUP_ITEMS.filter(i => i.group === 'integrations' && i.kind !== 'vault')) {
       expect(item.envKey, item.id).toBeTruthy()
       if (registry.has(item.envKey!)) expect(overrideStoredKeys().has(item.envKey!), item.id).toBe(true)
     }
   })
 
   it('walks the owner through every integration: steps, links, both languages', () => {
-    // Empty today (the Workbench web search needs no key since #404); the
-    // check bites the moment an image / video / voice service is added.
+    // The video services (#765) are RECOMMENDED (orange), the rest extra; nothing here may be essential (red).
     for (const item of SETUP_ITEMS.filter(i => i.group === 'integrations')) {
-      expect(item.tier, item.id).toBe('extra')
+      expect(['recommended', 'extra'], item.id).toContain(item.tier)
       expect(item.required, item.id).toBe(false)
       expect((item.stepKeys || []).length, `${item.id} steps`).toBeGreaterThan(0)
       expect((item.links || []).length, `${item.id} links`).toBeGreaterThan(0)
-      const keys = [item.labelKey, item.descKey, item.helpKey, ...(item.stepKeys || []),
+      const keys = [item.labelKey, item.descKey, item.helpKey, ...(item.selfcheckKey ? [item.selfcheckKey] : []), ...(item.stepKeys || []),
         ...(item.links || []).map(l => l.labelKey), ...(item.exampleKey ? [item.exampleKey] : [])]
       for (const k of keys) {
         expect(hu[k], `hu ${k}`).toBeTruthy()

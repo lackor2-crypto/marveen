@@ -2289,7 +2289,7 @@ export function integrationRows(
   return list.map(i => ({
     id: i.configured ? 'integration_ok' : 'integration_missing',
     status: i.configured ? 'ok' as const : 'warn' as const,
-    params: { item: i.id, labelKey: i.labelKey },
+    params: { item: i.id, labelKey: i.labelKey, ...(!i.configured && i.selfcheckKey ? { actionKey: i.selfcheckKey } : {}) },
   }))
 }
 

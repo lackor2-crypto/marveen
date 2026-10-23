@@ -77,7 +77,7 @@ describe('setup registry', () => {
 
   it('backs every writable item with an env key, and no external one', () => {
     for (const item of SETUP_ITEMS) {
-      if (item.kind === 'external') expect(item.envKey, `${item.id}`).toBeUndefined()
+      if (item.kind === 'external' || item.kind === 'vault') expect(item.envKey, `${item.id}`).toBeUndefined()
       else expect(item.envKey, `${item.id}`).toBeTruthy()
     }
   })
@@ -152,7 +152,7 @@ describe('classifying an install', () => {
     const env: Record<string, string> = {}
     for (const item of SETUP_ITEMS) if (item.envKey) env[item.envKey] = 'x'
     const ext: Record<string, boolean> = {}
-    for (const item of SETUP_ITEMS) if (item.kind === 'external') ext[item.id] = true
+    for (const item of SETUP_ITEMS) if (item.kind === 'external' || item.kind === 'vault') ext[item.id] = true
     const s = buildSetupSummary(env, ext)
     expect(s.missingRequired).toBe(0)
     expect(s.availableUnused).toBe(0)
@@ -167,7 +167,7 @@ describe('classifying an install', () => {
     for (const item of SETUP_ITEMS) {
       if (item.tier === 'extra') continue
       if (item.envKey) env[item.envKey] = 'x'
-      if (item.kind === 'external') ext[item.id] = true
+      if (item.kind === 'external' || item.kind === 'vault') ext[item.id] = true
     }
     const s = buildSetupSummary(env, ext)
     expect(s.missingByTier.essential).toBe(0)
@@ -186,7 +186,7 @@ describe('classifying an install', () => {
     const ext: Record<string, boolean> = {}
     for (const item of SETUP_ITEMS) {
       if (item.envKey) env[item.envKey] = 'x'
-      if (item.kind === 'external') ext[item.id] = true
+      if (item.kind === 'external' || item.kind === 'vault') ext[item.id] = true
     }
     expect(buildSetupSummary(env, ext).worstTier).toBe('none')
   })
