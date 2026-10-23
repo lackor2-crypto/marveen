@@ -7107,7 +7107,7 @@ window._i18n.hu = {
   "workbench.vt.hl_score": "{n} pont",
   "workbench.vt.hl_keep": "Ezt tartom meg",
   "workbench.vt.hl_keep_all": "Mindet megtartom, egymás után",
-  "workbench.vt.hl_hint": "A beszédfelismerés a gépeden fut, a videó nem megy ki sehová; nagyjából a felvétel hosszának megfelelő időbe telik. A javaslat egyszerű szabályokon alapul (beszédtempó, szünetek, mondathatárok), a tartalmat nem érti: te döntöd el, melyik jó. A klip legalább 20 másodperces és a cél hosszának 1,5-szerese legyen. A Visszavonás visszahozza az eredetit.",
+  "workbench.vt.hl_hint": "A beszédfelismerés a gépeden fut, a videó nem megy ki sehová; egy terheletlen gépen nagyjából a felvétel hosszának megfelelő időbe telik, de ha a gép közben mással is dolgozik, a többszörösébe is kerülhet (egy 80 másodperces klipnél percekig is). Hagyd futni, közben nyugodtan dolgozhatsz másban. A javaslat egyszerű szabályokon alapul (beszédtempó, szünetek, mondathatárok), a tartalmat nem érti: te döntöd el, melyik jó. A klip legalább 20 másodperces és a cél hosszának 1,5-szerese legyen. A Visszavonás visszahozza az eredetit.",
   "workbench.vt.vo_hint": "A gépeden futó hang olvassa fel a szöveget, a szöveg nem megy ki a gépről. A hang az idővonal megadott másodpercétől szól, a zene halkul alatta, és a kész videóba is bekerül.",
   "workbench.vt.auto": "Automatikus felirat a beszédből",
   "workbench.vt.auto_busy": "Hallgatom a videót... (eltarthat egy ideig)",
