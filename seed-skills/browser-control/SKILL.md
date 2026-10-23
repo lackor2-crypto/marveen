@@ -37,6 +37,16 @@ curl -s "${H[@]}" $B/status
 | `/api/browser/pdf` | `{}` | `pdf` (base64) |
 | `/api/browser/save_session` | `{"name":"bank"}` | a bejelentkezés titkosítva a Széfbe kerül |
 | `/api/browser/stop` | `{}` | leállítja a böngészőt |
+| `/api/browser/tabs` | `{}` | a nyitott fülek (index, url, cím) |
+| `/api/browser/tab_new` | `{"url":"https://..."}` | új fül (url nélkül üres) |
+| `/api/browser/tab_switch` | `{"value":"1"}` | átvált a megadott indexű fülre |
+| `/api/browser/tab_close` | `{"value":"1"}` | bezárja (érték nélkül az aktuálisat) |
+| `/api/browser/upload` | `{"selector":"input[type=file]","value":"szamla.pdf"}` | feltöltés; a fájl CSAK a `store/browser/uploads/` mappából jöhet, sima fájlnévvel |
+| `/api/browser/downloads` | `{}` | a letöltött fájlok (`store/browser/downloads/`) |
+| `/api/browser/dialogs` | `{}` | a látott alert/confirm/prompt ablakok |
+| `/api/browser/dialog_policy` | `{"value":"accept"}` | alapból `dismiss` (elutasít): a "Törlöd?" elfogadása visszafordíthatatlan lehet, elfogadni csak kifejezett kérésre |
+| `/api/browser/clipboard_write` / `clipboard_read` | `{"value":"szöveg"}` / `{}` | vágólap (megnyitott http(s) oldalon) |
+| `/api/browser/key` | `{"value":"Control+V"}` | billentyű / gyorsbillentyű |
 
 ## VESZÉLYES művelet: `/api/browser/submit`
 

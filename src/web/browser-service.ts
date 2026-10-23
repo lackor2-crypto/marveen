@@ -7,10 +7,10 @@
 // A felhasznalo a feluletrol tudja kikapcsolni. Ha a Chromium nincs letoltve,
 // azt a status kulon mondja, es a felulet gombbal tolti le.
 
-import { existsSync, readFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { PROJECT_ROOT } from '../config.js'
+import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { setSecret, getSecret, deleteSecret, listSecrets } from './vault.js'
 import { logger } from '../logger.js'
@@ -18,10 +18,14 @@ import {
   sessionHealthFromState, looksLikeLoginUrl, isIrreversibleClick,
   sessionSlug, normalizeNavigateUrl, browserEnabledFromConfig,
   SESSION_VAULT_PREFIX, type SessionHealth,
+  safeUploadName, safeDownloadName, parseTabIndex, parseDialogPolicy, type DialogPolicy,
 } from '../browser-logic.js'
 
 const CONFIG_DIR = join(PROJECT_ROOT, 'store', 'browser')
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json')
+/** #762: a feltoltheto fajlok es a letoltesek helye -- store/ alatt, gepfuggetlenul. */
+export const BROWSER_UPLOAD_DIR = join(STORE_DIR, 'browser', 'uploads')
+export const BROWSER_DOWNLOAD_DIR = join(STORE_DIR, 'browser', 'downloads')
 export const BROWSER_IDLE_MS = 5 * 60 * 1000
 const ACTION_TIMEOUT_MS = 20_000
 // Kartya ab8406b7: magasabb ablak, hogy a hosszabb parbeszedek (pl. nemet
@@ -106,7 +110,13 @@ type Browser = import('playwright-core').Browser
 type BrowserContext = import('playwright-core').BrowserContext
 type Page = import('playwright-core').Page
 
-interface Runtime { browser: Browser; context: BrowserContext; page: Page; session: string | null }
+interface Runtime {
+  browser: Browser; context: BrowserContext; page: Page; session: string | null
+  /** #762: JS-parbeszedek (utolso 20) es letoltesek, amiket a kontextus latott. */
+  dialogs: Array<{ type: string; message: string; handled: DialogPolicy }>
+  downloads: string[]
+  dialogPolicy: DialogPolicy
+}
 let rt: Runtime | null = null
 let idleTimer: NodeJS.Timeout | null = null
 let lastAction: { at: number; action: string; error: string | null } | null = null
@@ -156,7 +166,24 @@ async function ensureRuntime(session: string | null | undefined): Promise<Runtim
   const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, ...(storageState ? { storageState } : {}) })
   context.setDefaultTimeout(ACTION_TIMEOUT_MS)
   const page = await context.newPage()
-  rt = { browser, context, page, session: wanted }
+  const next: Runtime = { browser, context, page, session: wanted, dialogs: [], downloads: [], dialogPolicy: 'dismiss' }
+  // #762: minden uj fulre (popup is) rakotjuk a parbeszed- es letoltes-figyelot.
+  const watch = (pg: Page) => {
+    pg.on('dialog', (d) => {
+      const handled = next.dialogPolicy
+      next.dialogs.push({ type: d.type(), message: d.message().slice(0, 500), handled })
+      if (next.dialogs.length > 20) next.dialogs.shift()
+      void (handled === 'accept' ? d.accept() : d.dismiss()).catch(() => {})
+    })
+    pg.on('download', (dl) => {
+      mkdirSync(BROWSER_DOWNLOAD_DIR, { recursive: true })
+      const name = `${Date.now()}-${safeDownloadName(dl.suggestedFilename())}`
+      void dl.saveAs(join(BROWSER_DOWNLOAD_DIR, name)).then(() => { next.downloads.push(name) }).catch(() => {})
+    })
+  }
+  context.on('page', watch)
+  watch(page)
+  rt = next
   touchIdle()
   return rt
 }
@@ -197,7 +224,7 @@ export interface ActionResult {
   typable?: boolean
 }
 
-export const BROWSER_ACTIONS = ['open', 'navigate', 'click', 'click_xy', 'type', 'key', 'scroll', 'fill', 'wait', 'text', 'screenshot', 'pdf', 'submit', 'save_session'] as const
+export const BROWSER_ACTIONS = ['open', 'navigate', 'click', 'click_xy', 'type', 'key', 'scroll', 'fill', 'wait', 'text', 'screenshot', 'pdf', 'submit', 'save_session', 'tabs', 'tab_new', 'tab_switch', 'tab_close', 'upload', 'downloads', 'dialogs', 'dialog_policy', 'clipboard_write', 'clipboard_read'] as const
 
 async function shot(page: Page): Promise<string> {
   return (await page.screenshot({ type: 'png' })).toString('base64')
@@ -342,6 +369,77 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
         out = { ...base(), session: slug }
         break
       }
+      case 'tabs':
+        out = { ...base(), text: await tabList(r) }
+        break
+      case 'tab_new': {
+        const url = input.url ? normalizeNavigateUrl(input.url) : 'about:blank'
+        if (!url) throw new BrowserError('invalid url (only http/https)')
+        const fresh = await r.context.newPage()
+        r.page = fresh
+        if (input.url) await fresh.goto(url, { waitUntil: 'domcontentloaded' })
+        await settleAfterInteraction(fresh)
+        out = { url: fresh.url(), ok: true, action, session: r.session, text: await tabList(r), screenshot: await shot(fresh) }
+        break
+      }
+      case 'tab_switch': {
+        const pages = r.context.pages()
+        const i = parseTabIndex(input.value, pages.length)
+        if (i === null) throw new BrowserError(`tab index must be 0..${pages.length - 1}`)
+        r.page = pages[i]
+        await r.page.bringToFront()
+        out = { url: r.page.url(), ok: true, action, session: r.session, text: await tabList(r), screenshot: await shot(r.page) }
+        break
+      }
+      case 'tab_close': {
+        const pages = r.context.pages()
+        const i = input.value === undefined || input.value === '' ? pages.indexOf(page) : parseTabIndex(input.value, pages.length)
+        if (i === null || i < 0) throw new BrowserError(`tab index must be 0..${pages.length - 1}`)
+        if (pages.length === 1) throw new BrowserError('cannot close the last tab')
+        const wasCurrent = pages[i] === r.page
+        await pages[i].close()
+        const left = r.context.pages()
+        if (wasCurrent) r.page = left[Math.min(i, left.length - 1)]
+        out = { url: r.page.url(), ok: true, action, session: r.session, text: await tabList(r), screenshot: await shot(r.page) }
+        break
+      }
+      case 'upload': {
+        if (!input.selector) throw new BrowserError('selector required (the file input)')
+        const name = safeUploadName(input.value || '')
+        if (!name) throw new BrowserError('value must be a plain file name inside the browser upload folder')
+        const full = join(BROWSER_UPLOAD_DIR, name)
+        if (!existsSync(full)) throw new BrowserError(`no such file in the upload folder: ${name}`, 404, 'no_file')
+        await page.locator(input.selector).first().setInputFiles(full)
+        out = { ...base(), screenshot: await shot(page) }
+        break
+      }
+      case 'downloads':
+        out = { ...base(), text: listDownloads() }
+        break
+      case 'dialogs':
+        out = { ...base(), text: JSON.stringify({ policy: r.dialogPolicy, seen: r.dialogs }) }
+        break
+      case 'dialog_policy': {
+        const pol = parseDialogPolicy(input.value)
+        if (!pol) throw new BrowserError('value must be "accept" or "dismiss"')
+        r.dialogPolicy = pol
+        out = { ...base(), text: pol }
+        break
+      }
+      case 'clipboard_write':
+      case 'clipboard_read': {
+        let origin: string
+        try { origin = new URL(page.url()).origin } catch { throw new BrowserError('open a page first (the clipboard needs an origin)') }
+        if (origin === 'null') throw new BrowserError('open an http(s) page first (the clipboard needs an origin)')
+        await r.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin })
+        if (action === 'clipboard_write') {
+          await page.evaluate((t: string) => navigator.clipboard.writeText(t), String(input.value ?? ''))
+          out = base()
+        } else {
+          out = { ...base(), text: (await page.evaluate(() => navigator.clipboard.readText())).slice(0, 100_000) }
+        }
+        break
+      }
       default:
         throw new BrowserError(`unknown action: ${action}`)
     }
@@ -354,6 +452,21 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
     if (err instanceof BrowserError) throw err
     throw new BrowserError(String(err?.message || err), 422, 'playwright')
   }
+}
+
+async function tabList(r: Runtime): Promise<string> {
+  const pages = r.context.pages()
+  const rows = []
+  for (let i = 0; i < pages.length; i++) {
+    rows.push({ index: i, current: pages[i] === r.page, url: pages[i].url(), title: await pages[i].title().catch(() => '') })
+  }
+  return JSON.stringify(rows)
+}
+
+function listDownloads(): string {
+  try {
+    return JSON.stringify(readdirSync(BROWSER_DOWNLOAD_DIR).map(n => ({ name: n, bytes: statSync(join(BROWSER_DOWNLOAD_DIR, n)).size })))
+  } catch { return '[]' }
 }
 
 // --------------------------------------------------------------- sessions
