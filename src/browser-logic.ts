@@ -104,3 +104,35 @@ export function normalizeNavigateUrl(raw: string): string | null {
     return null
   }
 }
+
+/** #762: a feltoltheto fajl CSAK a bongeszo feltoltes-mappajabol jon (store/browser/uploads).
+ *  Egy ugynok-kerte tetszoleges utvonal ("../../.env") a gep fajljait vinne ki egy weboldalra. */
+export function safeUploadName(raw: string): string | null {
+  const s = String(raw || '').trim()
+  if (!s || s.length > 200) return null
+  if (s.includes('/') || s.includes('\\') || s.includes('\0') || s === '.' || s === '..' || s.startsWith('.')) return null
+  return s
+}
+
+/** #762: letoltott fajl neve: utvonal-karakterek nelkul, ures nev helyett tartalek. */
+export function safeDownloadName(suggested: string, fallback = 'letoltes'): string {
+  const base = String(suggested || '').split(/[\\/]/).pop() || ''
+  const clean = base.replace(/[\0-\x1f<>:"|?*]/g, '_').replace(/^\.+/, '').trim().slice(0, 150)
+  return clean || fallback
+}
+
+/** #762: fulindex a felulet/ugynok szovegebol: egesz, 0-tol, a lista hosszan belul. */
+export function parseTabIndex(raw: unknown, count: number): number | null {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null
+  const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').trim())
+  if (!Number.isInteger(n) || n < 0 || n >= count) return null
+  return n
+}
+
+/** #762: JS-parbeszedablak (alert/confirm/prompt) kezelese: alapbol elutasitjuk (biztonsagos),
+ *  mert egy confirm("Torlod?") elfogadasa visszafordithatatlan lehet. Elfogadni csak kifejezett kerere. */
+export type DialogPolicy = 'dismiss' | 'accept'
+export function parseDialogPolicy(raw: unknown): DialogPolicy | null {
+  const s = String(raw ?? '').trim().toLowerCase()
+  return s === 'accept' || s === 'dismiss' ? s : null
+}
