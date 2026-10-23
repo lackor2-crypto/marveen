@@ -1948,7 +1948,7 @@
       + FILES_VIEWS.map(function (v) { return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + esc(t('workbench.filesview.' + v)) + '</option>' }).join('')
       + '</select></label>'
   }
-  var THUMB_EXT = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|heif|mp4|mov|m4v|webm|mkv|avi|3gp|mts|m2ts|wmv|ogv|mpe?g)$/i
+  var THUMB_EXT = /\.(pdf|jpe?g|png|webp|gif|bmp|tiff?|heic|heif|mp4|mov|m4v|webm|mkv|avi|3gp|mts|m2ts|wmv|ogv|mpe?g)$/i
   /** The picture part of a file row in an icon view: the server thumbnail for photos and videos, else a tile with the extension. */
   function fileThumbHtml(f) {
     if (filesView() === 'list') return ''
