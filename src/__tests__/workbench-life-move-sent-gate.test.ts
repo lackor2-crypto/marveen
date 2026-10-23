@@ -196,6 +196,28 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
     expect(by['Antrag v2.pdf'].action).toBe('trash')
   })
 
+  // #747: a document sent more than once: EVERY version that went out is a sent version; only the never-sent ones go to the Trash.
+  it('több rögzített küldés: minden elküldött változat költözik, a Kukába csak a soha el nem küldött kerül', () => {
+    const { project, a, a1 } = setup()
+    ensureDocSentTables()
+    const v2 = `v-${a}-2`
+    const ins = getDb().prepare('INSERT INTO wb_doc_sent (id, work_item_id, version_id, sent_date, recipient, method, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    ins.run('s1', a, a1, '2026-10-16', 'Sozialamt', 'email', 1)
+    ins.run('s2', a, v2, '2026-10-20', 'Sozialamt', 'email', 2)
+    const item = getWorkItem(a) as any
+    const plan = lifeMovePlan(project, item, 'include')
+    if (!plan.ok) throw new Error('terv')
+    const by = Object.fromEntries(plan.files.map((f) => [f.name, f]))
+    expect(by['Antrag v1.pdf']).toMatchObject({ action: 'move', sent_final: true })
+    expect(by['Antrag v2.pdf']).toMatchObject({ action: 'move', sent_final: true })
+    const target = 'Bakos Éva/Hatóságok/Németország/AOK'
+    const r = moveItemFilesToLife(project, item, [{ rel: by['Antrag v1.pdf'].rel, target }, { rel: by['Antrag v2.pdf'].rel, target }], 'hu', 'include')
+    if (!r.ok) throw new Error('mozgatas')
+    expect(r.results.every((x) => x.ok && !x.trashed)).toBe(true)
+    expect(existsSync(join(root, 'Bakos Éva', 'Hatóságok', 'Németország', 'AOK', 'Antrag v1.pdf'))).toBe(true)
+    expect(existsSync(join(root, 'Bakos Éva', 'Hatóságok', 'Németország', 'AOK', 'Antrag v2.pdf'))).toBe(true)
+  })
+
   // #736: the other document of the folder has its own gate; marking IT as sent (the open document stays unsent) frees its files.
   it('a másik irat saját kapuja: külön jelölhető elküldöttnek, utána a fájlja költözik és link marad, a nyitott irat blokkolt marad', () => {
     // an earlier test's link at the same place would make the file look moved already
