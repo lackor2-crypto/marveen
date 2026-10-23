@@ -7,11 +7,15 @@
 // The mail client lives in the e-mail routes; they register a port here (like workbench-maildraft.ts does), so this
 // module stays free of the mail client. Best effort and silent: a mail server that does not answer leaves the document
 // "not sent", exactly as before -- the owner can still mark it by hand.
+//
+// #750: the sending goes on the final whose file the mail CARRIED (a document can have several finals; the newest one is
+// not necessarily the one that was attached). A mail that only matches a name of the stored mail draft cannot say which
+// final it was, so it gets the plain by-hand mark and no version.
 
 import { basename } from 'node:path'
 import { getDb } from './db.js'
 import { listFinals, finalState } from './workbench-docfinal.js'
-import { markSentManually, recordSent, sentStatus } from './workbench-docsent.js'
+import { markSentManually, recordSent, sentStatus, sentVersionIds } from './workbench-docsent.js'
 import { getWorkItem } from './workbench.js'
 
 export interface SentMailInfo { id: string; date: string; to: string; messageId: string; attachments: string[] }
@@ -34,12 +38,18 @@ export function normName(n: string): string {
   return basename(String(n || '')).toLowerCase().normalize('NFC').replace(/\s*\(\d+\)/g, '').replace(/\s+/g, ' ').trim()
 }
 
-/** The names of every file the document made (final PDFs and their parts) and every attachment of its stored mail draft. */
-export function sentCandidateNames(itemId: string): { names: Set<string>; since: number; account: string } {
-  const names = new Set<string>()
+/** A final of the document and the names of the files it made (the final PDF and its parts). */
+export interface FinalNames { version_id: string; created_at: number; names: Set<string> }
+
+/** The names of the files each final made, and every attachment of the stored mail draft (which belongs to no one final). */
+export function sentCandidateNames(itemId: string): { finals: FinalNames[]; draftNames: Set<string>; since: number; account: string } {
+  const finals: FinalNames[] = []
+  const draftNames = new Set<string>()
   let since = 0
   for (const f of listFinals(itemId)) {
+    const names = new Set<string>()
     for (const n of [f.pdf_name, basename(f.pdf_path || ''), ...(f.files || []).flatMap((x) => [x.name, basename(x.path || '')])]) if (n) names.add(normName(n))
+    finals.push({ version_id: f.version_id, created_at: f.created_at, names })
     since = since ? Math.min(since, f.created_at) : f.created_at
   }
   let account = ''
@@ -47,26 +57,43 @@ export function sentCandidateNames(itemId: string): { names: Set<string>; since:
     const row = getDb().prepare('SELECT from_account AS a, attachments_json AS j, updated_at AS u FROM wb_doc_maildraft WHERE work_item_id = ?').get(itemId) as { a: string; j: string; u: number } | undefined
     if (row) {
       account = row.a || ''
-      try { for (const a of JSON.parse(row.j || '[]') as { name?: string }[]) if (a?.name) names.add(normName(a.name)) } catch { /* bad JSON: no draft names */ }
+      try { for (const a of JSON.parse(row.j || '[]') as { name?: string }[]) if (a?.name) draftNames.add(normName(a.name)) } catch { /* bad JSON: no draft names */ }
     }
   } catch { /* the draft table does not exist yet: no draft */ }
-  return { names, since, account }
+  return { finals, draftNames, since, account }
+}
+
+/**
+ * The finals whose files a mail carried. Two finals that made a file of the same name cannot be told apart by the name:
+ * then the newest one that already existed when the mail went out (a final made later cannot be in it), else the oldest.
+ */
+export function finalsCarriedBy(finals: FinalNames[], attachments: string[], mailDate: string): string[] {
+  const t = Date.parse(mailDate)
+  const out = new Set<string>()
+  for (const a of new Set(attachments.map(normName))) {
+    const same = finals.filter((f) => f.names.has(a)).sort((x, y) => y.created_at - x.created_at)
+    if (!same.length) continue
+    const before = Number.isFinite(t) ? same.find((f) => f.created_at <= t / 1000 + 86_400) : undefined
+    out.add((before ?? same[same.length - 1]).version_id)
+  }
+  return [...out]
 }
 
 /**
  * For each given document that is not marked sent yet: look into the Sent mailbox (the draft's sender account, else every
- * account) and record the sending when an attachment name matches. Returns the ids that were found sent.
+ * account) and record the sending of every final whose file a mail carried. Returns the ids that were found sent.
  */
 export async function detectSentByMail(itemIds: string[]): Promise<string[]> {
   if (!port) return []
   const found: string[] = []
   for (const id of itemIds) {
     if (!id || sentStatus(id).sent) continue
-    const { names, since, account } = sentCandidateNames(id)
+    const { finals, draftNames, since, account } = sentCandidateNames(id)
+    const names = new Set<string>([...draftNames, ...finals.flatMap((f) => [...f.names])])
     if (!names.size) continue
     if ((misses.get(id) || 0) > Date.now()) continue
     const accounts = account ? [account] : port.accounts()
-    let hit: { info: SentMailInfo; account: string } | null = null
+    const hits: { info: SentMailInfo; account: string }[] = []
     for (const acc of accounts) {
       let msgs: SentMailInfo[] = []
       try { msgs = await port.recent(acc, MAX_MESSAGES, since ? (since - 86_400) * 1000 : 0) } catch { continue }
@@ -74,19 +101,24 @@ export async function detectSentByMail(itemIds: string[]): Promise<string[]> {
         // A mail older than the first finalisation cannot be this document's sending (one day of slack for clock skew).
         const t = Date.parse(m.date)
         if (since && Number.isFinite(t) && t / 1000 < since - 86_400) continue
-        if (m.attachments.some((a) => names.has(normName(a)))) { hit = { info: m, account: acc }; break }
+        if (m.attachments.some((a) => names.has(normName(a)))) hits.push({ info: m, account: acc })
       }
-      if (hit) break
     }
-    if (!hit) { misses.set(id, Date.now() + MISS_TTL_MS); continue }
+    if (!hits.length) { misses.set(id, Date.now() + MISS_TTL_MS); continue }
     const item = getWorkItem(id)
-    const day = /^\d{4}-\d{2}-\d{2}/.exec(hit.info.date)?.[0] || new Date().toISOString().slice(0, 10)
-    const to = hit.info.to || hit.account
+    // The sendings found, the newest mail first; a final that was sent in several mails is recorded once.
+    const done = sentVersionIds(id)
     let ok = false
-    if (item && finalState(item) && !finalState(item)!.stale) {
-      ok = recordSent(item, { date: day, recipient: to, method: 'email', reference: hit.info.messageId, note: 'found in the Sent mailbox' }, 'sent-mailbox').ok
+    for (const hit of hits) {
+      const day = /^\d{4}-\d{2}-\d{2}/.exec(hit.info.date)?.[0] || new Date().toISOString().slice(0, 10)
+      const to = hit.info.to || hit.account
+      for (const versionId of finalsCarriedBy(finals, hit.info.attachments, hit.info.date)) {
+        if (!item || done.has(versionId)) continue
+        if (recordSent(item, { date: day, recipient: to, method: 'email', reference: hit.info.messageId, note: 'found in the Sent mailbox' }, 'sent-mailbox', versionId).ok) { done.add(versionId); ok = true }
+      }
     }
-    // No current final to hang the sending on (an old document): the same honest mark the owner would click.
+    // No final to hang the sending on (the mail carried a draft attachment only, or an old document): the same honest
+    // mark the owner would click -- it claims no version.
     if (!ok) { markSentManually(id, 'sent-mailbox'); ok = true }
     if (ok) found.push(id)
   }

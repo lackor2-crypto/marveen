@@ -126,12 +126,16 @@ export function listSent(itemId: string): SentView[] {
   })
 }
 
-/** Mark the CURRENT final as sent. A draft, or a final the document has changed since, cannot be. */
-export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: unknown; recipient?: unknown; method?: unknown; reference?: unknown; note?: unknown }, by: string | null): SentResult<{ id: string }> {
+/**
+ * Mark the CURRENT final as sent. A draft, or a final the document has changed since, cannot be.
+ * #750: `versionId` names the final that really went out (the one whose file a sent mail carried); it need not be the
+ * newest or an unchanged one -- that version was sent whatever happened to the document afterwards.
+ */
+export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: unknown; recipient?: unknown; method?: unknown; reference?: unknown; note?: unknown }, by: string | null, versionId?: string): SentResult<{ id: string }> {
   ensureDocSentTables()
-  const fin = finalState(item)
-  if (!fin) return { ok: false, code: 'no_final', detail: 'the document has no final version yet' }
-  if (fin.stale) return { ok: false, code: 'final_stale', detail: 'the document changed since it was finalised' }
+  const fin = versionId ? listFinals(item.id).find((f) => f.version_id === versionId) : finalState(item)
+  if (!fin) return { ok: false, code: 'no_final', detail: versionId ? 'no such final version for this document' : 'the document has no final version yet' }
+  if (!versionId && (fin as { stale?: boolean }).stale) return { ok: false, code: 'final_stale', detail: 'the document changed since it was finalised' }
   const date = clean(input.date)
   if (!validDate(date)) return { ok: false, code: 'bad_input', detail: 'date must be a real day as YYYY-MM-DD' }
   const time = clean(input.time)
