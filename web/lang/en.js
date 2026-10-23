@@ -6252,7 +6252,7 @@ window._i18n.en = {
   "workbench.approval.reject_no_reason": "Send it back without a note? Later nobody will see what needs fixing.",
   "workbench.approval.done": "Approved, done.",
   "workbench.approval.rejected": "Sent back:",
-  "workbench.approval.closed_without_decision": "The approval request closed without a decision (for example it expired). Send it again when ready.",
+  "workbench.approval.closed_without_decision": "The approval request closed without a decision (for example it expired). Finalize it when ready.",
   "workbench.approval.toast.submit": "Sent for approval.",
   "workbench.approval.toast.withdraw": "Request withdrawn; the work item is in progress again.",
   "workbench.approval.toast.approve": "Approved; the work item is done.",

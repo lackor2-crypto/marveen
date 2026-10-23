@@ -6326,7 +6326,7 @@ window._i18n.hu = {
   "workbench.approval.reject_no_reason": "Indoklás nélkül dobod vissza? Így később nem fog látszani, mit kell javítani.",
   "workbench.approval.done": "Elfogadva, kész.",
   "workbench.approval.rejected": "Visszadobva:",
-  "workbench.approval.closed_without_decision": "A jóváhagyási kérés döntés nélkül lezárult (például lejárt). Küldd be újra, ha kész.",
+  "workbench.approval.closed_without_decision": "A jóváhagyási kérés döntés nélkül lezárult (például lejárt). Véglegesítsd, ha kész.",
   "workbench.approval.toast.submit": "Jóváhagyásra küldve.",
   "workbench.approval.toast.withdraw": "A kérés visszavonva, a munkadarab újra folyamatban van.",
   "workbench.approval.toast.approve": "Elfogadva, a munkadarab kész.",
