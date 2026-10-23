@@ -175,3 +175,30 @@ describe('GET /api/life/thumb', () => {
     expect(res.text()).not.toContain('root:')
   })
 })
+
+// #708: a PDF gets the picture of its first page (poppler's pdftoppm, no FFmpeg needed), but it is not an Explorer media entry.
+describe('PDF thumbnail (#708)', () => {
+  const MIN_PDF = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
+  let hasPoppler = false
+  beforeAll(async () => {
+    const { spawnSync } = await import('node:child_process')
+    hasPoppler = spawnSync('pdftoppm', ['-v']).error === undefined
+  })
+
+  it('stays out of the Explorer photo/video kinds', () => {
+    expect(thumbs.thumbMediaKind('szerzodes.pdf')).toBeNull()
+  })
+  it('a file that is not a readable PDF answers "failed", never a silent empty picture', async () => {
+    const f = mediaFile('pdf', 'not a pdf at all')
+    const r = await thumbs.lifeThumb(f.abs, f.name)
+    expect(r.ok).toBe(false)
+  })
+  it('renders page one to a cached JPEG when poppler is installed', async (ctx) => {
+    if (!hasPoppler) return ctx.skip()
+    const f = mediaFile('pdf', MIN_PDF)
+    const r = await thumbs.lifeThumb(f.abs, f.name)
+    expect(r).toMatchObject({ ok: true, kind: 'thumb' })
+    const again = await thumbs.lifeThumb(f.abs, f.name)
+    expect(again).toMatchObject({ ok: true, kind: 'thumb' })
+  })
+})

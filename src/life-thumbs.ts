@@ -103,6 +103,15 @@ function nonEmpty(p: string): boolean {
   try { return statSync(p).size > 0 } catch { return false }
 }
 
+/** #708: the first page of a PDF, through poppler's pdftoppm when the machine has it (no FFmpeg involved). */
+async function generatePdf(abs: string, out: string): Promise<boolean> {
+  const base = out + '.part'
+  const ok = await runFfmpeg('pdftoppm', ['-jpeg', '-f', '1', '-l', '1', '-singlefile', '-scale-to', String(THUMB_EDGE), abs, base])
+  const tmp = base + '.jpg'
+  if (!ok || !nonEmpty(tmp)) { try { unlinkSync(tmp) } catch { /* nem jott letre */ } return false }
+  try { renameSync(tmp, out); return true } catch { return false }
+}
+
 async function generate(bin: string, abs: string, media: 'image' | 'video', out: string): Promise<boolean> {
   const tmp = out + '.part.jpg'
   const scale = `scale=w='min(${THUMB_EDGE},iw)':h='min(${THUMB_EDGE},ih)':force_original_aspect_ratio=decrease`
@@ -149,7 +158,8 @@ const MAX_ORIGINAL_BYTES = 25 * 1024 * 1024
  * Az utvonal-hatart a hivo (`resolveLifePath`) adja, ez itt nem ellenoriz.
  */
 export async function lifeThumb(abs: string, name: string): Promise<ThumbResult> {
-  const media = thumbMediaKind(name)
+  // #708: a PDF has a picture too (its first page), but it is not a photo/video entry of the Explorer, so it is kept out of thumbMediaKind.
+  const media = thumbMediaKind(name) ?? (extname(name).toLowerCase() === '.pdf' ? 'pdf' as const : null)
   if (!media) return { ok: false, reason: 'not_media' }
   let st
   try { st = statSync(abs) } catch { return { ok: false, reason: 'failed' } }
@@ -159,7 +169,7 @@ export async function lifeThumb(abs: string, name: string): Promise<ThumbResult>
   const out = join(dir, key + '.jpg')
   if (existsSync(out)) return { ok: true, kind: 'thumb', path: out, etag: key }
 
-  const bin = await ffmpegPath()
+  const bin = media === 'pdf' ? 'pdftoppm' : await ffmpegPath()
   const browserImage = fileKind(name).kind === 'image'
   const original = (): ThumbResult => {
     if (!browserImage) return { ok: false, reason: bin ? 'failed' : 'no_ffmpeg' }
@@ -174,7 +184,7 @@ export async function lifeThumb(abs: string, name: string): Promise<ThumbResult>
       await acquire()
       try {
         try { mkdirSync(dir, { recursive: true }) } catch { /* a generate ugyis elbukik */ }
-        const ok = await generate(bin, abs, media, out)
+        const ok = media === 'pdf' ? await generatePdf(abs, out) : await generate(bin as string, abs, media, out)
         if (ok && ++writes % 200 === 0) pruneCache(dir)
         return ok
       } finally { release() }
