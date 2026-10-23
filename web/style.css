@@ -13238,3 +13238,17 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 .stor-ov-tog { background: none; border: 0; cursor: pointer; padding: 0 4px; font-size: 13px; color: inherit; }
 .stor-ov-off { opacity: .5; }
 .stor-ov-file { font-size: 13px; }
+
+/* #707: the column name of a subtask listed under its parent card */
+.kanban-subtask-status {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+  background: rgba(127, 127, 127, 0.18);
+  color: inherit;
+  opacity: 0.85;
+}
