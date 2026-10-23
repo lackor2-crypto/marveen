@@ -89,6 +89,23 @@ describe('heavy-job-gate.py (PreToolUse)', () => {
     'node_modules/.bin/tsc --noEmit',
     'timeout 1200 npx vitest run',
     'timeout -s KILL 1200 npx vitest run > /tmp/s.log 2>&1',
+    // wrappers and launcher spellings that hid a full run / type check (#759)
+    'bash -c "npx vitest run"',
+    'sh -lc "cd x && npx tsc --noEmit"',
+    'eval "npx vitest run"',
+    '(npx vitest run)',
+    'cd x && (nice -n 10 npx vitest run) > /tmp/x 2>&1',
+    'npx --yes vitest run',
+    'node node_modules/.bin/vitest run',
+    'node node_modules/vitest/vitest.mjs run',
+    'npx -p typescript tsc --noEmit',
+    'node node_modules/typescript/bin/tsc --noEmit',
+    'npm exec vitest run',
+    'npm exec tsc -- --noEmit',
+    'npm test -- --reporter dot',
+    'npm run typecheck',
+    'pnpm vitest run',
+    'yarn tsc --noEmit',
     'python3 -c "from playwright.sync_api import sync_playwright"',
   ])('denies %s', (cmd) => {
     const r = gate(cmd)
@@ -108,6 +125,15 @@ describe('heavy-job-gate.py (PreToolUse)', () => {
     'nice -n 10 npx vitest run src/__tests__/lang-parity.test.ts > /tmp/x.log 2>&1',
     'npx vitest run src/__tests__/lang-parity.test.ts 2>&1 | tail -5',
     'timeout 600 npx vitest run src/__tests__/lang-parity.test.ts',
+    'bash -c "echo hi"',
+    'bash -c "npx vitest run src/__tests__/lang-parity.test.ts"',
+    'scripts/heavy-job.sh x -- bash -c "npx tsc --noEmit"',
+    'git commit -m "fix (npx vitest run) wrapper"',
+    'node scripts/foo.js tsc',
+    'npm view tsc version',
+    'npm test -- src/__tests__/lang-parity.test.ts',
+    'pnpm vitest run src/__tests__/lang-parity.test.ts',
+    'scripts/heavy-job.sh tsc -- npm run typecheck',
   ])('allows %s', (cmd) => {
     expect(gate(cmd).status).toBe(0)
   })

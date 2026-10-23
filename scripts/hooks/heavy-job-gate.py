@@ -78,6 +78,9 @@ def strip_redirections(toks):
 
 
 def words(segment):
+    # A subshell or group bracket glued to the first word hid the command from the checks below
+    # (quoted text stays one token, so it is unaffected): `(npx vitest run)`, `{ npx vitest run; }`.
+    segment = segment.replace("(", " ").replace(")", " ")
     try:
         toks = shlex.split(segment, posix=True)
     except Exception:
@@ -101,6 +104,50 @@ def words(segment):
     return toks
 
 
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+SHELL_C_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
+
+
+def nested_segments(toks, depth=0):
+    """`bash -c "<cmd>"` / `eval "<cmd>"` run their payload as a command of its own: expand it
+    into segments so the checks see it (2026-10-23: the wrapper hid a full suite from the gate)."""
+    if not toks or depth > 3:
+        return []
+    payload = None
+    if os.path.basename(toks[0]) in SHELLS:
+        for i, t in enumerate(toks[1:], 1):
+            if SHELL_C_FLAG.match(t) and i + 1 < len(toks):
+                payload = toks[i + 1]
+                break
+    elif toks[0] == "eval" and len(toks) > 1:
+        payload = " ".join(toks[1:])
+    if payload is None:
+        return []
+    out = []
+    for s in SEGMENT_SPLIT.split(payload):
+        w = words(s)
+        if w:
+            out.append(w)
+            out.extend(nested_segments(w, depth + 1))
+    return out
+
+
+def launched_by_runner(toks, i):
+    """True when toks[i] is the program started by an npx / node / npm-exec style launcher."""
+    if i == 0:
+        return True
+    head = os.path.basename(toks[0])
+    if head in ("npx", "bunx", "bun", "tsx"):
+        return i <= 5  # npx [--yes] [-p pkg] <cmd>
+    if head in ("node", "nodejs"):
+        return i == 1  # node node_modules/.bin/<cmd>
+    if head in ("npm", "pnpm", "yarn"):
+        if head != "npm" and i == 1:
+            return True  # `pnpm vitest run` / `yarn tsc`: the package manager runs the local bin directly
+        return len(toks) > 1 and toks[1] in ("exec", "dlx", "x") and i <= 6
+    return toks[i - 1] in ("npx", "bunx", "exec", "dlx", "--no-install", "-y", "-p")
+
+
 def is_heavy_job_segment(toks):
     for i, t in enumerate(toks[:3]):
         if os.path.basename(t) == "heavy-job.sh":
@@ -108,6 +155,26 @@ def is_heavy_job_segment(toks):
         if t in ("bash", "sh") and i + 1 < len(toks) and os.path.basename(toks[i + 1]) == "heavy-job.sh":
             return True
     return False
+
+
+def vitest_args_full(after):
+    """True when these arguments (everything after the `vitest` word) still select the whole suite."""
+    if after and after[0] not in ("run", "--run") and not after[0].startswith("-"):
+        return False  # `vitest watch`, `vitest related x`, `vitest <file>`: not the plain full run
+    rest = [a for a in after if a not in ("run", "--run")]
+    if any(a.split("=")[0] in VITEST_NARROWING for a in rest):
+        return False
+    positional = []
+    skip = False
+    for a in rest:
+        if skip:
+            skip = False
+            continue
+        if a in VITEST_VALUE_FLAGS:
+            skip = True  # `--reporter dot`: the value is not a test file
+        elif not a.startswith("-"):
+            positional.append(a)
+    return not positional  # a positional (file / dir / filter) narrows the run
 
 
 def full_suite(toks):
@@ -120,36 +187,26 @@ def full_suite(toks):
         if rest[:1] == ["run"]:
             rest = rest[1:]
         if rest[:1] in (["test"], ["test:run"]):
-            return "--" not in rest or not [t for t in rest[rest.index("--") + 1:] if not t.startswith("-")]
-        return False
-    # [npx|pnpm exec|bunx] vitest [run] [flags]
+            # `npm test -- --reporter dot` still runs everything: judge what follows `--` like vitest's own args
+            return vitest_args_full(rest[rest.index("--") + 1:] if "--" in rest else [])
+    # [npx|pnpm exec|bunx|node <path>] vitest [run] [flags]
     for i, t in enumerate(toks):
-        if os.path.basename(t) == "vitest" and (i == 0 or toks[i - 1] in ("npx", "bunx", "exec", "dlx", "--no-install", "-y")):
-            after = toks[i + 1:]
-            if after and after[0] not in ("run", "--run") and not after[0].startswith("-"):
-                return False  # `vitest watch`, `vitest related x`, `vitest <file>`: not the plain full run
-            rest = [a for a in after if a not in ("run", "--run")]
-            if any(a.split("=")[0] in VITEST_NARROWING for a in rest):
-                return False
-            positional = []
-            skip = False
-            for a in rest:
-                if skip:
-                    skip = False
-                    continue
-                if a in VITEST_VALUE_FLAGS:
-                    skip = True  # `--reporter dot`: the value is not a test file
-                elif not a.startswith("-"):
-                    positional.append(a)
-            return not positional  # a positional (file / dir / filter) narrows the run
+        if os.path.basename(t) in ("vitest", "vitest.mjs") and launched_by_runner(toks, i):
+            return vitest_args_full(toks[i + 1:])
     return False
 
 
 def is_tsc(toks):
     """True for `tsc ...` / `npx tsc ...` / `node_modules/.bin/tsc ...` (a type check run)."""
-    for i, t in enumerate(toks[:4]):
-        if os.path.basename(t) == "tsc" and (i == 0 or toks[i - 1] in ("npx", "bunx", "exec", "--no-install", "-y", "-p")):
+    for i, t in enumerate(toks[:7]):
+        if os.path.basename(t) == "tsc" and launched_by_runner(toks, i):
             return True
+    # the repo's own `typecheck` script is `tsc --noEmit`
+    if toks[0] in ("npm", "pnpm", "yarn"):
+        rest = toks[1:]
+        if rest[:1] == ["run"]:
+            rest = rest[1:]
+        return rest[:1] == ["typecheck"]
     return False
 
 
@@ -181,8 +238,12 @@ def main():
     if not isinstance(command, str) or not command.strip():
         allow()
 
-    segments = [words(s) for s in SEGMENT_SPLIT.split(command)]
-    segments = [s for s in segments if s]
+    segments = []
+    for raw in SEGMENT_SPLIT.split(command):
+        w = words(raw)
+        if w:
+            segments.append(w)
+            segments.extend(nested_segments(w))
     queued = any(is_heavy_job_segment(s) for s in segments)
 
     for toks in segments:
