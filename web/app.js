@@ -3013,7 +3013,7 @@ function updateSubtaskBadges(embeddedSubtaskIds) {
       list.className = 'kanban-embedded-subtasks kanban-subtask-refs'
       list.innerHTML = apart.map(c => {
         const cSeq = c.seq != null ? `<span class="kanban-embedded-seq">#${c.seq}</span> ` : ''
-        return `<div class="kanban-embedded-subtask" data-id="${escapeHtml(c.id)}">${cSeq}${escapeHtml(c.title)}</div>`
+        return `<div class="kanban-embedded-subtask" data-id="${escapeHtml(c.id)}">${cSeq}${escapeHtml(c.title)}${subtaskStatusChip(c)}</div>`
       }).join('')
       list.querySelectorAll('.kanban-embedded-subtask').forEach(subEl => {
         subEl.addEventListener('click', (e) => {
@@ -3025,6 +3025,13 @@ function updateSubtaskBadges(embeddedSubtaskIds) {
       badge.insertAdjacentElement('afterend', list)
     }
   }
+}
+
+// #707: every subtask listed under its parent names the column it sits in, so the same card shown twice
+// (under the parent and in its own column) never reads as being in two states at once.
+function subtaskStatusChip(c) {
+  if (!c || !c.status) return ''
+  return `<span class="kanban-subtask-status kanban-subtask-status-${escapeHtml(c.status)}">${escapeHtml(t('kanban.col.' + c.status))}</span>`
 }
 
 function createCardEl(card, embeddedChildren = []) {
@@ -3120,7 +3127,7 @@ function createCardEl(card, embeddedChildren = []) {
       const caLabel = ca ? (ca.displayName || ca.name) : rawCa
       const caHtml = caLabel ? `<span class="kanban-embedded-assignee">${escapeHtml(caLabel)}</span>` : ''
       const cSeq = c.seq != null ? `<span class="kanban-embedded-seq">#${c.seq}</span> ` : ''
-      return `<div class="kanban-embedded-subtask" data-id="${escapeHtml(c.id)}">${cSeq}${linkifyKanbanRefs(c.title)}${caHtml}</div>`
+      return `<div class="kanban-embedded-subtask" data-id="${escapeHtml(c.id)}">${cSeq}${linkifyKanbanRefs(c.title)}${subtaskStatusChip(c)}${caHtml}</div>`
     }).join('')
     embeddedHtml = `<div class="kanban-embedded-subtasks">${items}</div>`
   }
