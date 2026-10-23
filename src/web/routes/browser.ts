@@ -42,7 +42,7 @@ export async function tryHandleBrowser(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true, ...(await clearBrowserProfile()) })
       return true
     }
-    const sessionDel =path.match(/^\/api\/browser\/sessions\/([^/]+)$/)
+    const sessionDel = path.match(/^\/api\/browser\/sessions\/([^/]+)$/)
     if (sessionDel && method === 'DELETE') {
       const ok = deleteBrowserSession(decodeURIComponent(sessionDel[1]))
       json(res, { ok }, ok ? 200 : 404)
