@@ -72,7 +72,7 @@ export function nameWithItemStem(title: unknown, fileName: string): string {
   return fileName.toLowerCase().startsWith(stem) ? fileName : `${stem} ${fileName}`
 }
 
-const JSON_FILE = /\.(?:canvas|deck)(?: \(\d+\))?\.json$/i
+const JSON_FILE = /\.(?:canvas|deck|timeline)(?: \(\d+\))?\.json$/i
 
 /**
  * The work item whose context file serves `item`: the item itself, or -- for a language version -- its original.
@@ -258,7 +258,8 @@ function followItemJsonNames(item: WorkItemRow, oldStem: string): number {
     const lower = base.toLowerCase()
     if (lower.startsWith(stem)) continue
     const rest = oldStem && oldStem !== stem && lower.startsWith(oldStem) ? base.slice(oldStem.length).replace(/^[\s_-]+/, '') : base
-    const wanted = `${stem} ${rest}`
+    // `uj-video.timeline.json` -> `<new>.timeline.json` (no space before the dot); `x rajz.canvas.json` keeps its word.
+    const wanted = rest.startsWith('.') ? `${stem}${rest}` : `${stem} ${rest}`
     const folder = dirname(rel)
     const oldAbs = resolveLifePath(rel)
     if (!oldAbs || !existsSync(oldAbs) || writeBlockReason(`${folder}/${wanted}`)) continue
