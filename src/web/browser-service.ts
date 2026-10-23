@@ -7,7 +7,7 @@
 // A felhasznalo a feluletrol tudja kikapcsolni. Ha a Chromium nincs letoltve,
 // azt a status kulon mondja, es a felulet gombbal tolti le.
 
-import { existsSync, readFileSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, readdirSync, statSync, chmodSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
@@ -26,6 +26,8 @@ const CONFIG_PATH = join(CONFIG_DIR, 'config.json')
 /** #762: a feltoltheto fajlok es a letoltesek helye -- store/ alatt, gepfuggetlenul. */
 export const BROWSER_UPLOAD_DIR = join(STORE_DIR, 'browser', 'uploads')
 export const BROWSER_DOWNLOAD_DIR = join(STORE_DIR, 'browser', 'downloads')
+/** #762 part 2: the persistent Chromium profile (cookies, logins). Plain files, owner-only, under the backup-excluded `browser` folder. */
+export const BROWSER_PROFILE_DIR = join(STORE_DIR, 'browser', 'profile')
 export const BROWSER_IDLE_MS = 5 * 60 * 1000
 const ACTION_TIMEOUT_MS = 20_000
 // Kartya ab8406b7: magasabb ablak, hogy a hosszabb parbeszedek (pl. nemet
@@ -111,7 +113,12 @@ type BrowserContext = import('playwright-core').BrowserContext
 type Page = import('playwright-core').Page
 
 interface Runtime {
-  browser: Browser; context: BrowserContext; page: Page; session: string | null
+  /** The browser process is gone (closed, crashed): the next action starts a fresh one. */
+  alive: () => boolean
+  close: () => Promise<void>
+  context: BrowserContext; page: Page; session: string | null
+  /** #762 part 2: true when this runtime uses the persistent profile folder (cookies/logins survive restarts). */
+  persistent: boolean
   /** #762: JS-parbeszedek (utolso 20) es letoltesek, amiket a kontextus latott. */
   dialogs: Array<{ type: string; message: string; handled: DialogPolicy }>
   downloads: string[]
@@ -135,7 +142,7 @@ export async function stopBrowser(): Promise<void> {
   const cur = rt
   rt = null
   if (cur) {
-    try { await cur.browser.close() } catch { /* already gone */ }
+    try { await cur.close() } catch { /* already gone */ }
   }
 }
 
@@ -146,7 +153,7 @@ export class BrowserError extends Error {
 async function ensureRuntime(session: string | null | undefined): Promise<Runtime> {
   if (!isBrowserEnabled()) throw new BrowserError('browser capability is disabled', 403, 'disabled')
   const wanted = session ? sessionSlug(session) : null
-  if (rt && rt.browser.isConnected() && (session === undefined || rt.session === wanted)) {
+  if (rt && rt.alive() && (session === undefined || rt.session === wanted)) {
     touchIdle()
     return rt
   }
@@ -162,11 +169,37 @@ async function ensureRuntime(session: string | null | undefined): Promise<Runtim
   }
   // GPU nelkuli szerver/WSL gepen a kepernyokep GPU-val "Unable to capture
   // screenshot" hibaval all meg (merve 2026-09-17); a szoftveres ut mindenhol megy.
-  const browser = await pw.chromium.launch({ headless: true, args: ['--disable-gpu', '--disable-software-rasterizer'] })
-  const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, ...(storageState ? { storageState } : {}) })
+  const args = ['--disable-gpu', '--disable-software-rasterizer']
+  let context: BrowserContext
+  let alive: () => boolean
+  let close: () => Promise<void>
+  if (wanted) {
+    // A named, Vault-encrypted session: a fresh incognito-like context seeded with the saved login.
+    const browser = await pw.chromium.launch({ headless: true, args })
+    context = await browser.newContext({ viewport: BROWSER_VIEWPORT, ...(storageState ? { storageState } : {}) })
+    alive = () => browser.isConnected()
+    close = () => browser.close()
+  } else {
+    // #762 part 2 (Boss chose B): the default browser is a real persistent profile, like a normal browser.
+    // Every cookie and login stays between runs. The folder is plain files on disk: owner-only, left out of backups and git.
+    mkdirSync(BROWSER_PROFILE_DIR, { recursive: true, mode: 0o700 })
+    try { chmodSync(BROWSER_PROFILE_DIR, 0o700) } catch { /* best effort */ }
+    try {
+      context = await pw.chromium.launchPersistentContext(BROWSER_PROFILE_DIR, { headless: true, args, viewport: BROWSER_VIEWPORT })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (/ProcessSingleton|SingletonLock|already in use|profile.*in use/i.test(msg)) throw new BrowserError('the browser profile is in use by another browser process', 409, 'profile_in_use')
+      throw e
+    }
+    let open = true
+    context.on('close', () => { open = false })
+    alive = () => open
+    const owned = context
+    close = () => owned.close()
+  }
   context.setDefaultTimeout(ACTION_TIMEOUT_MS)
-  const page = await context.newPage()
-  const next: Runtime = { browser, context, page, session: wanted, dialogs: [], downloads: [], dialogPolicy: 'dismiss' }
+  const page = context.pages()[0] || await context.newPage()
+  const next: Runtime = { alive, close, context, page, session: wanted, persistent: !wanted, dialogs: [], downloads: [], dialogPolicy: 'dismiss' }
   // #762: minden uj fulre (popup is) rakotjuk a parbeszed- es letoltes-figyelot.
   const watch = (pg: Page) => {
     pg.on('dialog', (d) => {
@@ -488,6 +521,21 @@ export function deleteBrowserSession(name: string): boolean {
   return !!slug && deleteSecret(SESSION_VAULT_PREFIX + slug)
 }
 
+/** "Log out of everything": stop the browser, then wipe the persistent profile (cookies, logins, cache). */
+export async function clearBrowserProfile(): Promise<{ removed: boolean }> {
+  await stopBrowser()
+  const existed = existsSync(BROWSER_PROFILE_DIR)
+  rmSync(BROWSER_PROFILE_DIR, { recursive: true, force: true })
+  return { removed: existed }
+}
+
+function profileInfo() {
+  const exists = existsSync(BROWSER_PROFILE_DIR)
+  let savedAt: number | null = null
+  try { savedAt = statSync(BROWSER_PROFILE_DIR).mtimeMs } catch { /* none yet */ }
+  return { path: BROWSER_PROFILE_DIR, exists, savedAt }
+}
+
 // ----------------------------------------------------------------- status
 
 export async function getBrowserStatus() {
@@ -502,9 +550,11 @@ export async function getBrowserStatus() {
     playwright: { available: !!pw, error },
     chromium: { installed: !!chromiumPath && existsSync(chromiumPath), path: chromiumPath },
     install: getInstallState(),
-    running: !!rt && rt.browser.isConnected(),
+    running: !!rt && rt.alive(),
     url: rt ? rt.page.url() : null,
     session: rt?.session ?? null,
+    persistent: rt ? rt.persistent : null,
+    profile: profileInfo(),
     idleMinutes: BROWSER_IDLE_MS / 60000,
     lastAction,
     sessions,

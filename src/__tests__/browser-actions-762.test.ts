@@ -40,4 +40,13 @@ describe('wiring', () => {
     expect(svc).toContain("join(STORE_DIR, 'browser', 'uploads')")
     expect(svc).toContain("join(STORE_DIR, 'browser', 'downloads')")
   })
+  it('#762 part 2: the default browser is a persistent profile under the backup-excluded store/browser folder, with a reset route', () => {
+    expect(svc).toContain("join(STORE_DIR, 'browser', 'profile')")
+    expect(svc).toContain('launchPersistentContext(BROWSER_PROFILE_DIR')
+    expect(svc).toContain("'profile_in_use'")
+    expect(svc).toContain('export async function clearBrowserProfile')
+    const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'browser.ts'), 'utf8')
+    expect(route).toContain("'/api/browser/profile'")
+    expect(route).toContain('clearBrowserProfile')
+  })
 })
