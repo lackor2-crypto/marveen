@@ -16,6 +16,7 @@ import { getDb } from './db.js'
 import { loadAutonomyConfig } from './autonomy.js'
 import { createBufferPost, type BufferDeps } from './workbench-social-buffer.js'
 import { uploadPublicVideo, type HostDeps } from './workbench-social-host.js'
+import { findHostedCopy, hostedPublicId, pruneHostedVideos, recordHosted, sha256Of, type PruneOutcome } from './workbench-social-hosted.js'
 
 export interface SocialChannel { id: string; service: string; name?: string }
 
@@ -67,7 +68,10 @@ export interface PublishInput {
 export interface ChannelOutcome { channelId: string; service: string; status: 'posted' | 'draft' | 'already_posted' | 'failed'; postId?: string; code?: string; detail?: string }
 export type PublishResult =
   | { ok: false; code: string; detail: string }
-  | { ok: true; videoUrl: string | null; outcomes: ChannelOutcome[] }
+  | { ok: true; videoUrl: string | null; outcomes: ChannelOutcome[]; host?: HostReport }
+
+/** Mi tortent a nyilvanos tarhelyen ennel a kozzetetelnel (a panelnek: mi lett torolve, mi nem sikerult). */
+export interface HostReport { reused: boolean; deleted: string[]; failed: { publicId: string; code: string }[] }
 
 export async function publishClip(input: PublishInput, deps: { buffer?: BufferDeps; host?: HostDeps; autonomy?: { categories: { key: string; level: number; locked: boolean }[] } } = {}): Promise<PublishResult> {
   ensureSocialTables()
@@ -82,17 +86,33 @@ export async function publishClip(input: PublishInput, deps: { buffer?: BufferDe
   const outcomes: ChannelOutcome[] = input.channels.filter((c) => done.has(c.id)).map((c) => ({ channelId: c.id, service: c.service, status: 'already_posted', postId: done.get(c.id) ?? undefined }))
   if (!todo.length) return { ok: true, videoUrl: null, outcomes }
 
-  const up = await uploadPublicVideo({ bytes: input.bytes, publicId: `marveen/${input.clipKey}` }, deps.host)
-  if (!up.ok) return { ok: false, code: up.code, detail: up.detail }
+  // A tarhelyen EGYSZERRE csak keves video marad (lasd workbench-social-hosted): ugyanaz a tartalom nem tolt fel ujra.
+  const sha = sha256Of(input.bytes)
+  const hostedId = hostedPublicId(input.clipKey, sha)
+  const copy = findHostedCopy(hostedId, sha)
+  let videoUrl: string
+  let reused = false
+  if (copy) {
+    videoUrl = copy.url
+    reused = true
+    recordHosted({ publicId: copy.public_id, clipKey: input.clipKey, url: copy.url, bytes: copy.bytes, sha256: sha })
+  } else {
+    const up = await uploadPublicVideo({ bytes: input.bytes, publicId: hostedId }, deps.host)
+    if (!up.ok) return { ok: false, code: up.code, detail: up.detail }
+    videoUrl = up.url
+    recordHosted({ publicId: up.publicId, clipKey: input.clipKey, url: up.url, bytes: up.bytes, sha256: sha })
+  }
 
   for (const c of todo) {
-    const r = await createBufferPost({ channelId: c.id, service: c.service, text: input.text, videoUrl: up.url, draft: input.draft, dueAt: input.dueAt, title: input.title }, deps.buffer)
+    const r = await createBufferPost({ channelId: c.id, service: c.service, text: input.text, videoUrl, draft: input.draft, dueAt: input.dueAt, title: input.title }, deps.buffer)
     if (!r.ok) { outcomes.push({ channelId: c.id, service: c.service, status: 'failed', code: r.code, detail: r.detail }); continue }
     db.prepare('INSERT OR IGNORE INTO wb_social_posts (id, work_item_id, clip_key, channel_id, service, buffer_post_id, draft, due_at, video_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(randomUUID(), input.workItemId, input.clipKey, c.id, c.service, r.postId, input.draft ? 1 : 0, input.dueAt ?? null, up.url, Math.floor(Date.now() / 1000))
+      .run(randomUUID(), input.workItemId, input.clipKey, c.id, c.service, r.postId, input.draft ? 1 : 0, input.dueAt ?? null, videoUrl, Math.floor(Date.now() / 1000))
     outcomes.push({ channelId: c.id, service: c.service, status: input.draft ? 'draft' : 'posted', postId: r.postId })
   }
-  return { ok: true, videoUrl: up.url, outcomes }
+  // A regi videok torlese a posztok UTAN; hiba itt nem dob, csak latszik (a sor delete_failed, kovetkezo alkalommal ujra).
+  const pruned: PruneOutcome = await pruneHostedVideos(deps.host)
+  return { ok: true, videoUrl, outcomes, host: { reused, deleted: pruned.deleted, failed: pruned.failed.map((f) => ({ publicId: f.publicId, code: f.code })) } }
 }
 
 
@@ -117,7 +137,7 @@ export function readClipFile(projectFolder: string | null | undefined, rel: stri
   if (!abs) return { ok: false, code: 'publish_no_clip', detail: norm }
   try {
     const size = statSync(abs).size
-    if (size > CLIP_MAX_BYTES) return { ok: false, code: 'publish_clip_too_big', detail: `${Math.round(size / 1024 / 1024)} MB > ${Math.round(CLIP_MAX_BYTES / 1024 / 1024)} MB` }
+    if (size > CLIP_MAX_BYTES) return { ok: false, code: 'publish_clip_too_big', detail: `${Math.ceil(size / 1024 / 1024)} MB > ${Math.round(CLIP_MAX_BYTES / 1024 / 1024)} MB` }
     return { ok: true, bytes: readFileSync(abs), rel: norm }
   } catch (e) {
     return { ok: false, code: 'publish_no_clip', detail: e instanceof Error ? e.message : String(e) }

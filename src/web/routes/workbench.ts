@@ -115,6 +115,7 @@ import { parseVideoParams, previewVideoGen, retryVideoDownload, startVideoGenera
 import { listVideoGens } from '../../workbench-video-gen-store.js'
 import { listBufferChannels, BUFFER_VAULT_ID } from '../../workbench-social-buffer.js'
 import { hostConfigFromVault } from '../../workbench-social-host.js'
+import { hostedView, pruneHostedVideos } from '../../workbench-social-hosted.js'
 import { clipKeyFor, listSocialPosts, publishClip, publishWithoutAsking, readClipFile } from '../../workbench-social-publish.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
@@ -1549,6 +1550,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   host_upload_failed: { hu: 'A videó feltöltése a tárhelyre nem sikerült. A részletekben a tárhely üzenete.', en: 'Uploading the video to the storage failed. The storage\'s own message is in the details.' },
   host_unreachable: { hu: 'A tárhely nem érhető el (hálózati hiba vagy időtúllépés). Posztot nem készítettem.', en: 'The storage cannot be reached (network error or timeout). No post was made.' },
   host_bad_answer: { hu: 'A tárhely váratlan választ adott. Posztot nem készítettem.', en: 'The storage gave an unexpected answer. No post was made.' },
+  host_delete_failed: { hu: 'A régi videó törlése a tárhelyről nem sikerült. A posztolást ez nem akadályozta; a következő feltöltésnél újra próbálom.', en: 'Deleting the old video from the storage failed. Posting was not affected; I will try again at the next upload.' },
   host_empty_file: { hu: 'A videófájl üres.', en: 'The video file is empty.' },
   buffer_no_key: { hu: 'Nincs Buffer API-kulcs a Vaultban (buffer-api-key).', en: 'There is no Buffer API key in the Vault (buffer-api-key).' },
   buffer_key_rejected: { hu: 'A Buffer elutasította a kulcsot. Készíts újat a Bufferben, és told a Vaultba.', en: 'Buffer rejected the key. Make a new one in Buffer and put it in the Vault.' },
@@ -5696,7 +5698,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         channels: ch && ch.ok ? ch.channels.filter((c) => !c.isDisconnected && !c.isLocked) : [],
         channels_error: ch && !ch.ok ? { error: ch.code, message: msg(ch.code, lang), detail: ch.detail } : null,
         posts: listSocialPosts(item.id),
+        hosted: hostedView(),
       })
+      return true
+    }
+    // A tarhelyen sikertelenul torolt regi videok ujra-torlese (a gombra; a kovetkezo feltoltes is megprobalja).
+    if (segs.length === 3 && segs[2] === 'cleanup' && method === 'POST') {
+      const r = await pruneHostedVideos()
+      json(res, { ok: true, deleted: r.deleted.length, failed: r.failed.length, skipped: r.skipped, hosted: hostedView() })
       return true
     }
     if (segs.length === 2 && method === 'POST') {
@@ -5720,7 +5729,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         title: typeof body['title'] === 'string' ? body['title'] : undefined, approved: body['confirm_live'] === true,
       })
       if (!r.ok) return failDetail(res, r.code === 'publish_needs_approval' ? 403 : r.code.startsWith('host_') || r.code.startsWith('buffer_') ? 502 : 400, r.code, lang, r.detail)
-      json(res, { ok: true, outcomes: r.outcomes, video_url: r.videoUrl, posts: listSocialPosts(item.id) }, 201)
+      json(res, { ok: true, outcomes: r.outcomes, video_url: r.videoUrl, host: r.host ?? null, posts: listSocialPosts(item.id), hosted: hostedView() }, 201)
       return true
     }
   }

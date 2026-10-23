@@ -8161,9 +8161,44 @@
       if (WB.soc) WB.soc.busy = false
       if (!r.ok) { window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : '')); render(); return }
       var bad = (r.data.outcomes || []).filter(function (o) { return o.status === 'failed' })
-      window.showToast(bad.length ? t('workbench.soc.partial', { n: bad.length, why: bad[0].detail || bad[0].code }) : t(draft ? 'workbench.soc.draft_ok' : 'workbench.soc.live_ok'))
+      var hr = r.data.host || {}
+      var hostNote = (hr.failed && hr.failed.length) ? ' ' + t('workbench.soc.host_cleanup_failed', { n: hr.failed.length }) : (hr.deleted && hr.deleted.length) ? ' ' + t('workbench.soc.host_cleanup_ok', { n: hr.deleted.length }) : ''
+      window.showToast((bad.length ? t('workbench.soc.partial', { n: bad.length, why: bad[0].detail || bad[0].code }) : t(draft ? 'workbench.soc.draft_ok' : 'workbench.soc.live_ok')) + hostNote)
       socLoad()
     })
+  }
+  function socCleanup() {
+    var g = WB.soc
+    if (!g || g.busy || !WB.selectedId) return
+    g.busy = true
+    render()
+    api('POST', socUrl() + '/cleanup', {}).then(function (r) {
+      if (WB.soc) WB.soc.busy = false
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      window.showToast(r.data.skipped ? t('workbench.soc.host_cleanup_skipped') : r.data.failed ? t('workbench.soc.host_cleanup_failed', { n: r.data.failed }) : t('workbench.soc.host_cleanup_ok', { n: r.data.deleted }))
+      socLoad()
+    })
+  }
+  // A nyilvanos tarhelyen levo videok: mennyi van fent (legfeljebb keep), mi torlodott legutobb, mi nem sikerult.
+  function socHostHtml(h) {
+    if (!h) return ''
+    var loc = window._lang === 'en' ? 'en-GB' : 'hu-HU'
+    var when = function (ms) { return ms ? new Date(ms).toLocaleString(loc, { dateStyle: 'short', timeStyle: 'short' }) : '' }
+    var name = function (r) { return String(r.clip_key || r.public_id || '').split('/').pop() }
+    var mb = function (r) { var n = Number(r.bytes || 0); return n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB' }
+    var live = (h.live || []).map(function (r) {
+      return '<li class="wb-vt-row"><span>' + esc(name(r)) + '</span> <span class="wb-muted">' + esc(mb(r) + ', ' + when(r.uploaded_at)) + '</span>'
+        + (r.state === 'delete_failed' ? ' <b class="wb-preview-bad" title="' + escA(r.delete_error || '') + '">' + esc(t('workbench.soc.host_delete_failed')) + '</b>' : '') + '</li>'
+    }).join('')
+    var removed = (h.removed || []).map(function (r) {
+      return '<li class="wb-vt-row"><span>' + esc(name(r)) + '</span> <span class="wb-muted">' + esc(t('workbench.soc.host_removed_at', { when: when(r.deleted_at) })) + '</span></li>'
+    }).join('')
+    var failed = (h.live || []).some(function (r) { return r.state === 'delete_failed' })
+    return '<p><b>' + esc(t('workbench.soc.host_title')) + '</b> <span class="wb-muted" id="wbSocHostCount">' + esc(t('workbench.soc.host_count', { n: (h.live || []).length, max: h.keep })) + '</span></p>'
+      + '<p class="wb-hint">' + esc(t('workbench.soc.host_hint', { max: h.keep })) + '</p>'
+      + (live ? '<ul class="wb-vt-list" id="wbSocHostLive">' + live + '</ul>' : '<p class="wb-muted">' + esc(t('workbench.soc.host_none')) + '</p>')
+      + (removed ? '<p class="wb-muted">' + esc(t('workbench.soc.host_removed')) + '</p><ul class="wb-vt-list" id="wbSocHostRemoved">' + removed + '</ul>' : '')
+      + (failed ? '<p class="wb-hint">' + esc(t('workbench.soc.host_failed_hint')) + '</p><p><button type="button" class="wb-btn" data-wb-act="soc-cleanup"' + (WB.soc && WB.soc.busy ? ' disabled' : '') + '>' + esc(t('workbench.soc.host_retry')) + '</button></p>' : '')
   }
   function socHtml() {
     var g = WB.soc
@@ -8195,6 +8230,7 @@
       + '<button type="button" class="btn-primary" data-wb-act="soc-live"' + off + '>' + esc(t('workbench.soc.live')) + '</button> ' + close + '</p>'
       + '<p class="wb-hint">' + esc(t(info.auto_publish ? 'workbench.soc.hint_auto' : 'workbench.soc.hint')) + '</p>'
       + (posts ? '<ul class="wb-vt-list">' + posts + '</ul>' : '')
+      + socHostHtml(info.hosted)
   }
 
   function vtVoiceoverHtml(doc) {
@@ -21276,6 +21312,7 @@
     else if (a === 'soc-toggle') socToggle()
     else if (a === 'soc-draft') socSend(true)
     else if (a === 'soc-live') socSend(false)
+    else if (a === 'soc-cleanup') socCleanup()
     else if (a === 'vgen-start') vgenStart()
     else if (a === 'vgen-refresh') { vgenRead(); vgenLoad() }
     else if (a === 'vgen-retry') vgenRetry(act.getAttribute('data-wb-id'))
