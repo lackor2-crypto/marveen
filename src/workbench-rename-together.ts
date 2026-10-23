@@ -10,7 +10,7 @@ import { getDb } from './db.js'
 import { getProject } from './projects.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { folderNameFromTitle, renameWorkFolder, renameWorkItem, type RenameFolderResult, type RenameItemOutcome } from './workbench-assets.js'
-import { reconcileItemContext } from './workbench-item-context.js'
+import { reconcileItemContext, rememberItemStem } from './workbench-item-context.js'
 import { logger } from './logger.js'
 
 /** The first (oldest) work item that has `folder` as its own folder; null when none does. */
@@ -37,6 +37,7 @@ function settle(itemId: string): void {
  */
 export function renameItemTogether(item: WorkItemRow, rawTitle: unknown): RenameItemOutcome {
   const before = getWorkItem(item.id) ?? item
+  try { rememberItemStem(before) } catch { /* the sweep then falls back to the file's own name */ }
   const r = renameWorkItem(before, rawTitle)
   if (!r.ok) return r
   const own = String(r.item.folder ?? '').trim()
@@ -68,6 +69,7 @@ export function renameFolderTogether(project: Parameters<typeof renameWorkFolder
   if (!anchor) return r
   const seg = r.folder.slice(r.folder.lastIndexOf('/') + 1)
   if (anchor.title === seg) { settle(anchor.id); return { ...r, item: getWorkItem(anchor.id) ?? anchor } }
+  try { rememberItemStem(anchor) } catch { /* the sweep then falls back to the file's own name */ }
   const t = renameWorkItem(anchor, seg)
   settle(anchor.id)
   return t.ok ? { ...r, item: getWorkItem(anchor.id) ?? t.item } : r

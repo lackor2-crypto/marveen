@@ -98,6 +98,17 @@ const saveRow = (itemId: string, rel: string, stem: string): void => {
   getDb().prepare('INSERT INTO work_item_context (item_id, rel, stem) VALUES (?, ?, ?) ON CONFLICT(item_id) DO UPDATE SET rel = excluded.rel, stem = excluded.stem').run(itemId, rel, stem)
 }
 
+/**
+ * #709: remember the name stem an item has NOW, before a rename. An item that never went through a context pass has no
+ * stem on record, and without it the rename cannot tell `uj-video.timeline.json` (the old name) from a free word.
+ */
+export function rememberItemStem(item: WorkItemRow): void {
+  ensureTable()
+  const row = readRow(item.id)
+  if (row && row.stem) return
+  saveRow(item.id, row ? row.rel : '', itemStem(item.title))
+}
+
 function template(title: string): string {
   return [
     `# ${ol('Kontextus', 'Context')}: ${title}`,

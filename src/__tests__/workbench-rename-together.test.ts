@@ -63,6 +63,16 @@ describe('#709: the first item and its folder carry one name', () => {
     expect(existsSync(abs(`Projektek/Video/${folder}`))).toBe(false)
   })
 
+  it('an item that never had a context pass still renames its timeline JSON cleanly (no old name left inside the new one)', () => {
+    getDb().prepare('DELETE FROM work_item_context').run()
+    const r = renameItemTogether(getWorkItem(aId)!, 'Apu video PROBA')
+    expect(r.ok).toBe(true)
+    const it = getWorkItem(aId)!
+    const names = files(`Projektek/Video/${it.folder}`)
+    expect(names).toContain('apu-video-proba.timeline.json')
+    expect(names.filter((n) => n.includes('uj-video'))).toEqual([])
+  })
+
   it('a later item of the same folder is free: renaming it changes neither the folder nor the anchor', () => {
     const b = createWorkItem({ project_id: pid, type: 'document', title: 'Masodik' })
     if (!b.ok) throw new Error('b')
