@@ -11,7 +11,7 @@ import { getDb } from './db.js'
 import { listWorkItems, type WorkItemRow } from './workbench.js'
 import { projectFileTarget } from './project-files.js'
 import { moveLife, toLifeRel, resolveLifePath, trashLife } from './life-explorer.js'
-import { addMount, fileMountsInside, isFileMount, repointFileMount } from './life-mounts.js'
+import { addMount, fileMountsInside, isFileMount, repointFileMount, resolveMount } from './life-mounts.js'
 import { listFinals } from './workbench-docfinal.js'
 import { sentStatus, type SentStatus } from './workbench-docsent.js'
 import { roleOfFolderName } from './workbench-misplaced.js'
@@ -207,7 +207,11 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
 }
 
 export interface LifeMoveRow { rel: string; target: string }
-export interface LifeMoveOutcome { rel: string; target: string; ok: boolean; new_rel: string; message: string; trashed?: boolean }
+export interface LifeMoveOutcome {
+  rel: string; target: string; ok: boolean; new_rel: string; message: string; trashed?: boolean
+  /** #749: the file moved; false = no linked file could be left at its old place (the owner is told), true = it stands there. */
+  link_left?: boolean
+}
 
 /** The files that really moved, as old and new Life-tree path (for re-pointing what referred to the old place). */
 export function movedPairs(results: LifeMoveOutcome[]): Array<{ oldRel: string; newRel: string }> {
@@ -342,14 +346,20 @@ export async function suggestForPlan(project: ProjectRow, item: PlanItem, files:
   return out
 }
 
-/** A linked file (a pointer, no copy) at the place the file was moved from. Best effort: a clash or a missing target leaves nothing. */
-function leaveLinkBehind(oldRel: string, newRel: string, name: string): void {
+/**
+ * A linked file (a pointer, no copy) at the place the file was moved from. True when the link stands there and leads to the
+ * file; false when it could not be made (the move itself is done, the caller says so).
+ * #749: the file may have gone BEHIND a linked folder (Drive, Photos ...): `newRel` is the path the owner sees, a link
+ * needs the REAL place (depot-relative), so the path is resolved through the folder link first.
+ */
+function leaveLinkBehind(oldRel: string, newRel: string, name: string): boolean {
   try {
+    const target = resolveMount(newRel)?.target ?? newRel
     // #746: an older link already stands at this place (the file moved away before, and a new one with the same name was
     // put here since): it now leads to the file that left last. Its own copy in the Life tree is not touched.
-    if (isFileMount(oldRel)) { repointFileMount(oldRel, newRel); return }
-  } catch { /* the move itself is done */ }
-  try { addMount({ rel: oldRel, target: newRel, kind: 'local', label: name, note: 'Left behind when the file was moved to the Life tree.', file: true }) } catch { /* the move itself is done */ }
+    if (isFileMount(oldRel)) return repointFileMount(oldRel, target)
+    return addMount({ rel: oldRel, target, kind: 'local', label: name, note: 'Left behind when the file was moved to the Life tree.', file: true }).ok
+  } catch { return false }
 }
 
 /**
@@ -377,9 +387,10 @@ export function moveItemFilesToLife(project: ProjectRow, item: PlanItem, rows: u
       continue
     }
     const m = moveLife(rel, target, lang as any)
-    results.push({ rel, target, ok: m.ok, new_rel: m.ok ? m.rel : '', message: m.ok ? '' : m.message })
+    const out: LifeMoveOutcome = { rel, target, ok: m.ok, new_rel: m.ok ? m.rel : '', message: m.ok ? '' : m.message }
+    results.push(out)
     // #741 (Boss TG 4147): the file moved away, but its old place must not go empty: a linked file (#601) stays there.
-    if (m.ok) leaveLinkBehind(rel, m.rel, cand.name)
+    if (m.ok) out.link_left = leaveLinkBehind(rel, m.rel, cand.name)
     if (m.ok && cand.sent_final && cand.item_id) sentMoved.add(cand.item_id)
   }
   // The older generated versions of a document whose SENT version now stands in the Life tree.
