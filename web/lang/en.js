@@ -391,7 +391,7 @@ window._i18n.en = {
   'guide.perm_domain':        'On the same page, further down under <span class="guide-lit">Authorized domains</span>, press <span class="guide-lit">Add domain</span> and enter the domain of the three links: only the part between <b>https://</b> and the first <b>/</b> (for example <span class="guide-lit">yourname.github.io</span>). <b>Type it by hand, do not paste</b>: pasting can add an invisible space at the end, and Google then says "cannot contain whitespace". Finally press <span class="guide-lit">Save</span>. While the domain is missing, the Branding page shows a red "Missing domain" line.',
   'guide.perm_3':             'Press <span class="guide-lit">PUBLISH APP</span>, then <span class="guide-lit">Confirm</span> in the dialog.',
   'guide.perm_4':             'If Google asks for "verification", or a yellow bar says your app "requires verification", <b>you do not need to submit it</b> — that is for public apps used by many strangers. Your own accounts keep working and access will <b>no longer expire every 7 days</b>. On the "not verified" warning at sign-in, press <span class="guide-lit">Advanced</span>, then <span class="guide-lit">Go to … (unsafe)</span>. You are done when Publishing status shows <span class="guide-lit">In production</span>.',
-  'guide.perm_5':             'Finally, <b>reconnect EVERY account once more</b> — on the <b>Accounts</b> page (open it with the button below): in the row of each Google account press <span class="guide-lit">Sign in again</span> and sign in in the Google window that opens, once per account. Access that was already issued lives on with its own old deadline: <b>publishing does not renew it</b>. Only a sign-in AFTER publishing gets access that does not expire. <span class="guide-step-note">Skip this and in two days you are back here thinking publishing did not work.</span>',
+  'guide.perm_5':             'Finally, <b>reconnect EVERY account once more</b> — the button below switches to the “Quick fix” tab, where sign-in starts with one click, right here. Access that was already issued lives on with its own old deadline: <b>publishing does not renew it</b>. Only a sign-in AFTER publishing gets access that does not expire. <span class="guide-step-note">Skip this and in two days you are back here thinking publishing did not work.</span>',
 
   'guide.check_btn':          'Check it now',
   'guide.done_btn':           'Done',
@@ -426,7 +426,7 @@ window._i18n.en = {
   'guide.auth_blocked_btn':   'Open test users',
   'guide.auth_perm_nudge':    'This <b>will expire again in 7 days</b> while your Google app is in “testing” status. That takes one round to end, and then it never stops on its own again.',
   'guide.auth_perm_btn':      'Show me the permanent fix',
-  'guide.perm_quick_btn':     'Back to the “Quick fix” tab',
+  'guide.perm_quick_btn':     'Sign in: click here (Quick fix tab)',
   'guide.verify_perm_none':   'No Google account is connected, so there is nothing to measure.',
   'guide.verify_perm_ok':     '✅ Done: not one Google account has a 7-day deadline ({n} accounts measured). The app is published and the weekly outage is over.',
   'guide.verify_perm_partial': '⚠️ {n} of {all} accounts still have a 7-day deadline: {names}. This is NORMAL right after publishing: already-issued access is not renewed by it. Reconnect these once on the “Quick fix” tab and their deadline goes away.',

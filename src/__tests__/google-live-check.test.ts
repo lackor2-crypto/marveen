@@ -365,8 +365,7 @@ describe('a vegigvezeto a VEGLEGES megoldason is atvisz, nem csak a 7 naposon', 
 
   it('a vegleges ut zaro lepese visszakuld egy ujracsatlakoztatasra', () => {
     const steps = /function _guideSteps\(\)[\s\S]*?\n}\n/.exec(app)?.[0] ?? ''
-    // Boss (TG 10133): "hol a link, ami az ujracsatlakoztatashoz vezet?" -- a zaro lepes gombja a Fiokok oldalra visz, ahol MINDEN fiok sora ott van.
-    expect(steps).toMatch(/t\('guide\.perm_5'\), btn: \{ label: t\('guide\.quick_open_btn'\), page: 'accounts' \}/)
+    expect(steps).toMatch(/t\('guide\.perm_5'\), btn: \{ label: t\('guide\.perm_quick_btn'\), tab: 'quick' \}/)
   })
 
   it('a vegleges fulon MAST mer az ellenorzes: a 7 napos hatarido eltunt-e', () => {
