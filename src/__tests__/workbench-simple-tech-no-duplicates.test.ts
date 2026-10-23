@@ -36,7 +36,13 @@ describe('Simple view technical details without duplicates (#756)', () => {
   })
 
   it('the technical details draw the approval box only for a pending request', () => {
-    expect(tech).toContain("(it.status === 'review' ? approvalBoxHtml() : '')")
+    expect(tech).toContain("(it.status === 'review' && WB.detail.approval && WB.detail.approval.status === 'pending' ? approvalBoxHtml() : '')")
+  })
+
+  it('an expired request no longer tells the user to send it again (the button is gone)', () => {
+    expect(hu).toMatch(/"workbench\.approval\.closed_without_decision": "[^"]*Véglegesítsd, ha kész\./)
+    expect(en).toMatch(/"workbench\.approval\.closed_without_decision": "[^"]*Finalize it when ready\./)
+    expect(hu).not.toContain('Küldd be újra')
   })
 
   it('the Documents tool is not repeated among the tools', () => {

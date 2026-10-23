@@ -17179,7 +17179,7 @@
         + deadlinesBoxHtml()
         + todosBoxHtml()
         // #756: Finalize and the finalized state sit in the frame's top bar; only a request still pending is decided here
-        + (it.status === 'review' ? approvalBoxHtml() : '')
+        + (it.status === 'review' && WB.detail.approval && WB.detail.approval.status === 'pending' ? approvalBoxHtml() : '')
         + '</div>'
       : ''
     var grp = function (key, body) {
