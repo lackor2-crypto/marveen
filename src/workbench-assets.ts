@@ -2097,15 +2097,29 @@ function relocateItemFiles(item: WorkItemRow, project: ProjectRow, folderRel: st
     if (other) { skipped.push({ path: p, reason: 'shared' }); continue }
     const abs = resolveLifePath(p)
     if (!abs || !existsSync(abs)) { skipped.push({ path: p, reason: 'missing' }); continue }
-    const fileName = abs.split(sep).pop() || 'file'
-    const destName = freeFileName(target.dirAbs, fileName)
-    const destAbs = join(target.dirAbs, destName)
-    try {
-      renameSync(abs, destAbs)
-    } catch (e) {
-      return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
+    // #745: a linked file (left at the old place by the Life-tree move) is only a pointer: the link moves,
+    // the real file it leads to stays in the Life tree. `abs` is the TARGET, renaming that would carry it off.
+    const linked = isFileMount(p)
+    const fileName = linked ? p.slice(p.lastIndexOf('/') + 1) : abs.split(sep).pop() || 'file'
+    let destName = freeFileName(target.dirAbs, fileName)
+    if (linked) {
+      // The link's place is a registry entry, not a file: a free name must also be free among the links.
+      for (let n = 2; isFileMount(`${folderRel}/${destName}`) && n < 1000; n++) {
+        const dot = fileName.lastIndexOf('.')
+        destName = freeFileName(target.dirAbs, dot > 0 ? `${fileName.slice(0, dot)} (${n})${fileName.slice(dot)}` : `${fileName} (${n})`)
+      }
     }
-    const to = toLifeRel(destAbs) || `${folderRel}/${destName}`
+    const destAbs = join(target.dirAbs, destName)
+    if (linked) {
+      if (!moveFileMount(p, `${folderRel}/${destName}`)) return { ok: false, code: 'move_failed' }
+    } else {
+      try {
+        renameSync(abs, destAbs)
+      } catch (e) {
+        return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
+      }
+    }
+    const to = linked ? `${folderRel}/${destName}` : toLifeRel(destAbs) || `${folderRel}/${destName}`
     try {
       db.transaction(() => {
         db.prepare('UPDATE work_items SET source_path = ? WHERE id = ? AND source_path = ?').run(to, item.id, p)
@@ -2115,7 +2129,8 @@ function relocateItemFiles(item: WorkItemRow, project: ProjectRow, folderRel: st
       })()
     } catch (e) {
       // Az adatbazis nem frissult: a fajlt visszatesszuk, hogy a kapcsolat ne szakadjon.
-      try { renameSync(destAbs, abs) } catch { /* a hibauzenet alabb megy tovabb */ }
+      if (linked) moveFileMount(to, p)
+      else { try { renameSync(destAbs, abs) } catch { /* a hibauzenet alabb megy tovabb */ } }
       return { ok: false, code: 'move_failed', message: e instanceof Error ? e.message : String(e) }
     }
     moved.push({ from: p, to })
