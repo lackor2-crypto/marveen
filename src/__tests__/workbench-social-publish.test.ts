@@ -1,8 +1,8 @@
 // Kozossegi kozzetetel (8/c): tarhely + Buffer hamis szerverrel, penz es halozat nelkul.
 import { describe, it, expect, beforeEach } from 'vitest'
 import { initDatabase } from '../db.js'
-import { parseCloudinaryUrl, signUpload, uploadPublicVideo } from '../workbench-social-host.js'
-import { publishClip, publishWithoutAsking } from '../workbench-social-publish.js'
+import { parseCloudinaryUrl, signUpload, uploadPublicVideo, deletePublicVideo } from '../workbench-social-host.js'
+import { publishClip, publishWithoutAsking, hostedStatus, HOSTED_KEEP } from '../workbench-social-publish.js'
 
 const CFG = { cloudName: 'demo', apiKey: '123', apiSecret: 'TITOK' }
 const BYTES = Buffer.alloc(2048, 5)
@@ -127,5 +127,76 @@ describe('a munkadarab klipje', () => {
     const h = hostFake(), b = bufferFake()
     await publishClip({ workItemId: 'w1', clipKey: 'w1/clip', bytes: BYTES, text: 't', channels: [{ id: 'fb1', service: 'facebook' }], draft: true }, { host: { fetchImpl: h.fetchImpl, config: CFG }, buffer: { fetchImpl: b.fetchImpl, getKey: () => 'K' } })
     expect(listSocialPosts('w1').map((p) => [p.service, p.draft])).toEqual([['facebook', 1]])
+  })
+})
+
+// #767: legfeljebb 3 video marad fent, a 4.-nel a legregebbi torlodik; a torles hibaja nem akasztja a posztolast.
+function stockHost(opts: { failDelete?: () => boolean } = {}) {
+  const uploads: string[] = []
+  const destroyed: { id: string; form: FormData }[] = []
+  return {
+    uploads, destroyed,
+    fetchImpl: async (url: string, init: { method: string; body: FormData }) => {
+      const id = String(init.body.get('public_id'))
+      if (url.endsWith('/video/destroy')) {
+        destroyed.push({ id, form: init.body })
+        if (opts.failDelete?.()) return { ok: false, status: 500, text: async () => JSON.stringify({ error: { message: 'boom TITOK' } }) }
+        return { ok: true, status: 200, text: async () => JSON.stringify({ result: 'ok' }) }
+      }
+      uploads.push(id)
+      return { ok: true, status: 200, text: async () => JSON.stringify({ secure_url: `https://res.cloudinary.com/demo/video/upload/v1/${id}.mp4`, public_id: id, bytes: 2048 }) }
+    },
+  }
+}
+
+describe('tarhely-korlat (#767)', () => {
+  beforeEach(() => { initDatabase(':memory:') })
+  const ch = [{ id: 'fb1', service: 'facebook' }]
+  const send = (h: ReturnType<typeof stockHost>, n: number) =>
+    publishClip({ workItemId: 'w1', clipKey: `w1/clip${n}`, bytes: BYTES, text: 't', channels: ch, draft: true }, { host: { fetchImpl: h.fetchImpl, config: CFG }, buffer: { fetchImpl: bufferFake().fetchImpl, getKey: () => 'K' } })
+
+  it('a destroy keres alairt, a "not found" siker, a titok nem szivarog', async () => {
+    const h = stockHost()
+    expect(await deletePublicVideo('marveen/a', { fetchImpl: h.fetchImpl, config: CFG, now: () => 1_700_000_000_000 })).toEqual({ ok: true, existed: true })
+    expect(h.destroyed[0].form.get('signature')).toBe(signUpload({ public_id: 'marveen/a', timestamp: 1_700_000_000 }, 'TITOK'))
+    const nf = await deletePublicVideo('x', { fetchImpl: async () => ({ ok: true, status: 200, text: async () => '{"result":"not found"}' }), config: CFG })
+    expect(nf).toEqual({ ok: true, existed: false })
+    const bad = await deletePublicVideo('x', { fetchImpl: stockHost({ failDelete: () => true }).fetchImpl, config: CFG })
+    expect(bad).toMatchObject({ ok: false, code: 'host_delete_failed' })
+    if (!bad.ok) expect(bad.detail).not.toContain('TITOK')
+  })
+  it('3 video marad, a 4.-nel a LEGREGEBBI torlodik', async () => {
+    const h = stockHost()
+    for (const n of [1, 2, 3]) { const r = await send(h, n); expect(r.ok && r.pruned.deleted).toEqual([]) }
+    expect(hostedStatus().items.length).toBe(HOSTED_KEEP)
+    const r4 = await send(h, 4)
+    expect(r4.ok && r4.pruned.deleted).toEqual(['clip1'])
+    expect(h.destroyed.map((d) => d.id)).toEqual(['marveen/w1/clip1'])
+    const st = hostedStatus()
+    expect(st.items.map((i) => i.name)).toEqual(['clip2', 'clip3', 'clip4'])
+    expect(st.recently_deleted.map((d) => d.name)).toEqual(['clip1'])
+  })
+  it('torlesi hiba: a poszt kimegy, a hiba latszik, a kovetkezo feltoltesnel ujraprobalodik', async () => {
+    let fail = true
+    const h = stockHost({ failDelete: () => fail })
+    for (const n of [1, 2, 3]) await send(h, n)
+    const r4 = await send(h, 4)
+    expect(r4.ok).toBe(true)
+    if (r4.ok) { expect(r4.outcomes[0].status).toBe('draft'); expect(r4.pruned.failed[0]).toMatchObject({ clip: 'clip1', code: 'host_delete_failed' }) }
+    let st = hostedStatus()
+    expect(st.items.length).toBe(4)
+    expect(st.items[0]).toMatchObject({ name: 'clip1', delete_pending: true })
+    expect(st.items[0].delete_error).toContain('host_delete_failed')
+    fail = false
+    const r5 = await send(h, 5)
+    expect(r5.ok && r5.pruned.deleted.sort()).toEqual(['clip1', 'clip2'])
+    st = hostedStatus()
+    expect(st.items.map((i) => i.name)).toEqual(['clip3', 'clip4', 'clip5'])
+  })
+  it('ugyanaz a klip ujrafeltoltve nem szaporitja a sorokat', async () => {
+    const h = stockHost()
+    await send(h, 1)
+    await publishClip({ workItemId: 'w1', clipKey: 'w1/clip1', bytes: BYTES, text: 't', channels: [{ id: 'ig1', service: 'instagram' }], draft: true }, { host: { fetchImpl: h.fetchImpl, config: CFG }, buffer: { fetchImpl: bufferFake().fetchImpl, getKey: () => 'K' } })
+    expect(hostedStatus().items.length).toBe(1)
   })
 })

@@ -8162,6 +8162,9 @@
       if (!r.ok) { window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : '')); render(); return }
       var bad = (r.data.outcomes || []).filter(function (o) { return o.status === 'failed' })
       window.showToast(bad.length ? t('workbench.soc.partial', { n: bad.length, why: bad[0].detail || bad[0].code }) : t(draft ? 'workbench.soc.draft_ok' : 'workbench.soc.live_ok'))
+      var pr = r.data.pruned || {}
+      if (pr.deleted && pr.deleted.length) window.showToast(t('workbench.soc.deleted_now', { names: pr.deleted.join(', ') }))
+      if (pr.failed && pr.failed.length) window.showToast(t('workbench.soc.delete_failed', { why: pr.failed[0].detail || pr.failed[0].code }))
       socLoad()
     })
   }
@@ -8178,16 +8181,28 @@
     if (!info.buffer_key_set) notes += '<p class="wb-hint">' + esc(t('workbench.soc.no_key')) + '</p>'
     if (!info.host_configured) notes += '<p class="wb-hint">' + esc(t('workbench.soc.no_host')) + '</p>'
     if (!info.clip) notes += '<p class="wb-hint">' + esc(t('workbench.soc.no_clip')) + '</p>'
+    if (info.clip_too_big) notes += '<p class="wb-preview-bad">' + esc(t('workbench.soc.too_big', { max: info.clip_max_mb || 100 })) + '</p>'
     if (info.channels_error) notes += '<p class="wb-preview-bad">' + esc(info.channels_error.message || '') + '</p>'
     var chans = (info.channels || []).map(function (c) {
       return '<label class="wb-muted"><input type="checkbox" data-wb-soc-ch="' + escA(c.id) + '"' + (g.picked && g.picked[c.id] ? ' checked' : '') + '> ' + esc(c.service + ': ' + c.name) + '</label> '
     }).join('')
     if (!chans && info.buffer_key_set && !info.channels_error) notes += '<p class="wb-hint">' + esc(t('workbench.soc.no_channels')) + '</p>'
-    var off = (g.busy || archived() || info.sensitive || !info.clip || !info.buffer_key_set || !info.host_configured) ? ' disabled' : ''
+    var off = (g.busy || archived() || info.sensitive || !info.clip || info.clip_too_big || !info.buffer_key_set || !info.host_configured) ? ' disabled' : ''
     var posts = (info.posts || []).slice(0, 8).map(function (p) {
       return '<li class="wb-vt-row"><b>' + esc(t(p.draft ? 'workbench.soc.state_draft' : 'workbench.soc.state_live')) + '</b> ' + esc(p.service) + (p.due_at ? ' <span class="wb-muted">' + esc(p.due_at.slice(0, 16).replace('T', ' ')) + '</span>' : '') + '</li>'
     }).join('')
-    return head + notes
+    var hs = info.hosted
+    var hostedHtml = ''
+    if (hs) {
+      var hl = (hs.items || []).map(function (h) {
+        return '<li class="wb-vt-row">' + esc(h.name) + ' <span class="wb-muted">(' + Math.max(1, Math.round(h.bytes / 1048576)) + ' MB)</span>'
+          + (h.delete_pending ? ' <b class="wb-preview-bad">' + esc(t('workbench.soc.pending_delete')) + (h.delete_error ? ': ' + esc(h.delete_error) : '') + '</b>' : '') + '</li>'
+      }).join('')
+      hostedHtml = '<p class="wb-hint" data-wb-soc-hosted>' + esc(t('workbench.soc.hosted', { n: (hs.items || []).length, max: hs.max })) + '</p>'
+        + (hl ? '<ul class="wb-vt-list">' + hl + '</ul>' : '')
+        + ((hs.recently_deleted || []).length ? '<p class="wb-hint">' + esc(t('workbench.soc.recently_deleted', { names: hs.recently_deleted.map(function (d) { return d.name }).join(', ') })) + '</p>' : '')
+    }
+    return head + notes + hostedHtml
       + (chans ? '<p>' + chans + '</p>' : '')
       + '<p><textarea class="wb-input" id="wbSocText" rows="3" maxlength="2200" style="width:100%" placeholder="' + escA(t('workbench.soc.text')) + '">' + esc(g.text || '') + '</textarea></p>'
       + '<p><label class="wb-muted">' + esc(t('workbench.soc.due')) + ' <input type="datetime-local" id="wbSocDue" value="' + escA(g.due || '') + '"></label></p>'

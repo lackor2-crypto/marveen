@@ -115,7 +115,7 @@ import { parseVideoParams, previewVideoGen, retryVideoDownload, startVideoGenera
 import { listVideoGens } from '../../workbench-video-gen-store.js'
 import { listBufferChannels, BUFFER_VAULT_ID } from '../../workbench-social-buffer.js'
 import { hostConfigFromVault } from '../../workbench-social-host.js'
-import { clipKeyFor, listSocialPosts, publishClip, publishWithoutAsking, readClipFile } from '../../workbench-social-publish.js'
+import { CLIP_MAX_BYTES, clipKeyFor, hostedStatus, listSocialPosts, publishClip, publishWithoutAsking, readClipFile } from '../../workbench-social-publish.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
@@ -5696,6 +5696,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         channels: ch && ch.ok ? ch.channels.filter((c) => !c.isDisconnected && !c.isLocked) : [],
         channels_error: ch && !ch.ok ? { error: ch.code, message: msg(ch.code, lang), detail: ch.detail } : null,
         posts: listSocialPosts(item.id),
+        hosted: hostedStatus(),
+        clip_too_big: (() => { const r = readClipFile(owner?.folder_path, item.source_path); return !r.ok && r.code === 'publish_clip_too_big' })(),
+        clip_max_mb: Math.round(CLIP_MAX_BYTES / 1024 / 1024),
       })
       return true
     }
@@ -5720,7 +5723,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         title: typeof body['title'] === 'string' ? body['title'] : undefined, approved: body['confirm_live'] === true,
       })
       if (!r.ok) return failDetail(res, r.code === 'publish_needs_approval' ? 403 : r.code.startsWith('host_') || r.code.startsWith('buffer_') ? 502 : 400, r.code, lang, r.detail)
-      json(res, { ok: true, outcomes: r.outcomes, video_url: r.videoUrl, posts: listSocialPosts(item.id) }, 201)
+      json(res, { ok: true, outcomes: r.outcomes, video_url: r.videoUrl, pruned: r.pruned, hosted: hostedStatus(), posts: listSocialPosts(item.id) }, 201)
       return true
     }
   }

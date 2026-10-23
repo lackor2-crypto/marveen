@@ -15,7 +15,7 @@ import { resolveLifePath } from './life-explorer.js'
 import { getDb } from './db.js'
 import { loadAutonomyConfig } from './autonomy.js'
 import { createBufferPost, type BufferDeps } from './workbench-social-buffer.js'
-import { uploadPublicVideo, type HostDeps } from './workbench-social-host.js'
+import { uploadPublicVideo, deletePublicVideo, type HostDeps } from './workbench-social-host.js'
 
 export interface SocialChannel { id: string; service: string; name?: string }
 
@@ -38,6 +38,20 @@ export function ensureSocialTables(): void {
     )
   `)
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_wb_social_once ON wb_social_posts(clip_key, channel_id, draft)')
+  // A nyilvanos tarhelyen JELENLEVO videok (legfeljebb HOSTED_KEEP marad; a torlesre jeloltek `delete_pending`-gel varnak).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wb_social_hosted (
+      public_id TEXT PRIMARY KEY,
+      clip_key TEXT NOT NULL,
+      url TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      uploaded_at INTEGER NOT NULL,
+      delete_pending INTEGER NOT NULL DEFAULT 0,
+      delete_error TEXT,
+      delete_tries INTEGER NOT NULL DEFAULT 0,
+      deleted_at INTEGER
+    )
+  `)
   tablesDb = db
 }
 
@@ -65,9 +79,60 @@ export interface PublishInput {
 }
 
 export interface ChannelOutcome { channelId: string; service: string; status: 'posted' | 'draft' | 'already_posted' | 'failed'; postId?: string; code?: string; detail?: string }
+export interface PruneReport { deleted: string[]; failed: { clip: string; code: string; detail: string }[] }
 export type PublishResult =
   | { ok: false; code: string; detail: string }
-  | { ok: true; videoUrl: string | null; outcomes: ChannelOutcome[] }
+  | { ok: true; videoUrl: string | null; outcomes: ChannelOutcome[]; pruned: PruneReport }
+
+/** Ennyi video maradhat fent a nyilvanos tarhelyen (a 4.-nel a legregebbi torlodik). */
+export const HOSTED_KEEP = 3
+
+const clipLabel = (clipKey: string): string => clipKey.split('/').pop() || clipKey
+
+/**
+ * A tarhely rendbetetele: a megjelolt (torlesre var) videok torlesenek ujraprobalasa, es ha tobb mint `keep` van fent, a
+ * legregebbiek megjelolese + torlese. A torles hibaja SOSEM dob: a sor `delete_pending` marad a hibaval (a felulet mutatja),
+ * a kovetkezo feltoltesnel ujra megprobaljuk.
+ */
+export async function pruneHosted(host: HostDeps = {}, keep = HOSTED_KEEP): Promise<PruneReport> {
+  ensureSocialTables()
+  const db = getDb()
+  const report: PruneReport = { deleted: [], failed: [] }
+  const live = db.prepare('SELECT public_id FROM wb_social_hosted WHERE deleted_at IS NULL AND delete_pending = 0 ORDER BY uploaded_at ASC, rowid ASC').all() as { public_id: string }[]
+  for (const r of live.slice(0, Math.max(0, live.length - keep))) db.prepare('UPDATE wb_social_hosted SET delete_pending = 1 WHERE public_id = ?').run(r.public_id)
+  const pending = db.prepare('SELECT public_id, clip_key FROM wb_social_hosted WHERE deleted_at IS NULL AND delete_pending = 1 ORDER BY uploaded_at ASC, rowid ASC').all() as { public_id: string; clip_key: string }[]
+  for (const p of pending) {
+    let d: Awaited<ReturnType<typeof deletePublicVideo>>
+    try { d = await deletePublicVideo(p.public_id, host) } catch (e) { d = { ok: false, code: 'host_delete_failed', detail: e instanceof Error ? e.message.slice(0, 200) : 'error' } }
+    if (d.ok) {
+      db.prepare('UPDATE wb_social_hosted SET deleted_at = ?, delete_error = NULL, delete_pending = 0 WHERE public_id = ?').run(Math.floor(Date.now() / 1000), p.public_id)
+      report.deleted.push(clipLabel(p.clip_key))
+    } else {
+      db.prepare('UPDATE wb_social_hosted SET delete_error = ?, delete_tries = delete_tries + 1 WHERE public_id = ?').run(`${d.code}: ${d.detail}`.slice(0, 300), p.public_id)
+      report.failed.push({ clip: clipLabel(p.clip_key), code: d.code, detail: d.detail })
+    }
+  }
+  return report
+}
+
+export interface HostedStatus {
+  max: number
+  items: { name: string; bytes: number; uploaded_at: number; delete_pending: boolean; delete_error: string | null }[]
+  recently_deleted: { name: string; deleted_at: number }[]
+}
+
+/** Mennyi van fent a tarhelyen es mi torlodott legutobb (a panelhez). */
+export function hostedStatus(): HostedStatus {
+  ensureSocialTables()
+  const db = getDb()
+  const items = db.prepare('SELECT clip_key, bytes, uploaded_at, delete_pending, delete_error FROM wb_social_hosted WHERE deleted_at IS NULL ORDER BY uploaded_at ASC, rowid ASC').all() as { clip_key: string; bytes: number; uploaded_at: number; delete_pending: number; delete_error: string | null }[]
+  const gone = db.prepare('SELECT clip_key, deleted_at FROM wb_social_hosted WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, rowid DESC LIMIT 3').all() as { clip_key: string; deleted_at: number }[]
+  return {
+    max: HOSTED_KEEP,
+    items: items.map((r) => ({ name: clipLabel(r.clip_key), bytes: r.bytes, uploaded_at: r.uploaded_at, delete_pending: !!r.delete_pending, delete_error: r.delete_error })),
+    recently_deleted: gone.map((r) => ({ name: clipLabel(r.clip_key), deleted_at: r.deleted_at })),
+  }
+}
 
 export async function publishClip(input: PublishInput, deps: { buffer?: BufferDeps; host?: HostDeps; autonomy?: { categories: { key: string; level: number; locked: boolean }[] } } = {}): Promise<PublishResult> {
   ensureSocialTables()
@@ -80,10 +145,17 @@ export async function publishClip(input: PublishInput, deps: { buffer?: BufferDe
   for (const r of db.prepare('SELECT channel_id, buffer_post_id FROM wb_social_posts WHERE clip_key = ? AND draft = ?').all(input.clipKey, input.draft ? 1 : 0) as { channel_id: string; buffer_post_id: string | null }[]) done.set(r.channel_id, r.buffer_post_id)
   const todo = input.channels.filter((c) => !done.has(c.id))
   const outcomes: ChannelOutcome[] = input.channels.filter((c) => done.has(c.id)).map((c) => ({ channelId: c.id, service: c.service, status: 'already_posted', postId: done.get(c.id) ?? undefined }))
-  if (!todo.length) return { ok: true, videoUrl: null, outcomes }
+  if (!todo.length) return { ok: true, videoUrl: null, outcomes, pruned: { deleted: [], failed: [] } }
 
+  // A korabbi, elakadt torlesek ujraprobalasa (hibaja nem akasztja a posztolast).
+  const before = await pruneHosted(deps.host)
   const up = await uploadPublicVideo({ bytes: input.bytes, publicId: `marveen/${input.clipKey}` }, deps.host)
   if (!up.ok) return { ok: false, code: up.code, detail: up.detail }
+  db.prepare(`INSERT INTO wb_social_hosted (public_id, clip_key, url, bytes, uploaded_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(public_id) DO UPDATE SET url = excluded.url, bytes = excluded.bytes, uploaded_at = excluded.uploaded_at, delete_pending = 0, delete_error = NULL, deleted_at = NULL`)
+    .run(up.publicId, input.clipKey, up.url, up.bytes, Math.floor(Date.now() / 1000))
+  const after = await pruneHosted(deps.host)
+  const pruned: PruneReport = { deleted: [...before.deleted, ...after.deleted], failed: after.failed }
 
   for (const c of todo) {
     const r = await createBufferPost({ channelId: c.id, service: c.service, text: input.text, videoUrl: up.url, draft: input.draft, dueAt: input.dueAt, title: input.title }, deps.buffer)
@@ -92,7 +164,7 @@ export async function publishClip(input: PublishInput, deps: { buffer?: BufferDe
       .run(randomUUID(), input.workItemId, input.clipKey, c.id, c.service, r.postId, input.draft ? 1 : 0, input.dueAt ?? null, up.url, Math.floor(Date.now() / 1000))
     outcomes.push({ channelId: c.id, service: c.service, status: input.draft ? 'draft' : 'posted', postId: r.postId })
   }
-  return { ok: true, videoUrl: up.url, outcomes }
+  return { ok: true, videoUrl: up.url, outcomes, pruned }
 }
 
 
