@@ -10194,20 +10194,25 @@ body {
    Törlés ran over the title. A wrapping flex row fixes the class of bug: the title
    keeps whatever room is left (it can shrink to nothing), and when even the two
    action groups do not fit side by side, the translate group drops to its own row
-   instead of painting over the buttons. */
+   instead of painting over the buttons.
+   Follow-up (#740, measured in a browser): the left group used to be nowrap +
+   overflow-x:auto, so in a narrow reader pane (sidebar open, ~270px) Törlés sat
+   outside the visible box behind a hidden inner scroll -- unreachable rather than
+   overlapping. The group wraps too now: every button stays visible, on a second
+   line if it must. */
 .email-reader-sticky-header .email-list-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.email-reader-sticky-header .email-reader-actions-left { flex: 0 0 auto; max-width: 100%; overflow-x: auto; }
+.email-reader-sticky-header .email-reader-actions-left { flex: 0 0 auto; max-width: 100%; flex-wrap: wrap; }
 .email-reader-sticky-header .email-reader-actions { flex: 0 0 auto; margin-left: auto; }
 .email-reader-sticky-header .email-list-header-title { flex: 1 1 0; min-width: 0; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Phone / narrow pane: even with the title gone the two groups can exceed the
    width, and a squeezed grid would start wrapping again. Stack them instead --
-   actions on their own full-width row (scrolled sideways if truly cramped, so
+   actions on their own full-width row (wrapping if truly cramped, so
    Törlés is never clipped away), translate underneath. Boss uses the dashboard
    from his phone, so this row has to survive there too. */
 @media (max-width: 900px) {
   .email-reader-sticky-header .email-list-header { grid-template-columns: 1fr; }
   .email-reader-sticky-header .email-list-header-title { display: none; }
-  .email-reader-sticky-header .email-reader-actions-left { overflow-x: auto; justify-self: stretch; }
+  .email-reader-sticky-header .email-reader-actions-left { justify-self: stretch; }
   .email-reader-sticky-header .email-reader-actions { justify-self: start; margin-left: 0; }
 }
 .email-translate-group { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; white-space: nowrap; }
