@@ -67,6 +67,15 @@ beállítás kerül, aminek nincs varázsló-lépése. Kivétel csak az `EXEMPT`
 listában lehet, **írott indokkal**. A teendő bukáskor NEM a kivétel-lista
 bővítése, hanem a varázsló-lépés.
 
+A **Vault-ra** ugyanez áll (#766): `src/__tests__/external-deps-gate.test.ts`
+elbukik, ha a kód olyan Vault-azonosítót olvas (`getSecret('...')` vagy
+`*VAULT*` állandó), amit nem sorol fel egy `SetupItem.vaultIds`, és nincs
+indokolt bejegyzése a `governance/external-deps-exceptions.json`-ban. A
+`land-pr.sh` landolás előtt hangosan szól, a `scripts/external-deps-watch.sh`
+(ütemezett, csendes) a már élesedett kódot nézi, és magyar Telegram-üzenetet
+küld az újonnan megjelent hiányról. Teendő: varázsló-sor + önellenőrzés-sor,
+nem a kivétel-lista bővítése.
+
 ## Záró ellenőrzés
 
 ```bash

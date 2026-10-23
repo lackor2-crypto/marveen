@@ -152,6 +152,17 @@ if git diff --name-only "$MAIN_REF"...HEAD 2>/dev/null | grep -q '^web/'; then
   echo "land-pr: ======================================================================" >&2
 fi
 
+# #766: uj kulso fuggoseg (Vault-azonosito) a diffben -> kell hozza varazslo-sor (SetupItem.vaultIds) vagy indokolt kivetel.
+# A CI kapu (external-deps-gate.test.ts) ugyis megbukik; ez azert szol HANGOSAN, hogy ne a CI-n derulljon ki.
+if git diff -U0 "$MAIN_REF"...HEAD -- src 2>/dev/null | grep -E '^\+' | grep -vE '^\+\+\+' | grep -qE "getSecret\(['\"]|VAULT[A-Z0-9_]* *= *['\"]"; then
+  echo "land-pr: ======================================================================" >&2
+  echo "land-pr: KULSO FUGGOSEG: a diff uj Vault-azonositot hoz be. Kell hozza sor a" >&2
+  echo "land-pr: Beallitasok varazslojaba (setup-wizard-registry.ts, vaultIds) es az" >&2
+  echo "land-pr: Attekintes onellenorzesebe, vagy indokolt kivetel a" >&2
+  echo "land-pr: governance/external-deps-exceptions.json-ban. Enelkul a CI megbukik." >&2
+  echo "land-pr: ======================================================================" >&2
+fi
+
 # --- 0. gyors lokalis tipusellenorzes a push ELOTT -----------------------------
 # A pre-push kapu a feature-branch push-t atengedi (csak main/master push-nal fut),
 # ezert a gyors, determinisztikus tipushiba-szurest ITT vegezzuk el: egy elgepelt

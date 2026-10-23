@@ -103,6 +103,11 @@ export interface SetupItem {
    * the override store, and takes effect without a restart.
    */
   store?: 'override'
+  /**
+   * Vault entries (ids) this capability reads through getSecret(). The #766 gate fails CI when the
+   * code names a Vault id that no row lists here and that is not in governance/external-deps-exceptions.json.
+   */
+  vaultIds?: string[]
 }
 
 /**
