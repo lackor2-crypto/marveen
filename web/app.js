@@ -23736,7 +23736,7 @@ function _guideSteps() {
       // hozzafereseket nem ujitja meg, azok a sajat regi hataridejukkel elnek
       // tovabb. Aki ezt nem tudja, ket nap mulva megint itt all, es azt hiszi,
       // nem mukodott az elesites.
-      { html: t('guide.perm_5'), btn: { label: t('guide.quick_open_btn'), page: 'accounts' } },
+      { html: t('guide.perm_5'), btn: { label: t('guide.perm_quick_btn'), tab: 'quick' } },
     ]
   }
   // Ha tudjuk, MELYIK fiokrol van szo, akkor nem kuldjuk sehova: itt helyben
