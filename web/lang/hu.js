@@ -9044,6 +9044,7 @@ window._i18n.hu = {
   "workbench.lifemove.annex_help": "A gépről választott fájl először az Életfa megfelelő helyére költözik, és csak utána lesz belőle melléklet (linkként, így a hely későbbi átrendezése sem töri el). Soronként megmutatom, hová javaslom, te jóváhagyod vagy átállítod. A „Később” gombbal a fájl a Feltöltésekben marad, mellékletként nem csatolható, amíg át nem költözteted.",
   "workbench.annex.unplaced": "még nincs az Életfában",
   "workbench.lifemove.relinked": "{n} melléklet az Életfa új helyére mutat.",
+  "workbench.lifemove.no_link": "{n} fájlnál a régi helyén nem maradt link (a fájl az új helyén megvan).",
   "workbench.lifemove.linked_at": "🔗 az Életfában: {path}",
   "workbench.lifemove.no_target": "nincs célmappa, marad",
   "workbench.lifemove.choose": "Célmappa...",

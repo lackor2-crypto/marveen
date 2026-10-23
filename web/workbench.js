@@ -16003,11 +16003,14 @@
         var okN = res.filter(function (x) { return x.ok && !x.trashed }).length
         var trashN = res.filter(function (x) { return x.ok && x.trashed }).length
         var bad = res.filter(function (x) { return !x.ok })
+        // #749: the file moved but no linked file could be left at its old place
+        var nolink = res.filter(function (x) { return x.ok && !x.trashed && x.link_left === false })
         close()
         var afterMove = opts && opts.onMoved ? Promise.resolve(opts.onMoved(res)).catch(function () {}) : Promise.resolve()
         afterMove.then(function () { if (WB.selectedId === id) loadDetail(id) })
         window.showToast((okN || !trashN ? t('workbench.lifemove.done', { n: okN }) : '') + (trashN ? ' ' + t('workbench.lifemove.trashed', { n: trashN }) : '') + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : '')
-          + (r.data && r.data.relinked ? ' ' + t('workbench.lifemove.relinked', { n: r.data.relinked }) : ''))
+          + (r.data && r.data.relinked ? ' ' + t('workbench.lifemove.relinked', { n: r.data.relinked }) : '')
+          + (nolink.length ? ' ' + t('workbench.lifemove.no_link', { n: nolink.length }) : ''))
         if (WB.selectedId === id) loadDetail(id); else render()
       })
     })

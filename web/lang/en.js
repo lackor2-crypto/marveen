@@ -8970,6 +8970,7 @@ window._i18n.en = {
   "workbench.lifemove.annex_help": "A file picked from the computer first moves to its place in the Life tree, and only then becomes an annex (as a link, so tidying that place later does not break it). For each file I show where I suggest it goes, you approve or change it. With \"Later\" the file stays in Uploads and cannot be attached as an annex until you move it.",
   "workbench.annex.unplaced": "not in the Life tree yet",
   "workbench.lifemove.relinked": "{n} attachment(s) now point to the new place in the Life tree.",
+  "workbench.lifemove.no_link": "For {n} file(s) no link could be left at the old place (the file is at its new place).",
   "workbench.lifemove.linked_at": "🔗 in the Life tree: {path}",
   "workbench.lifemove.no_target": "no target folder, stays",
   "workbench.lifemove.choose": "Target folder...",
