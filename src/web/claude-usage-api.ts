@@ -169,8 +169,12 @@ const FORCE_MIN_AGE_MS = 3_000
 
 interface CacheEntry { at: number; result: LiveUsageResult }
 const cache = new Map<string, CacheEntry>()
-/** Ennyi idos meresig a rendes betoltes a regit adja es a hatterben frissit. */
-const STALE_OK_MS = 5 * 60_000
+/**
+ * Ennyi idos meresig a rendes betoltes a regit adja es a hatterben frissit.
+ * #710: korabban 5 perc volt -- a percenkenti lekerdezes igy mindig az ELOZO
+ * kor szamat kapta (86% a valos 99% helyett). Egy percnel regebbit megvarunk.
+ */
+const STALE_OK_MS = 45_000
 const inFlight = new Set<string>()
 
 export function clearLiveUsageCacheForTest(): void { cache.clear(); inFlight.clear() }

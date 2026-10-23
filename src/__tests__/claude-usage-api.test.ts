@@ -143,6 +143,20 @@ describe('a gyorsitotar', () => {
     expect(f.mock.calls.length).toBe(before + 1)
   })
 
+  it('#710: a percenkenti lekerdezes mindig friss szamot kap, nem az elozo kor cache-et', async () => {
+    // A 3 perces bongeszo-ujratoltes + az 5 percig tarto "regi megy ki, friss a
+    // hatterben" egyutt azt adta, hogy a kijelzett % egy teljes lekerdezesi
+    // korrel lemaradt (86% a valos 99% helyett). Egy percnyi kor mar nem
+    // "atmeneti": azt meg kell varni.
+    let n = 0
+    const f = vi.fn(async () => new Response(JSON.stringify({ five_hour: { utilization: ++n * 10, resets_at: null } }), { status: 200 }))
+    globalThis.fetch = f as unknown as typeof fetch
+    await liveUsageForAccount('m', 'sk-x', { now: 1_000 })
+    const next = await liveUsageForAccount('m', 'sk-x', { now: 61_000 })   // egy perc mulva
+    expect(f).toHaveBeenCalledTimes(2)
+    expect(next).toMatchObject({ ok: true, usage: { fiveHour: { usedPct: 20 } } })
+  })
+
   it('a fiokok nem latjak egymas valaszat', async () => {
     const f = json(200, { five_hour: { utilization: 10, resets_at: null } })
     globalThis.fetch = f as unknown as typeof fetch
