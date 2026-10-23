@@ -225,6 +225,17 @@ describe('a teljes folyamat', () => {
     expect(s.posts).toBe(0)
   })
 
+  it('a panel elso megnyitasa (meg nincs kivalasztott ertek): a modell sajat listajabol kitolt, nem hibaval ter vissza', async () => {
+    const { f } = fakeOpenRouter()
+    const strict = await previewVideoGen({ duration: 0, resolution: '', aspect_ratio: '9:16', audio: true }, { fetchImpl: f })
+    expect(strict.ok).toBe(false) // inditasnal tovabbra sincs kitoltes
+    const filled = await previewVideoGen({ duration: 0, resolution: '', aspect_ratio: '9:16', audio: true }, { fetchImpl: f }, { fillDefaults: true })
+    expect(filled.ok).toBe(true)
+    if (!filled.ok) return
+    expect(filled.params).toEqual({ duration: 8, resolution: '720p', aspect_ratio: '9:16', audio: true })
+    expect(filled.estimate_usd).toBeCloseTo(0.4, 4)
+  })
+
   it('az elo modelllista: valaszthato ertekek + becsles', async () => {
     const { f } = fakeOpenRouter()
     const pre = await previewVideoGen(P, { fetchImpl: f })

@@ -20715,6 +20715,8 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
     if (e.target.id === 'wbNewFolder') { notePick(e.target.value); return }
+    // AI video panel: a changed length / resolution / ratio / sound re-asks the server, so the price line is never stale.
+    if (/^wbVgen(Dur|Res|Asp|Audio)$/.test(String(e.target.id || '')) && WB.vgen && WB.vgen.open) { vgenRead(); vgenLoad(); return }
     var trk = e.target.getAttribute && e.target.getAttribute('data-wb-tr')
     if (trk) { trSetLang(trk, e.target.value); return }
     // The list, colour and checkbox fields of the Brand Kit form (see brandSyncDraft).

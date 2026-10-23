@@ -5668,7 +5668,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const pre = await previewVideoGen(parseVideoParams({
         duration: url.searchParams.get('duration'), resolution: url.searchParams.get('resolution'),
         aspect_ratio: url.searchParams.get('aspect_ratio') || '9:16', audio: url.searchParams.get('audio') !== '0',
-      }))
+      }), {}, { fillDefaults: true })
       json(res, {
         key_set: videoKeyPresent(), sensitive: privacyState(item.project_id, item.id).sensitive,
         budget_usd: videoMonthlyBudgetUsd(), jobs: listVideoGens(item.id),
