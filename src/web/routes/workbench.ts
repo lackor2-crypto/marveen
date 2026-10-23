@@ -113,6 +113,9 @@ import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProje
 import { cutoutStore, highlightStore, getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
 import { parseVideoParams, previewVideoGen, retryVideoDownload, startVideoGeneration, videoKeyPresent, videoMonthlyBudgetUsd } from '../../workbench-video-gen-jobs.js'
 import { listVideoGens } from '../../workbench-video-gen-store.js'
+import { listBufferChannels, BUFFER_VAULT_ID } from '../../workbench-social-buffer.js'
+import { hostConfigFromVault } from '../../workbench-social-host.js'
+import { clipKeyFor, listSocialPosts, publishClip, publishWithoutAsking, readClipFile } from '../../workbench-social-publish.js'
 import { deckStore, applyDeckOps, deckSummary, type DeckDoc, DECK_MAX_SLIDES, DECK_NOTES_MAX, DECK_SIZES, DECK_LAYOUTS } from '../../workbench-deck.js'
 import { importPptx } from '../../workbench-deck-import.js'
 import { exportDeck, DECK_EXPORT_FORMATS, type DeckExportFormat } from '../../workbench-deck-export.js'
@@ -1534,6 +1537,25 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   video_not_retryable: { hu: 'Ezt a feladatot nem lehet újra letölteni.', en: 'This job cannot be downloaded again.' },
   video_status_failed: { hu: 'Az OpenRouter állapot-lekérdezése nem sikerült.', en: 'The OpenRouter status check failed.' },
   video_status_unreachable: { hu: 'Az OpenRouter állapot-lekérdezése megszakadt.', en: 'The OpenRouter status check was interrupted.' },
+  publish_needs_approval: { hu: 'A valódi közzétételhez a te jóváhagyásod kell: nyomd meg a „Közzététel” gombot és hagyd jóvá, vagy állítsd a publish_content kategóriát 3-asra a Beállítások, Autonómia lapon.', en: 'Live posting needs your approval: press "Publish" and confirm, or set publish_content to level 3 in Settings, Autonomy.' },
+  publish_no_channel: { hu: 'Válassz legalább egy csatornát.', en: 'Pick at least one channel.' },
+  publish_no_text: { hu: 'Írd meg a poszt szövegét.', en: 'Write the post text.' },
+  publish_no_clip: { hu: 'Ennek a munkadarabnak még nincs videófájlja, amit ki lehetne tenni.', en: 'This work item has no video file yet to post.' },
+  publish_clip_outside: { hu: 'A videónak a projekt mappáján belül kell lennie.', en: 'The video must be inside the project folder.' },
+  publish_clip_not_video: { hu: 'Csak .mp4, .mov vagy .m4v videó tehető ki.', en: 'Only .mp4, .mov or .m4v can be posted.' },
+  publish_clip_too_big: { hu: 'A videó túl nagy a tárhely ingyenes szintjéhez (legfeljebb 100 MB).', en: 'The video is too large for the free storage tier (100 MB at most).' },
+  host_not_configured: { hu: 'Nincs beállítva a nyilvános tárhely (Vault: cloudinary-url). Addig csak a csatornák látszanak, posztolni nem lehet.', en: 'The public storage is not set up (Vault: cloudinary-url). Until then channels show but posting is not possible.' },
+  host_key_rejected: { hu: 'A tárhely elutasította a hozzáférést. Nézd meg a Vault cloudinary-url bejegyzését.', en: 'The storage rejected the access. Check the cloudinary-url entry in the Vault.' },
+  host_upload_failed: { hu: 'A videó feltöltése a tárhelyre nem sikerült. A részletekben a tárhely üzenete.', en: 'Uploading the video to the storage failed. The storage\'s own message is in the details.' },
+  host_unreachable: { hu: 'A tárhely nem érhető el (hálózati hiba vagy időtúllépés). Posztot nem készítettem.', en: 'The storage cannot be reached (network error or timeout). No post was made.' },
+  host_bad_answer: { hu: 'A tárhely váratlan választ adott. Posztot nem készítettem.', en: 'The storage gave an unexpected answer. No post was made.' },
+  host_empty_file: { hu: 'A videófájl üres.', en: 'The video file is empty.' },
+  buffer_no_key: { hu: 'Nincs Buffer API-kulcs a Vaultban (buffer-api-key).', en: 'There is no Buffer API key in the Vault (buffer-api-key).' },
+  buffer_key_rejected: { hu: 'A Buffer elutasította a kulcsot. Készíts újat a Bufferben, és told a Vaultba.', en: 'Buffer rejected the key. Make a new one in Buffer and put it in the Vault.' },
+  buffer_unreachable: { hu: 'A Buffer nem érhető el. Próbáld később.', en: 'Buffer cannot be reached. Try later.' },
+  buffer_post_rejected: { hu: 'A Buffer nem fogadta el a posztot. A részletekben az ő üzenete.', en: 'Buffer did not accept the post. Its own message is in the details.' },
+  buffer_bad_video_url: { hu: 'A Buffer csak nyilvános https videó-linket fogad.', en: 'Buffer only takes a public https video link.' },
+  buffer_bad_due_at: { hu: 'Az időpont nem érvényes.', en: 'The date and time are not valid.' },
   ai_edit_done: {
     hu: 'Kész: az AI-val szerkesztett kép új fájlként mentve ({name}), a régi megmaradt. Tényleges költség: {cost}. A Visszavonás (Ctrl+Z) visszateszi a régit.',
     en: 'Done: the AI-edited picture was saved as a new file ({name}); the old one is kept. Actual cost: {cost}. Undo (Ctrl+Z) puts the old one back.',
@@ -5654,6 +5676,53 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       message: msg('canvas_variant_made', lang).replace('{name}', pf.label[lang]),
     }, 201)
     return true
+  }
+
+  // KOZOSSEGI KOZZETETEL (8/d): a munkadarab videojanak kitetele a Bufferen at, tobb csatornara.
+  //   GET  .../social  -- csatornak, beallitasok, korabbi posztok
+  //   POST .../social {text, channel_ids, draft, due_at, confirm_live, rel}  -- vazlat (jovahagyas nelkul) vagy valodi kozzetetel
+  // A valodi kozzetetel `confirm_live: true`-val a tulajdonos kifejezett kattintasa (= jovahagyas); enelkul csak akkor megy,
+  // ha a publish_content kategoria 3-as szinten van.
+  if (segs[1] === 'social') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (segs.length === 2 && method === 'GET') {
+      const keySet = !!getSecret(BUFFER_VAULT_ID)
+      const ch = keySet ? await listBufferChannels() : null
+      json(res, {
+        buffer_key_set: keySet, host_configured: !!hostConfigFromVault(), auto_publish: publishWithoutAsking(),
+        sensitive: privacyState(item.project_id, item.id).sensitive,
+        clip: item.source_path && /\.(mp4|mov|m4v)$/i.test(item.source_path) ? item.source_path : null,
+        channels: ch && ch.ok ? ch.channels.filter((c) => !c.isDisconnected && !c.isLocked) : [],
+        channels_error: ch && !ch.ok ? { error: ch.code, message: msg(ch.code, lang), detail: ch.detail } : null,
+        posts: listSocialPosts(item.id),
+      })
+      return true
+    }
+    if (segs.length === 2 && method === 'POST') {
+      if (privacyState(item.project_id, item.id).sensitive) return fail(res, 403, 'video_sensitive', lang)
+      if (!owner) return fail(res, 404, 'project_not_found', lang)
+      const body = (await readJson(req)) || {}
+      const text = String(body['text'] ?? '').trim().slice(0, 2200)
+      if (!text) return fail(res, 400, 'publish_no_text', lang)
+      const wanted = Array.isArray(body['channel_ids']) ? (body['channel_ids'] as unknown[]).map(String) : []
+      if (!wanted.length) return fail(res, 400, 'publish_no_channel', lang)
+      const clip = readClipFile(owner.folder_path, typeof body['rel'] === 'string' && body['rel'] ? body['rel'] : item.source_path)
+      if (!clip.ok) return failDetail(res, 409, clip.code, lang, clip.detail)
+      const list = await listBufferChannels()
+      if (!list.ok) return failDetail(res, 502, list.code, lang, list.detail)
+      const channels = list.channels.filter((c) => wanted.includes(c.id) && !c.isDisconnected && !c.isLocked).map((c) => ({ id: c.id, service: c.service, name: c.name }))
+      if (!channels.length) return fail(res, 400, 'publish_no_channel', lang)
+      const draft = body['draft'] !== false
+      const dueAt = typeof body['due_at'] === 'string' && body['due_at'] ? body['due_at'] : undefined
+      const r = await publishClip({
+        workItemId: item.id, clipKey: clipKeyFor(item.id, clip.rel), bytes: clip.bytes, text, channels, draft, dueAt,
+        title: typeof body['title'] === 'string' ? body['title'] : undefined, approved: body['confirm_live'] === true,
+      })
+      if (!r.ok) return failDetail(res, r.code === 'publish_needs_approval' ? 403 : r.code.startsWith('host_') || r.code.startsWith('buffer_') ? 502 : 400, r.code, lang, r.detail)
+      json(res, { ok: true, outcomes: r.outcomes, video_url: r.videoUrl, posts: listSocialPosts(item.id) }, 201)
+      return true
+    }
   }
 
   // AI-VIDEOGENERALAS (munkadarab "Video fejlesztes"): OpenRouteren at, tartos feladatkent.
