@@ -142,6 +142,29 @@ describe('#737 ujra-veglegesites', () => {
     expect(readdirSync(join(depot, 'Projektek', 'Iroda'), { withFileTypes: true }).filter((e) => e.isDirectory())).toEqual([])
   })
 
+  it('Boss\'s real shape: accented project path, listed folder with no Finished materials yet; finalize, reopen, finalize again, and again after the PDF was deleted', async () => {
+    const project = join(depot, 'Család', 'Korpás László', 'Projektek', 'Német hivatalok dolgai')
+    const listed = 'Munkadarabok/Szochivatal Bakos Eva/Szocialis hivatalnak email AOK elutasitas ugyben'
+    mkdirSync(join(project, listed), { recursive: true })
+    const row = getDb().prepare('SELECT project_id FROM work_items WHERE id = ?').get(itemId) as { project_id: string }
+    updateProject(row.project_id, { folder_path: 'Család/Korpás László/Projektek/Német hivatalok dolgai' })
+    makePlainWithoutFile(listed)
+    const base = `/api/workbench/items/${itemId}/outline`
+    const f1 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
+    expect(f1.status, JSON.stringify(f1.body)).toBe(200)
+    expect(existsSync(join(depot, f1.body.file))).toBe(true)
+    expect((await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })).status).toBe(200)
+    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
+    expect(f2.status, JSON.stringify(f2.body)).toBe(200)
+    expect(f2.body.reused).toBe(true)
+    // the earlier PDF was deleted by hand: the unchanged document is made again, not an error
+    rmSync(join(depot, f1.body.file))
+    expect((await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })).status).toBe(200)
+    const f3 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
+    expect(f3.status, JSON.stringify(f3.body)).toBe(200)
+    expect(existsSync(join(depot, f3.body.file))).toBe(true)
+  })
+
   it('when the folder is really gone the answer says so in a sentence and carries the exact error', async () => {
     makePlainWithoutFile('Munkadarabok/Nincs')
     const base = `/api/workbench/items/${itemId}/outline`
