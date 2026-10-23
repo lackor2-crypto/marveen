@@ -10738,6 +10738,9 @@
         return
       }
       if (WB.selectedId === id && WB.detail) { WB.detail.outline = r.data.outline; render() }
+      // #716: the tree's "Mellekletek (n)" follows an annex change at once (it used to wait for the 20 s poll, so the
+      // tree and the list under the page showed two different counts).
+      if (sub.indexOf('/annexes') === 0) refreshTree()
     })
   }
 
