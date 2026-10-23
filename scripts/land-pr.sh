@@ -140,6 +140,18 @@ fi
 
 echo "land-pr: branch='$BRANCH'  cim='$TITLE'  (HEAD $AHEAD commit-tal elorebb az origin/main-nal)" >&2
 
+# #763: a felulet (web/) erintese eseten a landolas NEM "kesz": a kartya csak bongeszos vegigkattintas nyoma mellett mehet
+# waiting-be (a szerver 409-cel vissza is utasitja). Hangos figyelmeztetes, hogy a landolas ne zarja le a munkat.
+if git diff --name-only "$MAIN_REF"...HEAD 2>/dev/null | grep -q '^web/'; then
+  echo "land-pr: ======================================================================" >&2
+  echo "land-pr: FELULET: ez a landolas a web/ mappat erinti. Bongeszos vegigkattintas" >&2
+  echo "land-pr: nelkul NINCS KESZ: kulon, ures web-only peldanyon, valodi bongeszoben" >&2
+  echo "land-pr: (Playwright) kattints vegig, es irj kommentet a kartyara ('vegigkattintas':" >&2
+  echo "land-pr: mit kattintottal, mit mertel, mit NEM probaltal). Enelkul a szerver nem" >&2
+  echo "land-pr: engedi a kartyat a varakozoba." >&2
+  echo "land-pr: ======================================================================" >&2
+fi
+
 # --- 0. gyors lokalis tipusellenorzes a push ELOTT -----------------------------
 # A pre-push kapu a feature-branch push-t atengedi (csak main/master push-nal fut),
 # ezert a gyors, determinisztikus tipushiba-szurest ITT vegezzuk el: egy elgepelt
