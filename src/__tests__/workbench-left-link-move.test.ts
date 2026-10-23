@@ -11,10 +11,10 @@ vi.mock('../config.js', async () => {
   return { ...actual, STORE_DIR: store }
 })
 
-const { initDatabase } = await import('../db.js')
+const { initDatabase, getDb } = await import('../db.js')
 const { createProject, updateProject, getProject } = await import('../projects.js')
 const { createWorkItem, getWorkItem } = await import('../workbench.js')
-const { ensureWorkItemFolder, moveLooseFiles, renameLooseFile } = await import('../workbench-assets.js')
+const { ensureWorkItemFolder, moveLooseFiles, renameLooseFile, tidyWorkItemIntoFolder } = await import('../workbench-assets.js')
 const { lifeMoveCandidates, moveItemFilesToLife } = await import('../workbench-life-move.js')
 const { markSentManually } = await import('../workbench-docsent.js')
 const { resolveMount, isFileMount } = await import('../life-mounts.js')
@@ -95,5 +95,50 @@ describe('#745: moving or renaming the left-behind link never carries off the Li
     expect(existsSync(join(depot, 'Projektek', 'Iroda', 'masik.pdf'))).toBe(false)
     expect(statSync(lifeFile()).isFile()).toBe(true)
     expect(resolveMount('Projektek/Iroda/masik.pdf')?.target).toBe('Cel/antrag.pdf')
+  })
+
+  it('a work item that names the link follows it to the new place on a rename and on a move', () => {
+    const { project, link } = leaveLink()
+    const other = createWorkItem({ project_id: project.id, title: 'Masik', type: 'note' })
+    if (!other.ok) throw new Error('item')
+    const db = getDb()
+    db.prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(link, other.item.id)
+    const to = link.slice(0, link.lastIndexOf('/') + 1) + 'kuldott.pdf'
+    expect(renameLooseFile(project, link, 'kuldott.pdf')).toEqual({ ok: true, name: 'kuldott.pdf', renamed: true })
+    expect((db.prepare('SELECT source_path FROM work_items WHERE id = ?').get(other.item.id) as any).source_path).toBe(to)
+    expect(existsSync(lifeFile())).toBe(true)
+    const r = moveLooseFiles(project, [to], '', { allowItem: true })
+    if (!r.ok) throw new Error(r.code)
+    expect(r.moved).toEqual(['kuldott.pdf'])
+    const box = link.slice(0, link.indexOf('/Munkadarabok') + '/Munkadarabok'.length)
+    expect((db.prepare('SELECT source_path FROM work_items WHERE id = ?').get(other.item.id) as any).source_path).toBe(`${box}/kuldott.pdf`)
+    expect(resolveMount(`${box}/kuldott.pdf`)?.target).toBe('Cel/antrag.pdf')
+    expect(existsSync(lifeFile())).toBe(true)
+  })
+
+  it('a taken name (a real file or another link) is never overwritten by a link rename', () => {
+    const { project, link } = leaveLink()
+    const dir = link.slice(0, link.lastIndexOf('/'))
+    writeFileSync(join(depot, ...dir.split('/'), 'foglalt.pdf'), 'x')
+    expect(renameLooseFile(project, link, 'foglalt.pdf')).toMatchObject({ ok: false, code: 'file_name_taken' })
+    expect(isFileMount(link)).toBe(true)
+  })
+
+  it('tidying an item whose source file is a left-behind link moves the link and does not carry the Life-tree file off', () => {
+    const { project, link } = leaveLink()
+    const other = createWorkItem({ project_id: project.id, title: 'Masik', type: 'note' })
+    if (!other.ok) throw new Error('item')
+    getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(link, other.item.id)
+    const r = tidyWorkItemIntoFolder(getWorkItem(other.item.id) as any)
+    if (!r.ok) throw new Error(r.code)
+    expect(existsSync(lifeFile())).toBe(true)
+    expect(r.moved).toHaveLength(1)
+    // the link moved into the item's folder, the item follows it, the Life-tree file stayed
+    expect(isFileMount(link)).toBe(false)
+    const now = (getDb().prepare('SELECT source_path FROM work_items WHERE id = ?').get(other.item.id) as any).source_path as string
+    expect(now).not.toBe(link)
+    expect(isFileMount(now)).toBe(true)
+    expect(resolveMount(now)?.target).toBe('Cel/antrag.pdf')
+    expect(existsSync(join(depot, ...now.split('/')))).toBe(false)
   })
 })
