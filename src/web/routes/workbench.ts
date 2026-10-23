@@ -35,6 +35,7 @@
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
 import { kickItemContextSweep, markPlainItem } from '../../workbench-item-context.js'
+import { renameItemTogether, renameFolderTogether } from '../../workbench-rename-together.js'
 import { lifeMovePlan, moveItemFilesToLife, movedPairs, siblingsOf, suggestForPlan } from '../../workbench-life-move.js'
 import { detectSentByMail } from '../../workbench-sent-detect.js'
 import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
@@ -3487,7 +3488,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(String(body.project_id ?? '').trim())
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = renameWorkFolder(project, body.folder, body.name)
+    const r = renameFolderTogether(project, body.folder, body.name)
     if (!r.ok) {
       const code = r.code === 'folder_name' ? 'bad_folder_name' : r.code === 'folder_is_box' ? 'folder_box_rename' : r.code === 'no_box' ? 'folder_gone' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'folder_exists' || r.code === 'folder_has_canvas' ? 409 : 400, code, lang, r.message || null)
@@ -4836,13 +4837,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     json(res, { ok: true, assets: assetsOut(item.id) })
     return true
   }
-  // ATNEVEZES (#441, #478): a munkadarab uj neve -- a mappaja NEM nevezodik at (a nevek fuggetlenek).
+  // ATNEVEZES (#441, #478, #709): a munkadarab uj neve; ha a mappa ELSO munkadarabja, a mappa es a fajlok is kovetik.
   if (segs.length === 2 && segs[1] === 'rename' && method === 'POST') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
-    const r = renameWorkItem(item, body['title'])
+    const r = renameItemTogether(item, body['title'])
     if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: assetsOut(item.id) })
     return true

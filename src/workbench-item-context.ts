@@ -72,7 +72,7 @@ export function nameWithItemStem(title: unknown, fileName: string): string {
   return fileName.toLowerCase().startsWith(stem) ? fileName : `${stem} ${fileName}`
 }
 
-const JSON_FILE = /\.(?:canvas|deck)(?: \(\d+\))?\.json$/i
+const JSON_FILE = /\.(?:canvas|deck|timeline)(?: \(\d+\))?\.json$/i
 
 /**
  * The work item whose context file serves `item`: the item itself, or -- for a language version -- its original.
@@ -96,6 +96,17 @@ const readRow = (itemId: string): CtxRow | undefined =>
   getDb().prepare('SELECT item_id, rel, stem FROM work_item_context WHERE item_id = ?').get(itemId) as CtxRow | undefined
 const saveRow = (itemId: string, rel: string, stem: string): void => {
   getDb().prepare('INSERT INTO work_item_context (item_id, rel, stem) VALUES (?, ?, ?) ON CONFLICT(item_id) DO UPDATE SET rel = excluded.rel, stem = excluded.stem').run(itemId, rel, stem)
+}
+
+/**
+ * #709: remember the name stem an item has NOW, before a rename. An item that never went through a context pass has no
+ * stem on record, and without it the rename cannot tell `uj-video.timeline.json` (the old name) from a free word.
+ */
+export function rememberItemStem(item: WorkItemRow): void {
+  ensureTable()
+  const row = readRow(item.id)
+  if (row && row.stem) return
+  saveRow(item.id, row ? row.rel : '', itemStem(item.title))
 }
 
 function template(title: string): string {
@@ -258,7 +269,8 @@ function followItemJsonNames(item: WorkItemRow, oldStem: string): number {
     const lower = base.toLowerCase()
     if (lower.startsWith(stem)) continue
     const rest = oldStem && oldStem !== stem && lower.startsWith(oldStem) ? base.slice(oldStem.length).replace(/^[\s_-]+/, '') : base
-    const wanted = `${stem} ${rest}`
+    // `uj-video.timeline.json` -> `<new>.timeline.json` (no space before the dot); `x rajz.canvas.json` keeps its word.
+    const wanted = rest.startsWith('.') ? `${stem}${rest}` : `${stem} ${rest}`
     const folder = dirname(rel)
     const oldAbs = resolveLifePath(rel)
     if (!oldAbs || !existsSync(oldAbs) || writeBlockReason(`${folder}/${wanted}`)) continue

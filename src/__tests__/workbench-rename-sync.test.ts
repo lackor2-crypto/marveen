@@ -47,19 +47,20 @@ const slideSrcs = async (id: string): Promise<string[]> => {
   return (deck.body.deck.slides as { canvas: { objects: { src: string }[] } }[]).map((sl) => sl.canvas.objects[0]!.src)
 }
 
-describe('work item name and folder name are independent (#478)', () => {
-  it('item rename touches only the item: the folder and the pictures stay', async () => {
+describe('the first work item and its folder share one name (#709, was #478)', () => {
+  it('renaming the first item renames its folder too, and the pictures follow', async () => {
     const d = await deckFromFolder('diak')
     const before = await slideSrcs(d.id)
     const r = await callWorkbench('/api/workbench/items/' + d.id + '/rename', 'POST', { title: 'ggg' })
     expect(r.status).toBe(200)
     expect(r.body.item.title).toBe('ggg')
-    expect(r.body.folder_rename).toMatchObject({ renamed: false, reason: 'independent' })
-    expect(onDisk(d.folder)).toBe(true)
-    expect(await slideSrcs(d.id)).toEqual(before)
+    expect(r.body.folder_rename).toMatchObject({ renamed: true })
+    expect(onDisk(d.folder)).toBe(false)
+    expect(before.every((x) => !x.includes('/ggg/'))).toBe(true)
+    expect((await slideSrcs(d.id)).every((x) => x.includes('/ggg/'))).toBe(true)
   })
 
-  it('a taken name is no problem for the item: the item name is its own, nothing is refused or suffixed', async () => {
+  it('a taken folder name is no problem for the item: the title changes, the folder keeps its name, nothing is suffixed', async () => {
     const d = await deckFromFolder('diak')
     const other = makeWorkFolder(getProject(pid)!, '', 'ggg')
     if (!other.ok) throw new Error('mk')
@@ -69,7 +70,7 @@ describe('work item name and folder name are independent (#478)', () => {
     expect(onDisk(other.folder)).toBe(true)
   })
 
-  it('folder rename touches only the folder: the item keeps its name, its pictures and its saved paths follow', async () => {
+  it('folder rename gives the first item the folder name; its pictures and saved paths follow', async () => {
     const d = await deckFromFolder('diak')
     const r = await callWorkbench('/api/workbench/folders/rename', 'POST', { project_id: pid, folder: d.folder, name: 'ggg' })
     expect(r.status).toBe(200)
@@ -77,7 +78,7 @@ describe('work item name and folder name are independent (#478)', () => {
     expect(onDisk(String(r.body.folder))).toBe(true)
     expect(onDisk(d.folder)).toBe(false)
     const item = (r.body.items as { id: string; title: string; folder: string | null }[]).find((x) => x.id === d.id)!
-    expect(item.title).toBe('diak')
+    expect(item.title).toBe('ggg')
     expect(item.folder).toBe(r.body.folder)
     expect((await slideSrcs(d.id)).every((x) => x.includes('/ggg/'))).toBe(true)
   })

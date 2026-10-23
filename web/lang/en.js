@@ -8222,7 +8222,7 @@ window._i18n.en = {
   "workbench.rename.button": "rename",
   "workbench.rename.prompt": "New name of the work item:",
   "workbench.rename.row_hint": "Rename the work item",
-  "workbench.rename.row_label": "Edit",
+  "workbench.rename.row_label": "Rename",
   "workbench.rename.done": "Renamed.",
   "workbench.shared.open": "Shared materials (logo, brand elements)",
   "workbench.shared.title": "Shared materials",

@@ -466,7 +466,7 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       expect(readFileSync(join(projDir(), 'Munkadarabok', 'Regi nev', 'Feltöltések', 'a.md'), 'utf-8')).toBe('A')
     })
 
-    it('#478 (fuggetlen nevek): a felulet atnevezes-vegpontja csak a munkadarabot nevezi at, a mappat nem; ures nev elutasitva', async () => {
+    it('#709: a felulet atnevezes-vegpontja a mappa ELSO munkadarabjat a mappaval egyutt nevezi at; ures nev elutasitva', async () => {
       const item = newItem('Regi')
       attachAsset(item, 'a.md', Buffer.from('A'))
       const bad = await callWorkbench(`/api/workbench/items/${item.id}/rename`, 'POST', { title: '  ' })
@@ -474,10 +474,10 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
       const r = await callWorkbench(`/api/workbench/items/${item.id}/rename`, 'POST', { title: 'Friss' })
       expect(r.status).toBe(200)
       expect(r.body.item.title).toBe('Friss')
-      expect(r.body.folder_rename).toEqual({ ok: true, renamed: false, reason: 'independent' })
-      // A fajl a regi mappaban marad (a nevek fuggetlenek).
-      expect(existsSync(join(projDir(), 'Munkadarabok', 'Regi', 'Feltöltések', 'a.md'))).toBe(true)
-      expect(existsSync(join(projDir(), 'Munkadarabok', 'Friss'))).toBe(false)
+      expect(r.body.folder_rename).toMatchObject({ ok: true, renamed: true })
+      // A fajl az uj nevu mappaba kerult (a mappa a gazda munkadarabbal egyutt nevezodik at).
+      expect(existsSync(join(projDir(), 'Munkadarabok', 'Friss', 'Feltöltések', 'a.md'))).toBe(true)
+      expect(existsSync(join(projDir(), 'Munkadarabok', 'Regi'))).toBe(false)
     })
 
     it('K-0.11: foglalt uj nev -> `nev (2)`; masik munkadarab altal hivatkozott vagy rajzot tarto mappa marad (megmondja, miert)', () => {
