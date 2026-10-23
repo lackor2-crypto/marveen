@@ -9254,4 +9254,10 @@ window._i18n.en = {
   "workbench.wm.accepted": "Accepted; the rule was added to the end of the sheet.",
   "workbench.wm.rejected": "Rejected; the sheet did not change.",
   "workbench.wm.unsaved_confirm": "You have unsaved changes in the text; they will be lost. Continue?",
+  "workbench.filesview.label": "View",
+  "workbench.filesview.hint": "How files show in the left tree: a list or icons with a thumbnail. Your choice is remembered in this browser.",
+  "workbench.filesview.list": "List",
+  "workbench.filesview.small": "Small icons",
+  "workbench.filesview.medium": "Medium icons",
+  "workbench.filesview.large": "Large icons",
 }
