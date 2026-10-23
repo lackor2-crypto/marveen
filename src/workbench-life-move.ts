@@ -11,7 +11,7 @@ import { getDb } from './db.js'
 import { listWorkItems, type WorkItemRow } from './workbench.js'
 import { projectFileTarget } from './project-files.js'
 import { moveLife, toLifeRel, resolveLifePath, trashLife } from './life-explorer.js'
-import { addMount, fileMountsInside } from './life-mounts.js'
+import { addMount, fileMountsInside, isFileMount, repointFileMount } from './life-mounts.js'
 import { listFinals } from './workbench-docfinal.js'
 import { sentStatus, type SentStatus } from './workbench-docsent.js'
 import { roleOfFolderName } from './workbench-misplaced.js'
@@ -344,6 +344,11 @@ export async function suggestForPlan(project: ProjectRow, item: PlanItem, files:
 
 /** A linked file (a pointer, no copy) at the place the file was moved from. Best effort: a clash or a missing target leaves nothing. */
 function leaveLinkBehind(oldRel: string, newRel: string, name: string): void {
+  try {
+    // #746: an older link already stands at this place (the file moved away before, and a new one with the same name was
+    // put here since): it now leads to the file that left last. Its own copy in the Life tree is not touched.
+    if (isFileMount(oldRel)) { repointFileMount(oldRel, newRel); return }
+  } catch { /* the move itself is done */ }
   try { addMount({ rel: oldRel, target: newRel, kind: 'local', label: name, note: 'Left behind when the file was moved to the Life tree.', file: true }) } catch { /* the move itself is done */ }
 }
 

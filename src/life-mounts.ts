@@ -301,6 +301,30 @@ export function moveFileMount(fromRel: string, toRel: string): boolean {
 }
 
 /**
+ * #746: a linked FILE keeps its place but now leads to another file (a new file with the same name was moved away from
+ * the link's place, so the link stands for that one, the latest). Only the `target` changes. False when it is no linked
+ * file, the new target is not a file inside the depot, or the store is corrupt.
+ */
+export function repointFileMount(rel: string, newTarget: string): boolean {
+  const key = norm(rel)
+  const target = norm(newTarget)
+  if (!key || !target || key === target) return false
+  const root = depotRoot()
+  if (!root) return false
+  const abs = join(root, ...target.split('/'))
+  if (abs !== root && !abs.startsWith(root + sep)) return false
+  try { if (!statSync(abs).isFile()) return false } catch { return false }
+  const store = load()
+  if (store.corrupt) return false
+  const m = store.mounts.find((x) => x.file && x.rel === key)
+  if (!m) return false
+  if (m.label === m.target) m.label = target
+  m.target = target
+  save(store)
+  return true
+}
+
+/**
  * A folder moved: the mounts inside it follow it (only the `rel` -- where it
  * shows in the tree -- changes; the target stays). Returns how many moved.
  * Refuses on a corrupt store: rewriting a half-read file would lose mounts.
