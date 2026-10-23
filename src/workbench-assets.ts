@@ -2236,7 +2236,7 @@ export function listWorkItemAssetsSynced(itemId: string): WorkItemAssetView[] {
 // Atnevezes: #478 -- a munkadarab neve FUGGETLEN a mappa nevetol
 
 export type RenameItemOutcome =
-  | { ok: true; item: WorkItemRow; folder: FolderRenameOutcome }
+  | { ok: true; item: WorkItemRow; folder: FolderRenameOutcome | { ok: true; renamed: false; reason: 'name_taken' | 'not_first' } }
   | { ok: false; code: 'title_required' | 'title_too_long' }
 
 /**
