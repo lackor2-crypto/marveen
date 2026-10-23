@@ -19,6 +19,7 @@ import {
   sessionSlug, normalizeNavigateUrl, browserEnabledFromConfig,
   SESSION_VAULT_PREFIX, type SessionHealth,
   safeUploadName, safeDownloadName, parseTabIndex, parseDialogPolicy, type DialogPolicy,
+  sessionCookiesToKeep,
 } from '../browser-logic.js'
 
 const CONFIG_DIR = join(PROJECT_ROOT, 'store', 'browser')
@@ -28,6 +29,8 @@ export const BROWSER_UPLOAD_DIR = join(STORE_DIR, 'browser', 'uploads')
 export const BROWSER_DOWNLOAD_DIR = join(STORE_DIR, 'browser', 'downloads')
 /** #762 part 2: the persistent Chromium profile (cookies, logins). Plain files, owner-only, under the backup-excluded `browser` folder. */
 export const BROWSER_PROFILE_DIR = join(STORE_DIR, 'browser', 'profile')
+/** #762: the session cookies (no expiry) of the persistent profile; Chromium itself drops them on restart. Inside the profile folder, so a profile reset removes it too. */
+const SESSION_COOKIES_PATH = join(BROWSER_PROFILE_DIR, 'marveen-session-cookies.json')
 export const BROWSER_IDLE_MS = 5 * 60 * 1000
 const ACTION_TIMEOUT_MS = 20_000
 // Kartya ab8406b7: magasabb ablak, hogy a hosszabb parbeszedek (pl. nemet
@@ -142,8 +145,27 @@ export async function stopBrowser(): Promise<void> {
   const cur = rt
   rt = null
   if (cur) {
+    await saveSessionCookies(cur)
     try { await cur.close() } catch { /* already gone */ }
   }
+}
+
+/** #762: remember the login cookies that have no expiry, so a login survives the browser closing (idle timeout, restart). Best effort. */
+async function saveSessionCookies(r: Runtime): Promise<void> {
+  if (!r.persistent || !r.alive()) return
+  try {
+    const keep = sessionCookiesToKeep(await r.context.cookies(), Math.floor(Date.now() / 1000))
+    if (existsSync(BROWSER_PROFILE_DIR)) atomicWriteFileSync(SESSION_COOKIES_PATH, JSON.stringify(keep), { mode: 0o600 })
+  } catch (e) {
+    logger.warn({ err: e instanceof Error ? e.message : String(e) }, 'browser: could not save session cookies')
+  }
+}
+
+async function restoreSessionCookies(context: BrowserContext): Promise<void> {
+  try {
+    const saved = JSON.parse(readFileSync(SESSION_COOKIES_PATH, 'utf-8'))
+    if (Array.isArray(saved) && saved.length) await context.addCookies(saved)
+  } catch { /* none saved yet, or unreadable: start without them */ }
 }
 
 export class BrowserError extends Error {
@@ -191,6 +213,7 @@ async function ensureRuntime(session: string | null | undefined): Promise<Runtim
       if (/ProcessSingleton|SingletonLock|already in use|profile.*in use/i.test(msg)) throw new BrowserError('the browser profile is in use by another browser process', 409, 'profile_in_use')
       throw e
     }
+    await restoreSessionCookies(context)
     let open = true
     context.on('close', () => { open = false })
     alive = () => open
@@ -477,6 +500,7 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
         throw new BrowserError(`unknown action: ${action}`)
     }
     lastAction = { at: Date.now(), action, error: null }
+    await saveSessionCookies(r)
     return out
   } catch (err: any) {
     // A TENYLEGES Playwright-hibauzenet megy tovabb (timeout / navigation

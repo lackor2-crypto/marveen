@@ -136,3 +136,19 @@ export function parseDialogPolicy(raw: unknown): DialogPolicy | null {
   const s = String(raw ?? '').trim().toLowerCase()
   return s === 'accept' || s === 'dismiss' ? s : null
 }
+
+/** #762: a cookie a lejarat nelkuli ("session") sutik Chromium-ujrainditaskor elvesznek, pedig sok oldal
+ *  bejelentkezese ilyen -- es a bongeszo 5 perc uresjarat utan magatol leall. Ezert a lejarat nelkuli sutiket
+ *  kulon elmentjuk, es indulaskor ennyi masodpercnyi lejarattal visszaadjuk (ugy viselkednek, mint egy
+ *  "maradj bejelentkezve" suti). */
+export const SESSION_COOKIE_KEEP_SEC = 30 * 24 * 3600
+export function sessionCookiesToKeep<T extends { expires?: number }>(cookies: unknown, nowSec: number): Array<T & { expires: number }> {
+  if (!Array.isArray(cookies)) return []
+  const out: Array<T & { expires: number }> = []
+  for (const c of cookies as T[]) {
+    if (!c || typeof c !== 'object') continue
+    const exp = (c as any).expires
+    if (exp === undefined || exp === null || exp === -1 || exp === 0) out.push({ ...c, expires: nowSec + SESSION_COOKIE_KEEP_SEC })
+  }
+  return out
+}

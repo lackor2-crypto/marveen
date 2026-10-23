@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { safeUploadName, safeDownloadName, parseTabIndex, parseDialogPolicy } from '../browser-logic.js'
+import { safeUploadName, safeDownloadName, parseTabIndex, parseDialogPolicy, sessionCookiesToKeep, SESSION_COOKIE_KEEP_SEC } from '../browser-logic.js'
 
 describe('upload name', () => {
   it('accepts a plain file name only', () => {
@@ -30,6 +30,29 @@ describe('dialog policy', () => {
     expect(parseDialogPolicy(' Accept ')).toBe('accept')
     expect(parseDialogPolicy('dismiss')).toBe('dismiss')
     expect(parseDialogPolicy('yes')).toBeNull()
+  })
+})
+describe('session cookies of the persistent profile', () => {
+  const now = 1_000_000
+  it('keeps only the cookies without an expiry and gives them one, so a login survives the browser closing', () => {
+    const kept = sessionCookiesToKeep([
+      { name: 'sess', value: 'a', expires: -1 },
+      { name: 'pers', value: 'b', expires: now + 100 },
+      { name: 'nov', value: 'c' },
+    ], now)
+    expect(kept.map(c => c.name)).toEqual(['sess', 'nov'])
+    for (const c of kept) expect(c.expires).toBe(now + SESSION_COOKIE_KEEP_SEC)
+  })
+  it('ignores junk', () => {
+    expect(sessionCookiesToKeep(null, now)).toEqual([])
+    expect(sessionCookiesToKeep([null, 'x', 3], now)).toEqual([])
+  })
+  it('is wired: saved on every action and on stop, restored at start, and removed with the profile folder', () => {
+    const svc = readFileSync(join(__dirname, '..', 'web', 'browser-service.ts'), 'utf8')
+    expect(svc).toContain('await saveSessionCookies(r)')
+    expect(svc).toContain('await saveSessionCookies(cur)')
+    expect(svc).toContain('await restoreSessionCookies(context)')
+    expect(svc).toContain("join(BROWSER_PROFILE_DIR, 'marveen-session-cookies.json')")
   })
 })
 describe('wiring', () => {
