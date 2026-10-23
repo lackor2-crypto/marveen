@@ -7033,7 +7033,7 @@ window._i18n.en = {
   "workbench.vt.hl_score": "{n} points",
   "workbench.vt.hl_keep": "Keep this one",
   "workbench.vt.hl_keep_all": "Keep all, one after another",
-  "workbench.vt.hl_hint": "The speech recognition runs on your computer; the video does not leave it, and it takes about as long as the recording. The proposal follows simple rules (speech pace, pauses, sentence borders) and does not understand the content: you decide which one is good. The clip must be at least 20 seconds and 1.5 times the target length. Undo brings the original back.",
+  "workbench.vt.hl_hint": "The speech recognition runs on your computer; the video does not leave it, and on an idle computer it takes about as long as the recording, but if the computer is busy with other work it can take several times that (minutes for an 80 second clip). Let it run, you can keep working on something else meanwhile. The proposal follows simple rules (speech pace, pauses, sentence borders) and does not understand the content: you decide which one is good. The clip must be at least 20 seconds and 1.5 times the target length. Undo brings the original back.",
   "workbench.vt.vo_hint": "A voice running on your machine reads the text aloud; the text does not leave the machine. The sound plays from the given second of the timeline, the music gets quieter under it, and it is part of the finished video.",
   "workbench.vt.auto": "Automatic subtitles from the speech",
   "workbench.vt.auto_busy": "Listening to the video... (this can take a while)",
