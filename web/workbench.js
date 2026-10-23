@@ -220,6 +220,7 @@
     workFolders: null,
     collapsedFolder: {},
     hideDone: readPref('wb.hide.done', '') === '1', // #552
+    filesView: readPref('wb.files.view', 'list'), // #708: one global view for the files in the left tree (list / small / medium / large icons)
     // #502: the loaded content of linked / not yet read folders of the tree, per project (see lazyCache)
     lazyOut: null,
     pickFolder: '',
@@ -1930,6 +1931,35 @@
     return '<span class="wb-item-meta wb-item-when" title="' + escA(t('workbench.file.when_title')) + '">' + esc(txt) + '</span>'
   }
 
+  // #708 (Boss TG 9875): the files in the left tree can be shown as a list or as small / medium / large icons with a
+  // thumbnail, so a signature or a photo is recognised without opening it. One global choice, remembered in the browser.
+  var FILES_VIEWS = ['list', 'small', 'medium', 'large']
+  function filesView() { return FILES_VIEWS.indexOf(WB.filesView) >= 0 ? WB.filesView : 'list' }
+  function setFilesView(v) {
+    WB.filesView = FILES_VIEWS.indexOf(v) >= 0 ? v : 'list'
+    writePref('wb.files.view', WB.filesView)
+    render()
+  }
+  function filesViewSelectHtml() {
+    if (WB.items === null) return ''
+    var cur = filesView()
+    return '<label class="wb-files-view btn-compact" title="' + escA(t('workbench.filesview.hint')) + '">' + esc(t('workbench.filesview.label')) + ' '
+      + '<select data-wb-files-view="1" aria-label="' + escA(t('workbench.filesview.label')) + '">'
+      + FILES_VIEWS.map(function (v) { return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + esc(t('workbench.filesview.' + v)) + '</option>' }).join('')
+      + '</select></label>'
+  }
+  var THUMB_EXT = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|heif|mp4|mov|m4v|webm|mkv|avi|3gp|mts|m2ts|wmv|ogv|mpe?g)$/i
+  /** The picture part of a file row in an icon view: the server thumbnail for photos and videos, else a tile with the extension. */
+  function fileThumbHtml(f) {
+    if (filesView() === 'list') return ''
+    var ext = (/\.([A-Za-z0-9]{1,5})$/.exec(String(f.name || '')) || [, ''])[1].toUpperCase()
+    var tile = '<span class="wb-fv-ext">' + esc(ext || '📄') + '</span>'
+    var img = THUMB_EXT.test(String(f.name || ''))
+      ? '<img alt="" loading="lazy" draggable="false" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(f.rel) + '&lang=' + encodeURIComponent(window._lang || 'hu')) + '">'
+      : ''
+    return '<span class="wb-fv-thumb wb-fv-' + filesView() + '">' + tile + img + '</span>'
+  }
+
   /** A plain file lying in a work folder (not a work item): a link that opens it in the file viewer. */
   function plainFileRowHtml(f, depth, grp) {
     WB.linkedFiles = WB.linkedFiles || {}
@@ -1956,11 +1986,11 @@
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" aria-hidden="true">\ud83d\udd12</span> ' + esc(f.name) + '</span>'
         + '<span class="wb-item-meta">' + esc(kb) + '</span>' + fileWhenHtml(f) + '</a></li>'
     }
-    return '<li class="wb-item-row wb-file-row' + (f.linked ? ' wb-linked-row' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
+    return '<li class="wb-item-row wb-file-row' + (filesView() !== 'list' ? ' wb-fv-row' : '') + (f.linked ? ' wb-linked-row' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (archived() ? '' : ' data-wb-ctx-file="' + escA(f.rel) + '" draggable="true" data-wb-drag-file="' + escA(f.rel) + '"') + '>'
       + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
         + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
       + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(f.name + ' \u2014 ' + t('workbench.file.open')) + '">'
-      + '<span class="wb-item-title">\ud83d\udcc4 ' + (f.linked ? '<span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' : '') + esc(f.name) + misplacedBadgeHtml(f) + '</span>'
+      + fileThumbHtml(f) + '<span class="wb-item-title">' + (filesView() === 'list' ? '\ud83d\udcc4 ' : '') + (f.linked ? '<span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' : '') + esc(f.name) + misplacedBadgeHtml(f) + '</span>'
       + '<span class="wb-item-meta">' + esc(kb) + '</span>' + fileWhenHtml(f) + '</a>'
       + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="file-ctx" data-wb-rel="' + escA(f.rel) + '" aria-haspopup="menu"'
         + ' aria-label="' + escA(t('workbench.ctx.more_file')) + '" title="' + escA(t('workbench.ctx.more_file')) + '">&#8943;</button>')
@@ -2893,7 +2923,7 @@
       hideSw = hideSwitchHtml()
       body = (WB.items.length ? '' : emptyHintHtml()) + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
-    var foot = treeUploadHtml() + trashHtml() + rescueHtml()
+    var foot = treeUploadHtml() + filesViewSelectHtml() + trashHtml() + rescueHtml()
     var newBtn = ''
     var rest = ''
     // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
@@ -20835,6 +20865,7 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
     if (e.target.id === 'wbNewFolder') { notePick(e.target.value); return }
+    if (e.target.getAttribute && e.target.getAttribute('data-wb-files-view') !== null) { setFilesView(e.target.value); return }
     // AI video panel: a changed length / resolution / ratio / sound re-asks the server, so the price line is never stale.
     if (/^wbVgen(Dur|Res|Asp|Audio)$/.test(String(e.target.id || '')) && WB.vgen && WB.vgen.open) { vgenRead(); vgenLoad(); return }
     var trk = e.target.getAttribute && e.target.getAttribute('data-wb-tr')

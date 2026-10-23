@@ -9328,4 +9328,10 @@ window._i18n.hu = {
   "workbench.wm.accepted": "Elfogadva, a szabály felkerült a lap végére.",
   "workbench.wm.rejected": "Elvetve, a lap nem változott.",
   "workbench.wm.unsaved_confirm": "A szövegben el nem mentett változtatásod van, ez elveszik. Folytatod?",
+  "workbench.filesview.label": "Nézet",
+  "workbench.filesview.hint": "Fájlok megjelenítése a bal oldali fában: lista vagy ikonok bélyegképpel. A választás a böngészőben megmarad.",
+  "workbench.filesview.list": "Lista",
+  "workbench.filesview.small": "Kis ikonok",
+  "workbench.filesview.medium": "Közepes ikonok",
+  "workbench.filesview.large": "Nagy ikonok",
 }
