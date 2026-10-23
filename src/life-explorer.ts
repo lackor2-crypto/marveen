@@ -19,7 +19,7 @@
 //     birosagi vegzes visszaallithatatlan -- egy hibauzenet nem az.
 import { noteMovedOutOfMirror } from './drive-migrated.js'
 import {
-  existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
+  existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
   copyFileSync, rmSync, rmdirSync, type Stats, type Dirent,
 } from 'node:fs'
 import { cp } from 'node:fs/promises'
@@ -240,6 +240,11 @@ export interface LifeListing {
  */
 export const MAX_ENTRIES = 20000
 
+/** #746: a regular file really lies at this path (a symbolic link or a folder does not count). */
+function isRealFile(abs: string): boolean {
+  try { return lstatSync(abs).isFile() } catch { return false }
+}
+
 /**
  * Relativ utvonal -> abszolut, a gyokerbol KILEPNI NEM LEHET.
  *
@@ -264,11 +269,10 @@ export function resolveLifePath(rel: string): string | null {
   // UTANA jon a kilepes-ellenorzes -- vagyis egy bekotes sem tud
   // kivezetni a fabol.
   let mounted = resolveMount(asked)
-  // #716: a file link left behind by a move to the Life tree points at the Life-tree copy. If that copy is gone and a
-  // real file stands at the link's own place (a new upload with the same name), the real file wins, the dangling
-  // link must not hide it.
-  if (mounted && mounted.mount.file && asked === mounted.mount.rel
-      && !existsSync(resolve(realRoot, mounted.target)) && existsSync(resolve(realRoot, asked))) mounted = null
+  // #716, #746: a file link left behind by a move to the Life tree points at the Life-tree copy. A real file standing at
+  // the link's own place (a new upload with the same name) always wins, whether the Life-tree copy is still there or
+  // not: the link must not hide it, or the next move would carry off the OLD copy instead of the new file.
+  if (mounted && mounted.mount.file && asked === mounted.mount.rel && isRealFile(resolve(realRoot, asked))) mounted = null
   const clean = mounted ? mounted.target : asked
   const target = resolve(realRoot, clean)
 
