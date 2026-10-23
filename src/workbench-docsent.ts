@@ -244,6 +244,13 @@ export function sentStatus(itemId: string): SentStatus {
   return man ? { sent: true, how: 'manual', version_id: null } : { sent: false, how: null, version_id: null }
 }
 
+/** #747: EVERY version that went out on file, not only the latest sending (the same document can be sent again as a newer final). */
+export function sentVersionIds(itemId: string): Set<string> {
+  ensureDocSentTables()
+  const rows = getDb().prepare('SELECT DISTINCT version_id FROM wb_doc_sent WHERE work_item_id = ?').all(itemId) as { version_id: string }[]
+  return new Set(rows.map((r) => r.version_id))
+}
+
 export function markSentManually(itemId: string, by: string | null): void {
   ensureSentMarkTable()
   getDb().prepare('INSERT OR REPLACE INTO wb_item_sent_mark (work_item_id, marked_at, marked_by) VALUES (?, ?, ?)').run(itemId, Math.floor(Date.now() / 1000), by)

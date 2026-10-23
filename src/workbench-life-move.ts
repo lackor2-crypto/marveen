@@ -13,7 +13,7 @@ import { projectFileTarget } from './project-files.js'
 import { moveLife, toLifeRel, resolveLifePath, trashLife } from './life-explorer.js'
 import { addMount, fileMountsInside, isFileMount, repointFileMount } from './life-mounts.js'
 import { listFinals } from './workbench-docfinal.js'
-import { sentStatus, type SentStatus } from './workbench-docsent.js'
+import { sentStatus, sentVersionIds, type SentStatus } from './workbench-docsent.js'
 import { roleOfFolderName } from './workbench-misplaced.js'
 import { contextTarget } from './workbench-life-context.js'
 import { analyzeInboxItem, buildLearnedIndex, prefetchItem, sniffType } from './life-inbox-analyze.js'
@@ -253,9 +253,15 @@ function ownerInfo(w: { id: string; title: string }): OwnerInfo {
       if (r.s === 'final') finalNames.add(basename(r.p))
     }
   } catch { /* no assets table yet: nothing is owned that way */ }
-  // The version that really went out: the recorded one, or (marked by hand) the newest final.
-  const sentFinal = status.sent ? (finals.find((f) => f.version_id === status.version_id) || finals[0]) : undefined
-  if (sentFinal) for (const n of namesOf(sentFinal)) sentNames.add(n)
+  // The versions that really went out: every recorded one (#747: a document can be sent again as a newer final, the older
+  // sent version is still a sent version), or (marked by hand / the recorded final is gone) the newest final.
+  const sentIds = status.how === 'recorded' ? sentVersionIds(w.id) : new Set<string>()
+  const sentFinals = finals.filter((f) => sentIds.has(f.version_id))
+  if (!sentFinals.length && status.sent) {
+    const latest = finals.find((f) => f.version_id === status.version_id) || finals[0]
+    if (latest) sentFinals.push(latest)
+  }
+  for (const f of sentFinals) for (const n of namesOf(f)) sentNames.add(n)
   return { id: w.id, title: w.title, status, owned, finalNames, sentNames }
 }
 
