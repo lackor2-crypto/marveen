@@ -101,6 +101,19 @@ describe('channel-plugin-unlock helper contract', () => {
     expect(upIdx + thirdEscapeIdx).toBeGreaterThan(gateIdx)
   })
 
+  it('lets the TUI redraw before it judges whether the Escapes closed the menu (#730)', () => {
+    // Measured 2026-10-21 12:57: "menu still open after 2 Escapes" was logged 12 ms
+    // after the second Escape, i.e. the check read the pane before the redraw.
+    const sendStart = helper.indexOf('function sendUnlockKeystrokes')
+    const sendBody = helper.slice(sendStart, helper.indexOf('\n}\n', sendStart))
+    const secondEscapeLog = sendBody.indexOf('sent /mcp+Up+Enter+Enter+Esc+Esc unlock sequence')
+    const captureIdx = sendBody.indexOf('paneAfterClose = execFileSync(')
+    expect(secondEscapeLog, 'unlock-sequence log not found').toBeGreaterThan(0)
+    expect(captureIdx, 'post-close capture not found').toBeGreaterThan(secondEscapeLog)
+    const between = sendBody.slice(secondEscapeLog, captureIdx)
+    expect(between).toMatch(/await settle\(KEYSTROKE_SETTLE_MS\)/)
+  })
+
   it('schedules the probe with a cold-start delay >= 25 seconds', () => {
     // The plugin handshake needs time to complete on cold start; firing
     // the probe too early would always see no bun and trigger a needless
