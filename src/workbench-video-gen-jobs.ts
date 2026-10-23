@@ -63,16 +63,29 @@ export interface VideoGenPreview {
   month_budget_usd: number
   /** Ami a modell listajabol valaszthato (a felulet csak ezeket mutatja). */
   options: { resolutions: string[]; aspect_ratios: string[]; durations: number[]; audio: boolean | null }
+  /** A tenylegesen becsult beallitasok (kitoltes utan). */
+  params: VideoParams
 }
 export type VideoGenError = { ok: false; status: number; code: string; detail: string | null }
 
 /** Becsles az inditas ELOTT: az elo lista alapjan, penz es kulcs nelkul. */
-export async function previewVideoGen(params: VideoParams, deps: VideoGenDeps = {}): Promise<VideoGenPreview | VideoGenError> {
+export async function previewVideoGen(params: VideoParams, deps: VideoGenDeps = {}, opts: { fillDefaults?: boolean } = {}): Promise<VideoGenPreview | VideoGenError> {
   const list = await listVideoModels(deps.fetchImpl)
   if (!list.ok) return { ok: false, status: 502, code: list.code, detail: list.detail }
   const id = videoGenModel()
   const model = list.models.find((m) => m.id === id)
   if (!model) return { ok: false, status: 409, code: 'video_model_unavailable', detail: id }
+  // A panel elso megnyitasakor meg nincs kivalasztott ertek: a modell sajat listajabol valasztunk ki egy ertelmeset
+  // (8 mp, 720p, 9:16, ha van), hogy a felulet a valaszthato ertekekkel egyutt megjelenhessen. Inditasnal NINCS kitoltes.
+  if (opts.fillDefaults) {
+    const pick = <T,>(cur: T, ok: (v: T) => boolean, prefer: T, list: T[]): T => (ok(cur) ? cur : list.includes(prefer) ? prefer : list[0] ?? cur)
+    params = {
+      ...params,
+      duration: pick(params.duration, (v) => model.durations.includes(v), 8, model.durations),
+      resolution: pick(params.resolution, (v) => model.resolutions.includes(v), '720p', model.resolutions),
+      aspect_ratio: pick(params.aspect_ratio, (v) => model.aspectRatios.includes(v), '9:16', model.aspectRatios),
+    }
+  }
   const v = validateVideoParams(model, params)
   if (!v.ok) return { ok: false, status: 400, code: v.code, detail: v.detail }
   return {
@@ -80,6 +93,7 @@ export async function previewVideoGen(params: VideoParams, deps: VideoGenDeps = 
     estimate_usd: estimateVideoCost(model, params),
     month_spent_usd: monthSpendUsd(), month_budget_usd: videoMonthlyBudgetUsd(),
     options: { resolutions: model.resolutions, aspect_ratios: model.aspectRatios, durations: model.durations, audio: model.audio },
+    params,
   }
 }
 
