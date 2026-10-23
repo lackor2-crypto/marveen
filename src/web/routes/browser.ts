@@ -4,7 +4,7 @@
 import { readBody, json } from '../http-helpers.js'
 import {
   getBrowserStatus, setBrowserEnabled, startChromiumInstall, stopBrowser,
-  runBrowserAction, deleteBrowserSession, BrowserError, BROWSER_ACTIONS,
+  runBrowserAction, deleteBrowserSession, clearBrowserProfile, BrowserError, BROWSER_ACTIONS,
 } from '../browser-service.js'
 import type { RouteContext } from './types.js'
 
@@ -36,6 +36,10 @@ export async function tryHandleBrowser(ctx: RouteContext): Promise<boolean> {
     if (path === '/api/browser/stop' && method === 'POST') {
       await stopBrowser()
       json(res, { ok: true })
+      return true
+    }
+    if (path === '/api/browser/profile' && method === 'DELETE') {
+      json(res, { ok: true, ...(await clearBrowserProfile()) })
       return true
     }
     const sessionDel = path.match(/^\/api\/browser\/sessions\/([^/]+)$/)

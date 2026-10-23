@@ -48486,6 +48486,9 @@ document.addEventListener('click', async (ev) => {
     if (st.sessions.length) {
       rows.push(`<div class="browser-sessions">${st.sessions.map(s => `<span class="browser-session-chip">${escapeHtml(s.name)} <button class="btn-link" data-browser-del="${escapeHtml(s.name)}" title="${escapeHtml(t('browser.btn.delete_session'))}">✕</button></span>`).join('')}</div>`)
     }
+    if (st.profile && st.profile.exists) {
+      rows.push(`<div class="browser-line">${escapeHtml(t('browser.status.profile_kept'))} <button class="btn-secondary btn-compact" id="browserProfileClearBtn">${escapeHtml(t('browser.btn.clear_profile'))}</button></div>`)
+    }
     box.innerHTML = rows.join('')
     controls.hidden = !(st.enabled && st.playwright.available && st.chromium.installed)
 
@@ -48509,6 +48512,11 @@ document.addEventListener('click', async (ev) => {
       await fetch('/api/browser/sessions/' + encodeURIComponent(name), { method: 'DELETE' })
       loadBrowserPage()
     }))
+    document.getElementById('browserProfileClearBtn')?.addEventListener('click', async () => {
+      if (!confirm(t('browser.confirm.clear_profile'))) return
+      await fetch('/api/browser/profile', { method: 'DELETE' })
+      loadBrowserPage()
+    })
     if (st.install.running) startInstallPoll()
   }
 

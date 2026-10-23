@@ -47,6 +47,9 @@ curl -s "${H[@]}" $B/status
 | `/api/browser/dialog_policy` | `{"value":"accept"}` | alapból `dismiss` (elutasít): a "Törlöd?" elfogadása visszafordíthatatlan lehet, elfogadni csak kifejezett kérésre |
 | `/api/browser/clipboard_write` / `clipboard_read` | `{"value":"szöveg"}` / `{}` | vágólap (megnyitott http(s) oldalon) |
 | `/api/browser/key` | `{"value":"Control+V"}` | billentyű / gyorsbillentyű |
+| `DELETE /api/browser/profile` | - | kijelentkezés mindenhonnan: leállítja a böngészőt és törli a tartós profilt |
+
+Tartós profil (#762): név nélküli `open`/alapértelmezett böngésző egy valódi Chromium-profilt használ (`store/browser/profile/`), tehát a bejelentkezések és sütik újraindítás után is megmaradnak. A mappa titkosítatlan fájl (csak a tulajdonos olvashatja), mentésből és repóból kizárt. Ha egy másik Chromium-folyamat fogja a profilt, a válasz 409 `profile_in_use`. Névvel mentett munkamenet (`open` + `session`) továbbra is külön, a Vaultban titkosított.
 
 ## VESZÉLYES művelet: `/api/browser/submit`
 
