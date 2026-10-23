@@ -25,3 +25,20 @@ describe('external dependency gate (#766)', () => {
     expect(stale, 'remove from governance/external-deps-exceptions.json').toEqual([])
   })
 })
+
+describe('land-pr.sh warning (#766)', () => {
+  it('warns loudly when the diff brings in a new Vault id', () => {
+    const sh = readFileSync(resolve(ROOT, 'scripts/land-pr.sh'), 'utf8')
+    expect(sh).toContain('KULSO FUGGOSEG')
+    expect(sh).toContain('external-deps-exceptions.json')
+  })
+})
+
+describe('scheduled watch (#766)', () => {
+  it('is silent when green and reports through notify.sh in Hungarian', () => {
+    const sh = readFileSync(resolve(ROOT, 'scripts/external-deps-watch.sh'), 'utf8')
+    expect(sh).toContain('notify.sh')
+    expect(sh).toContain('log "OK"')
+    expect(sh).toContain('--report-only')
+  })
+})
