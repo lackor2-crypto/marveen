@@ -273,6 +273,12 @@ async function sendUnlockKeystrokes(session: string, provider: ChannelProviderTy
     // fuggveny, amit az altalanos or hasznal, es kifejezetten KIZARJA a busy
     // es idle allapotokat -- tehat sose kuld Escape-et egy epp valaszolo
     // agensre, csak egy tenylegesen nyitva maradt menure.
+    //
+    // #730 (2026-10-21 12:57, dashboard.log): the capture used to run 12 ms
+    // after the second Escape -- before the TUI had redrawn -- so it read the
+    // frame from BEFORE the Escapes and judged by that. Give the redraw a
+    // settle first, or the verdict is about the old frame, not the pane.
+    await settle(KEYSTROKE_SETTLE_MS)
     let paneAfterClose = ''
     try {
       paneAfterClose = execFileSync(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-p'], {
