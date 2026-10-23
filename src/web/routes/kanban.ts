@@ -15,7 +15,7 @@ import {
   getDbFileSizeMb, getTokenPruneLag, type TokenPruneLag,
 } from '../../db.js'
 import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
-import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS, KANBAN_LABEL_COLORS_REJECTED, KANBAN_LABEL_COLORS_OVERFLOW } from '../../config.js'
+import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, PROJECT_ROOT, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS, KANBAN_LABEL_COLORS_REJECTED, KANBAN_LABEL_COLORS_OVERFLOW } from '../../config.js'
 import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
 import { isAgentQuotaBlocked } from '../agent-availability.js'
@@ -30,6 +30,7 @@ import { getEffectiveSettingValue } from '../../settings-store.js'
 import { applyCardLabels } from '../kanban-labels.js'
 import type { RouteContext } from './types.js'
 import { checkWaitingMove } from '../waiting-completion-guard.js'
+import { checkClickthroughMove, cardTouchesWebUi } from '../ui-clickthrough-guard.js'
 import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
 import { resolveProjectRef, listActiveProjectIds } from '../../projects.js'
 
@@ -132,7 +133,7 @@ function fireKanbanDispatch(id: string, actor?: string | null): void {
 // arrays and `actor`. Read from the live schema so a new column never 400s.
 function kanbanPutAcceptedKeys(): Set<string> {
   const cols = (getDb().prepare('PRAGMA table_info(kanban_cards)').all() as { name: string }[]).map((c) => c.name)
-  return new Set<string>([...KANBAN_WRITABLE_FIELDS, ...cols, 'seq', 'last_status_at', 'labels', 'blockers', 'actor', 'all_points_done', 'confirm_open_parts'])
+  return new Set<string>([...KANBAN_WRITABLE_FIELDS, ...cols, 'seq', 'last_status_at', 'labels', 'blockers', 'actor', 'all_points_done', 'confirm_open_parts', 'ui_clickthrough_skip_reason'])
 }
 
 /** #464: refuse a move to waiting while the card has open points. Returns true when it answered 409. */
@@ -147,9 +148,24 @@ function refuseUnfinishedWaiting(ctx: RouteContext, id: string, newStatus: unkno
     confirmOpenParts: body.confirm_open_parts,
     children: getChildCards(id).map((c) => ({ seq: c.seq, title: c.title, status: c.status })),
   })
-  if (!refusal) return false
-  json(ctx.res, refusal, 409)
-  return true
+  if (refusal) { json(ctx.res, refusal, 409); return true }
+  // #763: UI work does not reach waiting without the trace of a real-browser click-through.
+  const agentCaller = ctx.auth?.kind !== 'session'
+  if (agentCaller && prev !== 'waiting') {
+    const card = getKanbanCard(id)
+    const texts = getKanbanComments(id).map((c) => c.content)
+    const skip = body.ui_clickthrough_skip_reason
+    const click = checkClickthroughMove({
+      prevStatus: prev, newStatus: 'waiting', agentCaller,
+      uiTouched: card?.seq != null ? cardTouchesWebUi(PROJECT_ROOT, Number(card.seq), texts) : null,
+      commentTexts: texts, skipReason: skip,
+    })
+    if (click) { json(ctx.res, click, 409); return true }
+    if (typeof skip === 'string' && skip.trim().length >= 15) {
+      try { addKanbanComment(id, String(body.actor || 'system'), `Felületi végigkattintás kihagyva, indok: ${skip.trim()}`) } catch { /* the move itself goes on */ }
+    }
+  }
+  return false
 }
 
 // #419 (rebuilt from upstream HBKANBANDRIFT819): the heartbeat-summary payload,
