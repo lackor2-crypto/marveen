@@ -16,7 +16,9 @@ import { MAIN_AGENT_ID, STORE_DIR } from '../config.js'
 import { mainAgentEffectiveConfigDir } from './agent-config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { createAgentMessage, getPendingMessages } from '../db.js'
-import { listBrokerCandidateNames, readBrokerCandidate } from './context-broker-store.js'
+import { listBrokerCandidateNames, readAgentPane, readBrokerCandidate } from './context-broker-store.js'
+import { paneShowsLimitBlock } from '../pane-state.js'
+import { detectReauthNeeded } from './reauth-detect.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
 import { defaultPendingWorkDeps, getPendingWork } from './pending-work.js'
 import {
@@ -74,6 +76,21 @@ function agentSignedOut(agent: string): boolean {
   } catch { return false }
 }
 
+/** How many non-empty pane lines at the bottom count as "what the session shows right now". */
+const PANE_LIVE_LINES = 14
+
+/** What the session's own screen says overrides the numbers (the owner, 2026-10-23: "you could not tell Marvin was
+ *  not alive"). A snapshot only refreshes while the agent works, so a session sitting on "Usage limit reached" or a
+ *  login prompt kept reading "ok" for hours; the screen is the one source that cannot be stale. Only a session that
+ *  is running and measured available is overridden, and only by evidence in the live bottom of the pane. */
+export function applyPaneEvidence(a: AgentAvailability, pane: string | null): AgentAvailability {
+  if (!a.available || !pane) return a
+  const live = pane.split('\n').filter((l) => l.trim()).slice(-PANE_LIVE_LINES).join('\n')
+  if (detectReauthNeeded(live).needsReauth) return { ...a, available: false, reason: 'signed_out', since: a.measuredAt, resetsAt: null }
+  if (paneShowsLimitBlock(live)) return { ...a, available: false, reason: 'quota', since: a.measuredAt, resetsAt: null }
+  return a
+}
+
 /** Measure the whole fleet now (no I/O besides reading sessions and snapshots). */
 export function measureFleet(prev: Record<string, AgentAvailability>, now: number): AgentAvailability[] {
   return listBrokerCandidateNames().map((agent) => {
@@ -83,7 +100,11 @@ export function measureFleet(prev: Record<string, AgentAvailability>, now: numbe
       // #569: the weekly window is marked as such -- it blocks only when spent, not from 95%.
       snap?.sevenDay ? { usedPct: snap.sevenDay.usedPct, resetsAt: snap.sevenDay.resetsAt, weekly: true } : null,
     ].filter((w): w is NonNullable<typeof w> => !!w)
-    return measureAvailability(readBrokerCandidate(agent), windows, now, prev[agent], agentSignedOut(agent))
+    const cand = readBrokerCandidate(agent)
+    const m = measureAvailability(cand, windows, now, prev[agent], agentSignedOut(agent))
+    const seen = applyPaneEvidence(m, m.available ? readAgentPane(agent) : null)
+    // Keep the previous "since" when the screen merely confirms the state that was already stored.
+    return seen !== m && prev[agent]?.reason === seen.reason && prev[agent]?.available === seen.available ? { ...seen, since: prev[agent]!.since } : seen
   })
 }
 

@@ -14,6 +14,7 @@ const h = vi.hoisted(() => ({
   sendFails: false,
   waiting: 0,
   running: true,
+  pane: null as string | null,
   usageAt: 0,
   cards: [] as { seq: number; id: string; title: string; status: string }[],
   unreadable: false,
@@ -34,6 +35,7 @@ vi.mock('../db.js', () => ({
 }))
 vi.mock('../web/context-broker-store.js', () => ({
   listBrokerCandidateNames: () => ['worker'],
+  readAgentPane: () => h.pane,
   readBrokerCandidate: (agent: string) => ({ agent, running: h.running, usedPct: 100, usageAt: h.usageAt }),
 }))
 vi.mock('../web/rate-limit-status-io.js', () => ({
@@ -60,7 +62,7 @@ const logLines = () => readFileSync(LOG, 'utf-8').trim().split('\n')
 beforeEach(() => {
   writeFileSync(STATE, JSON.stringify({ agents: {}, notifiedAt: {} }))
   writeFileSync(LOG, '')
-  Object.assign(h, { sent: [], sendFails: false, waiting: 0, running: true, usageAt: NOW, cards: [{ seq: 463, id: '068041e3', title: 'Figyelo', status: 'in_progress' }], unreadable: false, taskStateAsked: null })
+  Object.assign(h, { sent: [], sendFails: false, waiting: 0, running: true, pane: null, usageAt: NOW, cards: [{ seq: 463, id: '068041e3', title: 'Figyelo', status: 'in_progress' }], unreadable: false, taskStateAsked: null })
 })
 
 describe('availabilityTick', () => {
