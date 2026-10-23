@@ -88,6 +88,16 @@ describe('usage-limit widget: reading the rows', () => {
       .toMatch(/location\.hash[\s\S]{0,120}overview/)
   })
 
+  it('#710: the number itself is re-fetched about every minute, not every 3', () => {
+    // Boss: 86% on screen while the real figure was 99%. A 3-minute re-fetch
+    // (plus the server's own cache) let a fast-moving 5-hour window run far
+    // ahead of the widget.
+    const tick = tickerBody()
+    const m = tick.match(/_secsSinceRefetch >= (\d+)/)
+    expect(m, 'the re-fetch threshold is gone').not.toBeNull()
+    expect(Number(m![1])).toBeLessThanOrEqual(60)
+  })
+
   it('a rule separates the accounts (and the OpenRouter row) from each other', () => {
     expect(CSS).toMatch(/\.overview-ratelimit-bars > \* \+ \* \{[^}]*border-top/)
   })

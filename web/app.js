@@ -19736,7 +19736,7 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
   _rateLimitLast = { rateLimit, openrouterCredits, claudeAccounts }
   if (!_rateLimitTicker) {
     // Two cadences share one timer. Every minute: redraw from the data in hand
-    // so the "resets in X" countdown stays right (no network). Every ~3 minutes,
+    // so the "resets in X" countdown stays right (no network). Every minute (#710: was 3),
     // while the Overview is the open page: RE-FETCH /api/overview so the numbers
     // themselves refresh. Boss 2026-08-27 (msg 579) watched the widget sit on a
     // 2-hour-old 15% while a live VS Code session on the same account showed
@@ -19751,7 +19751,7 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
       if (document.hidden || !_rateLimitLast) return
       renderOverviewRateLimit(_rateLimitLast.rateLimit, _rateLimitLast.openrouterCredits, _rateLimitLast.claudeAccounts)
       _secsSinceRefetch += 60
-      if (_secsSinceRefetch >= 180 && (location.hash.slice(1) || 'overview') === 'overview') {
+      if (_secsSinceRefetch >= 60 && (location.hash.slice(1) || 'overview') === 'overview') {
         _secsSinceRefetch = 0
         try {
           const res = await fetch('/api/overview')
