@@ -109,3 +109,23 @@ describe('kozzetetel', () => {
     expect(await publishClip({ ...base, channels: [], draft: true })).toMatchObject({ code: 'publish_no_channel' })
   })
 })
+
+import { readClipFile, listSocialPosts, clipKeyFor, CLIP_MAX_BYTES } from '../workbench-social-publish.js'
+describe('a munkadarab klipje', () => {
+  it('csak a projekt mappajan beluli videofajl; mas kiterjesztes / kijaro ut / hianyzo fajl ertheto hiba', () => {
+    expect(readClipFile('Projektek/Reklam', '')).toMatchObject({ code: 'publish_no_clip' })
+    expect(readClipFile('Projektek/Reklam', 'Masik/a.mp4')).toMatchObject({ code: 'publish_clip_outside' })
+    expect(readClipFile('Projektek/Reklam', 'Projektek/Reklam/../Titok/a.mp4')).toMatchObject({ code: 'publish_clip_outside' })
+    expect(readClipFile('Projektek/Reklam', 'Projektek/Reklam/a.pdf')).toMatchObject({ code: 'publish_clip_not_video' })
+    expect(readClipFile(null, 'Projektek/Reklam/a.mp4')).toMatchObject({ code: 'publish_clip_outside' })
+    expect(CLIP_MAX_BYTES).toBe(100 * 1024 * 1024)
+  })
+  it('a klip-azonosito a munkadarab + fajlnev; a korabbi posztok listaja', async () => {
+    initDatabase(':memory:')
+    expect(clipKeyFor('w1', 'Projektek/Reklam/Elkészített anyagok/ai-video-veo.mp4')).toBe('w1/ai-video-veo')
+    expect(listSocialPosts('w1')).toEqual([])
+    const h = hostFake(), b = bufferFake()
+    await publishClip({ workItemId: 'w1', clipKey: 'w1/clip', bytes: BYTES, text: 't', channels: [{ id: 'fb1', service: 'facebook' }], draft: true }, { host: { fetchImpl: h.fetchImpl, config: CFG }, buffer: { fetchImpl: b.fetchImpl, getKey: () => 'K' } })
+    expect(listSocialPosts('w1').map((p) => [p.service, p.draft])).toEqual([['facebook', 1]])
+  })
+})

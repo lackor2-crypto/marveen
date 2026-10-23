@@ -10,6 +10,8 @@
  *   - Az automatikus ujraprobalkozas NINCS: a hibat a tulajdonos latja.
  */
 import { randomUUID } from 'node:crypto'
+import { statSync, readFileSync } from 'node:fs'
+import { resolveLifePath } from './life-explorer.js'
 import { getDb } from './db.js'
 import { loadAutonomyConfig } from './autonomy.js'
 import { createBufferPost, type BufferDeps } from './workbench-social-buffer.js'
@@ -91,4 +93,45 @@ export async function publishClip(input: PublishInput, deps: { buffer?: BufferDe
     outcomes.push({ channelId: c.id, service: c.service, status: input.draft ? 'draft' : 'posted', postId: r.postId })
   }
   return { ok: true, videoUrl: up.url, outcomes }
+}
+
+
+// ---------------------------------------------------------------------------
+// A munkadarab klipje es a korabbi posztok (a panelhez)
+// ---------------------------------------------------------------------------
+/** A tarhely ingyenes szintje ennyit visz fel egy videobol (Cloudinary: 100 MB). */
+export const CLIP_MAX_BYTES = 100 * 1024 * 1024
+const CLIP_EXT = /\.(mp4|mov|m4v)$/i
+
+export type ClipRead = { ok: true; bytes: Buffer; rel: string } | { ok: false; code: string; detail: string }
+
+/** A projekt mappajan BELULI videofajl beolvasasa (a `rel` az Eletfa-relativ ut). */
+export function readClipFile(projectFolder: string | null | undefined, rel: string | null | undefined): ClipRead {
+  const r = String(rel ?? '').trim()
+  if (!r) return { ok: false, code: 'publish_no_clip', detail: 'this work item has no video file yet' }
+  const folder = String(projectFolder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const norm = r.replace(/\\/g, '/')
+  if (!folder || !norm.startsWith(folder + '/') || norm.split('/').includes('..')) return { ok: false, code: 'publish_clip_outside', detail: 'the video must be inside the project folder' }
+  if (!CLIP_EXT.test(norm)) return { ok: false, code: 'publish_clip_not_video', detail: 'only .mp4, .mov or .m4v can be posted' }
+  const abs = resolveLifePath(norm)
+  if (!abs) return { ok: false, code: 'publish_no_clip', detail: norm }
+  try {
+    const size = statSync(abs).size
+    if (size > CLIP_MAX_BYTES) return { ok: false, code: 'publish_clip_too_big', detail: `${Math.round(size / 1024 / 1024)} MB > ${Math.round(CLIP_MAX_BYTES / 1024 / 1024)} MB` }
+    return { ok: true, bytes: readFileSync(abs), rel: norm }
+  } catch (e) {
+    return { ok: false, code: 'publish_no_clip', detail: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export interface SocialPostRow { id: string; clip_key: string; channel_id: string; service: string; buffer_post_id: string | null; draft: number; due_at: string | null; video_url: string; created_at: number }
+
+export function listSocialPosts(itemId: string): SocialPostRow[] {
+  ensureSocialTables()
+  return getDb().prepare('SELECT id, clip_key, channel_id, service, buffer_post_id, draft, due_at, video_url, created_at FROM wb_social_posts WHERE work_item_id = ? ORDER BY created_at DESC LIMIT 30').all(itemId) as SocialPostRow[]
+}
+
+/** A klip azonositoja: a fajl + a munkadarab (egy fajl egyszer megy ki egy csatornara). */
+export function clipKeyFor(itemId: string, rel: string): string {
+  return `${itemId}/${rel.split('/').pop()}`.replace(/\.[^.]+$/, '')
 }

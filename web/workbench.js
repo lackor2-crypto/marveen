@@ -8116,6 +8116,87 @@
     return head + (notice ? '<p class="wb-hint">' + esc(notice) + '</p>' : '') + (jobs ? '<ul class="wb-vt-list">' + jobs + '</ul>' : '') + form
   }
 
+
+  // ---- Kozossegi kozzetetel (Buffer) ----------------------------------------
+  // A panel megmutatja a bekotott csatornakat; a vazlat jovahagyas nelkul megy, a valodi kozzetetel kattintas-jovahagyassal
+  // (vagy ha a publish_content 3-as szinten van). A klip a munkadarab videofajlja.
+  function socUrl() { return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/social' }
+  function socLoad() {
+    var itemId = WB.selectedId
+    if (!itemId) return
+    api('GET', socUrl()).then(function (r) {
+      if (!WB.soc || WB.selectedId !== itemId) return
+      WB.soc.info = r.ok ? r.data : { error: r.message }
+      render()
+    })
+  }
+  function socToggle() {
+    if (WB.soc && WB.soc.open) { WB.soc.open = false; render(); return }
+    WB.soc = Object.assign(WB.soc || { text: '', picked: {} }, { open: true })
+    render()
+    socLoad()
+  }
+  function socRead() {
+    var g = WB.soc
+    if (!g) return
+    var el = document.getElementById('wbSocText'); if (el) g.text = el.value
+    var d = document.getElementById('wbSocDue'); if (d) g.due = d.value
+    var boxes = document.querySelectorAll('[data-wb-soc-ch]')
+    g.picked = {}
+    for (var i = 0; i < boxes.length; i += 1) if (boxes[i].checked) g.picked[boxes[i].getAttribute('data-wb-soc-ch')] = true
+  }
+  function socSend(draft) {
+    var g = WB.soc
+    if (!g || g.busy || !WB.selectedId || archived()) return
+    socRead()
+    var ids = Object.keys(g.picked || {})
+    if (!ids.length) { window.showToast(t('workbench.soc.need_channel')); return }
+    if (!String(g.text || '').trim()) { window.showToast(t('workbench.soc.need_text')); return }
+    var due = g.due ? new Date(g.due) : null
+    if (due && isNaN(due.getTime())) { window.showToast(t('workbench.soc.bad_due')); return }
+    if (!draft && typeof window.confirm === 'function' && !window.confirm(t(due ? 'workbench.soc.confirm_sched' : 'workbench.soc.confirm_live', { n: ids.length }))) return
+    g.busy = true
+    render()
+    api('POST', socUrl(), { text: g.text, channel_ids: ids, draft: draft, due_at: due ? due.toISOString() : undefined, confirm_live: !draft }).then(function (r) {
+      if (WB.soc) WB.soc.busy = false
+      if (!r.ok) { window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : '')); render(); return }
+      var bad = (r.data.outcomes || []).filter(function (o) { return o.status === 'failed' })
+      window.showToast(bad.length ? t('workbench.soc.partial', { n: bad.length, why: bad[0].detail || bad[0].code }) : t(draft ? 'workbench.soc.draft_ok' : 'workbench.soc.live_ok'))
+      socLoad()
+    })
+  }
+  function socHtml() {
+    var g = WB.soc
+    var head = '<h5>' + esc(t('workbench.soc.title')) + '</h5>'
+    if (!g || !g.open) return head + '<p><button type="button" class="wb-btn" data-wb-act="soc-toggle">' + esc(t('workbench.soc.open')) + '</button></p>'
+    var info = g.info
+    if (!info) return head + '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
+    var close = '<button type="button" class="wb-btn" data-wb-act="soc-toggle">' + esc(t('common.cancel')) + '</button>'
+    if (info.error) return head + '<p class="wb-preview-bad">' + esc(info.error) + '</p><p>' + close + '</p>'
+    var notes = ''
+    if (info.sensitive) notes += '<p class="wb-hint">' + esc(t('workbench.soc.sensitive')) + '</p>'
+    if (!info.buffer_key_set) notes += '<p class="wb-hint">' + esc(t('workbench.soc.no_key')) + '</p>'
+    if (!info.host_configured) notes += '<p class="wb-hint">' + esc(t('workbench.soc.no_host')) + '</p>'
+    if (!info.clip) notes += '<p class="wb-hint">' + esc(t('workbench.soc.no_clip')) + '</p>'
+    if (info.channels_error) notes += '<p class="wb-preview-bad">' + esc(info.channels_error.message || '') + '</p>'
+    var chans = (info.channels || []).map(function (c) {
+      return '<label class="wb-muted"><input type="checkbox" data-wb-soc-ch="' + escA(c.id) + '"' + (g.picked && g.picked[c.id] ? ' checked' : '') + '> ' + esc(c.service + ': ' + c.name) + '</label> '
+    }).join('')
+    if (!chans && info.buffer_key_set && !info.channels_error) notes += '<p class="wb-hint">' + esc(t('workbench.soc.no_channels')) + '</p>'
+    var off = (g.busy || archived() || info.sensitive || !info.clip || !info.buffer_key_set || !info.host_configured) ? ' disabled' : ''
+    var posts = (info.posts || []).slice(0, 8).map(function (p) {
+      return '<li class="wb-vt-row"><b>' + esc(t(p.draft ? 'workbench.soc.state_draft' : 'workbench.soc.state_live')) + '</b> ' + esc(p.service) + (p.due_at ? ' <span class="wb-muted">' + esc(p.due_at.slice(0, 16).replace('T', ' ')) + '</span>' : '') + '</li>'
+    }).join('')
+    return head + notes
+      + (chans ? '<p>' + chans + '</p>' : '')
+      + '<p><textarea class="wb-input" id="wbSocText" rows="3" maxlength="2200" style="width:100%" placeholder="' + escA(t('workbench.soc.text')) + '">' + esc(g.text || '') + '</textarea></p>'
+      + '<p><label class="wb-muted">' + esc(t('workbench.soc.due')) + ' <input type="datetime-local" id="wbSocDue" value="' + escA(g.due || '') + '"></label></p>'
+      + '<p><button type="button" class="wb-btn" data-wb-act="soc-draft"' + off + '>' + esc(g.busy ? t('workbench.soc.sending') : t('workbench.soc.draft')) + '</button> '
+      + '<button type="button" class="btn-primary" data-wb-act="soc-live"' + off + '>' + esc(t('workbench.soc.live')) + '</button> ' + close + '</p>'
+      + '<p class="wb-hint">' + esc(t(info.auto_publish ? 'workbench.soc.hint_auto' : 'workbench.soc.hint')) + '</p>'
+      + (posts ? '<ul class="wb-vt-list">' + posts + '</ul>' : '')
+  }
+
   function vtVoiceoverHtml(doc) {
     var d = WB.vtVoDraft || {}
     var rows = (doc.voiceovers || []).map(function (v) {
@@ -8605,7 +8686,7 @@
       + vtBtn('vt-version', t('workbench.vt.version')) + '</p>'
       + '<p class="wb-vt-bg"><span class="wb-muted">' + esc(t('workbench.vt.bg.label')) + '</span> ' + backgrounds + '</p>'
       + '<p class="wb-hint">' + esc(t('workbench.vt.bg.' + bgNow + '_hint')) + '</p>'
-      + vgenHtml() + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtCutoutHtml(doc) + vtHlHtml(doc) + vtOverlaysHtml(doc)
+      + vgenHtml() + socHtml() + vtClipsHtml(doc) + vtSubtitlesHtml(doc) + vtMusicHtml(doc) + vtVoiceoverHtml(doc) + vtCutoutHtml(doc) + vtHlHtml(doc) + vtOverlaysHtml(doc)
       + '<p>' + vtNumField('clip-volume', '', Math.round(doc.clip_volume * 100), t('workbench.vt.clip_volume')) + vtBtn('vt-volume', t('workbench.vt.save')) + '</p>'
       + '<p><button type="button" class="btn-primary" data-wb-act="vt-render"' + (WB.vtBusy || WB.vtRender || archived() || !doc.clips.length ? ' disabled' : '') + '>'
       + esc(WB.vtRender ? vtRenderLabel() : t('workbench.vt.render')) + '</button></p>' + vtRenderBarHtml()
@@ -21192,6 +21273,9 @@
     else if (a === 'open-capcut') openInCapcut()
     else if (a === 'vt-autosub') vtAutoSubtitle()
     else if (a === 'vgen-toggle') vgenToggle()
+    else if (a === 'soc-toggle') socToggle()
+    else if (a === 'soc-draft') socSend(true)
+    else if (a === 'soc-live') socSend(false)
     else if (a === 'vgen-start') vgenStart()
     else if (a === 'vgen-refresh') { vgenRead(); vgenLoad() }
     else if (a === 'vgen-retry') vgenRetry(act.getAttribute('data-wb-id'))
