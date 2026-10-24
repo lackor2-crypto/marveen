@@ -31,8 +31,8 @@ NEW="$(echo "$MISSING" | cut -f1 | sort | comm -23 - <(sort "$STATE" 2>/dev/null
 log "missing: $(echo "$MISSING" | cut -f1 | tr '\n' ' ')new: $(echo "$NEW" | tr '\n' ' ')"
 [ -z "$NEW" ] && exit 0
 LIST="$(echo "$MISSING" | while IFS=$'\t' read -r id file; do echo "$NEW" | grep -qx "$id" && echo "- $id ($file)"; done)"
-MSG="Uj kulso fuggoseg a kodban, ami nincs a Beallitasok varazslojaban es az Attekintes onellenorzeseben:
+MSG="Új külső függőség a kódban, ami nincs a Beállítások varázslójában és az Áttekintés önellenőrzésében:
 $LIST
-Felvegyem fejlesztesi kartyaként a varázsló- és önellenőrzés-sort?"
+Felvegyem fejlesztési kártyaként a varázsló- és önellenőrzés-sort?"
 if [ "$REPORT_ONLY" = 1 ]; then echo "$MSG"; exit 0; fi
 bash "$BASE/scripts/notify.sh" "$MSG" >/dev/null 2>&1 && echo "$MISSING" | cut -f1 | sort > "$STATE" || log "notify failed"
