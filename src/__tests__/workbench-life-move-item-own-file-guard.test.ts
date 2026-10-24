@@ -76,3 +76,45 @@ describe('#748: a munkadarab saját fájlja nem költöztetési jelölt', () => 
     expect(plan.files.filter((f) => f.action === 'trash').map((f) => f.name)).toEqual(['Level v1.pdf'])
   })
 })
+
+// #748 (follow-up): in a shared folder of work items the guard must cover the SIBLINGS' own files too -- the plan of one
+// document also lists (and trashes) the generated files of the other documents of the folder.
+describe('#748: a közös mappa testvér-munkadarabjának saját fájlja sem költöztetési jelölt', () => {
+  const CONT = 'Munkadarabok/Kozos'
+  it('a testvér tartalmi fájlja (Elkészített anyagok mappában) nem kerül a tervbe, kukába sem', () => {
+    initDatabase(':memory:')
+    const p = createProject({ name: 'Iroda2' })
+    if (!p.ok) throw new Error('projekt')
+    const base = join(root, 'Projektek', 'Iroda2')
+    mkdirSync(join(base, CONT, FIN), { recursive: true })
+    updateProject(p.project.id, { folder_path: 'Projektek/Iroda2' })
+    const mk = (title: string, src: string) => {
+      const w = createWorkItem({ project_id: p.project.id, title, type: 'document', source_path: src, container_folder: CONT } as any)
+      if (!w.ok) throw new Error('munkadarab')
+      return w.item.id
+    }
+    const sibSrc = `${CONT}/${FIN}/Testver.xlsx`
+    writeFileSync(join(base, sibSrc), 'own')
+    writeFileSync(join(base, CONT, 'Sajat.docx'), 'x')
+    writeFileSync(join(base, CONT, 'Testver.docx'), 'x')
+    const a = mk('Sajat', `${CONT}/Sajat.docx`)
+    const b = mk('Testver', sibSrc)
+    const fin = (item: string, n: number, file: string, path: string) => {
+      getDb().prepare('INSERT INTO work_item_versions (id, work_item_id, version_no, created_at, metadata_json) VALUES (?, ?, ?, ?, ?)')
+        .run(`v-${item}-${n}`, item, 10 + n, 1000 + n, JSON.stringify({ final: true, label: 'F', content_hash: 'h' + item + n, pdf_path: path, pdf_name: file }))
+    }
+    writeFileSync(join(base, CONT, FIN, 'Testver v1.pdf'), 'v1')
+    writeFileSync(join(base, CONT, FIN, 'Testver v2.pdf'), 'v2')
+    fin(b, 1, 'Testver v1.pdf', `${CONT}/${FIN}/Testver v1.pdf`)
+    fin(b, 2, 'Testver v2.pdf', `${CONT}/${FIN}/Testver v2.pdf`)
+    fin(b, 3, 'Testver.xlsx', sibSrc)
+    markSentManually(b, null)
+    const plan = lifeMovePlan(getProject(p.project.id) as any, getWorkItem(a) as any, 'include')
+    if (!plan.ok) throw new Error('terv')
+    expect(plan.files.map((f) => f.name)).not.toContain('Testver.xlsx')
+    // exactly one older generated PDF goes to the Trash (which one depends on the mtimes), never the content file
+    const trashed = plan.files.filter((f) => f.action === 'trash').map((f) => f.name)
+    expect(trashed).toHaveLength(1)
+    expect(trashed[0]).toMatch(/^Testver v\d\.pdf$/)
+  })
+})

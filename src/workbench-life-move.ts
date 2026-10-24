@@ -171,9 +171,19 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
     }
   }
   addOwn(item.source_path)
-  if (item.id) {
+  // The other work items of a shared folder are listed in the same plan (their generated files, trashing included), so
+  // their own files are protected the same way.
+  const ownerIds = new Set<string>(item.id ? [item.id] : [])
+  if (container) {
+    for (const w of listWorkItems(project.id)) {
+      if (String(w.container_folder ?? '').trim() !== container) continue
+      ownerIds.add(w.id)
+      if (w.id !== item.id) addOwn(w.source_path)
+    }
+  }
+  for (const id of ownerIds) {
     try {
-      for (const r of getDb().prepare('SELECT source_path AS p FROM work_item_versions WHERE work_item_id = ? AND source_path IS NOT NULL').all(item.id) as { p: string }[]) addOwn(r.p)
+      for (const r of getDb().prepare('SELECT source_path AS p FROM work_item_versions WHERE work_item_id = ? AND source_path IS NOT NULL').all(id) as { p: string }[]) addOwn(r.p)
     } catch { /* no versions table yet: nothing else is the item's own file */ }
   }
   const take = (dirAbs: string, folder: string, upload = false): void => {
