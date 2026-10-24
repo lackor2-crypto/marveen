@@ -8224,6 +8224,8 @@ window._i18n.en = {
   "workbench.rename.row_hint": "Rename the work item",
   "workbench.rename.row_label": "Rename",
   "workbench.rename.done": "Renamed.",
+  "workbench.rename.folder_taken": "The work item is renamed, but its folder kept its name: a folder with this name already exists.",
+  "workbench.rename.folder_failed": "The work item is renamed, but the folder could not be renamed, so it kept its name.",
   "workbench.shared.open": "Shared materials (logo, brand elements)",
   "workbench.shared.title": "Shared materials",
   "workbench.shared.close": "Close shared materials",

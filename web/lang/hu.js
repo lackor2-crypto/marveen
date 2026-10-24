@@ -8298,6 +8298,8 @@ window._i18n.hu = {
   "workbench.rename.row_hint": "Munkadarab átnevezése",
   "workbench.rename.row_label": "Átnevezés",
   "workbench.rename.done": "Átneveztem.",
+  "workbench.rename.folder_taken": "Átneveztem a munkadarabot, de a mappa neve maradt: már van ilyen nevű mappa.",
+  "workbench.rename.folder_failed": "Átneveztem a munkadarabot, de a mappát nem sikerült átnevezni, ezért a neve maradt.",
   "workbench.shared.open": "Közös anyagok (logó, márkaelemek)",
   "workbench.shared.title": "Közös anyagok",
   "workbench.shared.close": "Közös anyagok bezárása",

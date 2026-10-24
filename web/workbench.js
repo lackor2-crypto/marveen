@@ -11562,7 +11562,10 @@
     if (!title || title === cur) return
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/rename', { title: title }).then(function (r) {
       if (!r.ok) { window.showToast(r.message); return }
-      window.showToast(t('workbench.rename.done'))
+      // #709: the folder follows the first item; say so when it could not (the name was taken), not just "renamed".
+      var fr = r.data && r.data.folder_rename
+      window.showToast(t(fr && fr.ok === true && fr.reason === 'name_taken' ? 'workbench.rename.folder_taken'
+        : (fr && fr.ok === false ? 'workbench.rename.folder_failed' : 'workbench.rename.done')))
       if (WB.selectedId === id) loadDetail(id)
       if (WB.projectId) load(WB.projectId)
     })
