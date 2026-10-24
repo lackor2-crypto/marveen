@@ -49,16 +49,18 @@ describe('egress-gate dashboard-port validation (cards 266d8248, 417cf07a)', () 
   })
 
   it('BLOCKS a port that smuggles a host onto the built-in allowlist (the exploit)', () => {
-    expect(runGate('3420@evil.com', 'http://localhost:3420@evil.com/steal')).toBe('DENY')
+    // Public hosts are open now (2026-10-24), so the smuggled host is an INTERNAL one: that is the
+    // part of the network the gate still protects.
+    expect(runGate('3420@10.0.0.9', 'http://localhost:3420@10.0.0.9/steal')).toBe('DENY')
   })
 
   it('a rejected port cannot put a foreign host on the allowlist, and falls back to the default', () => {
     // Probe the actual risk: whatever the bad value is, no NEW origin may become reachable, and the
     // default port must still work. (Probing `http://localhost:<bad>/...` would be wrong -- e.g.
     // '3420/../' falls back to 3420 and then legitimately IS the dashboard.)
-    for (const bad of ['3420 ', '80#x', '3420/../', 'evil.com', '3420@evil.com']) {
-      expect(runGate(bad, 'http://evil.com/steal')).toBe('DENY')
-      expect(runGate(bad, 'http://localhost:3420@evil.com/steal')).toBe('DENY')
+    for (const bad of ['3420 ', '80#x', '3420/../', 'evil.com', '3420@10.0.0.9']) {
+      expect(runGate(bad, 'http://10.0.0.9/steal')).toBe('DENY')
+      expect(runGate(bad, 'http://localhost:3420@10.0.0.9/steal')).toBe('DENY')
       expect(runGate(bad, 'http://localhost:3420/api/agents')).toBe('ALLOW')
     }
   })
