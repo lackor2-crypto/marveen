@@ -65,6 +65,18 @@ describe('ar es parameterek az elo listabol', () => {
   it('ismeretlen ar-szerkezetnel null (nem talal ki szamot)', () => {
     expect(estimateVideoCost(noprice, { duration: 5, resolution: '720p', aspect_ratio: '9:16', audio: true })).toBeNull()
   })
+  it('#787: a modell, ami a listaja szerint NEM tud hangot: a hangos keres elutasitva, a becsles a hang nelkuli ar', () => {
+    const silent = parseVideoModels({ data: [{ id: 'x/silent', name: 'Silent', supported_resolutions: ['720p'], supported_aspect_ratios: ['9:16'], supported_durations: [8], generate_audio: false,
+      pricing_skus: { duration_seconds_with_audio: '0.08', duration_seconds_without_audio: '0.05' } }] })[0]
+    expect(silent.audio).toBe(false)
+    expect(validateVideoParams(silent, P)).toEqual({ ok: false, code: 'video_audio_unsupported', detail: 'the model list says this model makes no sound' })
+    expect(validateVideoParams(silent, { ...P, audio: false }).ok).toBe(true)
+    // the estimate never charges the sound price for a model that makes none
+    expect(estimateVideoCost(silent, P)).toBeCloseTo(0.4, 4)
+    expect(estimateVideoCost(silent, { ...P, audio: false })).toBeCloseTo(0.4, 4)
+    // a model whose list says nothing about sound keeps its own code
+    expect(validateVideoParams(grok, { ...P, duration: 10 })).toMatchObject({ ok: false, code: 'video_audio_unknown' })
+  })
   it('a nem tamogatott ertek elutasitva, a megengedettekkel', () => {
     expect(validateVideoParams(veo, { ...P, duration: 9 })).toEqual({ ok: false, code: 'video_bad_duration', detail: '4, 6, 8' })
     expect(validateVideoParams(veo, { ...P, aspect_ratio: '1:1' }).ok).toBe(false)
@@ -309,6 +321,21 @@ describe('a teljes folyamat', () => {
     if (!filled.ok) return
     expect(filled.params).toEqual({ duration: 8, resolution: '720p', aspect_ratio: '9:16', audio: true })
     expect(filled.estimate_usd).toBeCloseTo(0.4, 4)
+  })
+
+  it('#787: a panel elso megnyitasa egy hangot nem keszito modellnel: a hang kikapcsolva, nem hiba, a becsles a hang nelkuli ar', async () => {
+    const { VIDEO_MODEL_DEFAULT } = await import('../workbench-video-gen-jobs.js')
+    const f: FetchLike = async () => ({ ok: true, status: 200, json: async () => ({ data: [{ id: VIDEO_MODEL_DEFAULT, name: 'Silent', supported_resolutions: ['720p'], supported_aspect_ratios: ['9:16'], supported_durations: [8], generate_audio: false,
+      pricing_skus: { duration_seconds_with_audio: '0.08', duration_seconds_without_audio: '0.05' } }] }), text: async () => '', arrayBuffer: async () => new ArrayBuffer(0) })
+    const filled = await previewVideoGen({ duration: 0, resolution: '', aspect_ratio: '9:16', audio: true }, { fetchImpl: f }, { fillDefaults: true })
+    expect(filled.ok).toBe(true)
+    if (!filled.ok) return
+    expect(filled.params.audio).toBe(false)
+    expect(filled.options.audio).toBe(false)
+    expect(filled.estimate_usd).toBeCloseTo(0.4, 4)
+    // a start with sound is still refused (no fill at start)
+    const strict = await previewVideoGen(P, { fetchImpl: f })
+    expect(strict).toMatchObject({ ok: false, code: 'video_audio_unsupported' })
   })
 
   it('az elo modelllista: valaszthato ertekek + becsles', async () => {

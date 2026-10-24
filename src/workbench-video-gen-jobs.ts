@@ -86,6 +86,8 @@ export async function previewVideoGen(params: VideoParams, deps: VideoGenDeps = 
       duration: pick(params.duration, (v) => model.durations.includes(v), 8, model.durations),
       resolution: pick(params.resolution, (v) => model.resolutions.includes(v), '720p', model.resolutions),
       aspect_ratio: pick(params.aspect_ratio, (v) => model.aspectRatios.includes(v), '9:16', model.aspectRatios),
+      // #787: a model that does not make sound (or does not say it does) opens with sound off, not with an error.
+      audio: params.audio && model.audio === true,
     }
   }
   const v = validateVideoParams(model, params)

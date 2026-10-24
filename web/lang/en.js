@@ -7221,6 +7221,8 @@ window._i18n.en = {
   "workbench.vgen.resolution": "Resolution",
   "workbench.vgen.aspect": "Aspect ratio",
   "workbench.vgen.audio": "Sound (speech, music)",
+  "workbench.vgen.audio_none": "this model makes no sound",
+  "workbench.vgen.audio_unknown": "the model list does not say whether it makes sound",
   "workbench.vgen.cost": "Expected cost: {usd} ({model}), worked out from today's OpenRouter prices.",
   "workbench.vgen.cost_unknown": "I do not know the price of this model ({model}) right now, so I will not start it.",
   "workbench.vgen.budget": "This month so far {spent}, monthly limit {budget}.",
