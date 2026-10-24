@@ -87,7 +87,8 @@ export interface VideoParams {
  */
 export function estimateVideoCost(model: VideoModel, p: VideoParams): number | null {
   const s = model.skus
-  const a = p.audio ? 'with_audio' : 'without_audio'
+  // #787: a model that says it makes no sound is priced without sound, whatever the request asks.
+  const a = p.audio && model.audio !== false ? 'with_audio' : 'without_audio'
   const res = p.resolution
   const perSecond: (number | null)[] = [
     num(s[`duration_seconds_${a}_${res}`]),
@@ -116,6 +117,8 @@ export function validateVideoParams(model: VideoModel, p: VideoParams): { ok: tr
   if (model.durations.length && !model.durations.includes(p.duration)) return { ok: false, code: 'video_bad_duration', detail: model.durations.join(', ') }
   if (model.resolutions.length && !model.resolutions.includes(p.resolution)) return { ok: false, code: 'video_bad_resolution', detail: model.resolutions.join(', ') }
   if (model.aspectRatios.length && !model.aspectRatios.includes(p.aspect_ratio)) return { ok: false, code: 'video_bad_aspect', detail: model.aspectRatios.join(', ') }
+  // #787: a model that says it makes no sound is refused with sound too (before, only the "list says nothing" case was).
+  if (p.audio && model.audio === false) return { ok: false, code: 'video_audio_unsupported', detail: 'the model list says this model makes no sound' }
   if (p.audio && model.audio === null) return { ok: false, code: 'video_audio_unknown', detail: 'the model list does not say this model makes sound' }
   return { ok: true }
 }

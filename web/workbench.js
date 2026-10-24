@@ -8052,6 +8052,8 @@
         if (!WB.vgen.duration || o.durations.indexOf(Number(WB.vgen.duration)) < 0) WB.vgen.duration = String(o.durations.indexOf(8) >= 0 ? 8 : o.durations[0])
         if (!WB.vgen.resolution || o.resolutions.indexOf(WB.vgen.resolution) < 0) WB.vgen.resolution = o.resolutions.indexOf('720p') >= 0 ? '720p' : o.resolutions[0]
         if (!WB.vgen.aspect || o.aspect_ratios.indexOf(WB.vgen.aspect) < 0) WB.vgen.aspect = o.aspect_ratios.indexOf('9:16') >= 0 ? '9:16' : o.aspect_ratios[0]
+        // #787: a model that makes no sound (or does not say it does): sound is off and can not be turned on.
+        if (o.audio !== true) WB.vgen.audio = false
       }
       var now = vgenRunning(WB.vgen)
       if (was && !now) { // a generalas befejezodott: a kesz klip a munkadarab uj verzioja
@@ -8137,7 +8139,8 @@
         + '<p><select class="wb-input" id="wbVgenDur" aria-label="' + escA(t('workbench.vgen.duration')) + '">' + opt(o.durations, g.duration) + '</select> '
         + '<select class="wb-input" id="wbVgenRes" aria-label="' + escA(t('workbench.vgen.resolution')) + '">' + opt(o.resolutions, g.resolution) + '</select> '
         + '<select class="wb-input" id="wbVgenAsp" aria-label="' + escA(t('workbench.vgen.aspect')) + '">' + opt(o.aspect_ratios, g.aspect) + '</select> '
-        + '<label class="wb-muted"><input type="checkbox" id="wbVgenAudio"' + (g.audio === false ? '' : ' checked') + '> ' + esc(t('workbench.vgen.audio')) + '</label></p>'
+        + '<label class="wb-muted"><input type="checkbox" id="wbVgenAudio"' + (g.audio === false || o.audio !== true ? '' : ' checked') + (o.audio !== true ? ' disabled' : '') + '> ' + esc(t('workbench.vgen.audio'))
+        + (o.audio !== true ? ' <span class="wb-hint">(' + esc(t(o.audio === false ? 'workbench.vgen.audio_none' : 'workbench.vgen.audio_unknown')) + ')</span>' : '') + '</label></p>'
         + '<p class="wb-hint">' + esc(pre.estimate_usd == null ? t('workbench.vgen.cost_unknown', { model: pre.name }) : t('workbench.vgen.cost', { usd: vgenUsd(pre.estimate_usd), model: pre.name })) + ' '
         + esc(t('workbench.vgen.budget', { spent: vgenUsd(after), budget: vgenUsd(pre.month_budget_usd) })) + '</p>'
         + '<p><button type="button" class="btn-primary" data-wb-act="vgen-start"' + off + (pre.estimate_usd == null ? ' disabled' : '') + '>'

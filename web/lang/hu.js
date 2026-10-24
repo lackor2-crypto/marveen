@@ -7295,6 +7295,8 @@ window._i18n.hu = {
   "workbench.vgen.resolution": "Felbontás",
   "workbench.vgen.aspect": "Képarány",
   "workbench.vgen.audio": "Hang (beszéd, zene)",
+  "workbench.vgen.audio_none": "ez a modell nem készít hangot",
+  "workbench.vgen.audio_unknown": "a modell listája nem mondja meg, hogy tud-e hangot",
   "workbench.vgen.cost": "Várható költség: {usd} ({model}), az OpenRouter mai áraiból számolva.",
   "workbench.vgen.cost_unknown": "Ennek a modellnek ({model}) az árát most nem ismerem, ezért nem indítom el.",
   "workbench.vgen.budget": "Ebben a hónapban eddig {spent}, a havi keret {budget}.",
