@@ -885,6 +885,8 @@ export function deleteWorkItemVersion(
   versionId: string,
   workItemId: string,
   now: number = nowSec(),
+  /** #781: the file the loaded version (and the item) points at from now on, instead of the loaded version's own one. */
+  opts: { loadedSource?: string } = {},
 ): { ok: true; item: WorkItemRow; loaded: WorkItemVersionRow | null } | { ok: false; code: VersionErrorCode } {
   ensureWorkbenchTables()
   const target = getWorkItemVersion(versionId)
@@ -895,21 +897,30 @@ export function deleteWorkItemVersion(
   const db = getDb()
   let loaded: WorkItemVersionRow | null = null
   if (item.current_version_id === target.id) {
-    loaded = (db.prepare(`SELECT * FROM work_item_versions WHERE work_item_id = ? AND id <> ? AND version_no < ?
-        ORDER BY version_no DESC LIMIT 1`).get(item.id, target.id, target.version_no)
-      ?? db.prepare(`SELECT * FROM work_item_versions WHERE work_item_id = ? AND id <> ?
-        ORDER BY version_no DESC LIMIT 1`).get(item.id, target.id)) as WorkItemVersionRow | undefined ?? null
+    loaded = versionLoadedOnDelete(item.id, target)
     if (!loaded) return { ok: false, code: 'version_last' }
   }
   db.transaction(() => {
     db.prepare('DELETE FROM work_item_parts WHERE work_item_id = ? AND version_id = ?').run(item.id, target.id)
     db.prepare('DELETE FROM work_item_versions WHERE id = ?').run(target.id)
     if (loaded) {
+      const source = opts.loadedSource ?? loaded.source_path
+      if (opts.loadedSource) db.prepare('UPDATE work_item_versions SET source_path = ? WHERE id = ?').run(source, loaded.id)
       db.prepare('UPDATE work_items SET current_version_id = ?, source_path = ?, updated_at = ? WHERE id = ?')
-        .run(loaded.id, loaded.source_path, now, item.id)
+        .run(loaded.id, source, now, item.id)
     }
   })()
-  return { ok: true, item: getWorkItem(item.id) ?? item, loaded }
+  const after = loaded ? getWorkItemVersion(loaded.id) ?? loaded : null
+  return { ok: true, item: getWorkItem(item.id) ?? item, loaded: after }
+}
+
+/** The version a work item stands on after its CURRENT version `target` is deleted: the one below it, else the newest left. */
+export function versionLoadedOnDelete(itemId: string, target: Pick<WorkItemVersionRow, 'id' | 'version_no'>): WorkItemVersionRow | null {
+  const db = getDb()
+  return (db.prepare(`SELECT * FROM work_item_versions WHERE work_item_id = ? AND id <> ? AND version_no < ?
+      ORDER BY version_no DESC LIMIT 1`).get(itemId, target.id, target.version_no)
+    ?? db.prepare(`SELECT * FROM work_item_versions WHERE work_item_id = ? AND id <> ?
+      ORDER BY version_no DESC LIMIT 1`).get(itemId, target.id)) as WorkItemVersionRow | undefined ?? null
 }
 
 /** Egy REGI verzio visszaallitasa. Nem ir felul semmit: UJ verzio keletkezik,

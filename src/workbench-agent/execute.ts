@@ -63,6 +63,7 @@ import { isLinkedDocPath, resolveLinkedDoc, sourceWorldFor } from '../workbench-
 import { aiMayReadLinked } from '../workbench-doc-links.js'
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../workbench-redact.js'
+import { restoreWordVersion } from '../workbench-worddoc.js'
 
 /** Egy fajlbol ennyit adunk at a modellnek. A kontextus meretkorlatos (spec 16). */
 export const FILE_READ_MAX_CHARS = 8000
@@ -236,6 +237,26 @@ function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code
   }
 }
 
+/** #781: restoring a Word item's earlier state kept in Marveen's store folder writes it back into the item's OWN file (a
+ *  LibreOffice read, so it is async). Null = not this case: the plain restore of `executeTool` runs. */
+async function wordRestoreTool(input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | null> {
+  const project = getProject(ctx.projectId)
+  if (!project || project.archived_at != null) return null
+  const item = getWorkItem(asString(input.id) || ctx.workItemId || '')
+  const versionId = asString(input.version)
+  if (!item || item.project_id !== project.id || !versionId) return null
+  const w = await restoreWordVersion(item, versionId, 'workbench-agent')
+  if (!w) return null
+  if (!w.ok) return { ok: false, code: w.code, detail: `the version was not restored: ${w.code}${w.detail ? ` (${w.detail})` : ''}` }
+  return {
+    ok: true,
+    data: {
+      version: w.version,
+      note: 'the restore wrote a NEW version and read the Word file onto the page again; the earlier version and the later ones are all kept',
+    },
+  }
+}
+
 /** IDOT IGENYLO eszkozok (7. fazis). A tobbseg azonnal valaszol, es marad a
  *  szinkron `executeTool`; egy dokumentum PDF-fe alakitasa viszont masodpercek,
  *  es egy kulso folyamat futasa -- azt nem lehet a szal blokkolasaval megoldani.
@@ -244,6 +265,7 @@ function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code
  *  valtozatlanul a `executeTool` vegzi (nincs ketszer megirva semmi), a lassukat
  *  pedig ez a fuggveny -- igy a hivonak nem kell tudnia, melyik melyik. */
 export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+  if (name === 'workItem.restoreVersion') return (await wordRestoreTool(input, ctx)) ?? executeTool(name, input, ctx)
   if (name !== 'web.search' && name !== 'document.toPdf' && name !== 'document.redact' && name !== 'timeline.render' && name !== 'timeline.autoSubtitle' && name !== 'timeline.edit' && name !== 'deck.export' && name !== 'doc.mailDraft' && !DEPOT_WALK_TOOLS.has(name)) return executeTool(name, input, ctx)
 
   // #406 bugkereses 8.: a lassu eszkozok is UGYANAZON a kapun mennek at, mint

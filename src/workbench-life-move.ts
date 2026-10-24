@@ -18,7 +18,7 @@ import { roleOfFolderName } from './workbench-misplaced.js'
 import { contextTarget } from './workbench-life-context.js'
 import { analyzeInboxItem, buildLearnedIndex, prefetchItem, sniffType } from './life-inbox-analyze.js'
 import { credentialRisk } from './life-inbox.js'
-import { loadLifeConfig } from './life-tree.js'
+import { lifeName, loadLifeConfig } from './life-tree.js'
 import { isContextFileName } from './workbench-item-context.js'
 import { isTodoFileName } from './workbench-item-todos.js'
 
@@ -120,6 +120,10 @@ export async function suggestLifeTargets(files: LifeMoveCandidate[], lang: strin
  * Life tree" list offers those, so every document has the button, not only the ones with a folder. The item follows
  * each file that moves (followMovedItemFileRefs).
  */
+function isSystemRel(rel: string): boolean {
+  return rel.startsWith(`${lifeName('system', 'hu')}/`) || rel.startsWith(`${lifeName('system', 'en')}/`)
+}
+
 function ownFileCandidate(item: Partial<Pick<WorkItemRow, 'id' | 'source_path'>>): { ok: true; folder_rel: string; files: LifeMoveCandidate[] } | { ok: false; code: 'no_folder' } {
   const rels: string[] = []
   const add = (raw: unknown): void => { if (typeof raw === 'string' && raw.trim()) rels.push(raw.replace(/\\/g, '/').replace(/^\/+/, '').trim()) }
@@ -141,6 +145,9 @@ function ownFileCandidate(item: Partial<Pick<WorkItemRow, 'id' | 'source_path'>>
     try { if (!statSync(abs).isFile()) continue } catch { continue }
     const name = basename(rel)
     if (name.startsWith('.') || SKIP_FILES.has(name) || isContextFileName(name) || isTodoFileName(name)) continue
+    // #781: a version kept in Marveen's own place under the System branch (a Word item's earlier state) is not the
+    // owner's file: it is not offered for the move.
+    if (isSystemRel(rel)) continue
     files.push({ rel, name, folder: '' })
   }
   if (!files.length) return { ok: false, code: 'no_folder' }
