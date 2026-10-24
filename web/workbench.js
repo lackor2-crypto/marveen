@@ -1940,13 +1940,16 @@
     writePref('wb.files.view', WB.filesView)
     render()
   }
+  /** One row of four quick buttons (Boss TG 9882: not a dropdown): one click switches, the current view is highlighted. */
   function filesViewSelectHtml() {
     if (WB.items === null) return ''
     var cur = filesView()
-    return '<label class="wb-files-view btn-compact" title="' + escA(t('workbench.filesview.hint')) + '">' + esc(t('workbench.filesview.label')) + ' '
-      + '<select data-wb-files-view="1" aria-label="' + escA(t('workbench.filesview.label')) + '">'
-      + FILES_VIEWS.map(function (v) { return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + esc(t('workbench.filesview.' + v)) + '</option>' }).join('')
-      + '</select></label>'
+    return '<div class="wb-files-view" role="group" aria-label="' + escA(t('workbench.filesview.hint')) + '" title="' + escA(t('workbench.filesview.hint')) + '">'
+      + FILES_VIEWS.map(function (v) {
+        return '<button type="button" class="btn-secondary btn-compact wb-fv-btn' + (v === cur ? ' wb-fv-btn-on' : '') + '" data-wb-act="files-view" data-wb-fv="' + v + '"'
+          + ' aria-pressed="' + (v === cur ? 'true' : 'false') + '" title="' + escA(t('workbench.filesview.tip_' + v)) + '" aria-label="' + escA(t('workbench.filesview.tip_' + v)) + '">'
+          + esc(t('workbench.filesview.' + v)) + '</button>'
+      }).join('') + '</div>'
   }
   var THUMB_EXT = /\.(pdf|jpe?g|png|webp|gif|bmp|tiff?|heic|heif|mp4|mov|m4v|webm|mkv|avi|3gp|mts|m2ts|wmv|ogv|mpe?g)$/i
   /** The picture part of a file row in an icon view: the server thumbnail for photos and videos, else a tile with the extension. */
@@ -2923,7 +2926,7 @@
       hideSw = hideSwitchHtml()
       body = (WB.items.length ? '' : emptyHintHtml()) + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
-    var foot = treeUploadHtml() + filesViewSelectHtml() + trashHtml() + rescueHtml()
+    var foot = treeUploadHtml() + trashHtml() + rescueHtml()
     var newBtn = ''
     var rest = ''
     // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
@@ -2947,7 +2950,7 @@
       + '<button type="button" class="wb-btn wb-folder-btn wb-head-open" data-wb-act="folder-intezo" data-wb-place="' + (WB.selectedId ? 'assets' : 'box') + '"'
       + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button>'
       + (archived() ? '' : ' <button type="button" class="wb-btn wb-folder-btn wb-head-attach" data-wb-act="attach-folder" title="' + escA(t('workbench.attach.hint')) + '" aria-label="' + escA(t('workbench.attach.hint')) + '">\ud83d\udd17 ' + esc(t('workbench.attach.label')) + '</button>') + '</span></div>'
-      + hideSw
+      + hideSw + filesViewSelectHtml()
       + '</div>'
       + '<div class="wb-blk wb-blk-foot">' + foot + newBtn + '</div>'
       + rest
@@ -20868,7 +20871,6 @@
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target || !e.target.closest) return
     if (e.target.id === 'wbNewFolder') { notePick(e.target.value); return }
-    if (e.target.getAttribute && e.target.getAttribute('data-wb-files-view') !== null) { setFilesView(e.target.value); return }
     // AI video panel: a changed length / resolution / ratio / sound re-asks the server, so the price line is never stale.
     if (/^wbVgen(Dur|Res|Asp|Audio)$/.test(String(e.target.id || '')) && WB.vgen && WB.vgen.open) { vgenRead(); vgenLoad(); return }
     var trk = e.target.getAttribute && e.target.getAttribute('data-wb-tr')
@@ -21023,6 +21025,7 @@
       }, { fileLink: true })
     }
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
+    else if (a === 'files-view') { setFilesView(act.getAttribute('data-wb-fv')) }
     else if (a === 'hide-done') { WB.hideDone = !WB.hideDone; writePref('wb.hide.done', WB.hideDone ? '1' : '0'); render() }
     else if (a === 'folder-fold') {
       var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.foldShut(ff)
