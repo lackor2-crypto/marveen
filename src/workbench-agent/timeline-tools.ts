@@ -4,13 +4,14 @@
  * the owner's timeline editor, so everything the agent does is one undo step for the owner.
  */
 import type { ProjectRow } from '../projects.js'
-import { getWorkItem, setWorkItemVersionMeta } from '../workbench.js'
+import { getWorkItem } from '../workbench.js'
 import {
   timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS,
   type TimelineDoc,
 } from '../workbench-video-timeline.js'
 import { opsLabel } from '../workbench-draft-store.js'
-import { renderTimeline, lastRenderOf, fillClipEnds } from '../workbench-video-render.js'
+import { lastRenderOf, fillClipEnds } from '../workbench-video-render.js'
+import { renderTimelineToVersion } from '../workbench-video-render-version.js'
 import { recogniseTimeline, applySubtitleLines, AUTOSUB_LANGS, type AutoSubLang } from '../workbench-video-autosub.js'
 import type { ToolContext, ToolResult } from './execute.js'
 
@@ -67,14 +68,9 @@ export async function timelineEdit(project: ProjectRow, ctx: ToolContext, input:
 export async function timelineRender(project: ProjectRow, ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
   const v = videoItem(project, String(input.id ?? '').trim() || ctx.workItemId || '')
   if (!v.ok) return v
-  const store = timelineStore()
-  const cur = store.read(v.item.id)
-  if (!cur.ok) return { ok: false, code: cur.code, detail: cur.detail || cur.code }
-  const r = await renderTimeline(project, v.item.id, v.item.title, cur.doc)
-  if (!r.ok) return { ok: false, code: r.code, detail: ('detail' in r && r.detail) || r.code }
-  const ver = store.saveVersion(v.item, { reason: 'export', actor: 'workbench-agent', metadata: {} })
-  const versionId = ver.ok ? ver.version.id : cur.version_id
-  if (versionId) setWorkItemVersionMeta(versionId, { render: { rel: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes } })
+  // #786: the same road as the editor: the version is saved BEFORE the render, the mp4 is recorded on it.
+  const r = await renderTimelineToVersion(project, v.item, 'workbench-agent')
+  if (!r.ok) return { ok: false, code: r.code, detail: r.detail || r.code }
   return { ok: true, data: { path: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes, note: 'a NEW mp4 file was made in the project folder; nothing was overwritten' } }
 }
 

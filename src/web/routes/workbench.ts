@@ -110,7 +110,8 @@ import { saveEditedImage } from '../../workbench-image-edit.js'
 import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS } from '../../workbench-video-timeline.js'
-import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
+import { lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
+import { renderTimelineToVersion } from '../../workbench-video-render-version.js'
 import { cutoutStore, highlightStore, getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
 import { RECHECK_CODES, parseVideoParams, previewVideoGen, retryVideoDownload, startVideoGeneration, videoGenRetryable, videoKeyPresent, videoMonthlyBudgetUsd } from '../../workbench-video-gen-jobs.js'
 import { listVideoGens as listVideoGenRows } from '../../workbench-video-gen-store.js'
@@ -6190,25 +6191,21 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const runRender = async (onProgress?: (f: number) => void): Promise<{ ok: true; body: Record<string, unknown> } | ({ ok: false } & RenderFailure)> => {
       const project = getProject(item.project_id)
       if (!project) return { ok: false, status: 404, code: 'project_not_found', detail: null }
-      const cur = store.read(item.id)
-      if (!cur.ok) return { ok: false, status: tlStatus(cur.code), code: cur.code, detail: cur.detail ?? null }
-      const r = await renderTimeline(project, item.id, item.title, cur.doc, onProgress)
+      // #786: one road with the assistant's render: the version is saved BEFORE the render, the mp4 is recorded on it.
+      const r = await renderTimelineToVersion(project, item, actor(ctx), onProgress)
       if (!r.ok) {
+        if (r.from === 'store') return { ok: false, status: tlStatus(r.code), code: r.code, detail: r.detail }
         const status = r.code === 'video_busy' ? 409
           : r.code === 'video_no_ffmpeg' || r.code === 'video_ffmpeg_check_failed' || r.code === 'render_no_subtitle_filter' ? 503
           : r.code === 'video_failed' || r.code === 'video_timeout' || r.code === 'write_failed' ? 500 : 400
-        return { ok: false, status, code: r.code, detail: ('detail' in r && r.detail) || null }
+        return { ok: false, status, code: r.code, detail: r.detail }
       }
-      // The version that holds exactly the timeline that was rendered; the mp4 is recorded on it.
-      const v = store.saveVersion(item, { reason: 'export', actor: actor(ctx), metadata: {} })
-      const versionId = v.ok ? v.version.id : cur.version_id
-      if (versionId) setWorkItemVersionMeta(versionId, { render: { rel: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes } })
-      const last = lastRenderOf(item.id)
+      const last = r.last
       return {
         ok: true,
         body: {
           ok: true, file: r.file, seconds: r.seconds, item: getWorkItem(item.id) || item, versions: listWorkItemVersionsView(item.id),
-          last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: true } : null,
+          last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: r.current } : null,
           ...tlState(), message: msg('timeline_rendered', lang),
         },
       }
