@@ -43,6 +43,7 @@ import {
 import { connectorCatalogCounts } from './connectors.js'
 import { parseUsageLimitResetAt } from '../../usage-limit-reset.js'
 import { currentAvailability } from '../agent-availability-watch.js'
+import { mainAccountUsageToken } from '../live-usage-sampler.js'
 import { fillFiveHourFromAvailability } from '../quota-reset-fill.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
@@ -150,10 +151,7 @@ function usageTokenForAccount(accountId: string, plans: ReturnType<typeof readCl
     const plan = plans.find(p => p.id === accountId)
     return plan ? readAccountAccessToken(plan.configDir) : null
   }
-  const explicit = resolveMainAgentConfigDir()
-  const fromDir = readAccountAccessToken(explicit ?? join(homedir(), '.claude'))
-  if (fromDir) return fromDir
-  return readFleetToken(join(PROJECT_ROOT, 'store', '.claude-oauth-token'))
+  return mainAccountUsageToken()
 }
 
 function usageScrapeSessions(accountId: string): string[] {

@@ -48,6 +48,7 @@ import { recentStalls, recentStallSamples, startEventLoopWatch, trackRequest } f
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { startTelegramReplyMetaPatcher } from './telegram-reply-meta-patch.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
+import { startLiveUsageSampler } from './web/live-usage-sampler.js'
 import { startCardNudge } from './web/card-work-nudge-job.js'
 import { listMounts } from './life-mounts.js'
 import { reconcileMountLinks } from './life-mount-links.js'
@@ -761,6 +762,8 @@ export function startWebServer(port = 3420): http.Server {
   // #463: ki er most ra dolgozni -- 60 mp-enkent merve; aki visszaall, ugyanaz
   // kap uzenetet a sajat fuggo munkajaval (nem a fo agens).
   const availabilityInterval = startAvailabilityWatch()
+  // #710: the main account's live quota is sampled every minute, with or without an open browser, for the Telegram alert.
+  const liveUsageInterval = startLiveUsageSampler()
   // #461 fazis 2b: aki tetlen, tud dolgozni es nyitott kartyaja van, azt a dashboard
   // noszogatja (novekvo szunetekkel, plafonnal); nincs keret = nem szol.
   const cardNudgeInterval = startCardNudge()
@@ -1185,6 +1188,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(skillSeederInterval)
     clearInterval(replyMetaInterval)
     if (availabilityInterval) clearInterval(availabilityInterval)
+    if (liveUsageInterval) clearInterval(liveUsageInterval)
     if (cardNudgeInterval) clearInterval(cardNudgeInterval)
     clearTimeout(worktreeSweepStart)
     clearInterval(worktreeSweepInterval)
