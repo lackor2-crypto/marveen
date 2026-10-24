@@ -39011,8 +39011,12 @@ async function _storagesRefresh() {
         var hk = _STORAGE_KINDS[h.kind] || { label: h.kind, icon: '' }
         return '<p><code>' + escapeHtml(h.id) + '</code> ' + hk.icon + ' ' + escapeHtml(h.name) + ' '
           + '<button class="btn-secondary btn-compact" data-stor-act="unhide" data-kind="' + escapeHtml(h.kind)
-          + '" data-account="' + escapeHtml(h.account) + '">' + escapeHtml(t('storages.btn_restore')) + '</button></p>'
-      }).join('') + '</details>'
+          + '" data-account="' + escapeHtml(h.account) + '">' + escapeHtml(t('storages.btn_restore')) + '</button> '
+          + '<button class="btn-secondary btn-compact" data-stor-act="forget" data-kind="' + escapeHtml(h.kind)
+          + '" data-account="' + escapeHtml(h.account) + '">' + escapeHtml(t('storages.btn_forget')) + '</button></p>'
+      }).join('')
+      + '<p><button class="btn-secondary btn-compact" data-stor-act="forget-all">' + escapeHtml(t('storages.btn_forget_all', { n: String(hiddenRows.length) })) + '</button></p>'
+      + '</details>'
     : ''
   if (!rows.length) {
     if (hiddenHtml) { tbl.innerHTML = '<p class="subtitle">' + escapeHtml(t('storages.all_hidden')) + '</p>' + hiddenHtml; return }
@@ -39105,6 +39109,15 @@ async function _storagesClick(ev) {
       // Csak a LISTA valtozik (a szerver uzenete ezt ki is mondja): fiok, kulcs, fajlok erintetlenek.
       var hr = await _depoPost('/api/storages/hide', { kind: kind, account: account, hidden: act === 'hide' })
       _storagesSay(hr.message || '')
+    } else if (act === 'forget' || act === 'forget-all') {
+      // VEGLEGES, ezert ketlepcsos: a szerver elobb megmondja, mi torlodne, es a "biztos?" csak ezutan jon.
+      // A fiok es a fajlok NEM torlodnek, csak a lista-bejegyzes; ezt a megerosito szoveg ki is mondja.
+      var fbody = act === 'forget-all' ? { all: true } : { items: [{ kind: kind, account: account }] }
+      var fp = await _depoPost('/api/storages/forget', Object.assign({ preview: true }, fbody))
+      var fnev = (fp.items || []).slice(0, 8).join(', ') + ((fp.items || []).length > 8 ? ', …' : '')
+      if (!window.confirm(t('storages.forget_confirm', { n: String(fp.count || 0), names: fnev }))) { _storagesSay(t('storages.forget_cancelled')); return }
+      var fr = await _depoPost('/api/storages/forget', fbody)
+      _storagesSay(fr.message || '')
     } else if (act === 'check') {
       var c = await _depoPost('/api/storages/check', { kind: kind, account: account })
       _storagesSay(c.message || '')
