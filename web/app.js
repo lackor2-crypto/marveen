@@ -31691,6 +31691,7 @@ function loadIrodaSettings() {
   // of resetting it.
   if (irodaSettingsInDetailView) {
     if (irodaSettingsDetailKind === 'depot') { loadDepoPage(); return }
+    if (irodaSettingsDetailKind === 'appwatch') { openIrodaAppWatchSettings(); return }
     renderIrodaSettingsTabs()
     renderIrodaSettingsForm(irodaSettingsActiveAccount)
     return
@@ -31699,6 +31700,7 @@ function loadIrodaSettings() {
   // #435: after an F5 the same detail view (e-mail account or Depot) comes back.
   const back = viewStateTake('irodaSettings')
   if (back && back.kind === 'depot') openIrodaDepotSettings()
+  else if (back && back.kind === 'appwatch') openIrodaAppWatchSettings()
   else if (back && back.kind === 'email') {
     if (typeof back.account === 'string' && back.account) irodaSettingsActiveAccount = back.account
     openIrodaEmailSettings()
@@ -31709,10 +31711,18 @@ function loadIrodaSettings() {
     btn.addEventListener('click', () => {
       if (btn.dataset.category === 'email') openIrodaEmailSettings()
       if (btn.dataset.category === 'depot') openIrodaDepotSettings()
+      if (btn.dataset.category === 'appwatch') openIrodaAppWatchSettings()
     })
   })
   document.getElementById('irodaSettingsBackBtn').addEventListener('click', closeIrodaSettingsDetail)
   document.getElementById('irodaSettingsDepotBackBtn')?.addEventListener('click', closeIrodaSettingsDetail)
+  document.getElementById('irodaSettingsAppWatchBackBtn')?.addEventListener('click', closeIrodaSettingsDetail)
+  document.getElementById('appWatchAddBtn')?.addEventListener('click', () => _appWatchAdd())
+  document.getElementById('appWatchCheckBtn')?.addEventListener('click', () => _appWatchCheck())
+  document.getElementById('appWatchList')?.addEventListener('click', (ev) => {
+    const b = ev.target && ev.target.closest ? ev.target.closest('[data-appwatch-remove]') : null
+    if (b) _appWatchRemove(b.getAttribute('data-appwatch-remove'))
+  })
 }
 
 // Vissza a csempekhez. A Raktar kartyai kerdezgetik a szervert, amig egy
@@ -31730,6 +31740,8 @@ function closeIrodaSettingsDetail() {
   document.getElementById('irodaSettingsDetailView').hidden = true
   const depotView = document.getElementById('irodaSettingsDepotView')
   if (depotView) depotView.hidden = true
+  const awView = document.getElementById('irodaSettingsAppWatchView')
+  if (awView) awView.hidden = true
 }
 
 // Raktar beallitasok: ugyanazok a kartyak, mint a regi Depo lapon (az
@@ -31742,6 +31754,96 @@ function openIrodaDepotSettings() {
   const depotView = document.getElementById('irodaSettingsDepotView')
   if (depotView) depotView.hidden = false
   return loadDepoPage()
+}
+
+// #764: Letoltes-figyelo. A lista a szerveren van (store/app-page-watch.json); a felulet csak mutatja es kezeli.
+function openIrodaAppWatchSettings() {
+  irodaSettingsInDetailView = true
+  irodaSettingsDetailKind = 'appwatch'
+  _depoStopPoll()
+  document.getElementById('irodaSettingsCategoryList').hidden = true
+  document.getElementById('irodaSettingsDetailView').hidden = true
+  const depotView = document.getElementById('irodaSettingsDepotView')
+  if (depotView) depotView.hidden = true
+  const awView = document.getElementById('irodaSettingsAppWatchView')
+  if (awView) awView.hidden = false
+  return _appWatchRefresh()
+}
+
+function _appWatchSay(msg) {
+  const st = document.getElementById('appWatchStatus')
+  if (st) st.textContent = msg || ''
+}
+
+function _appWatchRender(pages) {
+  const box = document.getElementById('appWatchList')
+  if (!box) return
+  if (!pages.length) {
+    box.innerHTML = '<p class="subtitle" style="margin:0">' + escapeHtml(t('appwatch.empty')) + '</p>'
+    return
+  }
+  box.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>' + escapeHtml(t('appwatch.col_name')) + '</th>'
+    + '<th>' + escapeHtml(t('appwatch.col_value')) + '</th>'
+    + '<th>' + escapeHtml(t('appwatch.col_when')) + '</th><th></th></tr></thead><tbody>'
+    + pages.map(function (p) {
+      var when = p.checkedAt ? new Date(p.checkedAt).toLocaleString((window._lang === 'en') ? 'en-GB' : 'hu-HU', { dateStyle: 'short', timeStyle: 'short' }) : t('appwatch.never')
+      return '<tr><td><strong>' + escapeHtml(p.label) + '</strong><br><span class="subtitle" style="font-size:11px;overflow-wrap:anywhere">' + escapeHtml(p.url) + '</span></td>'
+        + '<td>' + escapeHtml(p.text)
+        + (p.error ? '<br><span class="c-danger" style="font-size:12px">' + escapeHtml(t('appwatch.last_error')) + ' ' + escapeHtml(p.error) + '</span>' : '')
+        + '</td>'
+        + '<td class="subtitle">' + escapeHtml(when) + '</td>'
+        + '<td><button class="btn-secondary btn-compact" data-appwatch-remove="' + escapeAttr(p.id) + '">' + escapeHtml(t('appwatch.remove')) + '</button></td></tr>'
+    }).join('') + '</tbody></table></div>'
+}
+
+async function _appWatchRefresh() {
+  try {
+    const d = await _depoGet('/api/app-watch?lang=' + (window._lang || 'hu'))
+    _appWatchRender(d.pages || [])
+  } catch (e) {
+    _appWatchSay(t('appwatch.load_failed') + ' ' + ((e && e.message) ? e.message : String(e)))
+  }
+}
+
+async function _appWatchAdd() {
+  const url = document.getElementById('appWatchUrl')
+  const label = document.getElementById('appWatchLabel')
+  if (!url) return
+  if (!String(url.value || '').trim()) { _appWatchSay(t('appwatch.need_url')); return }
+  try {
+    const d = await _depoPost('/api/app-watch/add?lang=' + (window._lang || 'hu'), { url: url.value, label: label ? label.value : '' })
+    url.value = ''
+    if (label) label.value = ''
+    _appWatchRender(d.pages || [])
+    _appWatchSay(t('appwatch.added'))
+  } catch (e) {
+    _appWatchSay((e && e.message) ? e.message : String(e))
+  }
+}
+
+async function _appWatchRemove(id) {
+  if (!window.confirm(t('appwatch.remove_confirm'))) return
+  try {
+    const d = await _depoPost('/api/app-watch/remove?lang=' + (window._lang || 'hu'), { id: id })
+    _appWatchRender(d.pages || [])
+    _appWatchSay('')
+  } catch (e) {
+    _appWatchSay((e && e.message) ? e.message : String(e))
+  }
+}
+
+async function _appWatchCheck() {
+  _appWatchSay(t('appwatch.checking'))
+  try {
+    const d = await _depoPost('/api/app-watch/check?lang=' + (window._lang || 'hu'), {})
+    _appWatchRender(d.pages || [])
+    const bad = (d.results || []).filter(function (r) { return !r.ok }).length
+    const up = (d.results || []).filter(function (r) { return r.increased }).length
+    _appWatchSay(bad ? t('appwatch.check_partial', { n: String(bad) }) : (up ? t('appwatch.check_up', { n: String(up) }) : t('appwatch.check_done')))
+  } catch (e) {
+    _appWatchSay((e && e.message) ? e.message : String(e))
+  }
 }
 
 function renderIrodaSettingsTabs() {

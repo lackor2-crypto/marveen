@@ -1743,6 +1743,12 @@
           <span class="iroda-settings-category-label" data-i18n="irodaSettings.category.depot">Raktár beállítások</span>
           <span class="iroda-settings-category-desc" data-i18n="irodaSettings.category.depot_desc">Hol legyenek a fájljaid, Drive- és fotó-másolat, mentés</span>
         </button>
+        <!-- #764: nyilvanos app-oldalak (Google Play / App Store) figyelese -->
+        <button type="button" class="iroda-settings-category-btn" data-category="appwatch">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+          <span class="iroda-settings-category-label" data-i18n="irodaSettings.category.appwatch">Letöltés-figyelő</span>
+          <span class="iroda-settings-category-desc" data-i18n="irodaSettings.category.appwatch_desc">Nyilvános app-oldalak figyelése, értesítés ha nő a szám</span>
+        </button>
       </div>
       <div id="irodaSettingsDetailView" hidden>
         <button type="button" class="btn-secondary btn-compact" id="irodaSettingsBackBtn" style="margin-bottom:12px">
@@ -1756,6 +1762,37 @@
            azonositokkal, mint a korabbi kulon Raktar lapon -- csak a szulojuk
            valtozott, hogy a regi mely-hivatkozasok (#depo) es minden meglevo
            felulet-teszt valtozatlanul mukodjon. -->
+      <div id="irodaSettingsAppWatchView" hidden>
+        <button type="button" class="btn-secondary btn-compact" id="irodaSettingsAppWatchBackBtn" style="margin-bottom:12px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          <span data-i18n="irodaSettings.back">Vissza</span>
+        </button>
+        <div class="card">
+          <h2 data-i18n="appwatch.title">Letöltés-figyelő</h2>
+          <p class="subtitle" data-i18n="appwatch.what">
+            Naponta egyszer megnézi a megadott nyilvános app-oldalakat, és Telegramon szól, ha a letöltések (vagy az értékelések) száma nőtt. Csak olvassa az oldalakat, semmit nem ír és nem lép be sehová.
+          </p>
+          <p class="subtitle" data-i18n="appwatch.limits">
+            Amit lát: a Google Play a letöltést kerekített sávban mutatja (pl. 100+), mellette egy pontosabb szám is van az oldalon. Az Apple App Store letöltésszámot nem mutat, ott csak az értékelések számát lehet figyelni. A pontos letöltésszám a fejlesztői konzolban van, ahhoz itt nincs hozzáférés.
+          </p>
+          <div id="appWatchList"></div>
+          <h3 style="margin:14px 0 6px;font-size:14px" data-i18n="appwatch.add_title">Új oldal figyelése</h3>
+          <p class="subtitle" style="margin:0 0 8px" data-i18n="appwatch.add_how">
+            1. Nyisd meg az app oldalát a Google Play-en vagy az App Store-ban. 2. Másold ki a böngésző címsorából a teljes címet. 3. Illeszd be ide (például: https://play.google.com/store/apps/details?id=...). A név csak a saját emlékeztetődnek van, bármi lehet.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="appWatchLabel" class="input-sm" style="flex:1 1 160px;min-width:0" maxlength="80" autocomplete="off"
+                   data-i18n-placeholder="appwatch.label_ph" placeholder="Név (pl. Sofőr app, Google Play)">
+            <input type="text" id="appWatchUrl" class="input-sm" style="flex:3 1 260px;min-width:0" autocomplete="off"
+                   data-i18n-placeholder="appwatch.url_ph" placeholder="https://play.google.com/store/apps/details?id=...">
+            <button class="btn-secondary btn-compact" id="appWatchAddBtn" data-i18n="appwatch.add_btn">Hozzáadás</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+            <button class="btn-secondary btn-compact" id="appWatchCheckBtn" data-i18n="appwatch.check_btn">Ellenőrzés most</button>
+            <span id="appWatchStatus" class="subtitle"></span>
+          </div>
+        </div>
+      </div>
       <div id="irodaSettingsDepotView" hidden>
         <button type="button" class="btn-secondary btn-compact" id="irodaSettingsDepotBackBtn" style="margin-bottom:12px">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
