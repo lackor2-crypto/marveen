@@ -200,6 +200,32 @@ describe('#720 import of a real Word file (LibreOffice)', () => {
     expect(vers().find((v) => v.id === after[1].id)!.source_path).toBe(rel)
     expect(readFileSync(join(depot, rel)).equals(Buffer.concat([original, Buffer.from('x')]))).toBe(true)
     expect(readdirSync(join(depot, dirRel))).toEqual(['Kérelem.docx'])
+    expect(del.body.page_reloaded).toBe(true)
+
+    // "upload the edited file": it goes INTO the own file (no "Kérelem (2).docx"), and the page is read from it
+    const upHtml = join(depot, 'up.html')
+    writeFileSync(upHtml, '<html><body><h1>Kérelem</h1><p>Feltöltött mondat.</p></body></html>', 'utf-8')
+    const up = await sofficeConvertFile(upHtml, 'docx:MS Word 2007 XML', { outExt: 'docx', infilter: 'HTML (StarWriter)' })
+    if (!up.ok) throw new Error(`soffice: ${up.code}`)
+    const before = vers().length
+    const u = await callWorkbench(`/api/workbench/items/${it0.id}/document?name=${encodeURIComponent('Kérelem (szerkesztett).docx')}`, 'POST', up.data)
+    expect(u.status).toBe(201)
+    expect(u.body.page_reloaded).toBe(true)
+    expect(readdirSync(join(depot, dirRel))).toEqual(['Kérelem.docx'])
+    expect(getWorkItem(it0.id)!.source_path).toBe(rel)
+    expect(readFileSync(join(depot, rel)).equals(up.data)).toBe(true)
+    expect(pageText()).toContain('Feltöltött mondat.')
+    expect(vers()).toHaveLength(before + 1)
+    expect(isWordStorePath(vers()[before - 1].source_path)).toBe(true) // the state before the upload, kept
+  }, 240_000)
+
+  it('#781: a file of another type uploaded to a Word item takes the usual road (a new file, no page re-read)', async () => {
+    const rel = await mkDocx('Levél3.docx', '<html><body><h1>Levél</h1><p>Szöveg.</p></body></html>')
+    const it0 = mkItem(rel, 'Levél3')
+    expect((await importWordToOutline(it0, 'owner')).ok).toBe(true)
+    const u = await callWorkbench(`/api/workbench/items/${it0.id}/document?name=${encodeURIComponent('Levél3.pdf')}`, 'POST', Buffer.from('%PDF-1.4 x'))
+    expect(u.status).toBe(201)
+    expect(u.body.page_reloaded).toBeUndefined()
   }, 240_000)
 
   // The other three extensions the card names, each made by LibreOffice (the card's comment had measured only .docx).

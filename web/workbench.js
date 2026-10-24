@@ -20558,6 +20558,8 @@
     WB.previewVersion = null
     render()
     if (WB.selectedId) loadPreview(WB.selectedId, null)
+    // #781: a Word item's restore / delete wrote the kept state back into its file and read the page from it.
+    if (data.page_reloaded) refreshOutline()
     load(WB.projectId)
   }
 
@@ -20733,6 +20735,8 @@
           return
         }
         if (WB.detail && data && data.item) { WB.detail.item = data.item; WB.detail.versions = data.versions || WB.detail.versions }
+        // #781: a Word item took the uploaded file into its own file and read the page from it.
+        if (data && data.page_reloaded) refreshOutline()
         loadPreview(itemId, null)
         WB.previewVersion = null
         render()

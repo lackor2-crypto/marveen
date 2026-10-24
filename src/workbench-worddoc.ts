@@ -645,3 +645,35 @@ export async function deleteWordCurrentVersion(item: WorkItemRow, versionId: str
   if (!put.ok) return put
   return { ok: true, item: put.item, version: null, loaded: del.loaded }
 }
+
+/**
+ * #781: "Upload the edited file" on a Word item read onto the page. The plain upload wrote "X (2).docx" beside the owner's
+ * file and pointed the item at it, while the page kept the old text. Instead the uploaded file goes INTO the owner's own
+ * file (same type only), the state it had is kept as the previous version (store folder), and the page is read from it.
+ * Null = not this case (another type, or not a Word item on the page): the caller uploads the usual way.
+ */
+export async function uploadWordVersion(item: WorkItemRow, bytes: Buffer, name: unknown, by: string | null): Promise<WordVersionOutcome | null> {
+  const rel = item.source_path
+  if (!isWordImported(item.id) || !rel || isWordStorePath(rel)) return null
+  const ext = extname(rel).toLowerCase()
+  if (!ext || extname(String(name ?? '')).toLowerCase() !== ext) return null
+  const abs = resolveLifePath(rel)
+  if (!abs) return { ok: false, code: 'worddoc_unreadable', detail: null }
+  let current: Buffer
+  try { current = readFileSync(abs) } catch { return { ok: false, code: 'worddoc_unreadable', detail: null } }
+  const project = getProject(item.project_id)
+  if (!project || project.archived_at != null) return { ok: false, code: 'worddoc_project_gone', detail: null }
+  const upRel = writeStoreFile(item.id, `${basename(rel, extname(rel))} - ${APP_LANG === 'en' ? 'uploaded' : 'feltöltve'}${extname(rel)}`, bytes)
+  const upAbs = upRel ? resolveLifePath(upRel) : null
+  if (!upAbs) return { ok: false, code: 'worddoc_save_failed', detail: 'the uploaded file could not be kept in the store folder' }
+  const read = await readWordFile(upAbs)
+  if (!read.ok) return read
+  const warnings = new Set<WordWarning>(read.parsed.warnings)
+  const page = pageOf(read.parsed, item.id, rel, item.title, warnings)
+  const made = keepStateAsPrevious(item, rel, current, by, 'word_upload', APP_LANG === 'en' ? 'before upload' : 'feltöltés előtt')
+  if (!made) return { ok: false, code: 'worddoc_save_failed', detail: 'the current state could not be kept in the store folder' }
+  try { writeFileSync(abs, bytes) } catch (e) { return { ok: false, code: 'worddoc_save_failed', detail: e instanceof Error ? e.message : String(e) } }
+  const put = putPage(made.item, page, [...warnings])
+  if (!put.ok) return put
+  return { ok: true, item: put.item, version: made.version, loaded: null }
+}
