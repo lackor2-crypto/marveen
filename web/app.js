@@ -26658,6 +26658,37 @@ function _renderApprovalsTableNow() {
       _openVerifyPicker(btn, btn.dataset.id, btn.dataset.agent)
     })
   })
+
+  tbody.querySelectorAll('.approvals-verify-cancel').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (!window.confirm(t('approvals.verify.cancel_confirm'))) return
+      _cancelApprovalVerifications(btn.dataset.id, btn)
+    })
+  })
+}
+
+// #774 (Boss TG 10319): take back the reviews still running on an approval, so a VS Code executor
+// holding queued review tasks is free again. A task that already runs cannot be stopped (the CLI has
+// no remote stop): the toast says so instead of claiming the executor is free.
+async function _cancelApprovalVerifications(id, btn) {
+  if (btn) btn.disabled = true
+  try {
+    const res = await fetch(`/api/approvals/${encodeURIComponent(id)}/verify/cancel`, { method: 'POST' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      showToast(t('approvals.toast.error', { msg: (data && data.error) || ('HTTP ' + res.status) }))
+      if (btn) btn.disabled = false
+      return
+    }
+    showToast(data.runningTasks > 0
+      ? t('approvals.verify.cancel_done_running', { n: data.runningTasks })
+      : t('approvals.verify.cancel_done', { n: data.cancelledTasks }))
+    await loadApprovalsPage()
+  } catch (err) {
+    if (btn) btn.disabled = false
+    showToast(t('approvals.toast.error', { msg: String(err.message || err) }))
+  }
 }
 
 // === Approvals: "verify before you approve" (Boss 2026-08-08) ===
@@ -26735,7 +26766,10 @@ function _approvalVerifyCellHtml(a) {
     summary = `<div style="color:var(--success);font-weight:700">${t('approvals.verify.summary_pass')}</div>`
   }
   return `<div style="font-size:11px;line-height:1.5">${summary}<div style="margin-top:2px">${perAgent}</div>
-    <button class="btn-secondary btn-compact approvals-verify-btn" data-id="${escapeAttr(a.id)}" data-agent="${escapeAttr(a.agent_id)}" style="font-size:10px;margin-top:4px">${t('approvals.verify.rerun_btn')}</button>
+    <span style="display:inline-flex;gap:4px;align-items:center;margin-top:4px">
+      <button class="btn-secondary btn-compact approvals-verify-btn" data-id="${escapeAttr(a.id)}" data-agent="${escapeAttr(a.agent_id)}" style="font-size:10px">${t('approvals.verify.rerun_btn')}</button>${pending.length > 0 ? `
+      <button class="btn-secondary btn-compact approvals-verify-cancel" data-id="${escapeAttr(a.id)}" title="${escapeAttr(t('approvals.verify.cancel_title'))}" aria-label="${escapeAttr(t('approvals.verify.cancel_title'))}" style="font-size:10px">✕</button>` : ''}
+    </span>
   </div>`
 }
 

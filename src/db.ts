@@ -4537,6 +4537,18 @@ export function listApprovalVerifications(approvalId: string): ApprovalVerificat
     .all(approvalId) as ApprovalVerification[]
 }
 
+/**
+ * Boss (TG 10319, #774): take back the reviews that are still running on an approval. Removes the
+ * PENDING rows (finished pass/fail answers stay: they are results, not running work) and returns
+ * them, so the caller can also call off the queued VS Code tasks behind them.
+ */
+export function deletePendingApprovalVerifications(approvalId: string): ApprovalVerification[] {
+  const rows = db.prepare("SELECT * FROM approval_verifications WHERE approval_id = ? AND status = 'pending'")
+    .all(approvalId) as ApprovalVerification[]
+  if (rows.length) db.prepare("DELETE FROM approval_verifications WHERE approval_id = ? AND status = 'pending'").run(approvalId)
+  return rows
+}
+
 // Resolves the (approval, agent) row regardless of which approval_verifications
 // id format was used -- looked up by the natural key, not the synthetic id,
 // so a caller only needs to know which approval/agent it is reporting for.
