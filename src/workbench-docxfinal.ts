@@ -71,6 +71,20 @@ function unchangedFinalPdf(item: WorkItemRow, docxAbs: string): { path: string; 
 }
 
 /**
+ * #783: the final PDF the Word finalize left (an item finalized before #777), for the project close check: its name, and
+ * whether the Word file changed since it was made. Null = there is none.
+ */
+export function docxFinalState(item: WorkItemRow): { name: string; stale: boolean } | null {
+  if (!hasDocxFinalPanel(item)) return null
+  const pdf = docxFinalPdf(item)
+  if (!pdf) return null
+  const src = item.source_path ? resolveLifePath(item.source_path) : null
+  let stale = false
+  try { if (src) stale = statSync(pdf.abs).mtimeMs < statSync(src).mtimeMs } catch { /* an unreadable file: not called stale */ }
+  return { name: pdf.name, stale }
+}
+
+/**
  * The newest final PDF of the item (registered by the finalize), or null. Both languages' names count: the page language
  * may have changed since the finalize. The e-mail draft (workbench-maildraft.ts, #723) attaches it.
  */
