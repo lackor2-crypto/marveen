@@ -41290,6 +41290,7 @@ function _inboxCardHtml(sug) {
   var head = '<div class="ib-head"><span class="ib-file">' + escapeHtml(sug.name) + '</span>'
     + '<span class="ib-chip">' + escapeHtml(sug.type.label) + '</span>'
     + (ai && ai.docType ? '<span class="ib-chip ib-chip-ai">' + escapeHtml(ai.docType) + '</span>' : '')
+    + (ai && ai.noteUsed ? '<span class="ib-chip ib-chip-note" title="' + escapeAttr(t('inbox.note_used_tip')) + '">' + escapeHtml(t('inbox.note_used')) + '</span>' : '')
     + (sug._aiPending ? '<span class="ib-chip ib-chip-wait">' + escapeHtml(t('inbox.ai_pending')) + '</span>' : '')
     + '</div>'
   var summary = ai && ai.summary ? '<p class="ib-summary">' + escapeHtml(ai.summary) + '</p>' : ''
@@ -41387,6 +41388,12 @@ var _INBOX_AI_CHUNK = 4
  * documents go to the AI in small groups, so the cards fill in one by one and
  * a slow local model still shows progress. What the user already changed by
  * hand is never overwritten. */
+// #770: the owner's one remark for the whole list; it stays in the field until the list is placed.
+function _inboxOwnerNote() {
+  var el = document.getElementById('inboxOwnerNote')
+  return el ? String(el.value || '').trim() : ''
+}
+
 async function _inboxAiRound() {
   var run = ++_inboxAiRun
   var note = document.getElementById('inboxAiNote')
@@ -41406,7 +41413,7 @@ async function _inboxAiRound() {
     var chunk = queue.shift()
     var d = null
     try {
-      d = await _depoPost('/api/life/inbox/ai-suggest?lang=' + (window._lang || 'hu'), { names: chunk })
+      d = await _depoPost('/api/life/inbox/ai-suggest?lang=' + (window._lang || 'hu'), { names: chunk, note: _inboxOwnerNote() })
     } catch (e) {
       lastNote = t('inbox.ai_failed') + ' ' + ((e && e.message) ? e.message : String(e))
     }
@@ -41581,6 +41588,9 @@ async function _inboxPlaceAll() {
   if (box) box.innerHTML = _inboxSuggestions.length ? _inboxRenderSuggestions() : ''
   var allBtn = document.getElementById('inboxPlaceAllBtn')
   if (allBtn) allBtn.hidden = !_inboxSuggestions.filter(function (s) { return !s.credentialWarning }).length
+  // The remark belonged to this batch: once everything is placed it is gone.
+  var ownerNoteEl = document.getElementById('inboxOwnerNote')
+  if (ownerNoteEl && !_inboxSuggestions.length) ownerNoteEl.value = ''
   var note = document.getElementById('inboxAnalyzeNote')
   if (note && failMsgs.length) {
     note.innerHTML = escapeHtml(t('inbox.place_all_failures')) + '<br>' + failMsgs.map(escapeHtml).join('<br>')
