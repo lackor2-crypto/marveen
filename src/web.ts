@@ -115,6 +115,10 @@ import { tryHandleDepot } from './web/routes/depot.js'
 import { pruneEmptyStorageDirs, restoreBuriedSystemFolders } from './depot.js'
 import { tryHandleLife } from './web/routes/life.js'
 import { tryHandleStorages } from './web/routes/storages.js'
+import { tryHandleAppWatch } from './web/routes/app-watch.js'
+import { runWatch as runAppPageWatch } from './app-page-watch.js'
+import { sendMarveenAlert as sendAppWatchAlert } from './web/telegram.js'
+import { ownerLang as appWatchOwnerLang } from './owner-lang.js'
 import { tryHandleMega } from './web/routes/mega.js'
 import { tryHandleCloudUpload } from './web/routes/cloud-upload.js'
 import { tryHandleBackupRules } from './web/routes/backup-rules.js'
@@ -331,6 +335,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleDepot(routeCtx)) return
       if (await tryHandleLife(routeCtx)) return
       if (await tryHandleStorages(routeCtx)) return
+      if (await tryHandleAppWatch(routeCtx)) return
       if (await tryHandleMega(routeCtx)) return
       if (await tryHandleCloudUpload(routeCtx)) return
       if (await tryHandleBackupRules(routeCtx)) return
@@ -727,6 +732,16 @@ export function startWebServer(port = 3420): http.Server {
   }
   kukaSepres()
   const kukaSepresInterval = setInterval(kukaSepres, 24 * 60 * 60 * 1000)
+
+  // #764: the public app pages the owner listed (Settings) are read once a day; a number that
+  // went UP is reported on the owner's channel. The first reading only sets the baseline.
+  // Not in a web-only test instance: it must not call out to the stores or message anyone.
+  const appPageWatch = () => {
+    runAppPageWatch({ notify: sendAppWatchAlert, lang: appWatchOwnerLang() === 'en' ? 'en' : 'hu' })
+      .catch((err) => logger.warn({ err: String(err) }, '[app-watch] the daily check did not run'))
+  }
+  const appPageWatchFirst = webOnly ? undefined : setTimeout(appPageWatch, 5 * 60 * 1000)
+  const appPageWatchInterval = webOnly ? undefined : setInterval(appPageWatch, 24 * 60 * 60 * 1000)
 
   // #396: the daily full backup (Settings -> Backup sets the time).
   const stopBackupScheduler = startDashboardBackup()
@@ -1184,6 +1199,8 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(verificationSweepInterval)
     clearInterval(authSessionSweepInterval)
     clearInterval(kukaSepresInterval)
+    if (appPageWatchFirst) clearTimeout(appPageWatchFirst)
+    if (appPageWatchInterval) clearInterval(appPageWatchInterval)
     stopBackupScheduler()
     clearInterval(skillSeederInterval)
     clearInterval(replyMetaInterval)
