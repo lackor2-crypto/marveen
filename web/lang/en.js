@@ -692,6 +692,7 @@ window._i18n.en = {
   'drive.quota_trash': '{b} of it in the Trash',
   'drive.quota_no_limit': '{b} in use (Google did not state an upper limit)',
   'drive.quota_never': 'No storage measurement yet. That does not mean the account is full, and it does not mean there is room — only that we have not asked Google yet. Press "Measure now".',
+  'drive.quota_not_connected': "No Drive folder is connected yet, so there is nothing to measure. Connect a Google Drive folder on the Storages page, in the \"Run the Drive backup\" section, and your account's storage will show up here.",
   'drive.quota_measure_now': 'Measure now',
   'drive.quota_measuring': 'Measuring…',
   'drive.quota_measure_done': 'Done: measured {n} accounts.',

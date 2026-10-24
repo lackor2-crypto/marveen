@@ -2573,7 +2573,14 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   // 13,1 GB-ot mutatott. Ez a gomb ket masodperc alatt eldonti a kerdest, es
   // nem kell a kovetkezo ejszakai futasra varni.
   if (path === '/api/drive/quota' && method === 'GET') {
-    json(res, { quotas: loadDriveQuotas(), fileExists: existsSync(DRIVE_QUOTA_PATH) })
+    // Csak a MOST bekotott fiokok szamait adjuk: egy regi meres egy mar nem
+    // bekotott fiokrol nullazva/elavultan latszana (Boss, #773). Ures lista =
+    // nincs bekotott Drive-mappa, a felulet ekkor utmutatot ir.
+    const bekotott = new Set(loadSyncConfig().pairs.map((p) => String(p.account || '')).filter(Boolean))
+    const mind = loadDriveQuotas()
+    const quotas: typeof mind = {}
+    for (const [acct, q] of Object.entries(mind)) if (bekotott.has(acct)) quotas[acct] = q
+    json(res, { quotas, connected: bekotott.size > 0, fileExists: existsSync(DRIVE_QUOTA_PATH) })
     return true
   }
 
