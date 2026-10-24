@@ -110,6 +110,9 @@ export function parseVideoParams(body: Record<string, unknown>): VideoParams {
 export const VIDEO_PROMPT_GUARD = 'No recognisable brand logos, real car brands, readable text or licence plates in the scene.'
 
 const polling = new Map<string, Promise<void>>()
+/** #784: the work items whose start is between the "already running?" check and the saved row. Two requests at once (two
+ *  tabs, the owner and the assistant) both passed the check while the model list was being fetched, and both paid. */
+const starting = new Set<string>()
 
 export async function startVideoGeneration(input: {
   item: WorkItemRow; project: ProjectRow; prompt: string; params: VideoParams; deps?: VideoGenDeps
@@ -122,7 +125,18 @@ export async function startVideoGeneration(input: {
   if (!key) return { ok: false, status: 409, code: 'video_no_key', detail: null }
   const active = activeVideoGen(input.item.id)
   if (active) return { ok: false, status: 409, code: 'video_already_running', detail: active.id }
+  if (starting.has(input.item.id)) return { ok: false, status: 409, code: 'video_already_running', detail: null }
+  starting.add(input.item.id)
+  try {
+    return await startReserved(input, deps, prompt, key)
+  } finally {
+    starting.delete(input.item.id)
+  }
+}
 
+async function startReserved(
+  input: { item: WorkItemRow; project: ProjectRow; params: VideoParams }, deps: VideoGenDeps, prompt: string, key: string,
+): Promise<{ ok: true; row: VideoGenRow } | VideoGenError> {
   const pre = await previewVideoGen(input.params, deps)
   if (!pre.ok) return pre
   // Ismeretlen ar: nem talalunk ki szamot, es a keretet sem tudjuk vedeni -> nem indul.
@@ -131,7 +145,10 @@ export async function startVideoGeneration(input: {
     return { ok: false, status: 409, code: 'video_over_budget', detail: `${pre.month_spent_usd.toFixed(2)} + ${pre.estimate_usd.toFixed(2)} > ${pre.month_budget_usd}` }
   }
 
-  // A sor a KERES ELOTT: ha a folyamat most all le, a sor megvan (lasd failOrphanPreparing).
+  // A sor a KERES ELOTT: ha a folyamat most all le, a sor megvan (lasd failOrphanPreparing). The check right before it
+  // has no await in between, so no other start can slip in.
+  const again = activeVideoGen(input.item.id)
+  if (again) return { ok: false, status: 409, code: 'video_already_running', detail: again.id }
   const row = createVideoGen({ itemId: input.item.id, projectId: input.project.id, model: pre.model, prompt, params: input.params, estUsd: pre.estimate_usd })
   const started = await startVideo({ key, model: pre.model, prompt: `${prompt}\n\n${VIDEO_PROMPT_GUARD}`, params: input.params, fetchImpl: deps.fetchImpl })
   if (!started.ok) {

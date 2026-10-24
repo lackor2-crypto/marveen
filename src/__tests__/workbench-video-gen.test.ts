@@ -153,6 +153,24 @@ describe('a teljes folyamat', () => {
     expect(s.posts).toBe(1)
   })
 
+  it('#784: ket EGYIDEJU inditas (ket ful / tulajdonos + asszisztens): csak EGY fizetos keres megy el', async () => {
+    const { f, s } = fakeOpenRouter({ status: ['in_progress'] })
+    const deps = { fetchImpl: f, getKey: () => 'K', pollMs: 1_000_000, sleep: () => new Promise<void>(() => {}) }
+    const [a, b] = await Promise.all([run(deps), run(deps)])
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1)
+    expect(a.ok ? b : a).toMatchObject({ ok: false, code: 'video_already_running' })
+    expect(s.posts).toBe(1)
+    expect(listVideoGens(itemId)).toHaveLength(1)
+  })
+
+  it('#784: egy elutasitott inditas nem hagy foglalast: utana ujra lehet inditani', async () => {
+    const bad = fakeOpenRouter({ startStatus: 402 })
+    expect(await run({ fetchImpl: bad.f, getKey: () => 'K' })).toMatchObject({ ok: false, code: 'video_no_credit' })
+    const good = fakeOpenRouter({ status: ['in_progress'] })
+    const r = await run({ fetchImpl: good.f, getKey: () => 'K', pollMs: 1_000_000, sleep: () => new Promise<void>(() => {}) })
+    expect(r.ok).toBe(true)
+  })
+
   it('erzekeny munkadarabnal nem fut; kulcs nelkul nem fut; ures prompttal nem fut', async () => {
     const { f, s } = fakeOpenRouter()
     expect(await run({ fetchImpl: f, getKey: () => null })).toMatchObject({ ok: false, code: 'video_no_key' })
