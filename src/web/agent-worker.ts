@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync, lstatSync, symlinkSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, appendFileSync, readdirSync, lstatSync, symlinkSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir, userInfo } from 'node:os'
 import { createHash } from 'node:crypto'
 import { resolveFromPath, tryResolveFromPath, makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import { tmuxStderr } from './tmux-stderr.js'
-import { MAIN_AGENT_ID, PROJECT_ROOT, DEFAULT_AGENT_MODEL } from '../config.js'
+import { MAIN_AGENT_ID, PROJECT_ROOT, DEFAULT_AGENT_MODEL, STORE_DIR } from '../config.js'
 import {
   capturePane,
   isSessionReadyForPrompt,
@@ -560,9 +560,9 @@ const WORKER_STUCK_ALERT_COOLDOWN_MS = 60 * 60 * 1000
  * the pane still is not healthy. Never touches a busy/idle/auth pane.
  * Returns true if it acted.
  */
-function selfHealWorkerOnce(ctx: WorkerCtx): boolean {
+function selfHealWorkerOnce(ctx: WorkerCtx): 'none' | 'escaped' | 'restarted' {
   const cls = classifyWorkerPane(capturePane(ctx.session))
-  if (!shouldSelfHeal(cls)) return false
+  if (!shouldSelfHeal(cls)) return 'none'
   logger.warn({ cls, session: ctx.session }, 'agent-worker: pane parked on unexpected chrome -- bounded Escape self-heal')
   for (let i = 0; i < WORKER_SELF_HEAL_MAX_ESCAPES; i++) {
     try { execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Escape'], { timeout: 5000 }) } catch { break }
@@ -570,12 +570,33 @@ function selfHealWorkerOnce(ctx: WorkerCtx): boolean {
     const now = classifyWorkerPane(capturePane(ctx.session))
     if (now === 'idle' || now === 'busy') {
       logger.info({ escapes: i + 1, session: ctx.session }, 'agent-worker: self-heal cleared the parked chrome via Escape')
-      return true
+      return 'escaped'
     }
   }
   logger.warn({ session: ctx.session }, 'agent-worker: Escape did not clear the parked chrome -- restarting the worker session')
   restartWorkerSession(ctx)
-  return true
+  return 'restarted'
+}
+
+// The last not-ready pane tail per worker session. ensureWorkerReady only
+// RECORDS it; the operator alert is raised by runViaWorker once the restart +
+// retry has also failed (#778): paging after the first 90s window told the
+// owner "never became ready" for a worker that the retry brought up seconds
+// later.
+const lastStuckTail = new Map<string, string>()
+
+/** Durable evidence of a not-ready worker: the screen that was on it. Without
+ *  this the next false/true alarm cannot be told apart (#778). Best effort. */
+function recordWorkerNotReady(ctx: WorkerCtx, cls: WorkerPaneClass, paneTail: string): void {
+  lastStuckTail.set(ctx.session, paneTail)
+  try {
+    appendFileSync(
+      join(STORE_DIR, 'worker-stuck.log'),
+      `${new Date().toISOString()} session=${ctx.session} class=${cls}\n${paneTail}\n---\n`,
+    )
+  } catch (err) {
+    logger.debug({ err }, 'agent-worker: could not write worker-stuck.log')
+  }
 }
 
 /** Loud, rate-limited operator signal: the worker never became ready. */
@@ -601,18 +622,22 @@ async function ensureWorkerReady(ctx: WorkerCtx): Promise<boolean> {
   }
   startWorkerSessionFor(ctx)
   const start = Date.now()
-  const deadline = start + WORKER_BOOT_TIMEOUT_MS
+  let deadline = start + WORKER_BOOT_TIMEOUT_MS
   let healed = false
   while (Date.now() < deadline) {
     if (await isSessionReadyForPrompt(ctx.session)) return true
     if (!healed && Date.now() - start > WORKER_SELF_HEAL_GRACE_MS) {
       healed = true
-      try { selfHealWorkerOnce(ctx) } catch (err) { logger.warn({ err }, 'agent-worker: self-heal pass failed') }
+      try {
+        // A restarted session boots from zero: it gets a full boot window, not
+        // the ~65s left of the original one (#778).
+        if (selfHealWorkerOnce(ctx) === 'restarted') deadline = Date.now() + WORKER_BOOT_TIMEOUT_MS
+      } catch (err) { logger.warn({ err }, 'agent-worker: self-heal pass failed') }
     }
     await sleepMs(2000)
   }
   const pane = capturePane(ctx.session)
-  alertWorkerStuck(ctx, (pane ?? '').split('\n').slice(-12).join('\n'))
+  recordWorkerNotReady(ctx, classifyWorkerPane(pane), (pane ?? '').split('\n').slice(-12).join('\n'))
   return false
 }
 
@@ -743,6 +768,9 @@ export async function runViaWorker(
           logger.warn({ session: ctx.session }, 'agent-worker: worker not ready -- restarting once and retrying the request')
           restartWorkerSession(ctx)
           continue
+        }
+        if (r.error === 'worker session not ready') {
+          alertWorkerStuck(ctx, lastStuckTail.get(ctx.session) ?? '')
         }
         return { text: null, error: r.error }
       }
