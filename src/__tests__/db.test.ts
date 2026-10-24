@@ -21,6 +21,7 @@ import {
   deletePendingTaskRetryById,
   markPendingTaskRetryAlert,
   clearPendingTaskRetryAlert,
+  backfillEmbeddings,
 } from '../db.js'
 import { DB_FILENAME } from '../config.js'
 
@@ -95,33 +96,36 @@ describe('memories', () => {
   // A fenti eset csak azt allitja, hogy a beszuras tulel egy halott Ollamat.
   // Az NEM esik el tole, ha az embed-blokk teljesen hianyzik -- pontosan ezert
   // maradhatott eszrevetlen, hogy a saveMemory evekig embedding nelkul INSERT-elt.
-  // Ez a teszt a MEGELOZEST rogziti: elerheto embedding-szolgaltatas mellett a
-  // saveMemory-val irt sor NEM maradhat NULL embeddinggel. Ha valaki kiveszi a
-  // fire-and-forget blokkot, ez a teszt bukik.
-  it('saveMemory vektorizalja a sort, ha az embedding-szolgaltatas valaszol', async () => {
+  // Ez a teszt a MEGELOZEST rogziti: a saveMemory-val irt sor (a napi naplo
+  // osszefoglaloja) nem eshet ki a szemantikus keresesbol. A #776 ota mentéskor
+  // NINCS embedding-kerés (a sor NULL marad), az ejszakai backfill vektorizalja.
+  it('saveMemory nem kerdezi az embedding-szolgaltatast, a backfill vektorizalja a sort', async () => {
     const vector = Array.from({ length: 8 }, (_, i) => i / 10)
     const realFetch = globalThis.fetch
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ embedding: vector }), {
+    const urls: string[] = []
+    globalThis.fetch = (async (url: string) => {
+      urls.push(String(url))
+      if (String(url).endsWith('/api/tags')) {
+        return new Response(JSON.stringify({ models: [{ name: 'nomic-embed-text:latest' }] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ embedding: vector }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
-      })) as typeof globalThis.fetch
+      })
+    }) as typeof globalThis.fetch
 
     try {
       saveMemory('mem-chat-embed-ok', '[Napi naplo teszt] vektorizalando', 'episodic')
       const id = getMemoriesForChat('mem-chat-embed-ok')[0].id
-
-      // Az embed-ag fire-and-forget, ezert nem szinkron assert kell, hanem
-      // idokorlatos varakozas. Szinkron ellenorzes vagy hibasan bukna, vagy
-      // veletlenszeruen menne at.
       const db = getDb()
       const read = () => (db.prepare('SELECT embedding FROM memories WHERE id = ?')
         .get(id) as { embedding: string | null }).embedding
-      const deadline = Date.now() + 2000
-      while (read() === null && Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 20))
-      }
 
+      await new Promise(r => setTimeout(r, 50))
+      expect(urls).toEqual([])
+      expect(read()).toBeNull()
+
+      await backfillEmbeddings()
       const stored = read()
       expect(stored).not.toBeNull()
       expect(JSON.parse(stored!)).toEqual(vector)

@@ -382,6 +382,10 @@ export const DASHBOARD_PUBLIC_URL = cfg('DASHBOARD_PUBLIC_URL') ?? ''
 // key, so it stays a plain env read (not routed through the override layer).
 export const DASHBOARD_ALLOWED_ORIGINS = env['DASHBOARD_ALLOWED_ORIGINS'] ?? ''
 export const OLLAMA_URL = cfg('OLLAMA_URL') ?? 'http://localhost:11434'
+// systemd --user unit of the LOCAL Ollama, restarted by the Ollama guard when
+// the server stops answering (#776). Empty by default: the unit name differs
+// per machine, so without it the guard only logs. Plain env read, no Settings key.
+export const OLLAMA_SERVICE_UNIT = env['OLLAMA_SERVICE_UNIT'] ?? ''
 
 // Card #683: read by the shell guards (scripts/fleet-memory-gate.sh,
 // scripts/tmp-sweep.py), not by the dashboard; named here so they are findable.

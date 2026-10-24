@@ -15,6 +15,7 @@ import type { Server as HttpServer } from 'node:http'
 import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED, BRAND_NAME } from './config.js'
 import { resolveOwnerChatId } from './owner-chat.js'
 import { initDatabase, runEmbeddingBackfill, DECAY_SWEEP_INTERVAL_MS } from './db.js'
+import { startOllamaGuard, stopOllamaGuard } from './ollama-guard.js'
 import { recoverInterruptedRestore } from './backup/restore.js'
 import { migrateLegacyAliases } from './web/code-bridge-store.js'
 import { readBrokerConfig, writeBrokerConfig } from './web/context-broker-store.js'
@@ -404,6 +405,8 @@ let googleLiveInterval: NodeJS.Timeout | null = null
 let decayInterval: NodeJS.Timeout | null = null
 let digestTimer: NodeJS.Timeout | null = null
 let digestInterval: NodeJS.Timeout | null = null
+let backfillTimer: NodeJS.Timeout | null = null
+let backfillInterval: NodeJS.Timeout | null = null
 let heartbeatStarted = false
 let webServer: HttpServer | null = null
 let shuttingDown = false
@@ -430,6 +433,9 @@ const shutdown = (): void => {
     if (decayInterval) clearInterval(decayInterval)
     if (digestTimer) clearTimeout(digestTimer)
     if (digestInterval) clearInterval(digestInterval)
+    if (backfillTimer) clearTimeout(backfillTimer)
+    if (backfillInterval) clearInterval(backfillInterval)
+    stopOllamaGuard()
 
     const hardKill = setTimeout(() => {
       logger.warn({ timeoutMs: SHUTDOWN_HARD_KILL_MS }, 'Graceful shutdown timeout, hard exit')
@@ -523,6 +529,28 @@ async function main(): Promise<void> {
     if (result.done > 0 || result.failed > 0) logger.info({ ...result }, 'Embedding backfill befejezve')
     else logger.debug({ ...result }, 'Embedding backfill: nincs teendo')
   }).catch(err => logger.warn({ err }, 'Embedding backfill hiba'))
+
+  // #776: new memories are saved WITHOUT an embedding request; this nightly
+  // run (03:30 local) vectorises them in one batch, so the embedding server is
+  // woken once a night instead of once per saved memory.
+  function scheduleNightlyEmbeddingBackfill() {
+    const now = new Date()
+    const target = new Date(now)
+    target.setHours(3, 30, 0, 0)
+    if (target <= now) target.setDate(target.getDate() + 1)
+    const run = () => {
+      runEmbeddingBackfill().then(result => {
+        if (result.done > 0 || result.failed > 0) logger.info({ ...result }, 'Ejszakai embedding backfill befejezve')
+      }).catch(err => logger.warn({ err }, 'Ejszakai embedding backfill hiba'))
+    }
+    backfillTimer = setTimeout(() => {
+      run()
+      backfillInterval = setInterval(run, 24 * 60 * 60 * 1000)
+    }, target.getTime() - now.getTime())
+    logger.info({ nextRun: target.toLocaleString('hu-HU') }, 'Ejszakai embedding backfill utemezve')
+  }
+  scheduleNightlyEmbeddingBackfill()
+  startOllamaGuard()
 
   // A fában lévő git-repók automatikus szinkronja. Boss: "meg az osszes git
   // ahol van a mapparendszerben. mind szinkronizaljon automatan". Sose ir
