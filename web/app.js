@@ -31753,8 +31753,6 @@ function openIrodaDepotSettings() {
   document.getElementById('irodaSettingsDetailView').hidden = true
   const depotView = document.getElementById('irodaSettingsDepotView')
   if (depotView) depotView.hidden = false
-  const awView = document.getElementById('irodaSettingsAppWatchView')
-  if (awView) awView.hidden = true
   return loadDepoPage()
 }
 

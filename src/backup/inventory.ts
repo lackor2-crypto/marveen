@@ -98,6 +98,8 @@ const STORE_DEPOT_CONFIG = [
   'life-tree.json', 'life-tree-created.json', 'life-mounts.json', 'life-labels.json',
   'life-archived.json', 'life-physical.json', 'storages.json', 'drive-sync.json', 'git-sync.json',
   'drive-skiplist.json', 'mirror-migrated.json',
+  // #764: the public app pages the owner asked to watch (and the last number seen on each).
+  'app-page-watch.json',
   // #510: which hidden folder id belongs to which path. Without it a restored install would
   // re-stamp every anchored folder and could not tell a renamed folder from a new one.
   'life-folder-ids.json',
