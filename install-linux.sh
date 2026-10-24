@@ -1683,6 +1683,19 @@ if ! curl -s "${OLLAMA_API}/api/version" &>/dev/null; then
   done
 fi
 
+# #776: a betoltott embedding-modell 30 percig marad a memoriaban (az Ollama
+# alapja 5 perc, a Marveen korabban 1 percre vette): a kevesebb ujratoltes
+# kevesebb CPU-csucs. Nem fatalis; csak a telepito altal letrehozott rendszer-
+# unithoz nyul, drop-in fajllal (a csomag sajat unitjat nem irja at).
+if [ -f /etc/systemd/system/ollama.service ] && [ ! -f /etc/systemd/system/ollama.service.d/marveen-keepalive.conf ]; then
+  if sudo -n true 2>/dev/null; then
+    sudo mkdir -p /etc/systemd/system/ollama.service.d 2>/dev/null \
+      && printf '[Service]\nEnvironment=OLLAMA_KEEP_ALIVE=30m\n' | sudo tee /etc/systemd/system/ollama.service.d/marveen-keepalive.conf >/dev/null 2>&1 \
+      && sudo systemctl daemon-reload 2>/dev/null \
+      && sudo systemctl restart ollama 2>/dev/null || true
+  fi
+fi
+
 # Modell letoltese az Ollama HTTP API-n keresztul (CLI script-ben ismert TTY-bug miatt)
 # stream:false --> szinkron, egyetlen valaszt ad vissza a letoltes utan
 ollama_pull() {

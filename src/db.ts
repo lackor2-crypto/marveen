@@ -1460,19 +1460,13 @@ export function saveMemory(
   topicKey?: string
 ): void {
   const now = Math.floor(Date.now() / 1000)
-  const info = db.prepare(
+  db.prepare(
     'INSERT INTO memories (chat_id, topic_key, content, sector, salience, created_at, accessed_at) VALUES (?, ?, ?, ?, 1.0, ?, ?)'
   ).run(chatId, topicKey ?? null, content, sector, now, now)
-  const id = Number(info.lastInsertRowid)
 
-  // Fire-and-forget embedding, same as saveAgentMemory. Without it the rows
-  // written through THIS path (the nightly "[Napi naplo ...]" digest) stayed
-  // unvectorised and fell out of semantic search. Rebuilt from upstream 5c9a9252.
-  generateEmbedding(content).then(emb => {
-    if (emb) {
-      db.prepare('UPDATE memories SET embedding = ? WHERE id = ?').run(JSON.stringify(emb), id)
-    }
-  }).catch(() => {})
+  // No embedding request here (#776). The row stays embedding=NULL and the
+  // nightly backfill (scheduleNightlyEmbeddingBackfill) vectorises it, so a
+  // burst of saves never wakes the embedding server one request at a time.
 }
 
 // Build a safe FTS5 MATCH expression from a free-form user query.
@@ -1708,13 +1702,8 @@ export function saveAgentMemory(
   if (category === 'shared') clearMemoryCache()
   else memoryCacheInvalidate(agentId)
 
-  // Fire-and-forget: generate embedding asynchronously
-  generateEmbedding(content + (keywords ? ' ' + keywords : '')).then(emb => {
-    if (emb) {
-      db.prepare('UPDATE memories SET embedding = ? WHERE id = ?').run(JSON.stringify(emb), id)
-    }
-  }).catch(() => {})
-
+  // No embedding request here (#776): the row stays embedding=NULL and the
+  // nightly backfill vectorises it. Until then FTS search still finds it.
   return { id }
 }
 
@@ -3287,16 +3276,23 @@ function vectorSearch(agentId: string, queryEmbedding: number[], limit: number =
   return scored.slice(0, limit).map(s => s.memory)
 }
 
+/** FTS hits at which the keyword search alone is trusted (no embedding request). */
+export const HYBRID_FTS_ENOUGH = 3
+
 export async function hybridSearch(agentId: string, query: string, limit: number = 10, meta?: { relaxed?: boolean }): Promise<Memory[]> {
   const k = 60 // RRF constant
 
   // FTS5 results. The relaxed flag is read HERE, synchronously, before the
   // embedding await lets another request run a search of its own (#413).
   const ftsResults = searchAgentMemories(agentId, query, limit * 2)
-  if (meta) meta.relaxed = lastSearchRelaxed()
+  const lastRelaxed = lastSearchRelaxed()
+  if (meta) meta.relaxed = lastRelaxed
 
-  // Vector results
-  const queryEmbedding = await generateEmbedding(query)
+  // Vector results, only when the keyword search is thin (#776). An embedding
+  // request wakes the embedding server (a model load on a CPU-only host), so
+  // an FTS answer that already has enough hits does not pay for one.
+  const ftsEnough = ftsResults.length >= HYBRID_FTS_ENOUGH && !lastRelaxed
+  const queryEmbedding = ftsEnough ? null : await generateEmbedding(query)
   const vecResults = queryEmbedding ? vectorSearch(agentId, queryEmbedding, limit * 2) : []
 
   // Reciprocal Rank Fusion
