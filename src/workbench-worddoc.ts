@@ -171,7 +171,9 @@ export function parseWordHtml(html: string): ParsedWord {
   let cap = null as Capture | null
   const skip: string[] = []            // open tags whose content is not read (head, header, footnote, ...)
   const divs: boolean[] = []           // per open <div>: does it skip its content
-  const lists: { ordered: boolean; items: string[] }[] = []
+  // #782: a list item keeps its formatting (`rich`, '' = none); `nested` = a line of an inner list, already indented and numbered.
+  type ListLine = { text: string; rich: string; nested: boolean }
+  const lists: { ordered: boolean; items: ListLine[] }[] = []
   let table = null as { rows: string[][]; depth: number } | null
   let afterImg = false
 
@@ -227,7 +229,11 @@ export function parseWordHtml(html: string): ParsedWord {
       if (plain) { cur = { title: plain.replace(/\s*\n\s*/g, ' ').slice(0, SECTION_TITLE_MAX), blocks: [] }; sections.push(cur) }
     } else if (c.kind === 'li') {
       const l = lists[lists.length - 1]
-      if (l && plain) l.items.push(plain.replace(/\s*\n\s*/g, ' '))
+      if (l && plain) {
+        const one = plain.replace(/\s*\n\s*/g, ' ')
+        const rich = one === plain ? sanitizeRich(buf) : ''
+        l.items.push({ text: one, rich: rich && richMatches(rich, one) ? rich : '', nested: false })
+      }
     } else if (c.kind === 'cell') {
       if (table) {
         const row = table.rows[table.rows.length - 1]
@@ -299,11 +305,24 @@ export function parseWordHtml(html: string): ParsedWord {
         flush()
         const l = lists.pop()
         if (l && l.items.length) {
+          // #782: only this list's own items are numbered (an inner list's lines came in already numbered and indented).
+          let n = 0
+          const lines = l.items.map((x) => {
+            if (x.nested || !l.ordered) return x
+            const mark = `${++n}. `
+            return { text: mark + x.text, rich: x.rich ? mark + x.rich : '', nested: false }
+          })
           const parent = lists[lists.length - 1]
-          if (parent) parent.items.push(...l.items.map((x) => `  ${x}`))
+          if (parent) parent.items.push(...lines.map((x) => ({ text: `  ${x.text}`, rich: x.rich ? `  ${x.rich}` : '', nested: true })))
           else {
-            const t = l.ordered ? l.items.map((x, i) => `${i + 1}. ${x}`).join('\n') : l.items.join('\n')
-            for (const piece of chunk(t)) section().blocks.push({ kind: 'list', text: piece })
+            const t = lines.map((x) => x.text).join('\n')
+            const pieces = chunk(t)
+            const rich = lines.some((x) => x.rich) ? sanitizeRich(lines.map((x) => x.rich || x.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')).join('<br>')) : ''
+            for (const piece of pieces) {
+              const b: ParsedBlock = { kind: 'list', text: piece }
+              if (pieces.length === 1 && rich && richMatches(rich, piece)) b.rich = rich
+              section().blocks.push(b)
+            }
           }
         }
       }

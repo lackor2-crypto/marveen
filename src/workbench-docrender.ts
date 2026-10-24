@@ -285,11 +285,80 @@ function signature(text: string, draft: boolean): string[] {
 
 const LIST_MARK = /^\s*(?:[-*•–]|\d+[.)])\s+/
 
-function listBlock(text: string, draft: boolean): string[] {
-  const lines = text.split('\n').filter((l) => l.trim())
-  const numbered = lines.length > 0 && lines.every((l) => /^\s*\d+[.)]\s+/.test(l))
-  const items = lines.map((l) => l.replace(LIST_MARK, '').trim())
-  return [`<text:list text:style-name="${numbered ? 'LNum' : 'LBul'}">${items.map((i) => `<text:list-item><text:p text:style-name="ListP">${inlineMarked(i, draft)}</text:p></text:list-item>`).join('')}</text:list>`]
+/** #782: list levels the PDF draws (two leading spaces = one level deeper, as the Word import writes a nested list). */
+export const LIST_LEVELS = 3
+
+/** The runs of a formatted line without its first `n` characters (the indent and the list marker). */
+function runsAfter(runs: RichRun[], n: number): RichRun[] {
+  const out: RichRun[] = []
+  let skip = n
+  for (const r of runs) {
+    if (skip >= r.text.length) { skip -= r.text.length; continue }
+    out.push(skip ? { ...r, text: r.text.slice(skip) } : r)
+    skip = 0
+  }
+  return out
+}
+
+/**
+ * A list block: one item per line. #782: a line indented by two spaces per level is an item of an inner list (at most
+ * LIST_LEVELS deep), each list numbered on its own when all of its items carry a number; a formatted block keeps its
+ * bold / italic / ... per line.
+ */
+function listBlock(text: string, draft: boolean, st: StyleCtx, rich?: string | null): string[] {
+  const raw = text.split('\n')
+  // The formatted lines, when the formatting describes this text line by line.
+  let richLines: RichRun[][] | null = null
+  if (rich && richMatches(rich, text)) {
+    const lines: RichRun[][] = [[]]
+    for (const r of richRuns(String(rich))) {
+      r.text.split('\n').forEach((piece, i) => {
+        if (i > 0) lines.push([])
+        if (piece) lines[lines.length - 1].push({ ...r, text: piece })
+      })
+    }
+    if (lines.length === raw.length) richLines = lines
+  }
+  type Item = { depth: number; numbered: boolean; inner: string; kids: Item[] }
+  const items: Item[] = []
+  raw.forEach((l, i) => {
+    if (!l.trim()) return
+    const lead = (/^[ \t]*/.exec(l) as RegExpExecArray)[0].replace(/\t/g, '  ').length
+    const depth = Math.min(LIST_LEVELS - 1, Math.floor(lead / 2))
+    const numbered = /^\s*\d+[.)]\s+/.test(l)
+    let inner = inlineMarked(l.replace(LIST_MARK, '').trim(), draft)
+    const rl = richLines ? richLines[i] : null
+    if (rl) {
+      const plain = rl.map((r) => r.text).join('')
+      if (plain.trim() === l.trim()) {
+        const m = LIST_MARK.exec(plain)
+        const cut = m ? m[0].length : (/^\s*/.exec(plain) as RegExpExecArray)[0].length
+        const rest = runsAfter(rl, cut)
+        if (rest.length) {
+          const last = rest[rest.length - 1] as RichRun
+          rest[rest.length - 1] = { ...last, text: last.text.replace(/\s+$/, '') }
+          inner = rest.filter((r) => r.text).map((r) => richSpan(r, draft, st)).join('')
+        }
+      }
+    }
+    items.push({ depth, numbered, inner, kids: [] })
+  })
+  // The flat lines as a tree: a line one level deeper belongs to the item above it (a jump of two levels counts as one).
+  const roots: Item[] = []
+  const stack: Item[] = []
+  for (const it of items) {
+    while (stack.length && (stack[stack.length - 1] as Item).depth >= it.depth) stack.pop()
+    const parent = stack[stack.length - 1]
+    if (parent) { it.depth = parent.depth + 1; parent.kids.push(it) } else { it.depth = 0; roots.push(it) }
+    stack.push(it)
+  }
+  const list = (nodes: Item[]): string => {
+    const numbered = nodes.every((n) => n.numbered)
+    return `<text:list text:style-name="${numbered ? 'LNum' : 'LBul'}">`
+      + nodes.map((n) => `<text:list-item><text:p text:style-name="ListP">${n.inner}</text:p>${n.kids.length ? list(n.kids) : ''}</text:list-item>`).join('')
+      + '</text:list>'
+  }
+  return roots.length ? [list(roots)] : []
 }
 
 /** Tablazat "a | b | c" sorokbol; az elso sor fejlec (oldaltoresnel ismetlodik), a "---|---" elvalaszto kimarad. */
@@ -410,7 +479,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
         // #565: an empty line of the owner is an empty paragraph -- it holds its line in the PDF and in Word as on the page.
         // Whatever kind it was stored under (a list item or a note emptied by the owner), it never prints as a bullet or a note.
         sec.push(...paragraphs(' ', 'Body', o.draft, st, null, b.align, b.pfmt).map((p) => p.replace(/> <\/text:p>$/, '></text:p>')))
-      } else if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft))
+      } else if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft, st, b.rich))
       else if (b.kind === 'table') sec.push(...tableBlock(b.text, ++tables, o.draft, extraStyles))
       else if (b.kind === 'signature') sec.push(...signature(b.text, o.draft))
       else if (b.kind === 'image') sec.push(...imageBlock(b, ++pictures, o.draft, extraStyles))
@@ -475,8 +544,8 @@ ${(['l', 'c', 'r', 'j'] as const).map((a) => `<style:style style:name="Heading_2
 <style:style style:name="ImgFrame" style:family="graphic"><style:graphic-properties style:vertical-pos="top" style:vertical-rel="baseline" draw:stroke="none" draw:fill="none"/></style:style>
 <style:style style:name="Missing" style:family="text"><style:text-properties fo:background-color="#fff1a8" fo:font-weight="bold"/></style:style>
 <style:style style:name="WmFrame" style:family="graphic"><style:graphic-properties draw:stroke="none" draw:fill="none" style:run-through="background" style:wrap="run-through" style:vertical-pos="from-top" style:vertical-rel="page" style:horizontal-pos="center" style:horizontal-rel="page"/></style:style>
-<text:list-style style:name="LBul"><text:list-level-style-bullet text:level="1" text:bullet-char="•"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.5cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-bullet></text:list-style>
-<text:list-style style:name="LNum"><text:list-level-style-number text:level="1" style:num-suffix="." style:num-format="1"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.6cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-number></text:list-style>
+<text:list-style style:name="LBul"><text:list-level-style-bullet text:level="1" text:bullet-char="•"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.5cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-bullet><text:list-level-style-bullet text:level="2" text:bullet-char="◦"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="1.6cm" fo:text-indent="-0.5cm" fo:margin-left="1.6cm"/></style:list-level-properties></text:list-level-style-bullet><text:list-level-style-bullet text:level="3" text:bullet-char="▪"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="2.3cm" fo:text-indent="-0.5cm" fo:margin-left="2.3cm"/></style:list-level-properties></text:list-level-style-bullet></text:list-style>
+<text:list-style style:name="LNum"><text:list-level-style-number text:level="1" style:num-suffix="." style:num-format="1"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.9cm" fo:text-indent="-0.6cm" fo:margin-left="0.9cm"/></style:list-level-properties></text:list-level-style-number><text:list-level-style-number text:level="2" style:num-suffix="." style:num-format="1"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="1.6cm" fo:text-indent="-0.6cm" fo:margin-left="1.6cm"/></style:list-level-properties></text:list-level-style-number><text:list-level-style-number text:level="3" style:num-suffix="." style:num-format="1"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="2.3cm" fo:text-indent="-0.6cm" fo:margin-left="2.3cm"/></style:list-level-properties></text:list-level-style-number></text:list-style>
 <text:notes-configuration text:note-class="footnote" style:num-format="1" text:start-value="0" text:footnotes-position="page" text:start-numbering-at="document"/>
 <style:style style:name="Frame" style:family="graphic"><style:graphic-properties text:anchor-type="paragraph" svg:x="0cm" svg:y="0cm" style:wrap="parallel" style:number-wrapped-paragraphs="no-limit" style:wrap-contour="false" style:vertical-pos="top" style:vertical-rel="paragraph-content" style:horizontal-pos="center" style:horizontal-rel="paragraph-content" fo:padding="0cm" fo:border="none"/></style:style>
 </office:styles>

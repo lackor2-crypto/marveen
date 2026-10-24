@@ -14982,7 +14982,8 @@
     var fmt = rich !== undefined
     var inner = fmt && rich ? rich : esc(text)
     // #791: a bullet list block shows one bullet PER LINE, as its PDF does (listBlock); before, only the block's first line had one.
-    if (/(^| )wb-outline-kind-list( |$)/.test(cls) && !/(^| )wb-dp-numbered( |$)/.test(cls)) {
+    // #782: a numbered list is drawn line by line too when it has an inner list (indented lines), so the levels show.
+    if (/(^| )wb-outline-kind-list( |$)/.test(cls) && (!/(^| )wb-dp-numbered( |$)/.test(cls) || /\n[ \t]{2}/.test(String(text || '')))) {
       var lines = dpListLinesHtml(inner)
       if (lines !== null) { inner = lines; cls += ' wb-dp-lines' }
     }
@@ -15001,7 +15002,15 @@
       return open === close
     }
     if (!parts.every(balanced)) return null
-    return parts.map(function (x) { return '<div class="wb-dp-li">' + (x || '<br>') + '</div>' }).join('')
+    // #782: two leading spaces = one level deeper (an inner list, as the PDF draws it); a numbered line shows its own number,
+    // so it gets no bullet. The spaces stay in the line (the stored text does not change), the level only moves it right.
+    return parts.map(function (x) {
+      var plain = x.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ')
+      var lead = (/^[ \t]*/.exec(plain) || [''])[0].replace(/\t/g, '  ').length
+      var lvl = Math.min(2, Math.floor(lead / 2))
+      var num = /^\s*\d+[.)]\s+/.test(plain)
+      return '<div class="wb-dp-li' + (num ? ' wb-dp-li-num' : '') + '"' + (lvl ? ' data-lvl="' + lvl + '"' : '') + '>' + (x || '<br>') + '</div>'
+    }).join('')
   }
 
   var DP_ALIGNS = ['l', 'c', 'r', 'j']

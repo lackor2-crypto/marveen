@@ -1550,6 +1550,11 @@
 .wb-dp-block.wb-outline-kind-list.wb-dp-lines::after { content: none; }
 .wb-dp-block.wb-dp-lines .wb-dp-li { position: relative; }
 .wb-dp-block.wb-dp-lines .wb-dp-li::before { content: "\2022"; position: absolute; left: -16px; top: 0; }
+/* #782: an inner list's line (two leading spaces per level) stands further right; a numbered line shows its own number. */
+.wb-dp-block.wb-dp-lines .wb-dp-li[data-lvl="1"] { margin-left: 18px; }
+.wb-dp-block.wb-dp-lines .wb-dp-li[data-lvl="2"] { margin-left: 36px; }
+.wb-dp-block.wb-dp-lines .wb-dp-li.wb-dp-li-num::before { content: none; }
+.wb-dp-block.wb-dp-numbered.wb-dp-lines { padding-left: 0; }
 .wb-dp-block.wb-dp-numbered { padding-left: 0; }
 .wb-dp-block.wb-dp-numbered::after { content: none; }
 .wb-dp-block.wb-outline-kind-footnote { font-size: 0.85em; color: #55555f; border-top: 1px solid #ddd; padding-top: 4px; }
