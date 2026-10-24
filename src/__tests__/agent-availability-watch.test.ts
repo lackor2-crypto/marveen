@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   waiting: 0,
   running: true,
   pane: null as string | null,
+  sevenPct: 100,
   usageAt: 0,
   cards: [] as { seq: number; id: string; title: string; status: string }[],
   unreadable: false,
@@ -41,7 +42,7 @@ vi.mock('../web/context-broker-store.js', () => ({
 vi.mock('../web/rate-limit-status-io.js', () => ({
   readRateLimitSnapshot: () => ({
     fiveHour: { usedPct: 3, resetsAt: NOW + 3600_000 },
-    sevenDay: { usedPct: 100, resetsAt: RESET },
+    sevenDay: { usedPct: h.sevenPct, resetsAt: RESET },
     updatedAt: h.usageAt,
   }),
 }))
@@ -53,7 +54,7 @@ vi.mock('../web/pending-work.js', () => ({
   },
 }))
 
-const { availabilityTick, currentAvailability, readAvailabilityState, MAX_NOTIFY_ATTEMPTS } = await import('../web/agent-availability-watch.js')
+const { availabilityTick, applyPaneEvidence, measureFleet, currentAvailability, readAvailabilityState, MAX_NOTIFY_ATTEMPTS } = await import('../web/agent-availability-watch.js')
 
 const STATE = join(store, 'agent-availability.json')
 const LOG = join(store, 'agent-availability.log')
@@ -62,7 +63,7 @@ const logLines = () => readFileSync(LOG, 'utf-8').trim().split('\n')
 beforeEach(() => {
   writeFileSync(STATE, JSON.stringify({ agents: {}, notifiedAt: {} }))
   writeFileSync(LOG, '')
-  Object.assign(h, { sent: [], sendFails: false, waiting: 0, running: true, pane: null, usageAt: NOW, cards: [{ seq: 463, id: '068041e3', title: 'Figyelo', status: 'in_progress' }], unreadable: false, taskStateAsked: null })
+  Object.assign(h, { sent: [], sendFails: false, waiting: 0, running: true, pane: null, sevenPct: 100, usageAt: NOW, cards: [{ seq: 463, id: '068041e3', title: 'Figyelo', status: 'in_progress' }], unreadable: false, taskStateAsked: null })
 })
 
 describe('availabilityTick', () => {
@@ -167,5 +168,57 @@ describe('currentAvailability', () => {
   it('answers on a fresh install, before any tick wrote a state file', () => {
     writeFileSync(STATE, 'not json')
     expect(currentAvailability(NOW)).toHaveLength(1)
+  })
+})
+
+// #768: the numbers can be stale (a snapshot only refreshes while the agent works), the session's own screen cannot.
+describe('the session screen overrides the numbers', () => {
+  const ok = { agent: 'worker', available: true, reason: 'ok' as const, since: NOW - 5000, resetsAt: null, measuredAt: NOW }
+  const LIMIT = 'You\'ve hit your session limit \u00b7 resets 9pm\n'
+  const filler = Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n')
+
+  it('an available session sitting on the usage-limit wall is reported unavailable (quota)', () => {
+    expect(applyPaneEvidence(ok, `${filler}\n${LIMIT}`)).toMatchObject({ available: false, reason: 'quota', since: NOW, resetsAt: null })
+  })
+
+  it('an available session on a login prompt is reported unavailable (signed_out)', () => {
+    expect(applyPaneEvidence(ok, `${filler}\nPlease run /login\n`)).toMatchObject({ available: false, reason: 'signed_out', since: NOW })
+  })
+
+  it('an old limit message far above the live bottom of the screen does not count', () => {
+    expect(applyPaneEvidence(ok, `${LIMIT}${filler}`)).toBe(ok)
+  })
+
+  it('a clean screen, no screen, and an already-unavailable agent are left alone', () => {
+    expect(applyPaneEvidence(ok, filler)).toBe(ok)
+    expect(applyPaneEvidence(ok, null)).toBe(ok)
+    const stopped = { ...ok, available: false, reason: 'stopped' as const }
+    expect(applyPaneEvidence(stopped, `${filler}\n${LIMIT}`)).toBe(stopped)
+  })
+
+  it('measureFleet: numbers say ok, the screen says limit wall -> unavailable', () => {
+    h.sevenPct = 10
+    expect(measureFleet({}, NOW)[0]).toMatchObject({ available: true, reason: 'ok' })
+    h.pane = `${filler}\n${LIMIT}`
+    expect(measureFleet({}, NOW)[0]).toMatchObject({ available: false, reason: 'quota' })
+  })
+
+  it('measureFleet keeps the old "since" when the screen only confirms the stored state', () => {
+    h.sevenPct = 10
+    h.pane = `${filler}\n${LIMIT}`
+    const first = measureFleet({}, NOW)[0]!
+    const again = measureFleet({ worker: first }, NOW + 60_000)[0]!
+    expect(again).toMatchObject({ available: false, reason: 'quota', since: first.since, measuredAt: NOW + 60_000 })
+  })
+
+  it('the tick then stores the screen verdict, and the wall clearing is an "available" edge', () => {
+    h.sevenPct = 10
+    h.pane = `${filler}\n${LIMIT}`
+    availabilityTick(NOW)
+    expect(readAvailabilityState().agents.worker).toMatchObject({ available: false, reason: 'quota' })
+    h.pane = filler
+    availabilityTick(NOW + 60_000)
+    expect(readAvailabilityState().agents.worker).toMatchObject({ available: true, reason: 'ok' })
+    expect(h.sent).toHaveLength(1)
   })
 })
