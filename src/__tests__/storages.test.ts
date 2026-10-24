@@ -18,6 +18,7 @@ import {
   renameStorage,
   setStorageActive,
   setStorageHidden,
+  forgetHiddenStorages,
   activeAccounts,
   readStorageRegistry,
   storageKindRoot,
@@ -268,5 +269,36 @@ describe('Eltavolitas -- git-fiok (#713)', () => {
     const r = addGitAccount(hid, 'lackor2')
     expect(r.error).toContain('Elrejtett tárolók')
     expect(addGitAccount(addGitAccount(EMPTY, 'x').reg, 'x').error).toBe('Ez a fiók már fel van véve.')
+  })
+})
+
+describe('Elrejtett sorok veglegos torlese a nyilvantartasbol (#771)', () => {
+  it('csak az elrejtett sor torolheto; a lista egyik oldalan sem latszik tobbe; a fiok es a fajlok maradnak, a sorszam nem hasznosul ujra', () => {
+    mk(storageKindRoot('mega') + '/volmeres')
+    mk(storageKindRoot('mega') + '/lackor2')
+    const base = listStorages({ driveAccounts: [], photosAccounts: [], megaAccounts: ['volmeres', 'lackor2'], root, registry: EMPTY })
+    const hid = setStorageHidden(base.registry, 'mega', 'volmeres', true)
+    // a latszo sor (lackor2) NEM torolheto: kimarad
+    const r = forgetHiddenStorages(hid, [{ kind: 'mega', account: 'volmeres' }, { kind: 'mega', account: 'lackor2' }])
+    expect(r.forgotten).toEqual(['mega:volmeres'])
+    expect(r.skipped).toEqual(['mega:lackor2'])
+    const after = listStorages({ driveAccounts: [], photosAccounts: [], megaAccounts: ['volmeres', 'lackor2'], root, registry: r.reg })
+    expect(after.rows.map((x) => x.account)).toEqual(['lackor2'])
+    expect(after.hiddenRows).toHaveLength(0)
+    expect(existsSync(join(root, storageKindRoot('mega'), 'volmeres'))).toBe(true)
+    expect(r.reg.ids['mega:volmeres']).toBe(base.registry.ids['mega:volmeres'])
+    // a fajlba irt es visszaolvasott regiszter is megtartja
+    const f = join(root, 'reg.json')
+    writeFileSync(f, JSON.stringify(r.reg))
+    expect(readStorageRegistry(f).forgotten?.['mega:volmeres']).toBe(true)
+  })
+
+  it('a torolt git-fiok a regiszterbol is lekerul, es az ujra felvett fiok ujra latszik', () => {
+    const hid = setStorageHidden(addGitAccount(EMPTY, 'lackor2').reg, 'git', 'lackor2', true)
+    const r = forgetHiddenStorages(hid, [{ kind: 'git', account: 'lackor2' }])
+    expect(r.reg.gitAccounts).toEqual([])
+    const again = addGitAccount(r.reg, 'lackor2').reg
+    const l = listStorages({ driveAccounts: [], photosAccounts: [], megaAccounts: [], root, registry: again })
+    expect(l.rows.map((x) => x.account)).toEqual(['lackor2'])
   })
 })

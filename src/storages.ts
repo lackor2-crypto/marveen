@@ -88,6 +88,11 @@ export interface StorageRegistryFile {
   disabled: Record<string, boolean>
   /** `<kind>:<account>` -> a sor le van venve a listarol (Eltavolitas). Csak elrejtes: a fiok es a fajlok erintetlenek. */
   hidden?: Record<string, boolean>
+  /**
+   * `<kind>:<account>` -> a bejegyzes VEGLEG torolve a nyilvantartasbol (#771). Az elrejtettbol egyetlen lepessel lehet ide
+   * jutni; a listak ezt a sort sem a latszo, sem az elrejtett kozott nem mutatjak. A fiok, a kulcs es a fajlok erintetlenek.
+   */
+  forgotten?: Record<string, boolean>
   /** A Git-fiokok -- ezeknek nincs Google-tokenjuk, csak itt leteznek. */
   gitAccounts: string[]
   /**
@@ -132,6 +137,7 @@ export function readStorageRegistry(file = storageRegistryPath()): StorageRegist
       names: pick<string>(raw?.names, (v) => typeof v === 'string' && !!String(v).trim()),
       disabled: pick<boolean>(raw?.disabled, (v) => v === true),
       hidden: pick<boolean>(raw?.hidden, (v) => v === true),
+      forgotten: pick<boolean>(raw?.forgotten, (v) => v === true),
       gitAccounts: Array.isArray(raw?.gitAccounts)
         ? raw.gitAccounts.filter((a: unknown) => typeof a === 'string' && !!a.trim()).map((a: string) => a.trim())
         : [],
@@ -240,6 +246,8 @@ export function listStorages(opts: {
       const r = assignStorageId(reg, kind, account)
       reg = r.reg
       const key = storageKey(kind, account)
+      // Veglegesen torolt bejegyzes: sem a latszo, sem az elrejtett listaban nem szerepel (#771).
+      if (reg.forgotten?.[key] === true) continue
       const rel = kindRel + '/' + safeDepotName(account)
       const abs = root ? join(root, kindRel, safeDepotName(account)) : null
       const st = abs ? safeStat(abs) : null
@@ -332,7 +340,10 @@ export function addGitAccount(
         : 'Ez a fiók már fel van véve.',
     }
   }
-  return { reg: { ...reg, gitAccounts: [...reg.gitAccounts, name] } }
+  // Egy korabban torolt bejegyzes ujra felvetelekor ujra latszik: a felhasznalo most kifejezetten ujra felvette.
+  const forgotten = { ...(reg.forgotten || {}) }
+  delete forgotten[storageKey('git', name)]
+  return { reg: { ...reg, forgotten, gitAccounts: [...reg.gitAccounts, name] } }
 }
 
 /**
@@ -412,6 +423,36 @@ export function setStorageHidden(
   const disabled = { ...reg.disabled }
   if (hidden) { h[key] = true; disabled[key] = true } else delete h[key]
   return { ...reg, hidden: h, disabled }
+}
+
+/**
+ * Az ELREJTETT sorok VEGLEGES torlese a nyilvantartasbol (#771). Csak az elrejtettek torolhetok: ami meg a listan van,
+ * azt elobb le kell venni (ketlepcsos vedelem). A sorszam (`ids`) megmarad, hogy ne keruljon ujrahasznositasra. A fiok,
+ * a kulcs es a fajlok erintetlenek -- a git-fiok kivetel nelkul csak a regiszterbol kerul le.
+ * TISZTA fuggveny: a hivo menti a regisztert.
+ */
+export function forgetHiddenStorages(
+  reg: StorageRegistryFile,
+  items: Array<{ kind: StorageKind; account: string }>,
+): { reg: StorageRegistryFile; forgotten: string[]; skipped: string[] } {
+  const names = { ...reg.names }
+  const disabled = { ...reg.disabled }
+  const hidden = { ...(reg.hidden || {}) }
+  const forgotten = { ...(reg.forgotten || {}) }
+  let gitAccounts = reg.gitAccounts
+  const done: string[] = []
+  const skipped: string[] = []
+  for (const it of items) {
+    const key = storageKey(it.kind, it.account)
+    if (hidden[key] !== true) { skipped.push(key); continue }
+    delete names[key]
+    delete disabled[key]
+    delete hidden[key]
+    forgotten[key] = true
+    if (it.kind === 'git') gitAccounts = gitAccounts.filter((a) => a !== it.account)
+    done.push(key)
+  }
+  return { reg: { ...reg, names, disabled, hidden, forgotten, gitAccounts }, forgotten: done, skipped }
 }
 
 /** Egy fajta aktiv fiokjai -- ezt kerdezi a szinkron, mielott dolgozna. */

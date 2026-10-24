@@ -23,7 +23,7 @@ import { logger } from '../../logger.js'
 import { depotRoot } from '../../depot.js'
 import {
   listStorages, ensureStorageFolders, readStorageRegistry, writeStorageRegistry, addGitAccount,
-  renameStorage, setStorageActive, setStorageHidden, storageKindRoot, STORAGE_KINDS,
+  renameStorage, forgetHiddenStorages, setStorageActive, setStorageHidden, storageKindRoot, STORAGE_KINDS,
   type StorageKind,
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
@@ -200,6 +200,45 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
           'Removed from the list. The account and the files stay where they are, but nothing syncs to it any more. You can bring it back under “Hidden storages”.')
         : L(lang, 'Visszahozva, kikapcsolt állapotban. Ha szinkronizálni akarod, kapcsold be.',
           'Brought back, switched off. Switch it on if you want it to sync.'),
+      rows: all.rows,
+      hiddenRows: all.hiddenRows,
+    })
+    return true
+  }
+
+  // ELREJTETT SOROK VEGLEGES TORLESE A NYILVANTARTASBOL (#771, Boss TG 10304). Ketlepcsos: `preview: true` csak megmondja,
+  // mi torlodne (a felulet ezt irja ki a megerosites elott); nelkule torol. Csak elrejtett sor torolheto. A fiok, a
+  // kulcs es a fajlok erintetlenek -- csak a lista-bejegyzes tunik el.
+  if (path === '/api/storages/forget' && method === 'POST') {
+    const b = await readJson(req)
+    const known = currentRowsAll()
+    const hid = known.hiddenRows
+    const wanted: Array<{ kind: StorageKind; account: string }> = b?.all === true
+      ? hid.map((x) => ({ kind: x.kind, account: x.account }))
+      : (Array.isArray(b?.items) ? b.items : [])
+          .map((x: any) => ({ kind: parseKind(x?.kind), account: String(x?.account || '').trim() }))
+          .filter((x: any) => x.kind && x.account)
+    const targets = wanted.filter((w) => hid.some((x) => x.kind === w.kind && x.account === w.account))
+    if (!targets.length) {
+      json(res, { error: L(lang, 'Nincs törölhető elrejtett tároló.', 'There is no hidden storage to delete.') }, 404)
+      return true
+    }
+    const label = (w: { kind: StorageKind; account: string }) => {
+      const r = hid.find((x) => x.kind === w.kind && x.account === w.account)
+      return (r?.id || '') + ' ' + (r?.name || w.account)
+    }
+    if (b?.preview === true) {
+      json(res, { ok: true, preview: true, count: targets.length, items: targets.map(label) })
+      return true
+    }
+    const r = forgetHiddenStorages(readStorageRegistry(), targets)
+    writeStorageRegistry(r.reg)
+    const all = currentRowsAll()
+    json(res, {
+      ok: true,
+      count: r.forgotten.length,
+      message: L(lang, `Törölve a nyilvántartásból: ${r.forgotten.length} tároló. A fiókok és a fájlok a helyükön maradtak.`,
+        `Deleted from the register: ${r.forgotten.length} storage(s). The accounts and the files stay where they are.`),
       rows: all.rows,
       hiddenRows: all.hiddenRows,
     })
