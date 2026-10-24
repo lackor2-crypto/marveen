@@ -36,17 +36,22 @@ env_val(){ grep -E "^$1=" "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f
 
 MAIN_AGENT_ID="$(env_val MAIN_AGENT_ID)"; MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
 SNAPSHOT="$STORE/rate-limit-status/${MAIN_AGENT_ID}.json"
-[ -s "$SNAPSHOT" ] || exit 0
+# #710: the dashboard samples the account's LIVE quota every minute into live-<id>.json (same shape). The statusline
+# snapshot only moves while this agent works, so an idle agent next to a busy VS Code session sat on an old number.
+LIVE="$STORE/rate-limit-status/live-${MAIN_AGENT_ID}.json"
+[ -s "$SNAPSHOT" ] || [ -s "$LIVE" ] || exit 0
 
 # A dontes + Telegram-kuldes + state-frissites egyben, Pythonban -- a bash
 # oldal csak a fajlutvonalakat adja at. STALE_AFTER_MS ugyanaz mint amit
 # src/rate-limit-status.ts hasznal (30 perc): egy regi, allo pillanatkepre
 # ne riasszunk (az agens lehet csak tetlen/leallt, nem kifutoban van).
-OWNER_LANG="$(owner_lang)" python3 - "$SNAPSHOT" "$STATE" "$LOG" "$NOTIFY" <<'PY'
+OWNER_LANG="$(owner_lang)" python3 - "$SNAPSHOT" "$LIVE" "$STATE" "$LOG" "$NOTIFY" <<'PY'
 import json, os, subprocess, sys, time
 
-snapshot_path, state_path, log_path, notify_path = sys.argv[1:5]
+snapshot_path, live_path, state_path, log_path, notify_path = sys.argv[1:6]
 STALE_AFTER_MS = 30 * 60_000
+# A live sample older than this is not 'now' any more: fall back to the statusline snapshot.
+LIVE_FRESH_MS = 5 * 60_000
 EN = os.environ.get('OWNER_LANG', '') == 'en'
 # Sorrend szandekos: elobb a sulyosabbat probaljuk, hogy egy 99%-os
 # atugrast (pl. egy nagy tool-hivas kozben 88% -> 99%) ne csak "90%"-kent
@@ -60,13 +65,25 @@ def log(msg):
     with open(log_path, 'a') as f:
         f.write(time.strftime('%Y-%m-%d %H:%M:%S') + ' ' + msg + '\n')
 
-try:
-    snap = json.load(open(snapshot_path))
-except Exception as e:
-    log(f"snapshot olvasasi hiba: {e}")
-    sys.exit(0)
-
 now_ms = time.time() * 1000
+
+def load(path):
+    try:
+        return json.load(open(path))
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        log(f"snapshot olvasasi hiba ({os.path.basename(path)}): {e}")
+        return None
+
+live = load(live_path)
+if live is not None and now_ms - live.get('updatedAt', 0) < LIVE_FRESH_MS:
+    snap = live
+else:
+    snap = load(snapshot_path)
+    if snap is None:
+        sys.exit(0)
+
 if now_ms - snap.get('updatedAt', 0) >= STALE_AFTER_MS:
     log("snapshot regi (>30 perc) -- kihagyva")
     sys.exit(0)
