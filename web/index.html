@@ -3380,6 +3380,10 @@
         <div id="inboxAnalyzeBox" style="margin-top:14px">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button class="btn-secondary btn-compact" id="inboxAnalyzeBtn" data-i18n="inbox.analyze">Elemzés (AI-javaslat)</button>
+            <input type="text" id="inboxOwnerNote" class="input-sm ib-owner-note" maxlength="1000" autocomplete="off"
+                   data-i18n-placeholder="inbox.note_placeholder" data-i18n-title="inbox.note_title"
+                   placeholder="Megjegyzés az AI-nak (pl. a Bakos-levél a szociális hivataltól jött, Évához tartozik)"
+                   title="Ezt az AI az elemzésnél figyelembe veszi.">
             <button class="btn-primary btn-compact" id="inboxPlaceAllBtn" hidden data-i18n="inbox.place_all">Mind elhelyezése</button>
           </div>
           <p id="inboxAnalyzeNote" class="subtitle" style="margin:8px 0"></p>

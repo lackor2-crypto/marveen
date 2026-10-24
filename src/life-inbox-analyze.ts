@@ -1169,6 +1169,8 @@ export interface AiInfo {
   reason: string
   /** true when the AI proposes a folder that does not exist yet. */
   newFolder: boolean
+  /** true when the AI relied on the owner's note (#770) for this item. */
+  noteUsed?: boolean
 }
 
 const REVIEW_THRESHOLD = 0.55

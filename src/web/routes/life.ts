@@ -1407,6 +1407,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const body = await readJson(req)
     const names = Array.isArray(body?.names) ? body.names.map((n: any) => String(n)) : undefined
     const lang = uiLang(url)
+    // #770: ONE remark of the owner for the whole list; the AI weighs it above its own guess.
+    const ownerNote = typeof body?.note === 'string' ? body.note.trim().slice(0, 1000) : ''
     const { prefetched, ...result } = await analyzeInboxAsync(names, lang)
     if (result.reason !== 'ok') {
       send(res, 200, { ...result, ai: { engine: 'none', model: '', note: '' } })
@@ -1415,7 +1417,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const config = loadLifeConfig()
     const run = await classifyWithAi(
       result.suggestions.map((s) => ({ suggestion: s, prefetched: prefetched.get(s.name) })),
-      config, result.knownFolders, lang,
+      config, result.knownFolders, lang, ownerNote,
     )
     const byName = new Map(run.results.map((r) => [r.name, r]))
     const suggestions = result.suggestions.map((s) => {
