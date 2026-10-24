@@ -38,10 +38,10 @@ describe('#791 one bullet per list line', () => {
     expect(f('<b>Első\nMásodik</b>')).toBeNull()
   })
 
-  it('only a bullet list is split (a numbered list keeps its own "1." markers); the block-wide bullet is off then', () => {
+  it('a bullet list is split; a numbered list only when it has an inner list (#782); the block-wide bullet is off then', () => {
     const at = src.indexOf('function dpEditHtml(cls, id, attrs, text, ph, label, ro, rich) {')
-    const body = src.slice(at, at + 900)
-    expect(body).toContain("/(^| )wb-outline-kind-list( |$)/.test(cls) && !/(^| )wb-dp-numbered( |$)/.test(cls)")
+    const body = src.slice(at, at + 1100)
+    expect(body).toContain("/(^| )wb-outline-kind-list( |$)/.test(cls) && (!/(^| )wb-dp-numbered( |$)/.test(cls) || /\\n[ \\t]{2}/.test(String(text || '')))")
     expect(body).toContain("cls += ' wb-dp-lines'")
     expect(css).toContain('.wb-dp-block.wb-outline-kind-list.wb-dp-lines::after { content: none; }')
     expect(css).toContain('.wb-dp-block.wb-dp-lines .wb-dp-li::before { content: "\\2022";')
