@@ -10085,7 +10085,9 @@
       + (onePage ? helpers : '')
       + (ro || onePage ? '' : '<p><button type="button" class="wb-btn" data-wb-act="outline-add-section">' + esc(t('workbench.outline.add_section')) + '</button></p>')
       + annexHtml(o, ro)
-      + (courtOnly() ? glossaryHtml(o, ro) + outlineCheckHtml(o.check, o, ro) + outlinePdfHtml(o, ro) : '')
+      // #777 (Boss TG: "a birosagi oldalt kell helyette hasznalni, butitott valtozatban"): the text profile finalizes with the
+      // court document's OWN panel and code; only the court-only parts (glossary, the full check list, court box) stay hidden.
+      + (courtOnly() ? glossaryHtml(o, ro) + outlineCheckHtml(o.check, o, ro) : '') + outlinePdfHtml(o, ro)
       + '</div>'
   }
 
@@ -10456,7 +10458,7 @@
     var finalCurrent = !!(f && !f.stale)
     // #723: while the Word item's own mail panel is open, the same box is not drawn twice (one form, one set of fields).
     var mailBox = WB.docxMailFor && WB.docxMailFor === WB.selectedId ? '' : finalCurrent || (o.mail_draft && !ro) ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
-    return '<div class="wb-outline-pdf">' + tools + finalLine + courtBoxHtml(ro) + fin + mailBox + sentBoxHtml(o, f, ro) + '</div>'
+    return '<div class="wb-outline-pdf">' + tools + finalLine + (courtOnly() ? courtBoxHtml(ro) : '') + fin + mailBox + sentBoxHtml(o, f, ro) + '</div>'
   }
 
   /**
@@ -13189,7 +13191,8 @@
         + (isMailDoneItem(it) ? '<button type="button" class="' + cls + '" data-wb-act="docx-mail-open"' + busy + ' aria-expanded="' + (WB.docxMailFor === it.id) + '">\u2709 ' + esc(t('workbench.docxfinal.mail_button')) + '</button>' : '')
         + '<button type="button" class="' + cls + '" data-wb-act="item-reopen"' + busy + ' title="' + escA(t('workbench.finalize.reopen_tip')) + '">' + esc(t('workbench.finalize.reopen')) + '</button>'
     }
-    if (it.type === 'document' && !it.source_path) {
+    if ((it.type === 'document' && !it.source_path) || isTextProfile(it)) {
+      // #777: a note / Word file on the document page (text profile) is finalized by the court document's own panel too.
       // Boss TG 8765: the drafted document's own Finalize (checks + PDF) stands in the SAME place as every other kind's
       // -- the frame's top bar. It opens the finalize panel on the page. (The Manual view keeps it in the outline.)
       if (cls !== 'wb-fr-tbtn') return ''
@@ -13220,7 +13223,7 @@
   /** #743 (Boss TG 4171): a finalized document can be mailed again (to anyone) -- a finalized Word item and a drafted
    *  document alike. The drafted document's own mail box is locked with the rest of its page, so the top bar opens this one. */
   function isMailDoneItem(it) {
-    return isDocxDoneItem(it) || !!(it && it.type === 'document' && !it.source_path && it.status === 'done')
+    return isDocxDoneItem(it) || !!(it && it.status === 'done' && ((it.type === 'document' && !it.source_path) || isTextProfile(it)))
   }
 
   /** #674: a spreadsheet (xlsx / csv) item: its Finalize opens the panel too (the workbook goes to Finished materials). */
@@ -13278,7 +13281,7 @@
   function noteFinalPanelHtml() {
     var it = WB.detail && WB.detail.item
     if (it && WB.docxMailFor === it.id && isMailDoneItem(it) && !archived()) return docxMailPanelHtml(it)
-    if (!it || WB.noteFinal !== it.id || !(isTextFinalItem(it) || isTableFinalItem(it) || isDocxFinalItem(it)) || archived()) return ''
+    if (!it || WB.noteFinal !== it.id || !(isTextFinalItem(it) || isTableFinalItem(it) || isDocxFinalItem(it)) || isTextProfile(it) || archived()) return ''
     var name = baseOf(it.source_path)
     var busy = WB.noteFinalBusy ? ' disabled' : ''
     if (isDocxFinalItem(it)) {
@@ -21187,6 +21190,7 @@
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
     // #667: a text-file item opens its finalize panel (what happens, then one clear button) instead of the browser confirm.
+    else if (a === 'item-finalize' && WB.detail && isTextProfile(WB.detail.item)) { WB.shFinal = !WB.shFinal; if (WB.shFinal) { WB.dbOpen = false; WB.pdOpen = false } render() }
     else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item) || isDocxFinalItem(WB.detail.item))) { WB.docxMailFor = null; WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() && noteVariantFor(WB.tr.dst) ? WB.tr.dst : ''; render(); if (WB.noteFinal) { noteFinalScrollIn(); noteLangsRefresh() } } else approvalAction('finalize') }
     else if (a === 'note-final-go') noteFinalGo()
     else if (a === 'tr-save-version') trSaveVersion()
