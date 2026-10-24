@@ -148,7 +148,7 @@ import { planHandoff, buildHandoffZip, isHandoffScope, HANDOFF_MAX_BYTES } from 
 import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState, finalizeWorkItem, reopenWorkItem } from '../../workbench-approval.js'
 import { buildExportPage, requestSendApproval, sendNow, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
 import {
-  convertOfficeToPdf, sofficeConvertFile, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
+  convertOfficeToPdf, sofficeConvertFile, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt, renderCacheDir,
 } from '../../office-convert.js'
 import {
   describeAllCapabilities, describeCapability, getCapability,
@@ -172,7 +172,7 @@ import { addMount, listMounts } from '../../life-mounts.js'
 import { safeLifeName } from '../../life-tree.js'
 import { embedKind, fileToBlocks } from '../../workbench-docembed.js'
 import { listSignatures } from '../../workbench-signatures.js'
-import { createReadStream, statSync, rmdirSync, existsSync } from 'node:fs'
+import { createReadStream, statSync, rmdirSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, TRANSLATION_FAILED_MARKER } from '../email-translate.js'
@@ -2508,7 +2508,30 @@ function failDetail(res: RouteContext['res'], status: number, code: string, lang
 /** Az atalakito (LibreOffice / Poppler) hibaja a dokumentum-szerkesztonel
  *  (#444): a kodot a MERES adja, a `detail` a valodi hibauzenet. */
 /** #719: the HTML of a Word / OpenDocument item (its source file), for the printable page; undefined for anything else. */
+/**
+ * #779: an item on the document page (a drafted document, a note or a Word file read onto it) exports what the page
+ * shows: the page's own .docx (the same render as its finalize), read back as HTML. Only the current version: an older
+ * one is the file it had then. Undefined = not a document-page item, or LibreOffice could not render it.
+ */
+async function docPageExportHtml(itemId: string, version: unknown): Promise<string | undefined> {
+  const item = getWorkItem(itemId)
+  if (!item || !hasDocModel(item.id)) return undefined
+  if (version != null && version !== '' && version !== item.current_version_id) return undefined
+  try {
+    const r = await renderDocx(item, APP_LANG === 'en' ? 'en' : 'hu')
+    if (!r.ok) return undefined
+    const dir = joinPath(renderCacheDir(), 'docexport')
+    mkdirSync(dir, { recursive: true })
+    const file = joinPath(dir, `${createHash('sha256').update(r.docx).digest('hex').slice(0, 24)}.docx`)
+    if (!existsSync(file)) writeFileSync(file, r.docx)
+    const h = await docToEditableHtml(file)
+    return h.ok ? h.html : undefined
+  } catch { return undefined }
+}
+
 async function officeExportHtml(itemId: string, version: unknown): Promise<string | undefined> {
+  const page = await docPageExportHtml(itemId, version)
+  if (page) return page
   try {
     const p = buildPreview(itemId, version)
     if (p.kind !== 'office' || !p.rel || !docEditExt(p.name || p.rel)) return undefined
@@ -5322,6 +5345,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const input = {
       to: body['to'], subject: body['subject'], message: body['message'],
       attachment: body['attachment'], version: body['version'], actor: actor(ctx), lang,
+      docHtml: body['attachment'] === 'source' ? undefined : await officeExportHtml(item.id, body['version']),
     }
     if (isOwnerClick(ctx)) {
       const s = await sendNow(item, input)
