@@ -7,6 +7,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSy
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { logger } from '../logger.js'
+import { APP_LANG } from '../config.js'
+import { readEnvFile } from '../env.js'
+import { askAiTextWith } from '../life-inbox-ai.js'
 
 // Cache directory (per-install, gitignored like himalaya config)
 const TRANSLATION_CACHE_DIR = join(homedir(), '.local', 'share', 'marveen-email', 'translation-cache')
@@ -226,8 +229,39 @@ ${sourceText}
 --- END ---`
 }
 
+const TRANSLATION_MAX_TOKENS = 4000
+/** Below this a retry cannot hold a useful translation, so the credit message is shown instead. */
+const MIN_RETRY_TOKENS = 300
+
+/**
+ * OpenRouter answers 402 "... You requested up to 4000 tokens, but can only afford 1368" when the
+ * account credit is nearly spent. Returns the affordable token count, or null when the text is not
+ * that message.
+ */
+export function affordableTokens(errText: string): number | null {
+  const m = /can only afford (\d+)/i.exec(errText)
+  return m ? Number(m[1]) : null
+}
+
+const TRANSLATION_ERRORS = {
+  credit: { hu: 'az OpenRouter-fiók krediteje elfogyott vagy kevés, töltsd fel: https://openrouter.ai/settings/credits', en: 'the OpenRouter account is out of credit or nearly so, top it up: https://openrouter.ai/settings/credits' },
+  nokey: { hu: 'nincs OpenRouter-kulcs megadva', en: 'no OpenRouter key is set' },
+  key: { hu: 'az OpenRouter kulcs érvénytelen, ellenőrizd a Beállításokban', en: 'the OpenRouter key is invalid, check it in Settings' },
+  busy: { hu: 'az OpenRouter most túlterhelt, próbáld újra egy perc múlva', en: 'OpenRouter is busy right now, try again in a minute' },
+}
+
+/** A sentence a person can act on, instead of the raw provider JSON. */
+export function translationErrorMessage(status: number, errText: string, lang: string = APP_LANG, kind?: 'nokey'): string {
+  const pick = (m: { hu: string; en: string }) => (lang === 'hu' ? m.hu : m.en)
+  if (kind === 'nokey') return pick(TRANSLATION_ERRORS.nokey)
+  if (status === 402) return pick(TRANSLATION_ERRORS.credit)
+  if (status === 401 || status === 403) return pick(TRANSLATION_ERRORS.key)
+  if (status === 429) return pick(TRANSLATION_ERRORS.busy)
+  return `OpenRouter ${status}: ${errText.slice(0, 120)}`
+}
+
 // Call OpenRouter API for translation
-async function callTranslationApi(prompt: string, apiKey: string): Promise<string> {
+async function callTranslationApi(prompt: string, apiKey: string, maxTokens = TRANSLATION_MAX_TOKENS): Promise<string> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 60_000)
 
@@ -244,7 +278,7 @@ async function callTranslationApi(prompt: string, apiKey: string): Promise<strin
         model: TRANSLATION_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
-        max_tokens: 4000,
+        max_tokens: maxTokens,
       }),
       signal: controller.signal,
     })
@@ -253,7 +287,14 @@ async function callTranslationApi(prompt: string, apiKey: string): Promise<strin
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
-      throw new Error(`OpenRouter ${res.status}: ${errText.slice(0, 200)}`)
+      // Nearly out of credit: the request is refused for the token CEILING, not the text. Retry once
+      // with what the account can afford, so a short mail still translates on a nearly empty balance.
+      const afford = res.status === 402 ? affordableTokens(errText) : null
+      if (afford !== null && afford >= MIN_RETRY_TOKENS && afford < maxTokens) {
+        clearTimeout(timeout)
+        return callTranslationApi(prompt, apiKey, afford - 16)
+      }
+      throw new Error(translationErrorMessage(res.status, errText))
     }
 
     const data = await res.json()
@@ -264,6 +305,50 @@ async function callTranslationApi(prompt: string, apiKey: string): Promise<strin
     clearTimeout(timeout)
     throw e
   }
+}
+
+export type TranslateEngine = 'openrouter' | 'claude' | 'ollama'
+const DEFAULT_ENGINE_ORDER: TranslateEngine[] = ['openrouter', 'claude', 'ollama']
+
+/** The owner's engine order (TRANSLATE_ENGINE_ORDER), unknown names dropped, missing ones appended: every engine stays reachable. */
+export function parseEngineOrder(raw: string | undefined | null): TranslateEngine[] {
+  const seen: TranslateEngine[] = []
+  for (const part of String(raw ?? '').split(',')) {
+    const e = part.trim().toLowerCase()
+    if ((e === 'openrouter' || e === 'claude' || e === 'ollama') && !seen.includes(e)) seen.push(e)
+  }
+  for (const e of DEFAULT_ENGINE_ORDER) if (!seen.includes(e)) seen.push(e)
+  return seen
+}
+
+const TRANSLATE_SYSTEM = 'You are a professional translator. Output ONLY the translation.'
+
+/**
+ * Translate with the first engine that works, in the owner's order; the next one is tried when an
+ * engine is missing, out of credit, over its limit or silent. Throws the FIRST engine's error when
+ * none answers, because that is the one the owner expects to work.
+ */
+async function translateWithChain(prompt: string, apiKey: string): Promise<string> {
+  const order = parseEngineOrder(readEnvFile(['TRANSLATE_ENGINE_ORDER'])['TRANSLATE_ENGINE_ORDER'] ?? process.env['TRANSLATE_ENGINE_ORDER'])
+  let firstError: Error | null = null
+  for (const engine of order) {
+    try {
+      if (engine === 'openrouter') {
+        if (!apiKey) throw new Error(translationErrorMessage(0, '', APP_LANG, 'nokey'))
+        return await callTranslationApi(prompt, apiKey)
+      }
+      const ans = await askAiTextWith(engine, TRANSLATE_SYSTEM, prompt)
+      if (ans) return ans.text.trim()
+      throw new Error(engine === 'claude'
+        ? (APP_LANG === 'hu' ? 'nincs használható Claude-fiók (kimerült a keret vagy nincs bejelentkezve)' : 'no usable Claude account (limit reached or not logged in)')
+        : (APP_LANG === 'hu' ? 'nincs elérhető helyi modell' : 'no local model available'))
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e))
+      logger.warn(`[email-translate] engine ${engine} failed: ${err.message}`)
+      if (!firstError) firstError = err
+    }
+  }
+  throw firstError ?? new Error('no translation engine')
 }
 
 // Main translation function
@@ -300,12 +385,12 @@ export async function translateEmailContent(
   const prompt = buildTranslationPrompt(sourceContent, sourceLang, targetLang)
   let translation: string
   try {
-    translation = await callTranslationApi(prompt, apiKey)
+    translation = await translateWithChain(prompt, apiKey)
     // One retry when the model handed the source straight back: a firmer nudge
     // reliably gets a real translation for lone terms and one-word subjects.
     if (translation.trim() === sourceContent.trim()) {
       const targetName = SUPPORTED_TRANSLATION_LANGS[targetLang] || 'the target language'
-      const retry = await callTranslationApi(
+      const retry = await translateWithChain(
         `${prompt}\n\nThe previous attempt returned the text unchanged. It is NOT ${targetName}; translate it in full now.`,
         apiKey,
       )

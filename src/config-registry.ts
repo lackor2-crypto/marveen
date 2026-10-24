@@ -72,6 +72,17 @@ const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
 
 export const SETTINGS_REGISTRY: SettingDefinition[] = [
   {
+    key: 'TRANSLATE_ENGINE_ORDER',
+    type: 'string',
+    default: 'openrouter,claude,ollama',
+    valueSet: ['openrouter,claude,ollama', 'claude,openrouter,ollama', 'claude,ollama,openrouter', 'openrouter,ollama,claude', 'ollama,claude,openrouter', 'ollama,openrouter,claude'],
+    description:
+      'Az email-fordítás sorrendje: az első működő fordító dolgozik, ha az nem megy (pl. elfogyott az OpenRouter kredit), jön a következő. "claude" = az előfizetéses Claude-fiókjaid (nem kell hozzá kredit), "openrouter" = az OpenRouter-kulcs, "ollama" = a gépen futó helyi modell. A legjobb fordítót tedd előre.',
+    module: 'email',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
     key: 'MAIN_INBOX_RECEIPT',
     type: 'boolean',
     default: '1',

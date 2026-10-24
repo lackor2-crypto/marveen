@@ -1797,8 +1797,8 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const { account, mailbox, id, text, html, targetLang, sourceLang } = data
     if (!isKnownAccount(account ?? null) || !id) { json(res, { error: 'account and id required' }, 400); return true }
     const mb = mailbox || 'Inbox'
-    const apiKey = getSecret('openrouter-fleet-key')
-    if (!apiKey) { json(res, { error: 'OpenRouter API key not configured' }, 503); return true }
+    // No OpenRouter key is fine: the translator falls through to the subscription accounts / local model.
+    const apiKey = getSecret('openrouter-fleet-key') ?? ''
 
     // Fetch message body if not provided
     let msgText = text || ''
