@@ -3445,8 +3445,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const text = String(body['text'] ?? '')
     if (!text.trim()) return fail(res, 400, 'translate_empty', lang)
     if (text.length > 30_000) return fail(res, 413, 'translate_too_long', lang)
-    const apiKey = getSecret('openrouter-fleet-key')
-    if (!apiKey) return fail(res, 503, 'translate_no_key', lang)
+    const apiKey = getSecret('openrouter-fleet-key') ?? ''
     const targetLang = resolveTargetLang(String(body['target_lang'] ?? ''))
     const sourceLang = String(body['source_lang'] ?? 'auto')
     const pieces: string[] = []

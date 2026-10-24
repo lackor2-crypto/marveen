@@ -561,3 +561,25 @@ export async function askAiJson<V>(system: string, prompt: string, parse: (json:
   }
   return { engine: 'none', model: '', value: null, reason: !tried && local === 'missing' ? 'no_ai' : 'no_answer' }
 }
+
+/**
+ * One plain-text answer from ONE engine, for callers that run their own engine order (the email
+ * translator: Boss, TG 10311 -- "elsőnek a legjobb fordító, utána minden, ami elérhető, az
+ * előfizetéses fiókokat is beleértve"). 'claude' walks the subscription accounts that still have
+ * room (same limit cool-down as the Inbox), 'ollama' asks the local model. Null = no usable answer.
+ */
+export async function askAiTextWith(engine: 'claude' | 'ollama', system: string, prompt: string): Promise<{ text: string; model: string } | null> {
+  if (engine === 'ollama') {
+    const local = await ollamaRunner(system, prompt).catch(() => null)
+    return local && local !== 'missing' && local.text.trim() ? local : null
+  }
+  const now = Date.now()
+  const accounts = accountLister().filter((a) => (limitedUntil.get(a.configDir) ?? 0) <= now)
+  for (const account of accounts.slice(0, MAX_CLAUDE_ACCOUNTS)) {
+    if (Date.now() - now > REQUEST_BUDGET_MS) break
+    const ans = await claudeRunner(system, prompt, account).catch(() => null)
+    if (ans === 'limit') { limitedUntil.set(account.configDir, Date.now() + LIMIT_COOLDOWN_MS); continue }
+    if (ans && ans.text.trim()) return ans
+  }
+  return null
+}
