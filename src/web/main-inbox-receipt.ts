@@ -34,7 +34,7 @@
  * nincs csatorna-token, a modul NEM hallgat bele a semmibe: kimondja a naploban,
  * hogy melyik ok miatt nem mer (a nulla ket jelentese).
  */
-import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, statSync, openSync, readSync, closeSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { logger } from '../logger.js'
@@ -135,7 +135,15 @@ export function readTranscriptEvents(chunk: string): TranscriptEvents {
 interface PendingArrival extends Arrival {
   /** id of the receipt we posted, so it can be removed on ingestion */
   receiptMessageId?: number
+  /** Failed sends so far (#775): a send that did not go out is retried, not forgotten. */
+  attempts?: number
+  /** Do not retry before this time (epoch ms). */
+  retryAt?: number
 }
+
+/** A receipt send that fails is retried this many times, one try per RETRY_GAP_MS. */
+export const RECEIPT_MAX_ATTEMPTS = 12
+export const RECEIPT_RETRY_GAP_MS = 10_000
 
 export interface ReceiptDeps {
   transcriptDir: string
@@ -192,6 +200,15 @@ function claimArrival(stateDir: string, chatId: string, srcMid: string): boolean
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code === 'EEXIST') return false
     return true // a broken marker dir must not swallow the receipt
+  }
+}
+
+/** Undo claimArrival after a send that did not go out, so the retry can claim again. */
+function releaseArrival(stateDir: string, chatId: string, srcMid: string): void {
+  try {
+    unlinkSync(join(stateDir, 'progress', `seen-arrival-${chatId}-${srcMid}.marker`))
+  } catch {
+    // already gone: nothing to release
   }
 }
 
@@ -280,7 +297,7 @@ export async function runReceiptTick(state: ReceiptState, deps: ReceiptDeps): Pr
       state.pending.delete(mid)
       // Taken into a turn: telegram_progress.py posts its own "working on it"
       // placeholder now, so our receipt has done its job and is removed.
-      if (p.receiptMessageId !== undefined) {
+      if (p.receiptMessageId !== undefined && p.receiptMessageId > 0) {
         const token = botToken(deps.stateDir)
         if (token) await callApi(deps, token, 'deleteMessage', { chat_id: p.chatId, message_id: p.receiptMessageId })
       }
@@ -322,7 +339,10 @@ export async function runReceiptTick(state: ReceiptState, deps: ReceiptDeps): Pr
   }
   state.deadStreak = 0
 
-  const due = [...state.pending.values()].filter((p) => p.receiptMessageId === undefined && deps.now() - p.atMs >= deps.graceMs)
+  const due = [...state.pending.values()].filter((p) =>
+    p.receiptMessageId === undefined
+    && deps.now() - p.atMs >= deps.graceMs
+    && deps.now() >= (p.retryAt ?? 0))
   if (due.length === 0) return
   const token = botToken(deps.stateDir)
   if (!token) {
@@ -341,7 +361,22 @@ export async function runReceiptTick(state: ReceiptState, deps: ReceiptDeps): Pr
     })
     const result = body?.['result'] as Record<string, unknown> | undefined
     const mid = result?.['message_id']
-    p.receiptMessageId = typeof mid === 'number' ? mid : -1
+    if (body?.['ok'] === true && typeof mid === 'number') {
+      p.receiptMessageId = mid
+      continue
+    }
+    // The send did not go out (network down, Telegram refused). 2026-10-24
+    // 12:01: "fetch failed" was recorded as a sent receipt (-1) and the claim
+    // marker stayed, so the owner never got one and nothing ever retried (#775).
+    // Release the claim and try again a little later, up to a cap.
+    releaseArrival(deps.stateDir, p.chatId, p.srcMessageId)
+    p.attempts = (p.attempts ?? 0) + 1
+    if (p.attempts >= RECEIPT_MAX_ATTEMPTS) {
+      logger.warn(`main-inbox-receipt: a nyugta ${p.attempts} probalkozas utan sem ment ki (uzenet ${p.srcMessageId}), feladom`)
+      state.pending.delete(p.srcMessageId)
+    } else {
+      p.retryAt = deps.now() + RECEIPT_RETRY_GAP_MS
+    }
   }
 }
 

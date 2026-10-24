@@ -15,6 +15,8 @@ import {
   transcriptDirFor,
   receiptText,
   createReceiptState,
+  RECEIPT_MAX_ATTEMPTS,
+  RECEIPT_RETRY_GAP_MS,
   runReceiptTick,
   type ReceiptDeps,
 } from '../web/main-inbox-receipt.js'
@@ -258,5 +260,76 @@ describe('runReceiptTick', () => {
     await runReceiptTick(st, deps())
     await runReceiptTick(st, deps())
     expect(st.pending.size).toBe(1)
+  })
+
+  // #775: 2026-10-24 12:01 `fetch failed` was recorded as a sent receipt and never retried.
+  it('a sikertelen kuldes nem szamit elkuldottnek: a nyugta ujraprobalkozik', async () => {
+    const f = join(transcriptDir, 's.jsonl')
+    writeFileSync(f, '')
+    const st = createReceiptState()
+    await runReceiptTick(st, deps())
+    appendFileSync(f, ARRIVAL + '\n')
+    now += 20_000
+
+    let attempts = 0
+    let failing = true
+    const flaky: ReceiptDeps = {
+      ...deps(),
+      fetchImpl: (async () => {
+        attempts += 1
+        if (failing) throw new Error('fetch failed')
+        return { json: async () => ({ ok: true, result: { message_id: 777 } }) }
+      }) as unknown as typeof fetch,
+    }
+    const marker = join(stateDir, 'progress', 'seen-arrival-8736799466-5230.marker')
+
+    await runReceiptTick(st, flaky)
+    expect(attempts).toBe(1)
+    expect(st.pending.get('5230')!.receiptMessageId).toBeUndefined()
+    expect(existsSync(marker)).toBe(false) // a claim felszabadult
+
+    await runReceiptTick(st, flaky) // a varakozasi ido alatt nem probal
+    expect(attempts).toBe(1)
+
+    failing = false
+    now += 11_000
+    await runReceiptTick(st, flaky)
+    expect(attempts).toBe(2)
+    expect(st.pending.get('5230')!.receiptMessageId).toBe(777)
+  })
+
+  it('a Telegram elutasitasa (ok:false) sem szamit elkuldottnek', async () => {
+    const f = join(transcriptDir, 's.jsonl')
+    writeFileSync(f, '')
+    const st = createReceiptState()
+    await runReceiptTick(st, deps())
+    appendFileSync(f, ARRIVAL + '\n')
+    now += 20_000
+    const refused: ReceiptDeps = {
+      ...deps(),
+      fetchImpl: (async () => ({ json: async () => ({ ok: false, description: 'Too Many Requests' }) })) as unknown as typeof fetch,
+    }
+    await runReceiptTick(st, refused)
+    expect(st.pending.get('5230')!.receiptMessageId).toBeUndefined()
+  })
+
+  it('tartos hiba utan feladja, es nem probalkozik vegtelenul', async () => {
+    const f = join(transcriptDir, 's.jsonl')
+    writeFileSync(f, '')
+    const st = createReceiptState()
+    await runReceiptTick(st, deps())
+    appendFileSync(f, ARRIVAL + '\n')
+    now += 20_000
+    let attempts = 0
+    const dead: ReceiptDeps = {
+      ...deps(),
+      fetchImpl: (async () => { attempts += 1; throw new Error('fetch failed') }) as unknown as typeof fetch,
+    }
+    for (let i = 0; i < RECEIPT_MAX_ATTEMPTS + 5; i++) {
+      await runReceiptTick(st, dead)
+      now += RECEIPT_RETRY_GAP_MS + 1
+    }
+    expect(attempts).toBe(RECEIPT_MAX_ATTEMPTS)
+    expect(st.pending.size).toBe(0)
   })
 })
