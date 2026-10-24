@@ -8117,8 +8117,9 @@
     var jobs = (info.jobs || []).slice(0, 6).map(function (j) {
       var label = t('workbench.vgen.state_' + j.state)
       var cost = j.state === 'done' ? vgenUsd(j.cost_usd) : (j.state === 'failed' ? '' : '~' + vgenUsd(j.est_usd))
-      var retry = j.state === 'failed' && j.remote_id && /^video_(download|write)/.test(j.error_code || '')
-        ? ' <button type="button" class="wb-btn" data-wb-act="vgen-retry" data-wb-id="' + escA(j.id) + '">' + esc(t('workbench.vgen.retry')) + '</button>' : ''
+      // #785: the server says which free way back a failed job has (download again, or ask the provider again).
+      var retry = j.retry
+        ? ' <button type="button" class="wb-btn" data-wb-act="vgen-retry" data-wb-id="' + escA(j.id) + '">' + esc(t(j.retry === 'recheck' ? 'workbench.vgen.recheck' : 'workbench.vgen.retry')) + '</button>' : ''
       var add = j.state === 'done' && j.file_rel ? ' <button type="button" class="wb-btn" data-wb-act="fr-vt-add-path" data-wb-path="' + escA(j.file_rel) + '">' + esc(t('workbench.vgen.add_to_timeline')) + '</button>' : ''
       var err = j.state === 'failed' ? '<br><span class="wb-preview-bad">' + esc(j.error_detail || j.error_code || '') + '</span>' : ''
       return '<li class="wb-vt-row"><b>' + esc(label) + '</b> ' + esc(j.model) + ' ' + esc(cost) + ' <span class="wb-muted">' + esc((j.prompt || '').slice(0, 60)) + '</span>' + retry + add + err + '</li>'

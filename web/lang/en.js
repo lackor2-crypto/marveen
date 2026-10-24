@@ -7202,6 +7202,7 @@ window._i18n.en = {
   "workbench.vgen.state_done": "Done",
   "workbench.vgen.state_failed": "Failed",
   "workbench.vgen.retry": "Download again (free)",
+  "workbench.vgen.recheck": "Check again (free)",
   "workbench.vgen.add_to_timeline": "Add to timeline",
   "workbench.vgen.sensitive": "This work item is marked sensitive, so no video is generated here.",
   "workbench.vgen.no_key": "There is no OpenRouter key in the Vault, so generation cannot start.",

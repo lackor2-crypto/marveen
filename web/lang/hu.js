@@ -7276,6 +7276,7 @@ window._i18n.hu = {
   "workbench.vgen.state_done": "Kész",
   "workbench.vgen.state_failed": "Sikertelen",
   "workbench.vgen.retry": "Újra letöltés (ingyen)",
+  "workbench.vgen.recheck": "Újra ellenőrzés (ingyen)",
   "workbench.vgen.add_to_timeline": "Idővonalra",
   "workbench.vgen.sensitive": "Ez a munkadarab érzékenynek van jelölve, ezért itt nem generálok videót.",
   "workbench.vgen.no_key": "Nincs OpenRouter-kulcs a Vaultban, ezért a generálás nem indulhat.",
