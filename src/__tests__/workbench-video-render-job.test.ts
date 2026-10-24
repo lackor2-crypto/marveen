@@ -1,10 +1,10 @@
 // #669: the render as a background job -- the editor starts it, polls how far it is, and gets the same body the waiting call returns.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { getDb, initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -114,4 +114,33 @@ describe('video render over HTTP, as a job', () => {
     expect(body.result.file.name).toBe('Nyári reklám.mp4')
     expect(body.result.last_render).toMatchObject({ name: 'Nyári reklám.mp4', current: true })
   })
+  it.skipIf(!HAVE_FFMPEG)('#786: an edit made while it renders stays in the working copy; the mp4 is recorded on the timeline it was made from', async () => {
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x180:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', join(dir(), 'a.mp4')], { stdio: 'pipe' })
+    const ops = await callWorkbench(url('/ops'), 'POST', JSON.stringify({ ops: [{ op: 'addClip', src: 'Projektek/teszt/a.mp4', start: 0, end: 2.5 }] }), json)
+    expect(ops.status).toBe(201)
+    const start = await callWorkbench(url('/render'), 'POST', JSON.stringify({ async: true }), json)
+    expect(start.status).toBe(202)
+    // the owner keeps editing while ffmpeg runs: a second clip
+    const edit = await callWorkbench(url('/ops'), 'POST', JSON.stringify({ ops: [{ op: 'addClip', src: 'Projektek/teszt/a.mp4', start: 0, end: 1 }] }), json)
+    expect([200, 201]).toContain(edit.status)
+    let body: any = null
+    for (let i = 0; i < 100; i += 1) {
+      const st = await callWorkbench(url('/render-status'), 'GET')
+      if (st.body.job && st.body.job.state !== 'running') { body = st.body; break }
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    expect(body?.job.state).toBe('done')
+    // the render's version holds ONE clip (what was rendered); the working copy holds two
+    const versionId = body.result.last_render.version_id as string
+    // the version's own file (the timeline it holds), not the working copy standing on it
+    const row = getDb().prepare('SELECT source_path FROM work_item_versions WHERE id = ?').get(versionId) as { source_path: string }
+    const saved = JSON.parse(readFileSync(join(depot, row.source_path), 'utf-8')) as { clips: unknown[] }
+    expect(saved.clips).toHaveLength(1)
+    const now = await callWorkbench(url(), 'GET')
+    expect(now.body.timeline.clips).toHaveLength(2)
+    // and the answer does not claim the video shows the current timeline
+    expect(body.result.last_render.current).toBe(false)
+    expect(now.body.last_render.current).toBe(false)
+  })
 })
+
