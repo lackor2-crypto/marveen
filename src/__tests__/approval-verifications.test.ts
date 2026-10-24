@@ -41,7 +41,7 @@ vi.mock('node:fs', async (importOriginal) => {
 })
 
 import { tryHandleApprovals, verificationSender } from '../web/routes/approvals.js'
-import { getPendingMessages, listApprovalVerifications } from '../db.js'
+import { getPendingMessages, listApprovalVerifications, resolveApprovalVerification, getDb } from '../db.js'
 import { resetCodeBridgeTablesForTests, upsertCodeSession, listCodeTasks } from '../web/code-bridge-store.js'
 import type { RouteContext } from '../web/routes/types.js'
 
@@ -391,5 +391,61 @@ describe('dispatching to a VS Code (code-bridge) executor', () => {
     expect(out.status).toBe(200)
     expect(out.body).toEqual({ ok: true })
     expect(listApprovalVerifications(approval.id)[0]).toMatchObject({ status: 'pass', mode: 'fix' })
+  })
+})
+
+// --- #774: take back the running reviews (Boss TG 10319) -------------------
+describe('POST /api/approvals/:id/verify/cancel', () => {
+  beforeEach(() => {
+    initDatabase(':memory:')
+    runningAgents.clear()
+    liveTmuxSessions.clear()
+    liveTmuxSessions.add('lackor2-bot-channels')
+    existingAgentDirs.clear()
+    existingAgentDirs.add('gemma')
+    resetCodeBridgeTablesForTests()
+    upsertCodeSession({ project: 'someproject', workspacePath: 'C:\\ws\\someproject', sessionId: 'aaaaaaaa-0000-4000-8000-000000000001' })
+  })
+
+  it('removes the pending rows and cancels the queued VS Code task, so the executor is free', async () => {
+    const approval = createApproval({ id: 'x1', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject', 'gemma'] }).ctx)
+    expect(listApprovalVerifications(approval.id)).toHaveLength(2)
+
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify/cancel`)
+    await tryHandleApprovals(ctx)
+    expect(out.status).toBe(200)
+    expect(out.body).toEqual({ removed: 2, cancelledTasks: 1, runningTasks: 0 })
+    expect(listApprovalVerifications(approval.id)).toHaveLength(0)
+    expect(listCodeTasks({ project: 'someproject' })[0]!.status).toBe('cancelled')
+  })
+
+  it('keeps an answer that already came in', async () => {
+    const approval = createApproval({ id: 'x2', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma', 'code:someproject'] }).ctx)
+    resolveApprovalVerification(approval.id, 'gemma', 'pass', 'ok')
+
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify/cancel`)
+    await tryHandleApprovals(ctx)
+    expect(out.body.removed).toBe(1)
+    expect(listApprovalVerifications(approval.id).map((r) => `${r.agent}:${r.status}`)).toEqual(['gemma:pass'])
+  })
+
+  it('says so when a VS Code task already runs: it cannot be stopped, and is not marked cancelled', async () => {
+    const approval = createApproval({ id: 'x3', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject'] }).ctx)
+    const task = listCodeTasks({ project: 'someproject' })[0]!
+    getDb().prepare("UPDATE code_tasks SET status = 'running' WHERE id = ?").run(task.id)
+
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify/cancel`)
+    await tryHandleApprovals(ctx)
+    expect(out.body).toEqual({ removed: 1, cancelledTasks: 0, runningTasks: 1 })
+    expect(listCodeTasks({ project: 'someproject' })[0]!.status).toBe('running')
+  })
+
+  it('404 for an unknown approval', async () => {
+    const { ctx, out } = fakeReq('POST', '/api/approvals/nope/verify/cancel')
+    await tryHandleApprovals(ctx)
+    expect(out.status).toBe(404)
   })
 })
