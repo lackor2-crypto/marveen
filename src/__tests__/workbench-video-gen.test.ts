@@ -24,10 +24,11 @@ const P = { duration: 8, resolution: '720p', aspect_ratio: '9:16', audio: true }
 const MP4 = Buffer.alloc(4096, 7)
 
 interface Fake { calls: { url: string; method: string; auth: string | undefined; body?: string }[]; posts: number }
-function fakeOpenRouter(opts: { status?: string[]; startStatus?: number; startThrows?: boolean; downloadFailsFirst?: number; cost?: number } = {}): { f: FetchLike; s: Fake } {
+function fakeOpenRouter(opts: { status?: string[]; startStatus?: number; startThrows?: boolean; downloadFailsFirst?: number; cost?: number; statusThrowsFirst?: number } = {}): { f: FetchLike; s: Fake } {
   const s: Fake = { calls: [], posts: 0 }
   let polled = 0
   let dlFails = opts.downloadFailsFirst ?? 0
+  let stFails = opts.statusThrowsFirst ?? 0
   const f: FetchLike = async (url, init) => {
     const method = init?.method || 'GET'
     s.calls.push({ url, method, auth: init?.headers?.['authorization'], body: init?.body })
@@ -43,6 +44,7 @@ function fakeOpenRouter(opts: { status?: string[]; startStatus?: number; startTh
       if (dlFails > 0) { dlFails--; return ok({ error: 'boom' }, 500) }
       return { ok: true, status: 200, json: async () => ({}), text: async () => '', arrayBuffer: async () => MP4.buffer.slice(MP4.byteOffset, MP4.byteOffset + MP4.byteLength) as ArrayBuffer }
     }
+    if (stFails > 0) { stFails--; throw new Error('getaddrinfo ENOTFOUND openrouter.ai') }
     const seq = opts.status ?? ['in_progress', 'completed']
     const st = seq[Math.min(polled++, seq.length - 1)]
     return ok({ status: st, usage: st === 'completed' ? { cost: opts.cost ?? 0.4 } : undefined, error: st === 'failed' ? 'content policy' : undefined })
@@ -225,6 +227,61 @@ describe('a teljes folyamat', () => {
     expect(again.ok).toBe(true)
     expect(getVideoGen(r.row.id)!.state).toBe('done')
     expect(s.posts).toBe(1)
+  })
+
+  it('#785: hosszabb net-kimaradas (10 elbukott allapot-lekerdezes) nem oli meg a feladatot: utana letolti', async () => {
+    const { f, s } = fakeOpenRouter({ statusThrowsFirst: 10 })
+    const deps = { fetchImpl: f, getKey: () => 'K', pollMs: 1, sleep: noSleep }
+    const r = await run(deps)
+    if (!r.ok) throw new Error('inditas')
+    await pollVideoGeneration(r.row.id, deps)
+    expect(getVideoGen(r.row.id)!.state).toBe('done')
+    expect(s.posts).toBe(1)
+  })
+
+  it('#785: idotullepes utan a kifizetett video NEM vesz el: ujra ellenorizheto (ingyen), es ha kesz, letoltodik', async () => {
+    const slow = fakeOpenRouter({ status: ['in_progress'] })
+    const deps = { fetchImpl: slow.f, getKey: () => 'K', pollMs: 1, sleep: noSleep, waitMaxMs: -1 }
+    const r = await run(deps)
+    if (!r.ok) throw new Error('inditas')
+    await pollVideoGeneration(r.row.id, deps)
+    expect(getVideoGen(r.row.id)).toMatchObject({ state: 'failed', error_code: 'video_gen_timeout' })
+    // a talan-fizetett feladat a havi keretbe a becslesevel szamit
+    expect(monthSpendUsd()).toBeCloseTo(0.4, 4)
+    const ready = fakeOpenRouter({ status: ['completed'], cost: 0.4 })
+    const deps2 = { fetchImpl: ready.f, getKey: () => 'K', pollMs: 1, sleep: noSleep }
+    const again = await retryVideoDownload(r.row.id, deps2)
+    expect(again.ok).toBe(true)
+    await pollVideoGeneration(r.row.id, deps2)
+    expect(getVideoGen(r.row.id)).toMatchObject({ state: 'done', error_code: null })
+    expect(slow.s.posts + ready.s.posts).toBe(1)
+  })
+
+  it('#785: a tartos net-hiba a varakozasi ido vegen a halozati kodot adja, es az is ujra ellenorizheto', async () => {
+    const { f } = fakeOpenRouter({ statusThrowsFirst: 1000 })
+    const deps = { fetchImpl: f, getKey: () => 'K', pollMs: 1, sleep: noSleep, waitMaxMs: 0 }
+    const r = await run(deps)
+    if (!r.ok) throw new Error('inditas')
+    await new Promise((res) => setTimeout(res, 5))
+    await pollVideoGeneration(r.row.id, deps)
+    expect(getVideoGen(r.row.id)).toMatchObject({ state: 'failed', error_code: 'video_status_unreachable' })
+    const ok = fakeOpenRouter()
+    const again = await retryVideoDownload(r.row.id, { fetchImpl: ok.f, getKey: () => 'K', pollMs: 1, sleep: noSleep })
+    expect(again).toMatchObject({ ok: true })
+  })
+
+  it('#785: a modell sajat hibaja (nem fizetett) es az elutasitott inditas nem szamit a keretbe; a bizonytalan inditas igen', async () => {
+    const a = createVideoGen({ itemId, projectId, model: 'm', prompt: 'p', params: P, estUsd: 1 })
+    setRemoteId(a.id, 'job-a')
+    const { failVideoGen } = await import('../workbench-video-gen-store.js')
+    failVideoGen(a.id, 'video_generation_failed', 'policy')
+    const b = createVideoGen({ itemId, projectId, model: 'm', prompt: 'p', params: P, estUsd: 2 })
+    failVideoGen(b.id, 'video_no_credit', 'x')
+    expect(monthSpendUsd()).toBe(0)
+    const c = createVideoGen({ itemId, projectId, model: 'm', prompt: 'p', params: P, estUsd: 3 })
+    failVideoGen(c.id, 'video_start_unsure', 'x')
+    expect(monthSpendUsd()).toBe(3)
+    expect(await retryVideoDownload(a.id)).toMatchObject({ ok: false, code: 'video_not_retryable' })
   })
 
   it('ujrainditas: a futo feladat folytatodik, a "preparing" maradek failed es nem megy ujra', async () => {

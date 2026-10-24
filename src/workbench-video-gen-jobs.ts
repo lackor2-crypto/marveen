@@ -7,6 +7,8 @@
  *   - A kesz klip UJ FAJL es UJ VERZIO a munkadarabon (a regi sosem ir felul), a letoltes hibaja utan ingyen ujra lehet
  *     probalni (`retryVideoDownload`): a video az OpenRouternel megvan.
  *   - A havi keret elott a becsult koltseg ellenorzodik; erzekeny munkadarabnal a generalas tiltott.
+ *   - #785: a lost connection does not end a job (the status is asked until the wait limit), and a job that ran out of
+ *     time or lost sight of the provider can be ASKED AGAIN for free (`retryVideoDownload`): a paid video is never lost.
  */
 import { getSecret } from './web/vault.js'
 import { getEffectiveSettingValue } from './settings-store.js'
@@ -20,7 +22,7 @@ import {
 } from './workbench-video-gen.js'
 import {
   activeVideoGen, createVideoGen, failOrphanPreparing, failVideoGen, finishVideoGen, getVideoGen, monthSpendUsd,
-  resumableVideoGens, setRemoteId, type VideoGenRow,
+  reopenVideoGen, resumableVideoGens, setRemoteId, type VideoGenRow,
 } from './workbench-video-gen-store.js'
 
 export const OPENROUTER_VAULT_ID = 'openrouter-fleet-key'
@@ -176,7 +178,7 @@ async function pollLoop(id: string, deps: VideoGenDeps): Promise<void> {
     const sleep = deps.sleep ?? defaultSleep
     const pollMs = deps.pollMs ?? VIDEO_POLL_MS
     const deadline = Date.now() + (deps.waitMaxMs ?? VIDEO_WAIT_MAX_MS)
-    let failures = 0
+    let lastFailure: { code: string; detail: string } | null = null
     for (;;) {
       const row = getVideoGen(id)
       if (!row || row.state !== 'running' || !row.remote_id) return
@@ -184,14 +186,20 @@ async function pollLoop(id: string, deps: VideoGenDeps): Promise<void> {
       if (!key) { failVideoGen(id, 'video_no_key', 'the OpenRouter key is gone from the vault'); return }
       const st = await getVideoStatus({ key, id: row.remote_id, fetchImpl: deps.fetchImpl })
       if (!st.ok) {
-        // Egy-egy megszakadt lekerdezes nem a generalas hibaja: tobbszor egymas utan kell elbukni.
-        if (++failures >= 6) { failVideoGen(id, st.code, st.detail); return }
+        // #785: a lost status check is not the generation's failure -- the video may be ready and paid. We keep asking
+        // until the wait limit; only then does the job stop, and it can still be asked again (RECHECK_CODES).
+        lastFailure = st
       } else {
-        failures = 0
+        lastFailure = null
         if (st.status === 'failed') { failVideoGen(id, 'video_generation_failed', st.error || 'the model could not make the video', st.costUsd); return }
         if (st.status === 'completed') { await saveFinished(id, st.costUsd, deps); return }
       }
-      if (Date.now() > deadline) { failVideoGen(id, 'video_gen_timeout', `no result after ${Math.round((deps.waitMaxMs ?? VIDEO_WAIT_MAX_MS) / 60000)} minutes; job ${row.remote_id}`); return }
+      if (Date.now() > deadline) {
+        const mins = Math.round((deps.waitMaxMs ?? VIDEO_WAIT_MAX_MS) / 60000)
+        if (lastFailure) failVideoGen(id, lastFailure.code, `${lastFailure.detail}; no answer for ${mins} minutes; job ${row.remote_id}`)
+        else failVideoGen(id, 'video_gen_timeout', `no result after ${mins} minutes; job ${row.remote_id}`)
+        return
+      }
       await sleep(pollMs)
     }
   }
@@ -225,13 +233,29 @@ async function saveFinished(id: string, costUsd: number | null, deps: VideoGenDe
   finishVideoGen(id, { costUsd, fileRel: written.rel })
 }
 
-/** Letoltes-hiba utan: a videot ujra elkerjuk az OpenRouterrol (fizetes nelkul), nem generalunk ujat. */
+/** #785: a job that stopped without an answer from the provider (out of time, lost connection, the key was gone): its
+ *  video may be ready and paid, so it can be asked again -- a status check, never a new generation. */
+export const RECHECK_CODES: ReadonlySet<string> = new Set([
+  'video_gen_timeout', 'video_status_failed', 'video_status_unreachable', 'video_status_unknown', 'video_no_key',
+])
+
+/** A failed job that can be taken up again for free (download again, or ask the provider again). */
+export function videoGenRetryable(row: Pick<VideoGenRow, 'state' | 'remote_id' | 'error_code'>): boolean {
+  const code = row.error_code || ''
+  return row.state === 'failed' && !!row.remote_id && (code.startsWith('video_download') || code === 'video_write_failed' || RECHECK_CODES.has(code))
+}
+
+/** Letoltes-hiba utan: a videot ujra elkerjuk az OpenRouterrol (fizetes nelkul), nem generalunk ujat.
+ *  #785: a job that ran out of time / lost the connection is asked again (back to 'running', a fresh wait). */
 export async function retryVideoDownload(id: string, deps: VideoGenDeps = {}): Promise<{ ok: true; row: VideoGenRow } | VideoGenError> {
   const row = getVideoGen(id)
   if (!row) return { ok: false, status: 404, code: 'video_not_found', detail: null }
-  const code = row.error_code || ''
-  if (row.state !== 'failed' || !row.remote_id || !(code.startsWith('video_download') || code === 'video_write_failed')) {
-    return { ok: false, status: 409, code: 'video_not_retryable', detail: null }
+  if (!videoGenRetryable(row)) return { ok: false, status: 409, code: 'video_not_retryable', detail: null }
+  if (RECHECK_CODES.has(row.error_code || '')) {
+    if (!keyOf(deps)) return { ok: false, status: 409, code: 'video_no_key', detail: null }
+    if (!reopenVideoGen(id)) return { ok: false, status: 409, code: 'video_not_retryable', detail: null }
+    void pollVideoGeneration(id, deps)
+    return { ok: true, row: getVideoGen(id)! }
   }
   await saveFinished(id, row.cost_usd, deps)
   return { ok: true, row: getVideoGen(id)! }

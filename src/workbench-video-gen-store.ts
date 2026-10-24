@@ -103,6 +103,14 @@ export function failVideoGen(id: string, code: string, detail: string, costUsd: 
   getDb().prepare(`UPDATE wb_video_gen SET state = 'failed', error_code = ?, error_detail = ?, cost_usd = COALESCE(?, cost_usd), updated_at = ? WHERE id = ?`).run(code, detail.slice(0, 500), costUsd, now(), id)
 }
 
+/** #785: a failed job the provider accepted (it has a remote id) is asked again, for free: it goes back to 'running'. */
+export function reopenVideoGen(id: string): boolean {
+  ensureVideoGenTables()
+  const r = getDb().prepare(`UPDATE wb_video_gen SET state = 'running', error_code = NULL, error_detail = NULL, updated_at = ?
+    WHERE id = ? AND state = 'failed' AND remote_id IS NOT NULL`).run(now(), id)
+  return Number(r.changes) > 0
+}
+
 /** Egy kesz videohoz tartozo, de meg le nem toltott/elmentett generalas: a letoltes hibaja utan ujra megprobalhato (nem fizet ujra). */
 export function resumableVideoGens(): VideoGenRow[] {
   ensureVideoGenTables()
@@ -118,11 +126,15 @@ export function failOrphanPreparing(): number {
   return Number(r.changes)
 }
 
-/** A havi koltseg (UTC honap eleje ota): a tenyleges koltseg, ennek hianyaban a becsult; a sikertelen, de nem fizetett nem szamit. */
+/** A havi koltseg (UTC honap eleje ota): a tenyleges koltseg, ennek hianyaban a becsult; a sikertelen, de nem fizetett nem szamit.
+ *  #785: a failed job that may have been paid (the provider accepted it and we lost sight of it, or the start may have gone
+ *  out) counts with its estimate -- otherwise a timed-out, paid video left the monthly limit unprotected. */
 export function monthSpendUsd(at: Date = new Date()): number {
   ensureVideoGenTables()
   const start = Math.floor(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1) / 1000)
   const r = getDb().prepare(`SELECT COALESCE(SUM(CASE
+      WHEN state = 'failed' AND ((remote_id IS NOT NULL AND COALESCE(error_code, '') <> 'video_generation_failed')
+        OR error_code IN ('video_start_unsure', 'video_interrupted_before_id')) THEN COALESCE(cost_usd, est_usd, 0)
       WHEN state = 'failed' THEN COALESCE(cost_usd, 0)
       ELSE COALESCE(cost_usd, est_usd, 0) END), 0) AS usd
     FROM wb_video_gen WHERE created_at >= ?`).get(start) as { usd: number }

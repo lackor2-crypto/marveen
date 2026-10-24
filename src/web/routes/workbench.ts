@@ -112,8 +112,13 @@ import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-vide
 import { timelineStore, applyTimelineOps, timelineSummary, timelineDuration, clipOffsets, TIMELINE_MAX_CLIPS, TIMELINE_MAX_SUBTITLES, TIMELINE_MAX_OVERLAYS, TIMELINE_TEXT_MAX, TIMELINE_MIN_CLIP, TIMELINE_ASPECTS, TIMELINE_BACKGROUNDS } from '../../workbench-video-timeline.js'
 import { renderTimeline, lastRenderOf, fillClipEnds, clampClipLengths, listProjectMedia } from '../../workbench-video-render.js'
 import { cutoutStore, highlightStore, getRenderJob, jobStatus, startRenderJob } from '../../workbench-video-jobs.js'
-import { parseVideoParams, previewVideoGen, retryVideoDownload, startVideoGeneration, videoKeyPresent, videoMonthlyBudgetUsd } from '../../workbench-video-gen-jobs.js'
-import { listVideoGens } from '../../workbench-video-gen-store.js'
+import { RECHECK_CODES, parseVideoParams, previewVideoGen, retryVideoDownload, startVideoGeneration, videoGenRetryable, videoKeyPresent, videoMonthlyBudgetUsd } from '../../workbench-video-gen-jobs.js'
+import { listVideoGens as listVideoGenRows } from '../../workbench-video-gen-store.js'
+
+/** #785: each job says which free way back it has: download again, or ask the provider again. */
+function listVideoGens(itemId: string): (ReturnType<typeof listVideoGenRows>[number] & { retry: 'download' | 'recheck' | null })[] {
+  return listVideoGenRows(itemId).map((j) => ({ ...j, retry: !videoGenRetryable(j) ? null : RECHECK_CODES.has(j.error_code || '') ? 'recheck' : 'download' }))
+}
 import { listBufferChannels, BUFFER_VAULT_ID } from '../../workbench-social-buffer.js'
 import { hostConfigFromVault } from '../../workbench-social-host.js'
 import { hostedView, pruneHostedVideos } from '../../workbench-social-hosted.js'
@@ -1534,15 +1539,15 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   video_start_unsure: { hu: 'Nem biztos, hogy a kérés elindult-e (időtúllépés vagy hálózati hiba). NEM próbálom újra magamtól, nehogy kétszer fizess. Nézd meg az OpenRouter tevékenységei között, és ha nincs ott, indítsd újra.', en: 'It is not certain the request started (timeout or network error). I will NOT retry by myself, so you are not charged twice. Check the OpenRouter activity page, and start again if it is not there.' },
   video_interrupted_before_id: { hu: 'A program leállt, mielőtt a feladat azonosítója elmentődött. Lehet, hogy a generálás elindult: nézd meg az OpenRouter tevékenységei között, mielőtt újra próbálod.', en: 'The app stopped before the job id was saved. The generation may have started: check the OpenRouter activity page before trying again.' },
   video_generation_failed: { hu: 'A modell nem tudta elkészíteni a videót. A részletekben az ő üzenete.', en: 'The model could not make the video. Its own message is in the details.' },
-  video_gen_timeout: { hu: 'A videó nem készült el a várható időn belül. A részletekben a feladat azonosítója az OpenRouternél.', en: 'The video did not finish in the expected time. The job id at OpenRouter is in the details.' },
+  video_gen_timeout: { hu: 'A videó nem készült el a várható időn belül. Lehet, hogy azóta elkészült: az „Újra ellenőrzés” gomb fizetés nélkül megnézi, és ha kész, letölti.', en: 'The video did not finish in the expected time. It may be ready since: the "Check again" button looks without paying, and downloads it if it is ready.' },
   video_download_failed: { hu: 'A kész videót nem sikerült letölteni. Újra letöltheted fizetés nélkül.', en: 'The finished video could not be downloaded. You can download it again without paying.' },
   video_download_unreachable: { hu: 'A kész videó letöltése megszakadt. Újra letöltheted fizetés nélkül.', en: 'Downloading the finished video was interrupted. You can download it again without paying.' },
   video_download_empty: { hu: 'A letöltött videó üres. Újra letöltheted fizetés nélkül.', en: 'The downloaded video is empty. You can download it again without paying.' },
   video_write_failed: { hu: 'A kész videót nem sikerült a projektbe menteni. Újra próbálhatod fizetés nélkül.', en: 'The finished video could not be saved into the project. You can try again without paying.' },
   video_not_found: { hu: 'Ilyen videógenerálási feladat nincs.', en: 'There is no such video generation job.' },
   video_not_retryable: { hu: 'Ezt a feladatot nem lehet újra letölteni.', en: 'This job cannot be downloaded again.' },
-  video_status_failed: { hu: 'Az OpenRouter állapot-lekérdezése nem sikerült.', en: 'The OpenRouter status check failed.' },
-  video_status_unreachable: { hu: 'Az OpenRouter állapot-lekérdezése megszakadt.', en: 'The OpenRouter status check was interrupted.' },
+  video_status_failed: { hu: 'Az OpenRouter állapot-lekérdezése nem sikerült. Az „Újra ellenőrzés” gomb fizetés nélkül újra megkérdezi.', en: 'The OpenRouter status check failed. The "Check again" button asks again without paying.' },
+  video_status_unreachable: { hu: 'Az OpenRouter állapot-lekérdezése megszakadt (hálózati hiba). Az „Újra ellenőrzés” gomb fizetés nélkül újra megkérdezi.', en: 'The OpenRouter status check was interrupted (network error). The "Check again" button asks again without paying.' },
   publish_needs_approval: { hu: 'A valódi közzétételhez a te jóváhagyásod kell: nyomd meg a „Közzététel” gombot és hagyd jóvá, vagy állítsd a publish_content kategóriát 3-asra a Beállítások, Autonómia lapon.', en: 'Live posting needs your approval: press "Publish" and confirm, or set publish_content to level 3 in Settings, Autonomy.' },
   publish_no_channel: { hu: 'Válassz legalább egy csatornát.', en: 'Pick at least one channel.' },
   publish_no_text: { hu: 'Írd meg a poszt szövegét.', en: 'Write the post text.' },
