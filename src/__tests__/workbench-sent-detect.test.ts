@@ -106,4 +106,19 @@ describe('sent detection from the Sent mailbox', () => {
     // sent before every final existed (clock skew beyond a day): the oldest, never a later one
     expect(finalsCarriedBy(finals, ['Antrag - végleges.pdf'], new Date(0).toISOString())).toEqual(['old'])
   })
+
+  it('a final made hours AFTER the mail is not picked for a file name both finals made', () => {
+    const t0 = 1_000_000
+    const f = (v: string, created_at: number, ...n: string[]) => ({ version_id: v, created_at, names: new Set(n.map(normName)) })
+    const finals = [f('v1', t0, 'Antrag.pdf'), f('v2', t0 + 10 * 3600, 'Antrag.pdf')]
+    expect(finalsCarriedBy(finals, ['Antrag.pdf'], new Date((t0 + 5 * 3600) * 1000).toISOString())).toEqual(['v1'])
+  })
+
+  it('an annex every final made does not drag the newer final in when the main file names the older one', () => {
+    const f = (v: string, created_at: number, ...n: string[]) => ({ version_id: v, created_at, names: new Set(n.map(normName)) })
+    const finals = [f('v1', 1_000_000, 'Antrag v1.pdf', 'Anlage 1.pdf'), f('v2', 2_000_000, 'Antrag v2.pdf', 'Anlage 1.pdf')]
+    const sentLater = new Date(3_000_000 * 1000).toISOString()
+    expect(finalsCarriedBy(finals, ['Antrag v1.pdf', 'Anlage 1.pdf'], sentLater)).toEqual(['v1'])
+    expect(finalsCarriedBy(finals, ['Antrag v2.pdf', 'Anlage 1.pdf'], sentLater)).toEqual(['v2'])
+  })
 })

@@ -63,18 +63,26 @@ export function sentCandidateNames(itemId: string): { finals: FinalNames[]; draf
   return { finals, draftNames, since, account }
 }
 
+/** The mail date and a final's creation come from the same machine: a few minutes of slack, not a day. */
+const CLOCK_SLACK_S = 600
+
 /**
- * The finals whose files a mail carried. Two finals that made a file of the same name cannot be told apart by the name:
- * then the newest one that already existed when the mail went out (a final made later cannot be in it), else the oldest.
+ * The finals whose files a mail carried. A file name that only ONE final made names that final for certain. A name that
+ * several finals made (a reused file, an annex shared by all of them) cannot be told apart by the name: it adds nothing
+ * when a certain final already carries it, else the newest final that already existed when the mail went out (a final
+ * made later cannot be in it), else the oldest.
  */
 export function finalsCarriedBy(finals: FinalNames[], attachments: string[], mailDate: string): string[] {
   const t = Date.parse(mailDate)
   const out = new Set<string>()
-  for (const a of new Set(attachments.map(normName))) {
-    const same = finals.filter((f) => f.names.has(a)).sort((x, y) => y.created_at - x.created_at)
-    if (!same.length) continue
-    const before = Number.isFinite(t) ? same.find((f) => f.created_at <= t / 1000 + 86_400) : undefined
-    out.add((before ?? same[same.length - 1]).version_id)
+  const groups = [...new Set(attachments.map(normName))]
+    .map((a) => finals.filter((f) => f.names.has(a)).sort((x, y) => x.created_at - y.created_at))
+    .filter((g) => g.length)
+  for (const g of groups) if (g.length === 1) out.add(g[0].version_id)
+  for (const g of groups) {
+    if (g.length === 1 || g.some((f) => out.has(f.version_id))) continue
+    const before = Number.isFinite(t) ? [...g].reverse().find((f) => f.created_at <= t / 1000 + CLOCK_SLACK_S) : undefined
+    out.add((before ?? g[0]).version_id)
   }
   return [...out]
 }
