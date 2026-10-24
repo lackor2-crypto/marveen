@@ -1,7 +1,7 @@
 // #530, phase 5: what is still open before a project is closed (reported, not forbidden),
 // and the projects a project belongs with.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
@@ -9,8 +9,9 @@ import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, createWorkItemVersion, getWorkItem, type WorkItemRow } from '../workbench.js'
 import { addSection, addBlock } from '../workbench-docmodel.js'
 import { contentHash } from '../workbench-docfinal.js'
-import { fileOfficialCopy, recordSent } from '../workbench-docsent.js'
+import { fileOfficialCopy, markSentManually, recordSent } from '../workbench-docsent.js'
 import { addProjectDoc } from '../workbench-doc-links.js'
+import { attachAsset } from '../workbench-assets.js'
 import { addRelatedProject, listRelatedProjects, projectCloseCheck, relatableProjects, removeRelatedProject } from '../workbench-project-close.js'
 
 describe('before closing a project', () => {
@@ -64,6 +65,53 @@ describe('before closing a project', () => {
     expect(c['open_items']).toEqual([false, 1, 1])
     getDb().prepare("UPDATE work_items SET status = 'done' WHERE id = ?").run(item.id)
     expect(projectCloseCheck(pid).ready).toBe(true)
+  })
+
+  // #783: a Word / note item finalized with its own panel (before #777) has no court final: done, its PDF in Finished
+  // materials. It counted as "no final output" -- a false alarm on the project close.
+  const legacyFinal = (src: string, pdfName: string): void => {
+    writeFileSync(abs(src), 'SOURCE')
+    getDb().prepare("UPDATE work_items SET source_path = ?, status = 'done' WHERE id = ?").run(src, item.id)
+    item = getWorkItem(item.id) as WorkItemRow
+    const a = attachAsset(item, pdfName, Buffer.from('%PDF-1.4 final'), { force: true, createdBy: 'o', into: 'finished' })
+    if (!a.ok) throw new Error('asset ' + a.code)
+    item = getWorkItem(item.id) as WorkItemRow
+  }
+
+  it('#783: a Word item finalized with the old Word panel counts as final; its sending is the item\'s', () => {
+    legacyFinal('Projektek/Ügy/Fellebbezés.docx', 'Fellebbezés - végleges.pdf')
+    let c = check()
+    expect([c['finals'], c['unsent']]).toEqual([[true, 1, 1], [false, 1, undefined]])
+    expect(c['stale_finals']).toBeUndefined()
+    // no final version to record a sending against: the owner's one-click "I sent it" mark counts
+    expect(recordSent(item, { date: '2026-10-08', recipient: 'Sozialamt' }, 'o').ok).toBe(false)
+    markSentManually(item.id, 'o')
+    c = check()
+    expect([c['unsent'], c['unfiled']]).toEqual([[true, 0, undefined], [true, 0, undefined]])
+  })
+
+  it('#783: a note finalized with the old note panel counts as final', () => {
+    legacyFinal('Projektek/Ügy/Fellebbezés.md', 'Fellebbezés.pdf')
+    // the page's text must not be newer than the PDF: the PDF was made after the last edit
+    getDb().prepare('UPDATE wb_doc_sections SET updated_at = 0').run()
+    getDb().prepare('UPDATE wb_doc_blocks SET updated_at = 0').run()
+    utimesSync(abs('Projektek/Ügy/Fellebbezés.md'), new Date(0), new Date(0))
+    expect(check()['finals']).toEqual([true, 1, 1])
+  })
+
+  it('#783: an old-panel final the Word file moved on from is reported as stale', () => {
+    legacyFinal('Projektek/Ügy/Fellebbezés.docx', 'Fellebbezés - végleges.pdf')
+    const t = new Date(Date.now() + 120_000)
+    utimesSync(abs('Projektek/Ügy/Fellebbezés.docx'), t, t)
+    const c = check()
+    expect(c['finals']).toEqual([false, 0, 1])
+    expect(c['stale_finals']).toEqual([false, 1, undefined])
+  })
+
+  it('#783: a done item with no PDF at all is still "no final" (no false all-clear)', () => {
+    writeFileSync(abs('Projektek/Ügy/Fellebbezés.docx'), 'SOURCE')
+    getDb().prepare("UPDATE work_items SET source_path = ?, status = 'done' WHERE id = ?").run('Projektek/Ügy/Fellebbezés.docx', item.id)
+    expect(check()['finals']).toEqual([false, 0, 1])
   })
 
   it('a final the text has moved on from is reported as stale, and is not counted as final', () => {

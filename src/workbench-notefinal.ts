@@ -85,6 +85,20 @@ export async function finalizeTextItem(item: WorkItemRow, input: { by: string | 
   return { ok: true, item: getWorkItem(item.id) ?? done.item, asset_path: saved.asset.path, asset_name: saved.asset.name }
 }
 
+/**
+ * #783: the final PDF the note finalize left in Finished materials (an item finalized before #777, when the note had its own
+ * finalize), for the project close check: its name, and whether the text changed since it was made. Null = there is none.
+ */
+export function noteFinalPdf(item: WorkItemRow): { name: string; stale: boolean } | null {
+  if (!item.source_path || !isTextSourcePath(item.source_path)) return null
+  const pdfName = `${fileStem(basename(item.source_path).replace(/\.[^.]+$/, ''))}.pdf`
+  const base = pdfName.replace(/\.pdf$/i, '')
+  const rows = listWorkItemAssets(item.id).filter((a) => a.present && (a.name === pdfName || new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(\\d+\\)\\.pdf$`, 'i').test(a.name)))
+  const last = rows[rows.length - 1]
+  if (!last) return null
+  return { name: last.name, stale: !unchangedFinalPdf(item, pdfName) }
+}
+
 /** The newest final PDF of the item when it is not older than the text it was made from (the file and the page), else null. */
 function unchangedFinalPdf(item: WorkItemRow, pdfName: string): { path: string; name: string } | null {
   const base = pdfName.replace(/\.pdf$/i, '')

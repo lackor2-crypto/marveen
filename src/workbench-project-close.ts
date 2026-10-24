@@ -13,7 +13,9 @@ import { getDb } from './db.js'
 import { getProject, listProjects } from './projects.js'
 import { ensureWorkbenchTables, getWorkItem } from './workbench.js'
 import { finalState } from './workbench-docfinal.js'
-import { listSent } from './workbench-docsent.js'
+import { noteFinalPdf } from './workbench-notefinal.js'
+import { docxFinalState } from './workbench-docxfinal.js'
+import { listSent, sentStatus } from './workbench-docsent.js'
 import { hasDocModel } from './workbench-docmodel.js'
 import { listProjectDocs } from './workbench-doc-links.js'
 
@@ -39,7 +41,18 @@ export function projectCloseCheck(projectId: string): { items: CloseItem[]; read
     const item = getWorkItem(d.id)
     if (!item) continue
     const fin = finalState(item)
-    if (!fin) continue
+    if (!fin) {
+      // #783: a note / Word item finalized with its own panel (before #777): done, its PDF in Finished materials, no court
+      // final. It is final too. That finalize kept no version, so a sending can not be recorded against it: "sent" is the
+      // item's sent status (a recorded sending, or the owner's one-click "I sent it" mark).
+      const legacy = item.status === 'done' ? (noteFinalPdf(item) ?? docxFinalState(item)) : null
+      if (!legacy) continue
+      if (legacy.stale) { stale++; continue }
+      finals++
+      if (!sentStatus(d.id).sent) unsent++
+      unfiled += listSent(d.id).filter((s) => !s.filed_rel).length
+      continue
+    }
     if (fin.stale) { stale++; continue }
     finals++
     const sent = listSent(d.id).filter((s) => s.version_id === fin.version_id)
