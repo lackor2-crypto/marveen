@@ -335,6 +335,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Elfogadni vagy visszadobni csak a tulajdonos tud, bejelentkezve a felületen.',
     en: 'Only the owner can approve or send back, signed in on the dashboard.',
   },
+  final_on_document_page: {
+    hu: 'Ez a munkadarab a dokumentum-oldalon áll, ezért ugyanúgy véglegesíted, mint egy bírósági dokumentumot: a felső Véglegesítés gomb megnyitja a lépéseket (átnézés, pipa, végleges PDF), utána jöhet a levélpiszkozat.',
+    en: 'This work item stands on the document page, so you finalize it the same way as a court document: the Finalize button at the top opens the steps (review, tick, final PDF), then the e-mail draft.',
+  },
   note_final_not_text: {
     hu: 'Ennek a munkadarabnak nincs szöveges (.md / .txt) fájlja, ezért nem készíthető belőle PDF.',
     en: 'This work item has no text (.md / .txt) file, so no PDF can be made of it.',
@@ -4994,6 +4998,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     } else if (action === 'finalize' || action === 'reopen') {
       // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.
       if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
+      // #777: a note / Word file read onto the document page (text profile) has ONE finalize: the court document's own
+      // (/outline/finalize), so a fix there reaches it too. The separate panels below are only for a file not on the page.
+      if (action === 'finalize' && body['pdf'] === true && (hasTextFinalPanel(item) || hasDocxFinalPanel(item)) && textProfileOf(item)) {
+        return fail(res, 409, 'final_on_document_page', lang)
+      }
       // #667: a text-file item (.md / .txt) is finalized from the panel with its PDF, which lands in Finished materials.
       if (action === 'finalize' && body['pdf'] === true && hasTextFinalPanel(item)) {
         const tf = await finalizeTextItem(item, { by: who || 'dashboard', lang: body['lang'] == null ? null : String(body['lang']), text: typeof body['text'] === 'string' ? body['text'] : null })

@@ -165,7 +165,18 @@ describe('#673 the front end shares ONE page renderer (source guard)', () => {
     const tabs = js.slice(js.indexOf('function docTabsHtml('))
     expect(tabs.slice(0, 4000)).toMatch(/if \(courtOnly\(\)\) tabs\.push\(\['sources'/)
     expect(js).toMatch(/courtOnly\(\) \? langHeadHtml\(o, ro\) \+ glossaryHtml\(o, ro\) : ''/)
-    expect(js).toMatch(/courtOnly\(\) \? glossaryHtml\(o, ro\) \+ outlineCheckHtml\(o\.check, o, ro\) \+ outlinePdfHtml\(o, ro\)/)
+    expect(js).toMatch(/courtOnly\(\) \? glossaryHtml\(o, ro\) \+ outlineCheckHtml\(o\.check, o, ro\) : ''\) \+ outlinePdfHtml\(o, ro\)/)
+    expect(js).toContain("(courtOnly() ? courtBoxHtml(ro) : '')")
+  })
+  // #777 (Boss TG: "a birosagi oldalt kell helyette hasznalni, butitott valtozatban"): the text profile is finalized by the
+  // court document's OWN finalize panel and route, not by the separate note / Word panels.
+  it('#777 the text profile finalizes with the court document panel, not a separate one', () => {
+    const top = js.slice(js.indexOf('function finalizeTopHtml('), js.indexOf('function finalizeTopHtml(') + 3000)
+    expect(top).toContain("if ((it.type === 'document' && !it.source_path) || isTextProfile(it)) {")
+    expect(top).toContain('data-wb-act="sh-final"')
+    const panel = js.slice(js.indexOf('function noteFinalPanelHtml('), js.indexOf('function noteFinalPanelHtml(') + 600)
+    expect(panel).toContain('|| isTextProfile(it) || archived()) return')
+    expect(js).toContain("else if (a === 'item-finalize' && WB.detail && isTextProfile(WB.detail.item)) { WB.shFinal = !WB.shFinal")
   })
   it('every new text is in both languages', () => {
     for (const k of ['reimport', 'reimport_tip', 'reimport_confirm', 'reimported']) {
