@@ -2343,8 +2343,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-wm-card .btn-primary, .wb-wm-card .btn-secondary { width: auto; }
 
 /* #708: icon views of the files in the left tree */
-.wb-root .wb-files-view { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0; }
-.wb-root .wb-files-view select { max-width: 11em; }
+.wb-root .wb-files-view { display: flex; flex-wrap: nowrap; gap: 4px; margin: 4px 0 0; }
+.wb-root .wb-fv-btn { flex: 1 1 0; min-width: 0; padding: 4px 6px; font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-root .wb-fv-btn-on { border-color: var(--accent, #2563eb); background: var(--accent-soft, rgba(37, 99, 235, 0.14)); font-weight: 700; }
+@media (max-width: 900px) { .wb-root .wb-fv-btn { min-height: 44px; font-size: 0.85rem; } }
 .wb-item-row.wb-fv-row { padding-top: 4px; padding-bottom: 4px; }
 .wb-item-row.wb-fv-row .wb-file-link { align-items: center; }
 .wb-fv-thumb { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; overflow: hidden; background: rgba(127, 127, 127, 0.16); }
