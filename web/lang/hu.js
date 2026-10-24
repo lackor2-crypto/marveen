@@ -719,6 +719,7 @@ window._i18n.hu = {
   'drive.quota_trash': 'ebből {b} a Kukában',
   'drive.quota_no_limit': '{b} foglalt (a Google nem adott meg felső határt)',
   'drive.quota_never': 'Még nem mértünk tárhelyet. Ez nem azt jelenti, hogy megtelt vagy hogy van hely — csak azt, hogy még nem kérdeztük meg a Google-t. Nyomd meg a „Mérd meg most” gombot.',
+  'drive.quota_not_connected': 'Még nincs bekötött Drive-mappa, ezért nincs mit megmérni. Köss be egy Google Drive mappát a Raktár beállításainál, a „Drive-mentés futtatása” résznél, és utána itt megjelenik a fiókod tárhelye.',
   'drive.quota_measure_now': 'Mérd meg most',
   'drive.quota_measuring': 'Mérem…',
   'drive.quota_measure_done': 'Kész: {n} fiókot mértem meg.',

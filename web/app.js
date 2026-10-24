@@ -38433,6 +38433,16 @@ async function _depoQuotaRefresh() {
   }
   var q = (d && d.quotas) || {}
   var nevek = Object.keys(q)
+  // Nincs bekotott Drive-mappa: nincs mit megmerni, a regi szamok sem latszanak.
+  // A gomb helyett ember-mondatos utmutato jelenik meg (Boss, #773).
+  var gomb = document.getElementById('depoQuotaMeasureBtn')
+  var bekotve = !(d && d.connected === false)
+  if (gomb) gomb.style.display = bekotve ? '' : 'none'
+  if (!bekotve) {
+    if (st) st.textContent = ''
+    list.innerHTML = '<p class="subtitle" style="margin:0">' + escapeHtml(t('drive.quota_not_connected')) + '</p>'
+    return
+  }
   if (!nevek.length) {
     // Ures = meg nem mertunk. NEM azt jelenti, hogy "nincs hely" vagy "rendben".
     list.innerHTML = '<p class="subtitle" style="margin:0">' + escapeHtml(t('drive.quota_never')) + '</p>'
