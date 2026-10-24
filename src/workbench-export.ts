@@ -193,6 +193,8 @@ export function exportDir(): string {
 
 type SendInput = {
   to: unknown; subject: unknown; message: unknown; attachment: unknown; version: unknown; actor: string | null; lang: Lang
+  /** #779: the item's own document HTML (the document page's render, or a Word file's), so the sent page is the same as the export. */
+  docHtml?: string
 }
 type Prepared = { to: string; subject: string; message: string; attachment: Attachment; versionNo: number | null; versionId: string | null }
 
@@ -215,7 +217,7 @@ function prepareSend(item: WorkItemRow, input: SendInput): { ok: true; p: Prepar
     if (!abs || !isFile) return { ok: false, code: 'send_no_source' }
     attachment = { name: basename(abs), path: abs, kind: 'source' }
   } else {
-    const page = buildExportPage(item, input.version, input.lang, { toolbar: false })
+    const page = buildExportPage(item, input.version, input.lang, { toolbar: false, docHtml: input.docHtml })
     const dir = exportDir()
     const file = join(dir, `${item.id}-${Date.now()}-${page.fileName.replace(/\s+/g, '_')}`)
     try {
