@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// PreToolUse hook: WebFetch egress allowlist enforcement.
+// PreToolUse hook: WebFetch egress gate. Since 2026-10-24 (owner decision) any public
+// http/https URL is allowed; only internal/non-public targets are refused. The built-in
+// and runtime allowlists below still short-circuit to allow (local dashboard ports etc.).
 //
 // Any WebFetch call from the main agent must target a known, legitimate API
 // endpoint. Arbitrary web content (RSS feeds, docs, news pages, public APIs
@@ -128,22 +130,40 @@ export function isEgressBlocked(toolName, toolInput, runtimeList = { domains: []
   const rtPrefixes = runtimeList.prefixes ?? []
   if (rtPrefixes.some((p) => url.startsWith(p))) return false
 
-  // 3. Runtime domain check: parse the URL to extract a verified hostname.
-  //    URL parsing fails on non-URLs -> block (fail-safe).
-  const rtDomains = runtimeList.domains ?? []
-  if (rtDomains.length > 0) {
-    let hostname
-    try {
-      hostname = new URL(url).hostname
-    } catch {
-      // Unparseable URL: block, don't throw.
-      return true
-    }
-    // Match exact hostname OR any subdomain (host.endsWith('.' + domain)).
-    if (rtDomains.some((d) => hostname === d || hostname.endsWith('.' + d))) return false
+  // 3. Open reading (owner decision, Boss 2026-10-24: "Marvin igenis tudjon megnyitni
+  //    barmilyen weboldalt, ne legyenek korlatok"). Any PUBLIC http/https URL is
+  //    allowed. Only internal targets stay refused: a fetched page must not be able to
+  //    steer a fetch at this machine's own network or the cloud metadata endpoint.
+  //    An unparseable URL is still blocked (fail-safe).
+  let parsed
+  try {
+    parsed = new URL(url)
+  } catch {
+    return true
   }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true
+  return isInternalHost(parsed.hostname)
+}
 
-  return true
+// True for hosts that are not public websites: loopback, private and link-local
+// ranges, single-label names and internal suffixes. Mirrors the reader prompt's
+// "always refused" list (templates/sub-agents/quarantine-reader.md).
+export function isInternalHost(hostname) {
+  let host = String(hostname).trim().toLowerCase()
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  if (!host) return true
+  if (host.includes(':')) return true                       // any IPv6 literal (loopback, ULA, link-local)
+  if (/^\d+(\.\d+)*$/.test(host)) {                         // IPv4 literal or bare number
+    const o = host.split('.').map(Number)
+    if (o.length !== 4 || o.some((n) => n > 255)) return true
+    const [a, b] = o
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127)
+  }
+  const labels = host.split('.')
+  if (labels.length < 2) return true                        // localhost, instance-data, ...
+  const last = labels[labels.length - 1]
+  return ['local', 'internal', 'localdomain', 'lan', 'intranet', 'home', 'arpa', 'localhost'].includes(last)
 }
 
 function logBlocked(url, reason) {
@@ -157,14 +177,11 @@ function logBlocked(url, reason) {
 }
 
 const BLOCK_MESSAGE =
-  'Egress TILTOTT (egress-gate hook). Ez az URL nem szerepel a fő ágens WebFetch ' +
-  'engedélylistáján. Külső web-tartalom (RSS, dokumentáció, cikkek, ismeretlen API-k) ' +
-  'KIZÁRÓLAG a quarantine-reader sub-ágensen keresztül kérhető le: ' +
+  'Egress TILTOTT (egress-gate hook). Ez az URL belső vagy nem nyilvános cím (vagy nem ' +
+  'http/https), ezért nem nyitható meg. Nyilvános weboldalra nincs korlát. Külső web-tartalom ' +
+  'ajánlott útja a quarantine-reader sub-ágens: ' +
   'Agent({ subagent_type: "quarantine-reader", prompt: `FETCH {"url":"...","nonce":"..."}` }). ' +
-  'A letiltott hívás rögzítve lett a store/egress-blocked.log fájlban. ' +
-  'Ha ez a hívás jogos, az operátor jóváhagyhatja: adja hozzá az URL-t vagy domain-t a ' +
-  'store/egress-allowlist.json fájlhoz ({ "domains": ["example.com"] } vagy ' +
-  '{ "prefixes": ["https://example.com/api/"] }), majd futtassa újra a WebFetch hívást.'
+  'A letiltott hívás rögzítve lett a store/egress-blocked.log fájlban.'
 
 function allow() { process.exit(0) }
 

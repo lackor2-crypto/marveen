@@ -831,6 +831,9 @@ export function renderQuarantineReader(template: string, domains: string[]): str
   // there. Raised in review on #797.
   const headingRx = /^##\s+Domain restriction\s*$/m
   const heading = headingRx.exec(stripped)
+  // The shipped reader has no domain list any more (open reading, 2026-10-24):
+  // nothing to extend, so a template without the section is returned as-is.
+  if (!heading) return stripped
   const sectionStart = heading ? (heading.index ?? 0) + heading[0].length : 0
   const nextHeading = /^##\s+/m.exec(stripped.slice(sectionStart))
   const sectionEnd = nextHeading ? sectionStart + (nextHeading.index ?? 0) : stripped.length

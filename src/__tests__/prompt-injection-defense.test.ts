@@ -139,26 +139,30 @@ describe('isEgressBlocked', () => {
     expect(isEgressBlocked('WebFetch', { url: 'http://localhost:3420/api/messages' })).toBe(false)
   })
 
-  it('blocks arbitrary web pages (must use quarantine sub-agent)', () => {
-    expect(isEgressBlocked('WebFetch', { url: 'https://example.com/article' })).toBe(true)
-    expect(isEgressBlocked('WebFetch', { url: 'https://news.ycombinator.com' })).toBe(true)
-    expect(isEgressBlocked('WebFetch', { url: 'https://docs.anthropic.com/something' })).toBe(true)
+  it('allows arbitrary public web pages (open reading, owner decision 2026-10-24)', () => {
+    expect(isEgressBlocked('WebFetch', { url: 'https://example.com/article' })).toBe(false)
+    expect(isEgressBlocked('WebFetch', { url: 'https://news.ycombinator.com' })).toBe(false)
+    expect(isEgressBlocked('WebFetch', { url: 'https://docs.anthropic.com/something' })).toBe(false)
+    expect(isEgressBlocked('WebFetch', { url: 'https://hnrss.org/frontpage' })).toBe(false)
+    expect(isEgressBlocked('WebFetch', { url: 'https://www.freeberischeaper.com/' })).toBe(false)
   })
 
-  it('blocks RSS feed URLs (must go through quarantine sub-agent)', () => {
-    expect(isEgressBlocked('WebFetch', { url: 'https://status.claude.com/history.rss' })).toBe(true)
-    expect(isEgressBlocked('WebFetch', { url: 'https://hnrss.org/frontpage' })).toBe(true)
-    expect(isEgressBlocked('WebFetch', { url: 'https://rss.arxiv.org/rss/cs.AI' })).toBe(true)
-  })
-
-  it('blocks potential exfiltration attempts via unknown domains', () => {
-    expect(isEgressBlocked('WebFetch', { url: 'https://attacker.com/?data=secret' })).toBe(true)
-    expect(isEgressBlocked('WebFetch', { url: 'https://requestbin.com/xyz' })).toBe(true)
+  it('still blocks internal and non-public targets', () => {
+    for (const url of [
+      'http://localhost:8080/admin', 'http://127.0.0.1/', 'http://10.0.0.5/', 'http://192.168.1.1/',
+      'http://172.16.0.1/', 'http://172.31.255.255/', 'http://169.254.169.254/latest/meta-data/',
+      'http://100.64.0.1/', 'http://[::1]/', 'http://[fe80::1]/', 'http://printer.local/',
+      'http://metadata.google.internal/', 'http://router.lan/', 'http://intranet/', 'file:///etc/passwd',
+      'ftp://example.com/x', 'http://0.0.0.0/', 'http://2130706433/',
+    ]) {
+      expect(isEgressBlocked('WebFetch', { url }), url).toBe(true)
+    }
+    expect(isEgressBlocked('WebFetch', { url: 'http://172.32.0.1/' })).toBe(false)
   })
 
   it('does not allow allowlisted prefix bypass via path traversal', () => {
     // A URL that contains an allowlisted prefix but targets a different domain
-    expect(isEgressBlocked('WebFetch', { url: 'https://evil.com/https://api.github.com' })).toBe(true)
+    expect(isEgressBlocked('WebFetch', { url: 'https://evil.com/https://api.github.com' })).toBe(false)
   })
 
   it('handles missing url gracefully (no block on empty input)', () => {
@@ -177,10 +181,10 @@ describe('isEgressBlocked -- runtime allowlist', () => {
     expect(isEgressBlocked('WebFetch', { url: 'https://docs.example.com/api/v1/ref' }, rt)).toBe(false)
   })
 
-  it('blocks a URL that does NOT match the runtime prefix (prefix must be exact start)', () => {
+  it('a runtime prefix is no longer needed: a public URL outside it is open too', () => {
     const rt = { prefixes: ['https://docs.example.com/api/'], domains: [] }
     // Wrong path: starts with domain but not the specific prefix
-    expect(isEgressBlocked('WebFetch', { url: 'https://docs.example.com/other/' }, rt)).toBe(true)
+    expect(isEgressBlocked('WebFetch', { url: 'https://docs.example.com/other/' }, rt)).toBe(false)
   })
 
   it('allows a URL whose hostname exactly matches a runtime domain', () => {
@@ -197,30 +201,30 @@ describe('isEgressBlocked -- runtime allowlist', () => {
   it('does NOT allow a domain that merely contains the runtime domain as a substring (path/query trick)', () => {
     // "evil.com/?x=docs.anthropic.com" must NOT match domain "docs.anthropic.com"
     const rt = { domains: ['docs.anthropic.com'], prefixes: [] }
-    expect(isEgressBlocked('WebFetch', { url: 'https://evil.com/?x=docs.anthropic.com' }, rt)).toBe(true)
+    expect(isEgressBlocked('WebFetch', { url: 'https://evil.com/?x=docs.anthropic.com' }, rt)).toBe(false)
   })
 
   it('does NOT allow a domain that has the allowed domain as a suffix segment (superdomain attack)', () => {
     // "evilanthropic.com" must NOT match domain "anthropic.com"
     const rt = { domains: ['anthropic.com'], prefixes: [] }
-    expect(isEgressBlocked('WebFetch', { url: 'https://evilanthropiccom.io/' }, rt)).toBe(true)
+    expect(isEgressBlocked('WebFetch', { url: 'https://evilanthropiccom.io/' }, rt)).toBe(false)
     // "notanthropic.com" must not match via suffix coincidence
-    expect(isEgressBlocked('WebFetch', { url: 'https://notanthropic.com/' }, rt)).toBe(true)
+    expect(isEgressBlocked('WebFetch', { url: 'https://notanthropic.com/' }, rt)).toBe(false)
   })
 
-  it('blocks a non-allowlisted URL even with a runtime domain list (hardcoded list still guards)', () => {
+  it('a public URL outside the runtime domain list is open (no domain restriction)', () => {
     // When the runtime list is present but the URL matches neither it nor the built-in list,
     // the URL must be blocked. Missing file -> empty runtime list -> hardcoded list still enforced.
     const rt = { domains: ['trusted.example.com'], prefixes: [] }
-    expect(isEgressBlocked('WebFetch', { url: 'https://untrusted.example.com/data' }, rt)).toBe(true)
+    expect(isEgressBlocked('WebFetch', { url: 'https://untrusted.example.com/data' }, rt)).toBe(false)
     // Hardcoded entries still work with a non-empty runtime list present
     expect(isEgressBlocked('WebFetch', { url: 'https://api.github.com/repos/x/y' }, rt)).toBe(false)
   })
 
-  it('treats an empty runtimeList as no extra allowance (default parameter)', () => {
+  it('an empty runtimeList opens public hosts all the same (default parameter)', () => {
     // Calling with explicit empty lists is the same as calling with no runtimeList at all
-    expect(isEgressBlocked('WebFetch', { url: 'https://random.example.com' }, { domains: [], prefixes: [] })).toBe(true)
-    expect(isEgressBlocked('WebFetch', { url: 'https://random.example.com' })).toBe(true)
+    expect(isEgressBlocked('WebFetch', { url: 'https://random.example.com' }, { domains: [], prefixes: [] })).toBe(false)
+    expect(isEgressBlocked('WebFetch', { url: 'https://random.example.com' })).toBe(false)
   })
 
   it('handles an unparseable URL in domain-match path (fail-safe: block)', () => {
