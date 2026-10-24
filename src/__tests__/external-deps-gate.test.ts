@@ -41,4 +41,10 @@ describe('scheduled watch (#766)', () => {
     expect(sh).toContain('log "OK"')
     expect(sh).toContain('--report-only')
   })
+  it('is seeded as a token-free command task, so a fresh install has it too', () => {
+    const seed = JSON.parse(readFileSync(resolve(ROOT, 'seed-scheduled-tasks/external-deps-watch/task-config.json'), 'utf8'))
+    expect(seed.type).toBe('command')
+    expect(seed.enabled).toBe(true)
+    expect(seed.command).toContain('{{INSTALL_DIR}}/scripts/external-deps-watch.sh')
+  })
 })
