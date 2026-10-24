@@ -135,6 +135,7 @@ export const ALLOWLISTED_PATHS: { path: string; reason: string }[] = [
   { path: 'src/__tests__/auth-device-keys.test.ts', reason: 'device-key auth test: synthetic Bearer fixtures' },
   { path: 'src/__tests__/auth-gate.test.ts', reason: 'auth gate test: synthetic Bearer fixtures' },
   { path: 'src/__tests__/secret-gate.test.ts', reason: 'the gate\'s own tests: synthetic secrets are the subject under test' },
+  { path: 'src/__tests__/main-inbox-receipt.test.ts', reason: 'receipt test: a synthetic transcript wrapper frame with a sample chat/message id is the subject under test' },
   { path: 'src/__tests__/channel-inbound-framing.test.ts', reason: 'channel framing test: synthetic wrapper frames with sample ids are the subject under test' },
   { path: 'scripts/__tests__/conversation-ledger.test.sh', reason: 'ledger test: synthetic wrapper frames with sample ids' },
   { path: 'src/__tests__/agent-terminal-mask-keys.test.ts', reason: 'terminal masking test: a hand-written sk-ant- shaped fixture IS the input under test -- the assertion is that no fragment of it reaches the audit line, so a different shape would stop measuring the thing' },
