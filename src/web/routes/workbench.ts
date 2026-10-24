@@ -71,7 +71,7 @@ import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
-import { dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, wordImportWarnings, type WordWarning } from '../../workbench-worddoc.js'
+import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
 import { forgetMailDraft, mailDraftView, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
 import { getAccounts as getMailAccounts } from './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
@@ -100,7 +100,7 @@ import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../.
 import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../../workbench-redact.js'
 import { realpathSync, readFileSync } from 'node:fs'
-import { dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
+import { basename, dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
 import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview, listBoardWorkItems } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName, isPresentationFile } from '../../workbench-upload.js'
@@ -2503,6 +2503,12 @@ function fail(res: RouteContext['res'], status: number, code: string, lang: 'hu'
 function failDetail(res: RouteContext['res'], status: number, code: string, lang: 'hu' | 'en', detail: string | null): true {
   json(res, { error: code, message: msg(code, lang), detail: detail || null }, status)
   return true
+}
+
+/** #781: a failed restore / delete of a Word item's version kept in the store folder (the file is left as it was). */
+function wordVersionFail(res: RouteContext['res'], w: WordVersionOutcome & { ok: false }, lang: 'hu' | 'en'): true {
+  if (w.code === 'version_last') return fail(res, 409, 'version_last', lang)
+  return failDetail(res, w.code === 'worddoc_unreadable' ? 404 : w.code === 'worddoc_project_gone' ? 409 : w.code === 'worddoc_convert_failed' ? 503 : 500, w.code, lang, w.detail)
 }
 
 /** Az atalakito (LibreOffice / Poppler) hibaja a dokumentum-szerkesztonel
@@ -5113,10 +5119,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 3 && segs[1] === 'versions' && method === 'DELETE') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = deleteWorkItemVersion(segs[2] || '', item.id)
+    // #781: a Word item standing on a state kept in Marveen's store folder gets that state back into its OWN file.
+    const w = await deleteWordCurrentVersion(item, segs[2] || '')
+    if (w && !w.ok) return wordVersionFail(res, w, lang)
+    const r = w ? w : deleteWorkItemVersion(segs[2] || '', item.id)
     if (!r.ok) return fail(res, r.code === 'version_not_found' || r.code === 'item_not_found' ? 404 : 409, r.code, lang)
     json(res, {
-      ok: true, item: r.item, versions: listWorkItemVersionsView(item.id),
+      ok: true, item: r.item, versions: listWorkItemVersionsView(item.id), page_reloaded: !!w,
       // A jelenlegi torlesekor a munkadarab egy masik verziora allt at: annak
       // a reszei az elok, a felulet ezekkel tolti be ujra a szerkesztot.
       loaded: r.loaded ? { id: r.loaded.id, version_no: r.loaded.version_no } : null,
@@ -5128,9 +5137,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 4 && segs[1] === 'versions' && segs[3] === 'restore' && method === 'POST') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = restoreWorkItemVersion(segs[2] || '', { created_by: actor(ctx), work_item_id: item.id })
+    // #781: an earlier state of a Word item kept in Marveen's store folder is written back into the item's OWN file.
+    const w = await restoreWordVersion(item, segs[2] || '', actor(ctx))
+    if (w && !w.ok) return wordVersionFail(res, w, lang)
+    const r = w ? w : restoreWorkItemVersion(segs[2] || '', { created_by: actor(ctx), work_item_id: item.id })
     if (!r.ok) return fail(res, r.code === 'version_mismatch' ? 409 : 404, r.code, lang)
-    json(res, { ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id), parts: listWorkItemParts(item.id) }, 201)
+    json(res, { ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id), parts: listWorkItemParts(item.id), page_reloaded: !!w }, 201)
     return true
   }
 
@@ -5497,6 +5509,17 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     res.on('close', () => data.discard())
     if (!data.bytes) return fail(res, 400, 'empty_file', lang)
     if (optionalBaseIsStale(item.id, url.searchParams.get('base_version'))) return fail(res, 409, 'version_stale', lang)
+    // #781: a Word item on the document page takes the edited file INTO its own file (no "(2).docx" beside it) and the
+    // page is read from it.
+    if (isWordImported(item.id)) {
+      const w = await uploadWordVersion(item, readFileSync(data.path), url.searchParams.get('name'), actor(ctx))
+      if (w && !w.ok) return wordVersionFail(res, w, lang)
+      if (w) {
+        const name = basename(String(w.item.source_path ?? ''))
+        json(res, { ok: true, item: w.item, version: w.version, versions: listWorkItemVersionsView(item.id), file: { rel: w.item.source_path, name }, renamed: false, name, page_reloaded: true }, 201)
+        return true
+      }
+    }
     const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang)
     const r = createWorkItemVersion(item.id, {
