@@ -22,6 +22,8 @@ import {
 import { parseCanvas, type CanvasDoc } from './workbench-graphic.js'
 import { commitCanvasChange, type CanvasStepSource } from './workbench-canvas-store.js'
 import { canvasPlatform } from './workbench-canvas-platforms.js'
+import { replacePage } from './workbench-docmodel.js'
+import { parseTextToPage } from './workbench-textdoc.js'
 
 type Lang = 'hu' | 'en'
 type Text = { hu: string; en: string }
@@ -57,8 +59,8 @@ export const WORKBENCH_TEMPLATES: readonly WorkbenchTemplate[] = [
         en: 'Dear [Client name],\n\nThank you for your enquiry. Please find below my offer for [short description of the work].',
       },
       {
-        hu: 'Mit tartalmaz az ajánlat:\n- [1. tétel]\n- [2. tétel]\n- [3. tétel]',
-        en: 'What the offer includes:\n- [Item 1]\n- [Item 2]\n- [Item 3]',
+        hu: 'Mit tartalmaz az ajánlat:\n\n- [1. tétel]\n- [2. tétel]\n- [3. tétel]',
+        en: 'What the offer includes:\n\n- [Item 1]\n- [Item 2]\n- [Item 3]',
       },
       {
         hu: 'Ár: [összeg] Ft + ÁFA\nElkészülés: [időpont]\nAz ajánlat érvényes: [dátum]-ig',
@@ -237,6 +239,16 @@ export function createFromTemplate(
         prompt: null,
       })
       if (!r.ok) throw new Abort(r.code)
+      // #779/#780: a document template opens on the document page (the one editor every document uses): its first part is
+      // the chapter heading, the rest its paragraphs / lists -- read the same way a note is read onto the page. Not into
+      // the old parts, which the page only shows under Technical details and the PDF leaves out.
+      if (tpl.type === 'document') {
+        const [head, ...rest] = tpl.parts.map((x) => x[opts.lang])
+        const page = parseTextToPage(`# ${head}\n\n${rest.join('\n\n')}`, title)
+        const laid = replacePage(r.item.id, page, [], opts.source === 'agent' ? 'agent' : 'owner')
+        if (!laid.ok) throw new Abort(laid.code)
+        return { ok: true, item: r.item, version: r.version, parts: [], template: tpl.id }
+      }
       for (const text of tpl.parts) {
         const p = addWorkItemPart({ work_item_id: r.item.id, kind: 'text', text: text[opts.lang], created_by: opts.created_by ?? null })
         if (!p.ok) throw new Abort(p.code)

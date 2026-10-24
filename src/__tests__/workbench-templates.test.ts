@@ -6,6 +6,7 @@ import { initDatabase } from '../db.js'
 import { createProject, setProjectArchived } from '../projects.js'
 import { listWorkItems, listWorkItemParts } from '../workbench.js'
 import { WORKBENCH_TEMPLATES, listTemplates, createFromTemplate } from '../workbench-templates.js'
+import { documentOutline } from '../workbench-docmodel.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
 import { toolLabel } from '../workbench-agent/approval-text.js'
@@ -54,15 +55,35 @@ describe('sablonok: a szerver', () => {
     expect(listTemplates('hu')[0]).toMatchObject({ id: 'offer', name: 'Ajánlat', part_count: 5 })
   })
 
-  it('friss telepites: ures projektben egy hivas = munkadarab + v1 + minden resz', () => {
+  it('friss telepites: ures projektben egy hivas = munkadarab + v1, a szoveg a DOKUMENTUM-OLDALON (#780), nem a regi reszekben', () => {
     expect(listWorkItems(pid)).toEqual([])
     const r = createFromTemplate({ id: pid }, 'offer', { lang: 'hu', created_by: 'teszt' })
     expect(r.ok).toBe(true)
     if (!r.ok) return
     expect(r.item).toMatchObject({ title: 'Ajánlat', type: 'document', project_id: pid })
-    expect(r.parts.map((p) => p.text)).toEqual(WORKBENCH_TEMPLATES[0].parts.map((p) => p.hu))
-    expect(r.parts.every((p) => p.version_id === r.version.id)).toBe(true)
-    expect(listWorkItemParts(r.item.id)).toHaveLength(5)
+    expect(r.version.version_no).toBe(1)
+    expect(listWorkItemParts(r.item.id)).toHaveLength(0)
+    const o = documentOutline(r.item.id)
+    expect(o.sections.map((s) => s.title)).toEqual(['Árajánlat -- [Ügyfél neve]'])
+    const text = o.sections[0].blocks.map((b) => b.text).join('\n')
+    for (const part of WORKBENCH_TEMPLATES[0].parts.slice(1)) {
+      for (const line of part.hu.split('\n').filter((l) => l.trim())) expect(text).toContain(line.replace(/^- /, ''))
+    }
+    // the item list is a real list block on the page, not a paragraph with dashes
+    expect(o.sections[0].blocks.find((b) => b.kind === 'list')?.text).toBe('[1. tétel]\n[2. tétel]\n[3. tétel]')
+  })
+
+  it('#780: minden dokumentum-sablon (Ajanlat, Level, Meghivo) mindket nyelven a dokumentum-oldalra kerul', () => {
+    for (const t of WORKBENCH_TEMPLATES.filter((x) => x.type === 'document')) {
+      for (const lang of ['hu', 'en'] as const) {
+        const r = createFromTemplate({ id: pid }, t.id, { lang, title: `${t.id}-${lang}` })
+        if (!r.ok) throw new Error(t.id)
+        const o = documentOutline(r.item.id)
+        expect(o.sections[0].title).toBe(t.parts[0][lang])
+        expect(o.sections[0].blocks.length).toBeGreaterThan(0)
+        expect(listWorkItemParts(r.item.id)).toHaveLength(0)
+      }
+    }
   })
 
   it('a megadott cim felulirja a sablon nevet; a kozossegi poszt vegyes munkadarab', () => {
@@ -83,8 +104,9 @@ describe('sablonok: a szerver', () => {
     const c = await call('POST', '/api/workbench/templates/use?lang=hu', { project_id: pid, template: 'invitation' })
     expect(c.status).toBe(201)
     expect(c.body).toMatchObject({ ok: true, item: { title: 'Meghívó', created_by: 'teszt' }, template: 'invitation' })
-    expect(c.body.parts).toHaveLength(4)
+    expect(c.body.parts).toHaveLength(0)
     expect(c.body.versions).toHaveLength(1)
+    expect(documentOutline(c.body.item.id).sections[0].title).toBe('Meghívó -- [Az esemény neve]')
     const bad = await call('POST', '/api/workbench/templates/use?lang=hu', { project_id: pid, template: 'nincs' })
     expect(bad.status).toBe(404)
     expect(bad.body.message).toMatch(/Ilyen sablon nincs/)
@@ -115,6 +137,10 @@ describe('sablonok: az agens', () => {
     expect(toolLabel('workItem.fromTemplate', 'hu')).toBe('új munkadarab sablonból')
     const r = executeTool('workItem.fromTemplate', { template: 'letter' }, ctx())
     expect(r).toMatchObject({ ok: true, data: { item: { title: 'Letter', project_id: pid, created_by: 'workbench-agent' } } })
+    // #780: the agent's template text lands on the document page as the AGENT's text (the finalize check tells them apart)
+    const made = documentOutline((r as any).data.item.id)
+    expect(made.sections[0].title).toBe('Subject: [subject of the letter]')
+    expect(made.sections[0].blocks.every((b: any) => b.author === 'agent')).toBe(true)
     const bad = executeTool('workItem.fromTemplate', { template: 'poem' }, ctx())
     expect(bad).toMatchObject({ ok: false, code: 'template_not_found' })
     expect((bad as any).detail).toContain('offer, letter, social_post, invitation')
