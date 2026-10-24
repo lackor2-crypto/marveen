@@ -14980,8 +14980,28 @@
   function dpEditHtml(cls, id, attrs, text, ph, label, ro, rich) {
     // A formatted field (block, new line) passes `rich` (null = no formatting yet); the title and the table lines stay plain.
     var fmt = rich !== undefined
+    var inner = fmt && rich ? rich : esc(text)
+    // #791: a bullet list block shows one bullet PER LINE, as its PDF does (listBlock); before, only the block's first line had one.
+    if (/(^| )wb-outline-kind-list( |$)/.test(cls) && !/(^| )wb-dp-numbered( |$)/.test(cls)) {
+      var lines = dpListLinesHtml(inner)
+      if (lines !== null) { inner = lines; cls += ' wb-dp-lines' }
+    }
     return '<div class="wb-dp-edit ' + cls + '" id="' + escA(id) + '" ' + attrs
-      + ' role="textbox" aria-multiline="true" aria-label="' + escA(label) + '" data-placeholder="' + escA(ph) + '">' + (fmt && rich ? rich : esc(text)) + '</div>'
+      + ' role="textbox" aria-multiline="true" aria-label="' + escA(label) + '" data-placeholder="' + escA(ph) + '">' + inner + '</div>'
+  }
+
+  /** #791: a list block's lines, each in its own line element (the editor reads a <div> back as a new line, so the stored text
+   *  does not change). Null when a formatting mark runs across a line end: then the block stays as it was (one bullet). */
+  function dpListLinesHtml(html) {
+    var parts = String(html || '').split(/\n|<br\s*\/?>/i)
+    if (parts.length < 2) return null
+    var balanced = function (x) {
+      var open = (x.match(/<(b|i|u|s|strong|em|strike|del|span|font)\b[^>]*>/gi) || []).length
+      var close = (x.match(/<\/(b|i|u|s|strong|em|strike|del|span|font)\s*>/gi) || []).length
+      return open === close
+    }
+    if (!parts.every(balanced)) return null
+    return parts.map(function (x) { return '<div class="wb-dp-li">' + (x || '<br>') + '</div>' }).join('')
   }
 
   var DP_ALIGNS = ['l', 'c', 'r', 'j']

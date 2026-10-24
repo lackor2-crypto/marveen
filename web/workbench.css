@@ -1546,6 +1546,10 @@
 .wb-dp-page .wb-dp-edit:empty::before { content: none; }
 .wb-dp-block.wb-outline-kind-list { padding-left: 22px; position: relative; }
 .wb-dp-block.wb-outline-kind-list::after { content: "\2022"; position: absolute; left: 6px; top: 1px; }
+/* #791: a multi-line bullet list: one bullet per line (as in the PDF), not one for the whole block. */
+.wb-dp-block.wb-outline-kind-list.wb-dp-lines::after { content: none; }
+.wb-dp-block.wb-dp-lines .wb-dp-li { position: relative; }
+.wb-dp-block.wb-dp-lines .wb-dp-li::before { content: "\2022"; position: absolute; left: -16px; top: 0; }
 .wb-dp-block.wb-dp-numbered { padding-left: 0; }
 .wb-dp-block.wb-dp-numbered::after { content: none; }
 .wb-dp-block.wb-outline-kind-footnote { font-size: 0.85em; color: #55555f; border-top: 1px solid #ddd; padding-top: 4px; }
