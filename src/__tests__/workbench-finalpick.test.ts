@@ -1,0 +1,32 @@
+/**
+ * #794: the language of the document that is opened, finalized and attached to the mail is the owner's choice.
+ * Source contract of the choice dialog (the real behaviour was clicked through in a browser).
+ */
+import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+
+describe('workbench language choice before review / mail (#794)', () => {
+  it('the review link asks which language version, with nothing pre-selected', () => {
+    expect(js).toMatch(/function pickFinalLang\(/)
+    expect(js).toMatch(/name="wbFinalLang" value="' \+ i \+ '">/)
+    expect(js).not.toMatch(/name="wbFinalLang" value=[^>]*checked/)
+    expect(js).toMatch(/id="wbFinalLangGo" disabled/)
+    expect(js).toMatch(/rvOpts\.length > 1 && ev\)/)
+    expect(js).toMatch(/outlineAction\(a, act, e\)/)
+  })
+  it('the mail draft names the attachment language and asks before it is made', () => {
+    expect(js).toMatch(/workbench\.finalpick\.mail_confirm/)
+    expect(js).toMatch(/workbench\.finalpick\.mail_lang/)
+  })
+  it('every finalpick key exists in both languages', () => {
+    for (const f of ['hu', 'en']) {
+      const s = readFileSync(join(__dirname, '..', '..', 'web', 'lang', f + '.js'), 'utf8')
+      for (const k of ['title', 'purpose_open', 'original', 'here', 'cancel', 'go', 'switched', 'mail_confirm', 'mail_lang']) {
+        expect(s).toContain('"workbench.finalpick.' + k + '"')
+      }
+    }
+  })
+})

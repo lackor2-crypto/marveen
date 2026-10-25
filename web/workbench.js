@@ -10515,7 +10515,7 @@
       + '<p class="wb-hint">' + esc(t('workbench.mail.to_drafts_hint')) + '</p>'
       + '<p><button type="submit" class="wb-btn"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t(WB.mailBusy ? 'workbench.mail.making' : d ? 'workbench.mail.update' : 'workbench.mail.make')) + '</button></p></form>'
     return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
-      + '<p class="wb-hint">' + esc(opts.hint) + '</p>' + (opts.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>' : '') + status + list + form + (opts.extra || '') + '</div>'
+      + '<p class="wb-hint">' + esc(opts.hint) + '</p>' + (finalLangThisLabel(WB.detail && WB.detail.outline) ? '<p class="wb-hint"><strong>' + esc(t('workbench.finalpick.mail_lang', { lang: finalLangThisLabel(WB.detail && WB.detail.outline) })) + '</strong></p>' : '') + (opts.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>' : '') + status + list + form + (opts.extra || '') + '</div>'
   }
   /** The Iroda mail accounts (the sender choice): loaded once, then the box is drawn again. */
   function mailAccountsLoad() {
@@ -10548,6 +10548,9 @@
     // #725: the draft goes straight into the account's Drafts folder (no .eml file), so a sender is needed.
     if (!from) { window.showToast(t(WB.mailAccounts && WB.mailAccounts.length ? 'workbench.mail.from_required' : 'workbench.mail.account_needed')); return }
     try { if (from) window.localStorage.setItem('wbMailFrom', from) } catch (e) { /* remembering the choice is optional */ }
+    // #794: the language of the attachment is named before the draft is made (a wrong-language letter cannot be taken back).
+    var mlOpts = finalLangOptions(WB.detail && WB.detail.outline)
+    if (mlOpts.length > 1 && !window.confirm(t('workbench.finalpick.mail_confirm', { lang: mlOpts[0].label }))) return
     var payload = { from_account: from, to: gv('wbMailTo').trim(), cc: gv('wbMailCc').trim(), subject: gv('wbMailSubject').trim(), body: gv('wbMailBody') }
     WB.mailBusy = true
     render()
@@ -10742,6 +10745,58 @@
    * the tab, so the confirmation box never stays grey while the review is already saved.
    */
   var reviewWatch = null
+  /** #794 (Boss, TG 3326): the language of the document that is opened, finalized and attached to the mail is the
+   *  owner's choice, never the program's. Every language version is its own work item, so the choice lists this item
+   *  and its siblings. Returns [] when there is only one language (nothing to choose). */
+  function finalLangOptions(o) {
+    if (!o) return []
+    if (o.variant) {
+      var vs = [{ id: WB.selectedId, label: docLangName(o.variant.lang), here: true }]
+      if (o.variant.source_item_id) vs.push({ id: o.variant.source_item_id, label: t('workbench.finalpick.original'), here: false })
+      return vs.length > 1 ? vs : []
+    }
+    if (!(o.variants || []).length) return []
+    return [{ id: WB.selectedId, label: t('workbench.finalpick.original'), here: true }].concat(o.variants.map(function (x) {
+      return { id: x.item_id, label: docLangName(x.lang), here: false, incomplete: !!(x.stale || x.untranslated) }
+    }))
+  }
+  function finalLangThisLabel(o) {
+    var opts = finalLangOptions(o)
+    return opts.length ? opts[0].label : ''
+  }
+  /** The choice dialog: no language is pre-selected; the button stays grey until one is ticked. */
+  function pickFinalLang(opts, purposeKey, onThis) {
+    var overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'
+    overlay.id = 'wbFinalLangPick'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:480px;padding:18px" role="dialog" aria-modal="true">'
+      + '<h3 style="margin:0 0 4px">' + esc(t('workbench.finalpick.title')) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 10px">' + esc(t(purposeKey)) + '</p>'
+      + '<div class="wb-finalpick-list">' + opts.map(function (x, i) {
+        return '<label class="wb-finalpick-row" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="radio" name="wbFinalLang" value="' + i + '"> <span><strong>' + esc(x.label) + '</strong>'
+          + (x.here ? ' <span class="wb-muted">' + esc(t('workbench.finalpick.here')) + '</span>' : '')
+          + (x.incomplete ? ' <span class="wb-doc-low">⚠ ' + esc(t('workbench.final.lang_incomplete')) + '</span>' : '') + '</span></label>'
+      }).join('') + '</div>'
+      + '<div style="text-align:right;margin-top:12px"><button type="button" class="btn-secondary" id="wbFinalLangCancel">' + esc(t('workbench.finalpick.cancel')) + '</button> '
+      + '<button type="button" class="btn-primary" id="wbFinalLangGo" disabled>' + esc(t('workbench.finalpick.go')) + '</button></div></div>'
+    document.body.appendChild(overlay)
+    var onKey = function (e) { if (e.key === 'Escape' && isTopModal(overlay)) close() }
+    var close = function () { document.removeEventListener('keydown', onKey); if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    document.addEventListener('keydown', onKey)
+    var go = overlay.querySelector('#wbFinalLangGo')
+    overlay.addEventListener('change', function () { go.disabled = !overlay.querySelector('input[name="wbFinalLang"]:checked') })
+    overlay.querySelector('#wbFinalLangCancel').addEventListener('click', close)
+    go.addEventListener('click', function () {
+      var c = overlay.querySelector('input[name="wbFinalLang"]:checked')
+      if (!c) return
+      var x = opts[parseInt(c.value, 10)]
+      close()
+      if (x.here) { onThis(); return }
+      window.showToast(t('workbench.finalpick.switched', { lang: x.label }))
+      selectItem(x.id)
+    })
+  }
+
   function watchReview() {
     if (reviewWatch) reviewWatch.stop()
     var id = WB.selectedId
@@ -10916,7 +10971,7 @@
     return ((o && o.sections) || []).filter(function (s) { return s.id === sid })[0] || null
   }
 
-  function outlineAction(a, act) {
+  function outlineAction(a, act, ev) {
     var sid = act.getAttribute('data-wb-sec')
     var bid = act.getAttribute('data-wb-block')
     if (a === 'outline-add-section') {
@@ -11014,6 +11069,14 @@
     } else if (a === 'outline-review') {
       // A link maga nyitja meg a PDF-et uj lapon; a szerver akkor rogziti az
       // atnezest, ha elkeszult, es a tartalom ugyanaz. Utana onnan olvassuk vissza.
+      // #794: with more than one language version the owner chooses which one is opened (no silent default).
+      var rvOpts = finalLangOptions(WB.detail && WB.detail.outline)
+      if (rvOpts.length > 1 && ev) {
+        ev.preventDefault()
+        var rvHref = act.getAttribute('href')
+        pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { window.open(rvHref, '_blank', 'noopener'); watchReview() })
+        return
+      }
       watchReview()
     } else if (a === 'outline-accept') {
       var o = WB.detail && WB.detail.outline
@@ -21465,7 +21528,7 @@
     else if (a === 'asset-tidy') tidyItemFolder()
     else if (a === 'assets-show') showAssetsBlock()
     // A celbirosag-doboz a vazlat PDF-reszeben el, ugyanaz a kezelo (#441, 7.4).
-    else if (a && (a.indexOf('outline-') === 0 || a.indexOf('court-') === 0)) outlineAction(a, act)
+    else if (a && (a.indexOf('outline-') === 0 || a.indexOf('court-') === 0)) outlineAction(a, act, e)
     else if (a === 'dl-todo') dlTodo(act.getAttribute('data-wb-key'))
     else if (a === 'dl-propose') dlPropose(act.getAttribute('data-wb-key'))
     else if (a === 'dl-dismiss') dlCall('POST', encodeURIComponent(act.getAttribute('data-wb-key')) + '/dismiss', {})
