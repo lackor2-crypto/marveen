@@ -180,19 +180,56 @@ def report(cwd, conversation_chars=0, hook_chars=0, memory_index=None, root=None
     }
 
 
+def summary(r):
+    """The four numbers the owner wants to see, from a report(): total start, the harness part (not
+    shrinkable), the controllable part (what the ceiling applies to) and the ceiling. `total` and
+    `harness` are None until a REAL measured first-turn figure is supplied -- the harness part cannot be
+    read from disk, so it is derived as measured - controllable, never guessed."""
+    controllable = r["total_tokens"]
+    measured = r.get("measured_total_tokens")
+    return {
+        "total": measured,
+        "harness": None if measured is None else max(0, measured - controllable),
+        "controllable": controllable,
+        "ceiling": r["ceiling_tokens"],
+        "controllable_over_ceiling": r["over_ceiling"],
+    }
+
+
+def render(r):
+    """Human-readable table (Hungarian + English labels), figures marked as estimates."""
+    sm = summary(r)
+    f = lambda v: "ismeretlen / unknown (add meg a mert tokent / pass the measured tokens)" if v is None else f"{v:,}".replace(",", " ")
+    lines = [
+        f"Osszes indulas / Total start (mert / measured):     {f(sm['total'])}",
+        f"  ebbol harness, nem szukitheto / harness (fixed):  {f(sm['harness'])}",
+        f"  iranyithato (becsles) / controllable (estimate):  {f(sm['controllable'])}",
+        f"      CLAUDE.md + skill-lista + MEMORY.md + hook:   {f(r['fixed_tokens'] + est_tokens(r['hook_fixed_chars']))}",
+        f"      beszelgetes / conversation:                   {f(r['conversation_tokens'])}",
+        f"Plafon / Ceiling (az iranyithato reszre / on the controllable part): {f(sm['ceiling']) if sm['ceiling'] else '0 = nincs / none'}",
+    ]
+    if sm["controllable_over_ceiling"]:
+        lines.append("FIGYELEM / WARNING: az iranyithato resz tullepi a plafont / the controllable part is over the ceiling")
+    lines.append("A token-ertekek kar/3,5 BECSLESEK; a harness = mert - iranyithato. / Token figures are chars/3.5 ESTIMATES; harness = measured - controllable.")
+    return "\n".join(lines)
+
+
 def main(argv):
-    # usage: startup_budget_lib.py [cwd] [MEMORY.md path] [measured first-turn tokens]
-    cwd = argv[1] if len(argv) > 1 else os.getcwd()
-    mem = argv[2] if len(argv) > 2 else None
+    # usage: startup_budget_lib.py [--json] [cwd] [MEMORY.md path] [measured first-turn tokens]
+    args = [a for a in argv[1:] if a != "--json"]
+    as_json = "--json" in argv[1:]
+    cwd = args[0] if len(args) > 0 else os.getcwd()
+    mem = args[1] if len(args) > 1 else None
     r = report(cwd, memory_index=mem)
-    if len(argv) > 3:
+    if len(args) > 2:
         # A REAL first-turn figure (from a transcript's usage block) lets the report show how much of the
         # start is NOT visible from disk (system prompt, tool schemas, MCP text) instead of guessing it.
-        measured = int(argv[3])
+        measured = int(args[2])
         r["measured_total_tokens"] = measured
         r["unexplained_tokens"] = measured - r["total_tokens"]
-    print(json.dumps(r, ensure_ascii=False, indent=2))
-    return 1 if r["fixed_alone_over_ceiling"] else 0
+    r["summary"] = summary(r)
+    print(json.dumps(r, ensure_ascii=False, indent=2) if as_json else render(r))
+    return 0
 
 
 if __name__ == "__main__":
