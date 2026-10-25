@@ -109,6 +109,12 @@ export function projectRequiredMessage(projects: ProjectCandidate[]): string {
     + `Projekt nelkul csak akkor, ha a user kifejezetten igy dontott: "no_project_reason": "<miert, legalabb ${NO_PROJECT_MIN_CHARS} karakter>".`
 }
 
+export function projectArchivedMessage(name: string, projects: ProjectCandidate[]): string {
+  const list = projects.map((p) => `${p.name} (${p.id})`).join('; ')
+  return `ARCHIVALT PROJEKT: a(z) "${name}" projekt archivalt, abban nem dolgozunk es oda nem veszunk fel kartyat -- a kartya NEM jott letre. `
+    + `Aktiv projektek: ${list}. Kuldd ujra egy aktiv projekttel (id vagy pontos nev); ha nem egyertelmu, kerdezd meg a usert.`
+}
+
 export type ProjectCheck =
   | { ok: true; project: string | null; noProjectReason: string | null }
   | { ok: false; code: 'project_required'; error: string; projects: ProjectCandidate[] }
@@ -123,7 +129,15 @@ export type ProjectCheck =
  */
 export function checkCardProject(projectRef: unknown, noProjectReasonRaw: unknown): ProjectCheck {
   const resolved = resolveProjectRef(projectRef)
-  const projectId = resolved && getProject(resolved) ? resolved : null
+  const found = resolved ? getProject(resolved) : null
+  const projectId = found ? resolved : null
+  // Boss (TG 3335): an ARCHIVED project is out of the work -- no card goes under it, whatever the caller (the
+  // board, the Workbench assistant, the Ideas box) asked for. The refusal lists the active projects instead.
+  if (projectId && found && found.archived_at != null) {
+    const names = projectNameMap()
+    const projects = listActiveProjectIds().map((id) => ({ id, name: names[id]?.name ?? id }))
+    return { ok: false, code: 'project_required', error: projectArchivedMessage(found.name, projects), projects }
+  }
   if (projectId) return { ok: true, project: projectId, noProjectReason: null }
   const reason = String(noProjectReasonRaw ?? '').trim()
   if (reason.length >= NO_PROJECT_MIN_CHARS) return { ok: true, project: null, noProjectReason: reason }

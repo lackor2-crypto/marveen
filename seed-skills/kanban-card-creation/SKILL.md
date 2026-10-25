@@ -92,6 +92,15 @@ a megépítéséhez. Lásd lent a döntési szempontokat.
 6. Alfeladatnál (`parent_id`) nem kell címkét és projektet megadni: a
    szerver a szülő kártya címkéit és projektjét örökli rá.
 
+## Archivált projektbe SOHA nem veszünk fel kártyát
+
+{{OWNER_NAME}} (TG 3335): ha egy projekt archivált, abban nem dolgozunk, és oda nem kerül
+kártya, semmi. Az archivált projekteket figyelmen kívül kell hagyni: a projekt-választásnál
+csak az aktív projektek (`GET /api/projects`, alapból nem listázza az archiváltakat) jöhetnek
+szóba. A szerver is visszautasítja (`project_required`, "ARCHIVALT PROJEKT" üzenet, az aktív
+projektek listájával). Ha egy kártya szerinted egy archivált projekthez tartozna, ne ide
+vedd fel: kérdezd meg {{OWNER_NAME}}-t, melyik aktív projekt alá kerüljön.
+
 ## Kapcsolódó kártyák felderítése -- KÖTELEZŐ, a létrehozás UTOLSÓ lépése
 
 > **2026-09-23 óta:** ha a kapcsolódó kártya MÉG NYITOTT, az nem „kapcsolódó",

@@ -113,6 +113,26 @@ describe('projekt kotelezo a kartya letrehozasakor', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('archivalt projekt alatt nem jon letre kartya (Boss, TG 3335), es az aktivakat felsorolja', () => {
+    const live = createProject({ name: 'Aktiv' })
+    const old = createProject({ name: 'Regi iroda' })
+    if (!live.ok || !old.ok) throw new Error('project')
+    setProjectArchived(old.project.id, true)
+    const before = listKanbanCards().length
+    for (const ref of [old.project.id, 'Regi iroda']) {
+      const r = createCardWithRules({ ...base, title: 'Munkapad hiba', project: ref })
+      expect(r.ok).toBe(false)
+      if (!r.ok && r.code === 'project_required') {
+        expect(r.error).toContain('ARCHIVALT PROJEKT')
+        expect(r.projects.map((x) => x.id)).toEqual([live.project.id])
+      } else throw new Error('project_required kellett: ' + JSON.stringify(r))
+    }
+    expect(listKanbanCards().length).toBe(before)
+    // the reason for "no project" does not unlock an archived one: the card then simply has no project
+    const ok = createCardWithRules({ ...base, title: 'Aktivba', project: live.project.id })
+    expect(ok.ok).toBe(true)
+  })
+
   it('csak archivalt projekt: nincs mihez kotni, nem kovetelheto', () => {
     const p = createProject({ name: 'Regi' })
     if (!p.ok) throw new Error('project')
