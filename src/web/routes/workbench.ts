@@ -73,7 +73,8 @@ import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirr
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
 import { forgetMailDraft, mailDraftView, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
-import { getAccounts as getMailAccounts } from './email.js'
+// The mail routes register the shared sender's mailbox engine (src/mail-send.ts, #797) when they load.
+import './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
 import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
@@ -147,7 +148,8 @@ import { listTemplates, createFromTemplate } from '../../workbench-templates.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import { planHandoff, buildHandoffZip, isHandoffScope, HANDOFF_MAX_BYTES } from '../../workbench-handoff.js'
 import { submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval, workItemApprovalState, finalizeWorkItem, reopenWorkItem } from '../../workbench-approval.js'
-import { buildExportPage, requestSendApproval, sendNow, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
+import { buildExportPage, requestSendApproval, sendNow, sendApprovalOutcome, SEND_SUBJECT_MAX, SEND_MESSAGE_MAX } from '../../workbench-export.js'
+import { sendingAccounts } from '../../mail-send.js'
 import {
   convertOfficeToPdf, sofficeConvertFile, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt, renderCacheDir,
 } from '../../office-convert.js'
@@ -203,7 +205,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   maildraft_bad_input: { hu: 'A címzett vagy a másolatot kapó nem érvényes e-mail-cím, vagy a tárgy / a szöveg túl hosszú. Több címet vesszővel válassz el.', en: 'The recipient or the copy address is not a valid e-mail address, or the subject / text is too long. Separate several addresses with a comma.' },
   maildraft_no_draft: { hu: 'Előbb készítsd el a levélpiszkozatot (Levélpiszkozat készítése).', en: 'Make the e-mail draft first.' },
   maildraft_no_account: { hu: 'Válaszd ki a feladót (melyik e-mail fiókból menjen a levél), és mentsd a piszkozatot.', en: 'Choose the sender (which e-mail account the message goes from), and save the draft.' },
-  maildraft_no_port: { hu: 'Az e-mail rész nem érhető el, ezért nem tudom a fiók Piszkozatok mappájába tenni.', en: 'The e-mail part is not available, so it cannot be put into the account Drafts folder.' },
   maildraft_save_failed: { hu: 'Nem sikerült a fiók Piszkozatok mappájába tenni a levelet. A pontos ok a részletekben van.', en: 'The message could not be put into the account Drafts folder. The exact reason is in the details.' },
   maildraft_no_folder: { hu: 'A munkadarab mappája nem érhető el, ezért nem tudom elkészíteni a levélpiszkozatot. Nézd meg a projekt mappáját a Projektek oldalon.', en: 'The work item folder is not reachable, so the e-mail draft cannot be made. Check the project folder on the Projects page.' },
   maildraft_write_failed: { hu: 'Nem sikerült megírni a levélpiszkozat fájlját. A pontos ok a részletekben van.', en: 'The e-mail draft file could not be written. The exact reason is in the details.' },
@@ -1641,20 +1642,24 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     en: 'The attachment could not be prepared. The details show the exact error.',
   },
   send_sent: {
-    hu: 'Elküldve. A levél a bekötött Google-fiókodról ment ki.',
-    en: 'Sent. The email went out from your connected Google account.',
+    hu: 'Elküldve a kiválasztott fiókról. Az elküldést a munkadarab „Elküldve” naplójába is beírtam.',
+    en: 'Sent from the chosen account. The sending is also on the work item\'s "Sent" log.',
   },
   send_no_mail_account: {
-    hu: 'Nincs bekötött Google-fiók, amiről a levél kimehetne, ezért semmi nem ment ki. Kösd be a fiókodat a Beállítások → Fiókok oldalon (Google, levélküldési joggal), és próbáld újra.',
-    en: 'There is no connected Google account to send from, so nothing went out. Connect your account under Settings → Accounts (Google, with permission to send email) and try again.',
+    hu: 'Nincs e-mail fiók, amiről a levél kimehetne, ezért semmi nem ment ki. Köss be egyet: az Iroda → Beállítások → Email beállítások oldalon (bármilyen IMAP/SMTP fiók), vagy a Beállítások → Fiókok oldalon egy Google-fiókot levélküldési joggal. Utána próbáld újra.',
+    en: 'There is no e-mail account to send from, so nothing went out. Connect one: under Office → Settings → Email settings (any IMAP/SMTP account), or a Google account with permission to send email under Settings → Accounts. Then try again.',
+  },
+  send_bad_account: {
+    hu: 'A kiválasztott feladó fiók már nincs bekötve, ezért semmi nem ment ki. Válassz másik feladót a listából.',
+    en: 'The chosen sender account is no longer connected, so nothing went out. Pick another sender from the list.',
   },
   send_failed: {
     hu: 'A levél NEM ment ki. A pontos hibát a részletek mutatják.',
     en: 'The email did NOT go out. The details show the exact error.',
   },
   send_requested: {
-    hu: 'A küldés jóváhagyásra vár. Semmi nem ment ki: jóváhagyás után a fő ágens küldi el, elutasításnál nem történik semmi.',
-    en: 'The send is waiting for approval. Nothing has gone out: after approval the main agent sends it, on rejection nothing happens.',
+    hu: 'A küldés jóváhagyásra vár. Semmi nem ment ki: jóváhagyás után a rendszer küldi el a kiválasztott fiókról, elutasításnál nem történik semmi.',
+    en: 'The send is waiting for approval. Nothing has gone out: after approval the system sends it from the chosen account, on rejection nothing happens.',
   },
   docedit_unsupported: {
     hu: 'Ez a munkadarab nem Word-jellegű dokumentum (docx, doc, odt, rtf), ezért ezzel a szerkesztővel nem nyitható meg.',
@@ -4577,13 +4582,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // the page then puts it into the Drafts folder with POST .../mail-draft/mailbox (the document and its annexes as PDFs).
     // DELETE forgets the stored row.
     if (sub === 'mail-draft' && segs.length === 3 && method === 'POST') {
-      // The sender: an Iroda mail account (its id), and its address for the From line. Only a known account is accepted.
+      // The sender: an account of the shared list (#797: the same as every other send), and its address for the From line.
+      // Only a known account is accepted.
       let sender: { from_account?: string; from_addr?: string } = {}
       if (body['from_account'] !== undefined) {
         const id = String(body['from_account'] ?? '').trim()
-        const acc = id ? getMailAccounts().find((a) => a.id === id) : undefined
+        const acc = id ? sendingAccounts().find((a) => a.id === id) : undefined
         if (id && !acc) return failDetail(res, 400, 'maildraft_bad_input', lang, 'from_account')
-        sender = { from_account: acc ? acc.id : '', from_addr: acc ? acc.label : '' }
+        sender = { from_account: acc ? acc.id : '', from_addr: acc ? acc.address : '' }
       }
       const r = await saveMailDraft(item, { ...sender, to: body['to'], cc: body['cc'], subject: body['subject'], body: body['body'] }, lang)
       if (!r.ok) {
@@ -4602,7 +4608,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const r = await saveDraftToMailbox(item, lang)
       if (!r.ok) {
         if (r.code === 'docx_mail_no_pdf') return fail(res, 409, 'docx_mail_no_pdf', lang)
-        if (r.code === 'no_draft' || r.code === 'no_account' || r.code === 'no_port' || r.code === 'save_failed') return failDetail(res, r.code === 'save_failed' ? 502 : 409, 'maildraft_' + r.code, lang, r.detail)
+        if (r.code === 'no_draft' || r.code === 'no_account' || r.code === 'save_failed') return failDetail(res, r.code === 'save_failed' ? 502 : 409, 'maildraft_' + r.code, lang, r.detail)
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }
       json(res, { ok: true, mailbox: r.mailbox, account: r.account, mail_draft: mailDraftView(item), outline: outlineOrEmpty(item.id) }, 201)
@@ -5364,25 +5370,31 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   // kattintasa (bejelentkezett munkamenet) AZONNAL kuld; minden mas hivo
   // (token, federacio, eszkoz, agens) a MEGLEVO jovahagyasi kapun at
   // `email_send` jegyet nyit. A valasztast itt a szerver teszi meg.
+  // #797: what became of an approved send ticket: the system sends it after approval, here is whether it went out.
+  if (segs.length === 3 && segs[1] === 'send-request' && method === 'GET') {
+    const o = sendApprovalOutcome(segs[2])
+    json(res, { ok: true, outcome: o ? o.outcome : null, detail: o ? o.detail : null })
+    return true
+  }
   if (segs.length === 2 && segs[1] === 'send-request' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const input = {
       to: body['to'], subject: body['subject'], message: body['message'],
-      attachment: body['attachment'], version: body['version'], actor: actor(ctx), lang,
+      attachment: body['attachment'], version: body['version'], actor: actor(ctx), lang, from_account: body['from_account'],
       docHtml: body['attachment'] === 'source' ? undefined : await officeExportHtml(item.id, body['version']),
     }
     if (isOwnerClick(ctx)) {
       const s = await sendNow(item, input)
       if (!s.ok) {
-        const status = s.code === 'send_write_failed' ? 500 : s.code === 'send_no_mail_account' ? 409 : s.code === 'send_failed' ? 502 : 400
+        const status = s.code === 'send_write_failed' ? 500 : s.code === 'send_no_mail_account' || s.code === 'send_bad_account' ? 409 : s.code === 'send_failed' ? 502 : 400
         return failDetail(res, status, s.code, lang, s.detail || null)
       }
-      json(res, { ok: true, status: 'sent', message_id: s.message_id, attachment: { name: s.attachment.name, kind: s.attachment.kind }, message: msg('send_sent', lang) }, 201)
+      json(res, { ok: true, status: 'sent', message_id: s.message_id, from: s.from, sent_logged: s.sent_logged, attachment: { name: s.attachment.name, kind: s.attachment.kind }, message: msg('send_sent', lang) }, 201)
       return true
     }
     const r = requestSendApproval(item, input)
-    if (!r.ok) return failDetail(res, r.code === 'send_write_failed' ? 500 : 400, r.code, lang, r.detail || null)
+    if (!r.ok) return failDetail(res, r.code === 'send_write_failed' ? 500 : r.code === 'send_no_mail_account' || r.code === 'send_bad_account' ? 409 : 400, r.code, lang, r.detail || null)
     json(res, { ok: true, approval_id: r.approval_id, status: 'pending', attachment: { name: r.attachment.name, kind: r.attachment.kind }, message: msg('send_requested', lang) }, 201)
     return true
   }

@@ -5,7 +5,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, listPendingApprovals, getDb } from '../db.js'
-import { _setSendDeps, type Mail } from '../workbench-export.js'
+import { _setSendDeps } from '../workbench-export.js'
+import type { SendingAccount } from '../mail-send.js'
+
+// #797: what the shared sender got (the first attachment's path, as the old mailer's).
+type Mail = { account: string; to: string; subject: string; body: string; attachmentPath: string }
 import { createProject, updateProject, setProjectArchived } from '../projects.js'
 import { createWorkItem, addWorkItemPart } from '../workbench.js'
 import { MAIN_AGENT_ID } from '../config.js'
@@ -41,7 +45,16 @@ describe('a szerver', () => {
     sent = []
     mailerResult = { ok: true, messageId: 'gm-123' }
     ready = null
-    _setSendDeps({ mailerReady: () => ready, mailer: async (m) => { sent.push(m); return mailerResult } })
+    // #797: the shared sender's account list and send, replaced (no real mail). `ready` != null = no account at all.
+    const ACCOUNTS: SendingAccount[] = [{ id: 'iroda', address: 'en@pelda.hu', kind: 'mailbox' }, { id: 'google', address: 'en@gmail.com', kind: 'google' }]
+    _setSendDeps({
+      accounts: () => (ready ? [] : ACCOUNTS),
+      send: async (account, m) => {
+        sent.push({ account, to: m.to, subject: m.subject, body: m.body, attachmentPath: (m.attachments || [])[0] || '' })
+        const acc = ACCOUNTS.find((a) => a.id === account)!
+        return mailerResult.ok ? { ok: true, account, kind: acc.kind, address: acc.address, messageId: mailerResult.messageId } : { ok: false, code: 'send_failed', detail: mailerResult.error }
+      },
+    })
     writeFileSync(join(depot, 'Projektek', 'teszt', 'foto.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     addWorkItemPart({ work_item_id: itemId, kind: 'text', text: 'Első bekezdés <b>nem html</b>\n\nMásodik' })
     addWorkItemPart({ work_item_id: itemId, kind: 'image', asset_path: 'Projektek/teszt/foto.png', caption: 'A fotó' })
@@ -170,6 +183,7 @@ describe('a szerver', () => {
     const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu' })
     expect(r.status).toBe(409)
     expect(r.body.error).toBe('send_no_mail_account')
+    expect(r.body.message).toMatch(/Email beállítások/)
     expect(r.body.message).toMatch(/Fiókok/)
     expect(sent).toHaveLength(0)
     expect(existsSync(exportsDir)).toBe(false)
@@ -184,6 +198,84 @@ describe('a szerver', () => {
     }
     expect(sent).toHaveLength(0)
     expect(listPendingApprovals()).toHaveLength(2)
+  })
+
+  // #797: the shared sender -- the account is chosen from the same list as the mail draft's, and the sending is logged.
+  it('#797 KULDES a kivalasztott fiokrol; ismeretlen fiokrol semmi nem megy ki', async () => {
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu', attachment: 'html', from_account: 'google' })
+    expect(r.status).toBe(201)
+    expect(r.body).toMatchObject({ status: 'sent', from: 'en@gmail.com', sent_logged: 'marked' })
+    expect(sent.map((m) => m.account)).toEqual(['google'])
+    // no account asked: the first of the list
+    await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu', attachment: 'html' })
+    expect(sent.map((m) => m.account)).toEqual(['google', 'iroda'])
+    const bad = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu', attachment: 'html', from_account: 'regi' })
+    expect(bad.status).toBe(409)
+    expect(bad.body.error).toBe('send_bad_account')
+    expect(bad.body.message).toMatch(/nincs bekötve/)
+    expect(sent).toHaveLength(2)
+  })
+
+  it('#797 KULDES: a sikeres kuldes a munkadarabon latszik (Elkuldve), a sikertelen nem', async () => {
+    const { sentStatus } = await import('../workbench-docsent.js')
+    mailerResult = { ok: false, error: 'SMTP 535' }
+    await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu' })
+    expect(sentStatus(itemId).sent).toBe(false)
+    mailerResult = { ok: true, messageId: 'm-1' }
+    await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu' })
+    expect(sentStatus(itemId)).toMatchObject({ sent: true, how: 'manual' })
+  })
+
+  it('#797 JOVAHAGYOTT KULDES: a rendszer kuldi el a kert fiokrol, pontosan egyszer; elutasitva semmi', async () => {
+    const { settleSendApprovals, sendApprovalOutcome } = await import('../workbench-export.js')
+    const { resolveApproval } = await import('../db.js')
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'ugyfel@pelda.hu', subject: 'Poszt', attachment: 'html', from_account: 'iroda' }, undefined, AGENT)
+    expect(r.status).toBe(201)
+    const a = listPendingApprovals()[0]
+    const payload = JSON.parse(a.action_payload || '{}')
+    expect(payload).toMatchObject({ server_sends: true, from_account: 'iroda' })
+    expect(a.action_description).toContain('Feladó: en@pelda.hu')
+    expect(a.action_description).toContain('a rendszer maga küldi el')
+    // still pending: nothing goes out
+    expect(await settleSendApprovals()).toBe(0)
+    expect(sent).toHaveLength(0)
+    resolveApproval(a.id, 'approved', 'owner')
+    expect(await settleSendApprovals()).toBe(1)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({ account: 'iroda', to: 'ugyfel@pelda.hu', subject: 'Poszt' })
+    expect(readFileSync(sent[0].attachmentPath, 'utf-8')).toContain('Első bekezdés')
+    expect(sendApprovalOutcome(a.id)).toEqual({ outcome: 'sent', detail: 'gm-123' })
+    const st = await callWorkbench(`/api/workbench/items/${itemId}/send-request/${a.id}`, 'GET')
+    expect(st.body).toMatchObject({ outcome: 'sent' })
+    // a second decision event does not send it again
+    expect(await settleSendApprovals()).toBe(0)
+    expect(sent).toHaveLength(1)
+    // rejected: nothing
+    const r2 = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'x@y.hu', attachment: 'html' }, undefined, AGENT)
+    resolveApproval(r2.body.approval_id, 'rejected', 'owner')
+    expect(await settleSendApprovals()).toBe(0)
+    expect(sent).toHaveLength(1)
+  })
+
+  it('#797 JOVAHAGYOTT KULDES: egy regi jegyet (server_sends nelkul) nem kuld el a rendszer -- azt a fo agens viszi, mint eddig', async () => {
+    const { settleSendApprovals } = await import('../workbench-export.js')
+    const { resolveApproval } = await import('../db.js')
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu', attachment: 'html' }, undefined, AGENT)
+    const a = listPendingApprovals()[0]
+    const p = JSON.parse(a.action_payload || '{}')
+    delete p.server_sends
+    getDb().prepare('UPDATE approvals SET action_payload = ? WHERE id = ?').run(JSON.stringify(p), r.body.approval_id)
+    resolveApproval(a.id, 'approved', 'owner')
+    expect(await settleSendApprovals()).toBe(0)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('#797 jovahagyasra kert kuldes fiok nelkul: emberi mondat, jegy nem szuletik', async () => {
+    ready = 'no_account'
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'a@b.hu' }, undefined, AGENT)
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('send_no_mail_account')
+    expect(listPendingApprovals()).toHaveLength(0)
   })
 
   it('rossz cim, tobb cimzett, archivalt projekt: nem szuletik jegy', async () => {

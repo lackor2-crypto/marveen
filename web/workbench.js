@@ -9349,9 +9349,9 @@
     var head = '<h4 class="wb-exp-title">' + esc(t('workbench.exp.send_title')) + '</h4>'
       + '<p class="wb-hint">' + esc(t('workbench.exp.send_gate')) + '</p>'
     if (st && st.result && st.result.status === 'sent') {
-      // A tulajdonos kattintasa azonnal kiment: a Gmail-azonosito a bizonyitek.
+      // A tulajdonos kattintasa azonnal kiment: a feladó fiók es a naplo-bejegyzes a bizonyitek.
       return head + '<div class="wb-exp-sent wb-exp-sent-sent">'
-        + '<p>' + esc(t('workbench.exp.send_status.sent', { id: st.result.message_id || '' })) + '</p>'
+        + '<p>' + esc(t('workbench.exp.send_status.sent', { from: st.result.from || '' })) + '</p>'
         + '<p><button type="button" class="wb-linklike" data-wb-act="send-new">' + esc(t('workbench.exp.send_new')) + '</button></p>'
         + '</div>'
     }
@@ -9359,6 +9359,10 @@
       var status = st.result.status || 'pending'
       return head + '<div class="wb-exp-sent wb-exp-sent-' + escA(status) + '">'
         + '<p>' + esc(t('workbench.exp.send_status.' + (['pending', 'approved', 'rejected', 'timeout', 'withdrawn'].indexOf(status) >= 0 ? status : 'other'), { status: status })) + '</p>'
+        // #797: after approval the system sends it; what really happened, from the server.
+        + (st.result.outcome === 'sent' ? '<p>' + esc(t('workbench.exp.send_outcome.sent')) + '</p>'
+          : st.result.outcome === 'failed' ? '<p class="wb-preview-bad">' + esc(t('workbench.exp.send_outcome.failed', { detail: st.result.outcome_detail || '' })) + '</p>'
+            : st.result.outcome === 'sending' ? '<p>' + esc(t('workbench.exp.send_outcome.sending')) + '</p>' : '')
         + (st.statusError ? '<p class="wb-preview-bad">' + esc(t('workbench.exp.send_status_unknown', { message: st.statusError })) + '</p>' : '')
         + '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="send-refresh">' + esc(t('workbench.exp.send_refresh')) + '</button> '
         + '<button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.ov.goto_approvals')) + '</button> '
@@ -9369,7 +9373,18 @@
     var p = WB.preview || {}
     var d = (st && st.draft) || {}
     var busy = st && st.busy
+    // #797: the sender, from the same list as the mail draft's (the Iroda accounts and the connected Google account).
+    if (WB.mailAccounts === undefined) mailAccountsLoad()
+    var accs = WB.mailAccounts || []
+    var from = d.from || ''
+    if (!from) { try { from = window.localStorage.getItem('wbMailFrom') || '' } catch (e) { from = '' } }
+    if (!accs.some(function (a) { return a.id === from })) from = accs.length ? accs[0].id : ''
+    var fromHtml = '<label class="wb-label" for="wbSendFrom">' + esc(t('workbench.exp.send_from')) + '</label>'
+      + (accs.length
+        ? '<select class="wb-input" id="wbSendFrom">' + accs.map(function (a) { return '<option value="' + escA(a.id) + '"' + (a.id === from ? ' selected' : '') + '>' + esc(a.label) + '</option>' }).join('') + '</select>'
+        : '<p class="wb-hint" id="wbSendFromNone">' + esc(t(WB.mailAccounts === undefined || WB.mailAccounts === null ? 'workbench.mail.from_loading' : 'workbench.exp.send_from_none')) + '</p>')
     return head + '<form class="wb-form wb-exp-send" id="wbSendForm">'
+      + fromHtml
       + '<label class="wb-label" for="wbSendTo">' + esc(t('workbench.exp.send_to')) + '</label>'
       + '<input class="wb-input" id="wbSendTo" type="email" inputmode="email" autocomplete="email" placeholder="' + escA(t('workbench.exp.send_to_ph')) + '" value="' + escA(d.to || '') + '">'
       + '<label class="wb-label" for="wbSendSubject">' + esc(t('workbench.exp.send_subject')) + '</label>'
@@ -9394,6 +9409,7 @@
 
   function readSendDraft() {
     return {
+      from: fieldVal('wbSendFrom'),
       to: fieldVal('wbSendTo').trim(),
       subject: fieldVal('wbSendSubject'),
       message: fieldVal('wbSendMessage'),
@@ -9413,8 +9429,10 @@
       return
     }
     WB.send = { itemId: itemId, draft: draft, busy: true }
+    try { if (draft.from) window.localStorage.setItem('wbMailFrom', draft.from) } catch (e) { /* remembering the choice is optional */ }
     render()
     api('POST', itemUrl('/send-request'), {
+      from_account: draft.from || undefined,
       to: draft.to, subject: draft.subject, message: draft.message, attachment: draft.attachment,
       version: WB.previewVersion || null,
     }).then(function (r) {
@@ -9426,10 +9444,10 @@
       }
       var sent = r.data && r.data.status === 'sent'
       WB.send = { itemId: itemId, draft: draft, result: sent
-        ? { status: 'sent', message_id: r.data.message_id || '' }
+        ? { status: 'sent', message_id: r.data.message_id || '', from: r.data.from || '' }
         : { approval_id: r.data.approval_id, status: r.data.status || 'pending' } }
       render()
-      window.showToast((r.data && r.data.message) || t(sent ? 'workbench.exp.send_status.sent' : 'workbench.exp.send_status.pending', { id: sent ? (r.data.message_id || '') : '' }))
+      window.showToast((r.data && r.data.message) || t(sent ? 'workbench.exp.send_status.sent' : 'workbench.exp.send_status.pending', { from: sent ? (r.data.from || '') : '' }))
       load(WB.projectId)
     })
   }
@@ -9444,7 +9462,13 @@
       st.statusError = null
       var a = r.data && (r.data.approval || r.data)
       if (a && a.status) st.result.status = a.status
-      render()
+      if (st.result.status !== 'approved') { render(); return }
+      // #797: approved -> the system sends it; ask the server whether it went out.
+      api('GET', itemUrl('/send-request/' + encodeURIComponent(st.result.approval_id))).then(function (o) {
+        if (WB.send !== st) return
+        if (o.ok && o.data) { st.result.outcome = o.data.outcome; st.result.outcome_detail = o.data.detail }
+        render()
+      })
     })
   }
 
@@ -10517,11 +10541,15 @@
     return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
       + '<p class="wb-hint">' + esc(opts.hint) + '</p>' + (finalLangThisLabel(WB.detail && WB.detail.outline) ? '<p class="wb-hint"><strong>' + esc(t('workbench.finalpick.mail_lang', { lang: finalLangThisLabel(WB.detail && WB.detail.outline) })) + '</strong></p>' : '') + (opts.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>' : '') + status + list + form + (opts.extra || '') + '</div>'
   }
-  /** The Iroda mail accounts (the sender choice): loaded once, then the box is drawn again. */
+  /** #797: the accounts a mail can go from (the shared list: the Iroda accounts, then the connected Google account) -- the
+   *  same for the mail draft and the export's Send. Loaded once, then the box is drawn again. */
   function mailAccountsLoad() {
     WB.mailAccounts = null
-    api('GET', '/api/email/accounts').then(function (r) {
-      WB.mailAccounts = r.ok && Array.isArray(r.data) ? r.data.map(function (a) { return { id: String(a.id), label: String(a.label || a.id) } }) : []
+    api('GET', '/api/mail/sending-accounts').then(function (r) {
+      WB.mailAccounts = r.ok && Array.isArray(r.data) ? r.data.map(function (a) {
+        var addr = String(a.address || a.id)
+        return { id: String(a.id), label: a.kind === 'google' ? t('workbench.mail.from_google', { address: a.address || 'Google' }) : addr }
+      }) : []
       if (WB.open) render()
     })
   }
@@ -22288,7 +22316,7 @@
       if (line && line.style) line.style.left = pos + '%'
       return
     }
-    if ((e.target.id === 'wbSendTo' || e.target.id === 'wbSendSubject' || e.target.id === 'wbSendMessage') && WB.selectedId) {
+    if ((e.target.id === 'wbSendFrom' || e.target.id === 'wbSendTo' || e.target.id === 'wbSendSubject' || e.target.id === 'wbSendMessage') && WB.selectedId) {
       var ss = sendState()
       if (!ss || ss.result) { ss = { itemId: WB.selectedId, draft: {} }; WB.send = ss }
       ss.draft = readSendDraft()

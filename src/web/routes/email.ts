@@ -27,7 +27,7 @@ import { getSecret } from '../vault.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import type { RouteContext } from './types.js'
 import { registerRecoveryMailPort } from '../password-recovery.js'
-import { registerMailboxDraftPort } from '../../workbench-maildraft.js'
+import { registerMailboxEngine, sendMail, saveDraft, replyOrForward, sendingAccounts } from '../../mail-send.js'
 import { registerSentMailPort } from '../../workbench-sent-detect.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
@@ -180,24 +180,29 @@ registerRecoveryMailPort({
   accounts: () => getAccounts()
     .filter(a => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.label))
     .map(a => ({ id: a.id, address: a.label })),
+  // #797: the code goes out on the shared sender, to the account's own address.
   send: async (accountId, subject, text) => {
     const address = accountEmail(accountId)
     if (!address) return { ok: false, detail: 'unknown account' }
-    let sent = 'Sent'
-    try { sent = await mailboxFor(accountId, 'sent') } catch { /* default name */ }
-    const r = await himalaya(['-a', accountId, 'message', 'compose', '--from', address, '-t', address, '--body', text, '--send', '--save', sent, '-s', subject])
-    if (!r.ok) return { ok: false, detail: himalayaErrorText(r) }
-    invalidateEnvelopeCache(accountId, sent)
-    return { ok: true }
+    const r = await sendMail(accountId, { to: address, subject, body: text })
+    return r.ok ? { ok: true } : { ok: false, detail: r.detail }
   },
 })
 
 // The workbench's document e-mail draft goes into the Drafts folder of the account chosen as the sender: --save to Drafts and no
 // --send, so nothing leaves the machine.
-registerMailboxDraftPort({
+// #797: the mailbox accounts' engine of the shared sender (src/mail-send.ts). Every mail the app sends or saves as a
+// draft from an Iroda account -- a new letter, a reply, a forward, the Workbench export, the document's mail draft, the
+// password-recovery code -- runs through these few lines.
+registerMailboxEngine({
+  accounts: () => getAccounts().map((a) => ({ id: a.id, address: accountEmail(a.id) })),
+  // A send runs ONCE (himalayaOnce): a retried `--send` could send the letter twice.
+  run: async (args) => { const r = await himalaya(args); return { ok: r.ok, detail: r.ok ? '' : himalayaErrorText(r) } },
+  sentFolder: (account) => mailboxFor(account, 'sent'),
+  changed: (account, folder) => invalidateEnvelopeCache(account, folder),
   // #725/#726 (Boss TG 4003: the first press did not put the draft in, the second did): the folder lookup and the compose call
-  // both retry the transient failure -- see email-draft-save.ts.
-  save: (accountId, m) => saveDraftToFolder({
+  // both retry the transient failure -- see email-draft-save.ts. A draft is never sent, so retrying it is safe.
+  saveDraft: (accountId, m) => saveDraftToFolder({
     isKnownAccount,
     accountEmail,
     resolveFolders: (id) => resolveSpecialMailboxes(id),
@@ -205,7 +210,7 @@ registerMailboxDraftPort({
     compose: async (args) => { const r = await himalayaRead(args); return { ok: r.ok, text: r.ok ? '' : himalayaErrorText(r) } },
     onSaved: (id, folder) => invalidateEnvelopeCache(id, folder),
     warn: (t) => logger.warn(t),
-  }, accountId, m),
+  }, accountId, { to: m.to, cc: m.cc || '', subject: m.subject, body: m.body, files: m.attachments || [] }),
 })
 
 // #741: the workbench asks the Sent mailbox whether a document's PDF went out (attachment names, newest messages only).
@@ -995,6 +1000,13 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // #797: every account a mail can go out from -- the same list at every send (the Workbench export, the document's mail
+  // draft): the Iroda mailbox accounts, then the Google account connected on the Accounts page.
+  if (path === '/api/mail/sending-accounts' && method === 'GET') {
+    json(res, sendingAccounts())
+    return true
+  }
+
   // Dashboard-facing health check for the direct-IMAP fast path (see the
   // 2026-08-18 config-format-drift incident documented on parseHimalayaToml
   // and checkImapAccountConfig in email-imap.ts) -- per account, whether the
@@ -1429,8 +1441,8 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // --from is required: himalaya v2 doesn't fall back to the account's
     // configured address for `message reply`, it errors with "No `From:`
     // header found" if omitted.
-    const r = await himalaya(['-a', data.account as string, 'message', 'reply', data.id, '-m', mailbox, '--from', accountEmail(data.account as string), '--body', data.text, '--send'])
-    if (!r.ok) { logger.warn(`[email] reply failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
+    const r = await replyOrForward(data.account as string, 'reply', { mailbox, id: data.id }, { body: data.text })
+    if (!r.ok) { json(res, { error: r.detail }, 502); return true }
     json(res, { ok: true })
     return true
   }
@@ -1441,8 +1453,8 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (!isKnownAccount(data.account ?? null) || !data.id || !data.to?.trim() || !data.text?.trim()) { json(res, { error: 'account, id, to and text required' }, 400); return true }
     const mailbox = data.mailbox || 'Inbox'
     // See the reply route above: --from must be passed explicitly for himalaya v2.
-    const r = await himalaya(['-a', data.account as string, 'message', 'forward', data.id, '-m', mailbox, '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text, '--send'])
-    if (!r.ok) { logger.warn(`[email] forward failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
+    const r = await replyOrForward(data.account as string, 'forward', { mailbox, id: data.id }, { to: data.to.trim(), body: data.text })
+    if (!r.ok) { json(res, { error: r.detail }, 502); return true }
     json(res, { ok: true })
     return true
   }
@@ -1522,19 +1534,14 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
         json(res, { error: L(lang, `A csatolmányok ${mbs(total)} MB-osak, a levél legfeljebb ${mbs(EMAIL_ATTACH_LIMIT)} MB lehet.`, `The attachments are ${mbs(total)} MB, a message can be at most ${mbs(EMAIL_ATTACH_LIMIT)} MB.`), code: 'too_big' }, 400)
         return true
       }
-      const composeSentMailbox = await mailboxFor(data.account as string, asDraft ? 'drafts' : 'sent')
-      const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string)]
-      if (data.to?.trim()) args.push('-t', data.to.trim())
-      args.push('--body', data.text?.trim() ? data.text : '\n')
-      if (!asDraft) args.push('--send')
-      args.push('--save', composeSentMailbox)
-      if (data.cc?.trim()) args.push('--cc', data.cc.trim())
-      if (data.subject?.trim()) args.push('-s', data.subject.trim())
-      for (const p of prep ? prep.paths : []) args.push('--attach', p)
-      for (const p of extraPaths) args.push('--attach', p)
-      const r = await himalaya(args)
-      if (!r.ok) { logger.warn(`[email] compose failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
-      invalidateEnvelopeCache(data.account as string, composeSentMailbox)
+      // #797: the shared sender (src/mail-send.ts): sent with a copy in Sent, or saved into Drafts (with the folder
+      // lookup's retry the Workbench's draft has too).
+      const mail = {
+        to: data.to?.trim() || '', cc: data.cc?.trim() || '', subject: data.subject?.trim() || '', body: data.text || '',
+        attachments: [...(prep ? prep.paths : []), ...extraPaths],
+      }
+      const r = asDraft ? await saveDraft(data.account as string, mail) : await sendMail(data.account as string, mail)
+      if (!r.ok) { logger.warn(`[email] compose failed: ${r.detail}`); json(res, { error: r.detail }, 502); return true }
       // The edited draft is done: it goes to Trash (recoverable), so the Drafts list does not keep a sent letter.
       let draftMoved = true
       if (data.draft?.remove && data.draft.id) {

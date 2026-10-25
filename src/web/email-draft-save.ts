@@ -8,6 +8,8 @@
 // Both are retried here, and a final failure is logged with the real error text, so the next report has evidence.
 // Kept free of the mail client so the order of the steps is unit-tested (the route passes the real calls in).
 
+import { composeArgs } from '../mail-send.js'
+
 export interface DraftMessage { to: string; cc: string; subject: string; body: string; files: string[] }
 
 export interface DraftSaveDeps {
@@ -46,12 +48,8 @@ export async function saveDraftToFolder(deps: DraftSaveDeps, accountId: string, 
     deps.warn(`[email] draft save: the Drafts folder of "${accountId}" ${looked ? 'is not flagged' : 'could not be looked up'}; fallback "${drafts}"`)
   }
 
-  const args = ['-a', accountId, 'message', 'compose', '--from', deps.accountEmail(accountId)]
-  if (m.to) args.push('-t', m.to)
-  if (m.cc) args.push('--cc', m.cc)
-  if (m.subject) args.push('-s', m.subject)
-  args.push('--body', m.body.trim() ? m.body : '\n', '--save', drafts)
-  for (const f of m.files) args.push('--attach', f)
+  // #797: the compose arguments come from the shared sender, the one place they are built.
+  const args = composeArgs(accountId, deps.accountEmail(accountId), { to: m.to, cc: m.cc, subject: m.subject, body: m.body, attachments: m.files }, { send: false, saveTo: drafts })
   const r = await deps.compose(args)
   if (!r.ok) {
     deps.warn(`[email] draft save into "${drafts}" failed for "${accountId}": ${r.text}`)

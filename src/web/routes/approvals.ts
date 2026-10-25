@@ -818,6 +818,10 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     void import('../../workbench-todo-gcal.js')
       .then((m) => m.settleTodoCalendarApprovals())
       .catch((err) => logger.warn({ err }, 'workbench todo calendar settle failed'))
+    // #797: a jovahagyott Munkapad-kuldest a rendszer kuldi el, a kozos kuldon (elutasitasnal semmi nem megy ki).
+    void import('../../workbench-export.js')
+      .then((m) => m.settleSendApprovals())
+      .catch((err) => logger.warn({ err }, 'workbench send settle failed'))
     // #406, 18. pont: a betekinto link a jovahagyassal elesedik (elutasitasnal nem).
     void import('../../workbench-share.js')
       .then((m) => m.settleShareApprovals())
