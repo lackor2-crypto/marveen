@@ -26,7 +26,8 @@ import { ensureWorkItemFolder } from './workbench-assets.js'
 import { annexPdfs, annexContentPdf, mergePdfs, type PackageError } from './workbench-docpackage.js'
 import { docSettings, listAnnexes } from './workbench-docannex.js'
 import { contentHash, docLangFor, fileStem, finalLang, finalPackageFiles, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
-import { hasDocModel } from './workbench-docmodel.js'
+import { hasDocModel, listBlocks } from './workbench-docmodel.js'
+import { variantOf } from './workbench-doclang.js'
 import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
 import type { DocLang } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
@@ -202,6 +203,32 @@ function folderOf(item: WorkItemRow): { dirAbs: string; dirRel: string } | null 
 }
 
 /** The draft as the page shows it, measured now (cheap: one row and one stat; nothing is rendered). Null when there is none. */
+// Whole-word markers of each language; the language of the TEXT is the one with the most hits.
+const LANG_WORDS: Record<DocLang, RegExp> = {
+  de: /\b(der|die|das|und|nicht|ich|sie|bitte|mit|für|von|zu|ist|ein|eine|auf|dem|den|bezüglich|sehr|geehrte)\b/gi,
+  hu: /\b(és|hogy|nem|egy|az|vagy|van|meg|kérem|tisztelt|szeretném|mert|volt|ezt)\b/gi,
+  en: /\b(the|and|of|to|is|for|with|that|this|please|dear|was|are|have)\b/gi,
+}
+
+/** #794: the language the document TEXT is written in (hu / en / de), null when it cannot be told (too little text). */
+export function textLanguageOf(item: WorkItemRow): DocLang | null {
+  if (!hasDocModel(item.id)) return null
+  const text = listBlocks(item.id).map((b) => b.text).join(' ').slice(0, 6000)
+  const score = (l: DocLang): number => (text.match(LANG_WORDS[l]) || []).length
+  const ranked = (['de', 'hu', 'en'] as DocLang[]).map((l) => [l, score(l)] as const).sort((a, b) => b[1] - a[1])
+  return ranked[0][1] >= 3 && ranked[0][1] > ranked[1][1] ? ranked[0][0] : null
+}
+
+/**
+ * #794: the language the mail is written in = the language of the final PDF's TEXT. A language version says it (variant);
+ * an original is told from its text (a German letter written under a Hungarian dashboard); the final's label only names
+ * the dashboard language, so it is the last resort.
+ */
+export function mailLanguage(item: WorkItemRow, ui: 'hu' | 'en', final: { label: string }): DocLang {
+  if (variantOf(item.id)) return docLangFor(item, ui)
+  return textLanguageOf(item) ?? finalLang(final, ui)
+}
+
 /** #794: an untouched default text of another language than the current final PDF is shown in the final's language (old rows). */
 function shownBody(item: WorkItemRow, stored: string): string {
   const fl = currentFinalLang(item)
@@ -346,7 +373,7 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   // (the final's label says it), not in whatever the work item or the page happens to be in.
   const fin = hasDocModel(item.id) ? finalState(item) : null
   if (hasDocModel(item.id) && !hasDocxFinalPanel(item) && (!fin || fin.stale)) return { ok: false, code: 'final_required', detail: null }
-  const lang: DocLang = fin && !fin.stale ? finalLang(fin, docLangFor(item, ui) === 'en' ? 'en' : 'hu') : docLangFor(item, ui)
+  const lang: DocLang = fin && !fin.stale ? mailLanguage(item, ui, fin) : docLangFor(item, ui)
   const subjectRaw = input.subject === undefined ? (prev?.subject ?? '') : String(input.subject)
   const subject = oneLine(subjectRaw) || item.title
   if (subject.length > SUBJECT_MAX) return { ok: false, code: 'bad_input', detail: 'subject' }
@@ -403,7 +430,7 @@ function untouchedDefaultLang(item: WorkItemRow, body: string): DocLang | null {
 function currentFinalLang(item: WorkItemRow): DocLang | null {
   if (!hasDocModel(item.id)) return null
   const f = finalState(item)
-  return f && !f.stale ? finalLang(f, 'hu') : null
+  return f && !f.stale ? mailLanguage(item, 'hu', f) : null
 }
 
 /** Forget the stored draft row (a message already in the Drafts folder stays there). */
