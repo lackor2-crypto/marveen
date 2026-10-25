@@ -10,6 +10,7 @@ import { logger } from '../logger.js'
 import { APP_LANG } from '../config.js'
 import { readEnvFile } from '../env.js'
 import { askAiTextWith } from '../life-inbox-ai.js'
+import { affordableTokens, openRouterChat, openRouterErrorMessage, parseEngineOrder, type AiEngine } from '../ai-call.js'
 
 // Cache directory (per-install, gitignored like himalaya config)
 const TRANSLATION_CACHE_DIR = join(homedir(), '.local', 'share', 'marveen-email', 'translation-cache')
@@ -24,7 +25,6 @@ const CACHE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000 // 90 days
 // picked over gemini-flash on a side-by-side: it rendered idiomatic Hungarian
 // where flash mistranslated ("shipped" -> "feladtuk").
 const TRANSLATION_MODEL = 'openai/gpt-4o-mini'
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 // Language detection patterns (simple, fast, no external deps)
 const HUNGARIAN_PATTERNS = [
@@ -230,95 +230,19 @@ ${sourceText}
 }
 
 const TRANSLATION_MAX_TOKENS = 4000
-/** Below this a retry cannot hold a useful translation, so the credit message is shown instead. */
-const MIN_RETRY_TOKENS = 300
 
-/**
- * OpenRouter answers 402 "... You requested up to 4000 tokens, but can only afford 1368" when the
- * account credit is nearly spent. Returns the affordable token count, or null when the text is not
- * that message.
- */
-export function affordableTokens(errText: string): number | null {
-  const m = /can only afford (\d+)/i.exec(errText)
-  return m ? Number(m[1]) : null
-}
-
-const TRANSLATION_ERRORS = {
-  credit: { hu: 'az OpenRouter-fiók krediteje elfogyott vagy kevés, töltsd fel: https://openrouter.ai/settings/credits', en: 'the OpenRouter account is out of credit or nearly so, top it up: https://openrouter.ai/settings/credits' },
-  nokey: { hu: 'nincs OpenRouter-kulcs megadva', en: 'no OpenRouter key is set' },
-  key: { hu: 'az OpenRouter kulcs érvénytelen, ellenőrizd a Beállításokban', en: 'the OpenRouter key is invalid, check it in Settings' },
-  busy: { hu: 'az OpenRouter most túlterhelt, próbáld újra egy perc múlva', en: 'OpenRouter is busy right now, try again in a minute' },
-}
-
-/** A sentence a person can act on, instead of the raw provider JSON. */
-export function translationErrorMessage(status: number, errText: string, lang: string = APP_LANG, kind?: 'nokey'): string {
-  const pick = (m: { hu: string; en: string }) => (lang === 'hu' ? m.hu : m.en)
-  if (kind === 'nokey') return pick(TRANSLATION_ERRORS.nokey)
-  if (status === 402) return pick(TRANSLATION_ERRORS.credit)
-  if (status === 401 || status === 403) return pick(TRANSLATION_ERRORS.key)
-  if (status === 429) return pick(TRANSLATION_ERRORS.busy)
-  return `OpenRouter ${status}: ${errText.slice(0, 120)}`
-}
+// #796: the OpenRouter call, its 402 retry, its error sentences and the engine order live in the shared AI road
+// (src/ai-call.ts); these names stay for the callers that import them from here.
+export { affordableTokens, parseEngineOrder }
+export type TranslateEngine = AiEngine
+export const translationErrorMessage = openRouterErrorMessage
 
 // Call OpenRouter API for translation
 async function callTranslationApi(prompt: string, apiKey: string, maxTokens = TRANSLATION_MAX_TOKENS): Promise<string> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 60_000)
-
-  try {
-    const res = await fetch(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://marveen.local',
-        'X-Title': 'Marveen Email Translation',
-      },
-      body: JSON.stringify({
-        model: TRANSLATION_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: maxTokens,
-      }),
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeout)
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '')
-      // Nearly out of credit: the request is refused for the token CEILING, not the text. Retry once
-      // with what the account can afford, so a short mail still translates on a nearly empty balance.
-      const afford = res.status === 402 ? affordableTokens(errText) : null
-      if (afford !== null && afford >= MIN_RETRY_TOKENS && afford < maxTokens) {
-        clearTimeout(timeout)
-        return callTranslationApi(prompt, apiKey, afford - 16)
-      }
-      throw new Error(translationErrorMessage(res.status, errText))
-    }
-
-    const data = await res.json()
-    const content = data.choices?.[0]?.message?.content
-    if (!content) throw new Error('Empty translation response')
-    return content.trim()
-  } catch (e) {
-    clearTimeout(timeout)
-    throw e
-  }
-}
-
-export type TranslateEngine = 'openrouter' | 'claude' | 'ollama'
-const DEFAULT_ENGINE_ORDER: TranslateEngine[] = ['openrouter', 'claude', 'ollama']
-
-/** The owner's engine order (TRANSLATE_ENGINE_ORDER), unknown names dropped, missing ones appended: every engine stays reachable. */
-export function parseEngineOrder(raw: string | undefined | null): TranslateEngine[] {
-  const seen: TranslateEngine[] = []
-  for (const part of String(raw ?? '').split(',')) {
-    const e = part.trim().toLowerCase()
-    if ((e === 'openrouter' || e === 'claude' || e === 'ollama') && !seen.includes(e)) seen.push(e)
-  }
-  for (const e of DEFAULT_ENGINE_ORDER) if (!seen.includes(e)) seen.push(e)
-  return seen
+  const r = await openRouterChat({ apiKey, model: TRANSLATION_MODEL, prompt, temperature: 0.1, maxTokens, timeoutMs: 60_000, title: 'Marveen Email Translation' })
+  if (!r.ok) throw new Error(r.message)
+  if (!r.text) throw new Error('Empty translation response')
+  return r.text
 }
 
 const TRANSLATE_SYSTEM = 'You are a professional translator. Output ONLY the translation.'

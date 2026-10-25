@@ -1,11 +1,13 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { saveAgentMemory } from '../../db.js'
-import { MAIN_AGENT_ID, OLLAMA_URL } from '../../config.js'
+import { MAIN_AGENT_ID } from '../../config.js'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
 import { chooseCategorizeModel } from '../../ollama-model-choice.js'
 import type { RouteContext } from './types.js'
+import { ollamaModelNames } from '../../ai-call.js'
+import { categorizeMemoryChunk } from '../../memory-categorize.js'
 
 // Longest run of characters a single memory row may hold. Anything longer is
 // split into several rows; it is never cut short. See CHUNK_MIN_TAIL for the
@@ -275,9 +277,8 @@ export async function tryHandleMigrate(ctx: RouteContext): Promise<boolean> {
       // (GH #1024, second finding).
       let categorizeUnavailable: string | null = null
       try {
-        const modelsResp = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) })
-        const modelsData = await modelsResp.json() as { models?: { name: string }[] }
-        const available = (modelsData.models || []).map(m => m.name)
+        const available = await ollamaModelNames()
+        if (!available.length) throw new Error('no answer')
         categorizeModel = chooseCategorizeModel(available)
         if (!categorizeModel) {
           categorizeUnavailable = 'nincs kategorizálásra alkalmas Ollama modell (csak embedding modell érhető el)'
@@ -292,23 +293,10 @@ export async function tryHandleMigrate(ctx: RouteContext): Promise<boolean> {
           let keywords = ''
 
           if (categorizeModel) {
-            const catResp = await fetch(`${OLLAMA_URL}/api/generate`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: categorizeModel,
-                prompt: `Categorize this memory. Respond ONLY with JSON:\n{"tier":"warm","keywords":"kw1, kw2"}\nTiers: hot (active/urgent), warm (preferences/config), cold (lessons/archive), shared (multi-agent)\n\nMemory: "${chunk.slice(0, 400)}"`,
-                stream: false,
-              }),
-              signal: AbortSignal.timeout(90000),
-            })
-            const catData = await catResp.json() as { response?: string }
-            const jsonMatch = (catData.response || '').match(/\{[\s\S]*\}/)
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0])
-              tier = ['hot', 'warm', 'cold', 'shared'].includes(parsed.tier) ? parsed.tier : 'warm'
-              keywords = parsed.keywords || ''
-            }
+            // #796: the shared categoriser (the same as the memory import's), on the shared AI road.
+            const c = await categorizeMemoryChunk(categorizeModel, chunk)
+            tier = c.tier
+            keywords = c.keywords
           }
 
           saveAgentMemory(agentId, chunk, tier, keywords, true)

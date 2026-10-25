@@ -29,8 +29,8 @@ import { atomicWriteFileSync } from './atomic-write.js'
 import { agentDir, skillsRootFor } from './agent-config.js'
 import { containsSuspiciousContent } from './content-safety.js'
 import { sanitizeSkillName, safeJoin } from './sanitize.js'
+import { openRouterChat, type FetchFn } from '../ai-call.js'
 
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 // Cheap, reliable, and NOT a ":free" model on purpose: the free tier's quota is
 // account-wide and the fleet exhausts it daily (same reasoning as the email
@@ -431,32 +431,14 @@ ${decisions.map((s) => `- ${s}`).join('\n') || '- (nincs)'}
 END MATERIAL`
 }
 
-export async function callReflectionModel(prompt: string, apiKey: string, fetchImpl = fetch): Promise<string> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 60_000)
-  try {
-    const res = await fetchImpl(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://marveen.local',
-        'X-Title': 'Marveen Checkpoint Reflection',
-      },
-      body: JSON.stringify({
-        model: REFLECTION_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-        max_tokens: 1500,
-      }),
-      signal: controller.signal,
-    })
-    if (!res.ok) throw new Error(`OpenRouter ${res.status}`)
-    const data = await res.json() as { choices?: { message?: { content?: string } }[] }
-    return data.choices?.[0]?.message?.content?.trim() || ''
-  } finally {
-    clearTimeout(timeout)
-  }
+export async function callReflectionModel(prompt: string, apiKey: string, fetchImpl?: typeof fetch): Promise<string> {
+  // #796: the shared AI road (402 retry, timeout, the error sentence) instead of an own fetch.
+  const r = await openRouterChat({
+    apiKey, model: REFLECTION_MODEL, prompt, temperature: 0.2, maxTokens: 1500, timeoutMs: 60_000,
+    title: 'Marveen Checkpoint Reflection', ...(fetchImpl ? { fetch: fetchImpl as unknown as FetchFn } : {}),
+  })
+  if (!r.ok) throw new Error(r.status ? `OpenRouter ${r.status}: ${r.message}` : r.message)
+  return r.text
 }
 
 // ---------------------------------------------------------------------------

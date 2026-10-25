@@ -5,13 +5,15 @@ import { lastSearchRelaxed,
   type Memory,
 } from '../../db.js'
 import { startEmbeddingBackfill, getEmbeddingBackfillStatus } from '../../embedding-backfill.js'
-import { MAIN_AGENT_ID, ALLOWED_CHAT_ID, OLLAMA_URL, APP_TZ } from '../../config.js'
+import { MAIN_AGENT_ID, ALLOWED_CHAT_ID, APP_TZ } from '../../config.js'
 import { logger } from '../../logger.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { containsSuspiciousContent } from '../content-safety.js'
 import { chooseCategorizeModel } from '../../ollama-model-choice.js'
 import type { RouteContext } from './types.js'
 import { projectScopeMap } from '../../project-scope.js'
+import { ollamaModelNames } from '../../ai-call.js'
+import { categorizeMemoryChunk } from '../../memory-categorize.js'
 
 // Canonical memory categories. Kept in sync with the DB CHECK constraint in
 // src/db.ts so the API rejects bad values before they even reach SQLite.
@@ -170,11 +172,7 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
 
     let categorizeModel: string | null = null
     try {
-      const ollamaModels = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) })
-        .then(r => r.json())
-        .then((d: any) => (d.models || []).map((m: any) => m.name))
-        .catch(() => [] as string[])
-      categorizeModel = chooseCategorizeModel(ollamaModels)
+      categorizeModel = chooseCategorizeModel(await ollamaModelNames())
     } catch {
       categorizeModel = null
     }
@@ -196,46 +194,8 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
       }
 
       try {
-        const controller = new AbortController()
-        const timeout = setTimeout(() => controller.abort(), 90000)
-
-        const catResponse = await fetch(`${OLLAMA_URL}/api/generate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: categorizeModel,
-            prompt: `Categorize this memory into exactly one tier and generate keywords.
-
-Memory: "${chunk.slice(0, 500)}"
-
-Tiers:
-- hot: active tasks, pending decisions, things happening NOW
-- warm: preferences, config, project context, stable knowledge
-- cold: long-term lessons, historical decisions, archive
-- shared: information relevant to multiple agents
-
-Respond ONLY with JSON, nothing else. Replace every <...> placeholder:
-{"tier": "<hot|warm|cold|shared>", "keywords": "<keyword1, keyword2, keyword3>"}`,
-            stream: false,
-          }),
-          signal: controller.signal,
-        })
-        clearTimeout(timeout)
-        const catData = await catResponse.json() as { response?: string }
-
-        let tier = 'warm'
-        let keywords = ''
-
-        try {
-          const jsonMatch = (catData.response || '').match(/\{[\s\S]*\}/)
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0])
-            tier = ['hot', 'warm', 'cold', 'shared'].includes(parsed.tier) ? parsed.tier : 'warm'
-            keywords = parsed.keywords || ''
-          }
-        } catch {
-          // Default to warm if parsing fails
-        }
+        // #796: the shared categoriser (the same as the migration's), on the shared AI road.
+        const { tier, keywords } = await categorizeMemoryChunk(categorizeModel, chunk)
 
         saveAgentMemory(agentId, chunk, tier, keywords, true)
         stats[tier as keyof typeof stats]++
