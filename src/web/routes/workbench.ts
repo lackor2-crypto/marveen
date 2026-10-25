@@ -2427,10 +2427,13 @@ function checkWithTodos(itemId: string, resolve: ReturnType<typeof resolverFor> 
 }
 
 /** NYELVI VALTOZATOK (K-1.27 ... K-1.31): az eredetinel a valtozatai, a valtozatnal a fejezetek allapota, a szoszedet, a visszaforditasok. */
-function langOut(item: { id: string; project_id: string }): { variant: ReturnType<typeof variantInfo>; variants: ReturnType<typeof variantsSummary>; glossary: ReturnType<typeof listGlossary>; backchecks: ReturnType<typeof backchecks>; translate_job: ReturnType<typeof translateJobState> } {
+function langOut(item: { id: string; project_id: string }): { variant: ReturnType<typeof variantInfo>; variants: ReturnType<typeof variantsSummary>; siblings: ReturnType<typeof variantsSummary>; glossary: ReturnType<typeof listGlossary>; backchecks: ReturnType<typeof backchecks>; translate_job: ReturnType<typeof translateJobState> } {
   const variant = variantInfo(item.id)
   return {
-    variant, variants: variant ? [] : variantsSummary(item.id), glossary: listGlossary(item.project_id), backchecks: variant ? backchecks(item.id) : [],
+    variant, variants: variant ? [] : variantsSummary(item.id),
+    // #794: the OTHER language versions of the same original, so the language choice opened from a variant lists every language.
+    siblings: variant ? variantsSummary(variant.source_item_id).filter((x) => x.item_id !== item.id) : [],
+    glossary: listGlossary(item.project_id), backchecks: variant ? backchecks(item.id) : [],
     // #501: the whole-document translation's progress / error, shown in the variant header.
     translate_job: variant ? translateJobState(item.id) : null,
   }
