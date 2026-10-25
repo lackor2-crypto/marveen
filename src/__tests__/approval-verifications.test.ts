@@ -431,6 +431,19 @@ describe('POST /api/approvals/:id/verify/cancel', () => {
     expect(listApprovalVerifications(approval.id).map((r) => `${r.agent}:${r.status}`)).toEqual(['gemma:pass'])
   })
 
+  it('#802: an amber no-response row is taken back too (its task may still hold the executor); pass/fail results stay', async () => {
+    const approval = createApproval({ id: 'x4', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject', 'gemma'] }).ctx)
+    getDb().prepare("UPDATE approval_verifications SET status = 'noresponse' WHERE approval_id = ? AND agent = ?").run(approval.id, 'code:someproject')
+    resolveApprovalVerification(approval.id, 'gemma', 'pass', 'ok')
+
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify/cancel`)
+    await tryHandleApprovals(ctx)
+    expect(out.body.removed).toBe(1)
+    expect(listApprovalVerifications(approval.id).map((r) => r.status)).toEqual(['pass'])
+    expect(listCodeTasks({ project: 'someproject' })[0]!.status).toBe('cancelled')
+  })
+
   it('says so when a VS Code task already runs: it cannot be stopped, and is not marked cancelled', async () => {
     const approval = createApproval({ id: 'x3', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
     await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject'] }).ctx)

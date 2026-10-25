@@ -26767,7 +26767,7 @@ function _approvalVerifyCellHtml(a) {
   }
   return `<div style="font-size:11px;line-height:1.5">${summary}<div style="margin-top:2px">${perAgent}</div>
     <span style="display:inline-flex;gap:4px;align-items:center;margin-top:4px">
-      <button class="btn-secondary btn-compact approvals-verify-btn" data-id="${escapeAttr(a.id)}" data-agent="${escapeAttr(a.agent_id)}" style="font-size:10px">${t('approvals.verify.rerun_btn')}</button>${pending.length > 0 ? `
+      <button class="btn-secondary btn-compact approvals-verify-btn" data-id="${escapeAttr(a.id)}" data-agent="${escapeAttr(a.agent_id)}" style="font-size:10px">${t('approvals.verify.rerun_btn')}</button>${(pending.length > 0 || noResponse.length > 0) ? `
       <button class="btn-secondary btn-compact approvals-verify-cancel" data-id="${escapeAttr(a.id)}" title="${escapeAttr(t('approvals.verify.cancel_title'))}" aria-label="${escapeAttr(t('approvals.verify.cancel_title'))}" style="font-size:10px">✕</button>` : ''}
     </span>
   </div>`
