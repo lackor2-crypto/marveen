@@ -202,6 +202,13 @@ function folderOf(item: WorkItemRow): { dirAbs: string; dirRel: string } | null 
 }
 
 /** The draft as the page shows it, measured now (cheap: one row and one stat; nothing is rendered). Null when there is none. */
+/** #794: an untouched default text of another language than the current final PDF is shown in the final's language (old rows). */
+function shownBody(item: WorkItemRow, stored: string): string {
+  const fl = currentFinalLang(item)
+  const was = fl ? untouchedDefaultLang(item, stored) : null
+  return fl && was && was !== fl ? defaultMailBody(item, fl, listAnnexes(item.id).length) : stored
+}
+
 export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   const row = getRow(item.id)
   if (!row) return null
@@ -211,7 +218,7 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   const state: MailDraftView['state'] = row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
   return {
     file: '', file_name: '',
-    from_account: row.from_account, from_addr: row.from_addr, to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: row.body,
+    from_account: row.from_account, from_addr: row.from_addr, to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: shownBody(item, row.body),
     attachments, total_bytes: attachments.reduce((n, a) => n + a.bytes, 0), updated_at: row.updated_at, state,
   }
 }
@@ -343,7 +350,7 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   const subjectRaw = input.subject === undefined ? (prev?.subject ?? '') : String(input.subject)
   const subject = oneLine(subjectRaw) || item.title
   if (subject.length > SUBJECT_MAX) return { ok: false, code: 'bad_input', detail: 'subject' }
-  const bodyRaw = input.body === undefined ? (prev?.body ?? '') : String(input.body)
+  const bodyRaw = input.body === undefined ? (prev ? shownBody(item, prev.body) : '') : String(input.body)
   if (bodyRaw.length > TEXT_MAX) return { ok: false, code: 'bad_input', detail: 'body' }
   const body = bodyRaw.trim() ? bodyRaw : defaultMailBody(item, lang, listAnnexes(item.id).length)
 
@@ -376,10 +383,27 @@ export async function refreshMailDraft(_item: WorkItemRow, _ui: 'hu' | 'en'): Pr
 export function resetUntouchedMailText(item: WorkItemRow): boolean {
   const row = getRow(item.id)
   if (!row) return false
-  const n = listAnnexes(item.id).length
-  const untouched = (['hu', 'en', 'de'] as DocLang[]).some((l) => row.body === defaultMailBody(item, l, n))
-  if (!untouched) return false
+  if (!untouchedDefaultLang(item, row.body)) return false
   return forgetMailDraft(item.id)
+}
+
+/**
+ * #794: which language's default text a stored body still is (null when the owner edited it). The annex count in the text
+ * is the count at the time it was written, so every plausible count is tried, not only today's.
+ */
+function untouchedDefaultLang(item: WorkItemRow, body: string): DocLang | null {
+  const max = Math.max(20, listAnnexes(item.id).length)
+  for (const l of ['hu', 'en', 'de'] as DocLang[]) {
+    for (let n = 0; n <= max; n++) if (body === defaultMailBody(item, l, n)) return l
+  }
+  return null
+}
+
+/** #794: the language the CURRENT final PDF is in, null when there is no current final. */
+function currentFinalLang(item: WorkItemRow): DocLang | null {
+  if (!hasDocModel(item.id)) return null
+  const f = finalState(item)
+  return f && !f.stale ? finalLang(f, 'hu') : null
 }
 
 /** Forget the stored draft row (a message already in the Drafts folder stays there). */
