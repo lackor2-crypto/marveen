@@ -334,6 +334,15 @@ describe('the e-mail draft of a work item', () => {
     expect(again.draft.body).toMatch(/^Dear Sir or Madam/)
   })
 
+  it('an original written in German gets a German default text, whatever language the final label names', async () => {
+    write('Sehr geehrte Damen und Herren, bezüglich der Verwarnung bitte ich Sie, das Verwarnungsgeld mit der Begründung zu erlassen, und ich danke für die Prüfung.')
+    await makeFinal('hu')
+    const r = await saveMailDraft(item(), {}, 'hu')
+    if (!r.ok) throw new Error('save ' + r.code)
+    expect(r.draft.body).toMatch(/^(Sehr geehrte|Dear Sir)/)
+    expect(r.draft.body).not.toMatch(/^Tisztelt/)
+  })
+
   it('a bad address is refused with nothing written', async () => {
     write('Text eins')
     const r = await saveMailDraft(item(), { to: 'nem cim' }, 'hu')
