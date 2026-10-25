@@ -4067,7 +4067,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       court: courtOut(item.id),
       ...(hasTextFinalPanel(item) ? { text_langs: textLangState(item) } : {}),
       // #723: the e-mail draft of a finalized Word item (the same draft as a court document's, made by the same code).
-      ...(hasDocxFinalPanel(item) ? { mail_draft: mailDraftView(item) } : {}),
+      ...(hasDocxFinalPanel(item) ? { mail_draft: mailDraftView(item), mail_prefill: mailPrefill(item) } : {}),
       text_profile: textProfileView(item),
     })
     return true

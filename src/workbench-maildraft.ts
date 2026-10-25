@@ -13,6 +13,7 @@
 // This does NOT send anything. The owner presses send in the mail program of the Drafts folder's account.
 
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -29,6 +30,7 @@ import { contentHash, docLangFor, fileStem, finalLang, finalPackageFiles, finalS
 import { hasDocModel, listBlocks } from './workbench-docmodel.js'
 import { variantOf } from './workbench-doclang.js'
 import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
+import { resolveLifePath } from './life-explorer.js'
 import type { DocLang } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
 import { saveDraft as saveMailboxDraft } from './mail-send.js'
@@ -212,9 +214,20 @@ const LANG_WORDS: Record<DocLang, RegExp> = {
 }
 
 /** #794: the language the document TEXT is written in (hu / en / de), null when it cannot be told (too little text). */
+/** The plain text of a Word item's file (tags stripped), '' when it cannot be read. */
+function docxPlainText(item: WorkItemRow): string {
+  const abs = item.source_path ? resolveLifePath(item.source_path) : null
+  if (!abs || !/\.docx$/i.test(abs)) return ''
+  try {
+    const xml = execFileSync('unzip', ['-p', abs, 'word/document.xml'], { maxBuffer: 64 * 1024 * 1024, timeout: 20_000 }).toString('utf-8')
+    return xml.replace(/<\/w:p>/g, ' ').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim()
+  } catch { return '' }
+}
+
 export function textLanguageOf(item: WorkItemRow): DocLang | null {
-  if (!hasDocModel(item.id)) return null
-  const text = listBlocks(item.id).map((b) => b.text).join(' ').slice(0, 6000)
+  const word = !hasDocModel(item.id) && hasDocxFinalPanel(item)
+  if (!hasDocModel(item.id) && !word) return null
+  const text = (word ? docxPlainText(item) : listBlocks(item.id).map((b) => b.text).join(' ')).slice(0, 6000)
   const score = (l: DocLang): number => (text.match(LANG_WORDS[l]) || []).length
   const ranked = (['de', 'hu', 'en'] as DocLang[]).map((l) => [l, score(l)] as const).sort((a, b) => b[1] - a[1])
   return ranked[0][1] >= 3 && ranked[0][1] > ranked[1][1] ? ranked[0][0] : null
@@ -275,6 +288,12 @@ export function chatRecipient(item: WorkItemRow): string {
 }
 
 export function mailPrefill(item: WorkItemRow): { to: string; subject: string; body: string; lang: DocLang } | null {
+  // A finalized Word item (#723): the final PDF it carries exists, the text language comes from the Word file itself.
+  if (!hasDocModel(item.id) && hasDocxFinalPanel(item)) {
+    if (getRow(item.id) || !docxFinalPdf(item)) return null
+    const wl = textLanguageOf(item) ?? 'hu'
+    return { to: chatRecipient(item), subject: item.title, body: defaultMailBody(item, wl, 0), lang: wl }
+  }
   if (!hasDocModel(item.id) || hasDocxFinalPanel(item) || getRow(item.id)) return null
   const fin = finalState(item)
   if (!fin || fin.stale) return null

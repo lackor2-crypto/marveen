@@ -206,6 +206,24 @@ describe('the e-mail draft of a work item', () => {
     expect(mailDraftView(word)).toMatchObject({ from_account: 'work', state: 'current' })
   })
 
+  // #799-sibling (Boss TG 3414): the Word item's mail form starts filled too (no row stored), once its final PDF exists.
+  it('a finalized Word item: the form is prefilled (subject, text, recipient from the chat), nothing stored', async () => {
+    writeFileSync(join(projDir(), 'Iratok', 'Antrag2.docx'), 'PK fake word')
+    const w = createWorkItem({ project_id: pid, title: 'Antrag2', type: 'document', source_path: 'Projektek/Iroda/Iratok/Antrag2.docx' })
+    if (!w.ok) throw new Error('item')
+    markPlainItem(w.item.id)
+    expect(mailPrefill(getWorkItem(w.item.id)!)).toBeNull()
+    const pdf = attachAsset(getWorkItem(w.item.id)!, 'Antrag2 - végleges.pdf', Buffer.from('%PDF-1.4 old panel'), { force: true, createdBy: 'owner', into: 'finished' })
+    if (!pdf.ok) throw new Error('pdf ' + pdf.code)
+    const word = getWorkItem(w.item.id)!
+    const ses = createAgentSession({ project_id: word.project_id, work_item_id: word.id })
+    addAgentMessage(ses.id, 'user', 'Kuldd a hivatalnak: amt@stadt.example.de')
+    const pre = mailPrefill(word)
+    expect(pre).toMatchObject({ to: 'amt@stadt.example.de', subject: 'Antrag2' })
+    expect(pre!.body.length).toBeGreaterThan(20)
+    expect(mailDraftView(word)).toBeNull()
+  })
+
   it('an item without a document makes no draft', async () => {
     const r = await saveMailDraft(item(), {}, 'hu')
     expect(r).toMatchObject({ ok: false, code: 'outline_empty' })
