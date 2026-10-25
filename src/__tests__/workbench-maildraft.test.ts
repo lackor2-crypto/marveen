@@ -321,6 +321,19 @@ describe('the e-mail draft of a work item', () => {
     expect(mailDraftView(item())!.body).toBe('My own words')
   })
 
+  it('an old row with the untouched default text of another language is shown (and saved) in the language of the current final', async () => {
+    write('Text eins')
+    await makeFinal('hu')
+    const first = await saveMailDraft(item(), {}, 'hu')
+    if (!first.ok) throw new Error('save')
+    expect(first.draft.body).toMatch(/^Tisztelt Címzett/)
+    await makeFinal('en')
+    expect(mailDraftView(item())!.body).toMatch(/^Dear Sir or Madam/)
+    const again = await saveMailDraft(item(), {}, 'hu')
+    if (!again.ok) throw new Error('save2')
+    expect(again.draft.body).toMatch(/^Dear Sir or Madam/)
+  })
+
   it('a bad address is refused with nothing written', async () => {
     write('Text eins')
     const r = await saveMailDraft(item(), { to: 'nem cim' }, 'hu')
