@@ -313,6 +313,46 @@ describe('runReceiptTick', () => {
     expect(st.pending.get('5230')!.receiptMessageId).toBeUndefined()
   })
 
+  // #775: the 10 s send timeout is longer than the 5 s tick, so the next tick ran while
+  // the send was still in flight, saw the claim marker and dropped the arrival -- a
+  // timed-out receipt (2026-10-17 20:22 "aborted due to timeout") was never retried.
+  it('egy meg futo kuldes alatt indulo kor nem dobja el a nyugtat', async () => {
+    const f = join(transcriptDir, 's.jsonl')
+    writeFileSync(f, '')
+    const st = createReceiptState()
+    await runReceiptTick(st, deps())
+    appendFileSync(f, ARRIVAL + '\n')
+    now += 20_000
+
+    let attempts = 0
+    let failSlow: (() => void) | null = null
+    const slow: ReceiptDeps = {
+      ...deps(),
+      fetchImpl: (async () => {
+        attempts += 1
+        if (attempts === 1) {
+          await new Promise<void>((resolve) => { failSlow = resolve })
+          throw new Error('The operation was aborted due to timeout')
+        }
+        return { json: async () => ({ ok: true, result: { message_id: 778 } }) }
+      }) as unknown as typeof fetch,
+    }
+
+    const first = runReceiptTick(st, slow)
+    await new Promise((r) => setImmediate(r))
+    now += 5_000
+    await runReceiptTick(st, slow) // the next 5 s tick, while the first send still hangs
+    expect(st.pending.has('5230')).toBe(true)
+    failSlow!()
+    await first
+    expect(attempts).toBe(1)
+
+    now += RECEIPT_RETRY_GAP_MS + 1
+    await runReceiptTick(st, slow)
+    expect(attempts).toBe(2)
+    expect(st.pending.get('5230')!.receiptMessageId).toBe(778)
+  })
+
   it('tartos hiba utan feladja, es nem probalkozik vegtelenul', async () => {
     const f = join(transcriptDir, 's.jsonl')
     writeFileSync(f, '')

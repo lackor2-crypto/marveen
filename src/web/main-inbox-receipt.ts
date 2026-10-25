@@ -166,6 +166,8 @@ export interface ReceiptState {
   lastSilenceReason?: string
   /** Egymast koveto "nem fut" meresek szama. Lasd DEAD_CONFIRM_TICKS. */
   deadStreak: number
+  /** A tick is still running (a send can hang up to 10 s, the timer fires every 5 s). */
+  busy?: boolean
 }
 
 export function createReceiptState(): ReceiptState {
@@ -283,8 +285,23 @@ async function callApi(deps: ReceiptDeps, token: string, method: string, body: u
   }
 }
 
-/** One pass: read the tail, retire ingested arrivals, post the due receipts. */
+/** One pass: read the tail, retire ingested arrivals, post the due receipts.
+ *  Never two at once (#775): a send may hang up to its 10 s timeout, longer than
+ *  the 5 s timer. An overlapping tick saw the in-flight send's claim marker and
+ *  dropped the arrival, so a receipt that then timed out was never retried; and
+ *  an arrival ingested mid-send lost its receipt id, so the receipt stayed in the
+ *  chat for good. The skipped tick costs nothing: the next one picks it up. */
 export async function runReceiptTick(state: ReceiptState, deps: ReceiptDeps): Promise<void> {
+  if (state.busy) return
+  state.busy = true
+  try {
+    await receiptPass(state, deps)
+  } finally {
+    state.busy = false
+  }
+}
+
+async function receiptPass(state: ReceiptState, deps: ReceiptDeps): Promise<void> {
   const chunk = pullNewLines(state, deps.transcriptDir)
   if (chunk) {
     const { arrivals, ingested } = readTranscriptEvents(chunk)
