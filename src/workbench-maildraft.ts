@@ -130,9 +130,29 @@ const DEFAULT_BODY: Record<DocLang, (title: string, annexes: number, who: string
   hu: (title, n, who) => `Tisztelt Címzett!\n\nCsatolva küldöm a(z) „${title}” című levelet${n ? ` és ${n} mellékletét` : ''} PDF-fájlként.\n\nÜdvözlettel${who ? '\n' + who : ''}`,
 }
 
+/**
+ * #794 (Boss TG 3435): the work item's title is what the owner typed in HIS language ("Egy levelet akarok irni ..."), not the
+ * letter's subject. The mail's subject is the subject line of the letter itself, in the letter's language: a labelled line
+ * (Betreff / Subject / Tárgy / Re), else the first line after the date line of a letter. The title only when neither exists.
+ */
+export function mailSubject(item: WorkItemRow): string {
+  try {
+    if (!hasDocModel(item.id)) return item.title
+    const lines = listBlocks(item.id).map(b => String(b.text ?? '').replace(/[\u200b\s]+/g, ' ').trim()).filter(Boolean)
+    for (const l of lines) {
+      const m = /^(?:betreff|betr\.?|subject|re|tárgy|targy)\s*[:.]\s*(.{3,250})$/i.exec(l)
+      if (m) return m[1].trim()
+    }
+    const di = lines.findIndex(l => l.length <= 60 && /\b\d{1,2}\.\s?\d{1,2}\.\s?\d{4}\b|\b\d{4}-\d{2}-\d{2}\b/.test(l))
+    const next = di >= 0 ? lines[di + 1] : undefined
+    if (next && next.length >= 6 && next.length <= 250 && !/[,:]$/.test(next) && !/^(sehr geehrte|dear|tisztelt)/i.test(next)) return next
+  } catch { /* fall back to the title */ }
+  return item.title
+}
+
 export function defaultMailBody(item: WorkItemRow, lang: DocLang, annexCount: number): string {
   const who = currentOwnerName()
-  return (DEFAULT_BODY[lang] || DEFAULT_BODY.en)(item.title, annexCount, who && who !== OWNER_NAME_PLACEHOLDER ? who : '')
+  return (DEFAULT_BODY[lang] || DEFAULT_BODY.en)(mailSubject(item), annexCount, who && who !== OWNER_NAME_PLACEHOLDER ? who : '')
 }
 
 // ---------------------------------------------------------------------------
@@ -292,13 +312,13 @@ export function mailPrefill(item: WorkItemRow): { to: string; subject: string; b
   if (!hasDocModel(item.id) && hasDocxFinalPanel(item)) {
     if (getRow(item.id) || !docxFinalPdf(item)) return null
     const wl = textLanguageOf(item) ?? 'hu'
-    return { to: chatRecipient(item), subject: item.title, body: defaultMailBody(item, wl, 0), lang: wl }
+    return { to: chatRecipient(item), subject: mailSubject(item), body: defaultMailBody(item, wl, 0), lang: wl }
   }
   if (!hasDocModel(item.id) || hasDocxFinalPanel(item) || getRow(item.id)) return null
   const fin = finalState(item)
   if (!fin || fin.stale) return null
   const lang = mailLanguage(item, 'hu', fin)
-  return { to: chatRecipient(item), subject: item.title, body: defaultMailBody(item, lang, listAnnexes(item.id).length), lang }
+  return { to: chatRecipient(item), subject: mailSubject(item), body: defaultMailBody(item, lang, listAnnexes(item.id).length), lang }
 }
 
 /** What the attachments are made from: the document, its annexes (name, size, time) and the mode, plus the mail's own text. */
@@ -426,7 +446,7 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   if (hasDocModel(item.id) && !hasDocxFinalPanel(item) && (!fin || fin.stale)) return { ok: false, code: 'final_required', detail: null }
   const lang: DocLang = fin && !fin.stale ? mailLanguage(item, ui, fin) : docLangFor(item, ui)
   const subjectRaw = input.subject === undefined ? (prev?.subject ?? '') : String(input.subject)
-  const subject = oneLine(subjectRaw) || item.title
+  const subject = oneLine(subjectRaw) || mailSubject(item)
   if (subject.length > SUBJECT_MAX) return { ok: false, code: 'bad_input', detail: 'subject' }
   const bodyRaw = input.body === undefined ? (prev ? shownBody(item, prev.body) : '') : String(input.body)
   if (bodyRaw.length > TEXT_MAX) return { ok: false, code: 'bad_input', detail: 'body' }
