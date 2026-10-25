@@ -22,6 +22,8 @@ import type { ProjectRow } from './projects.js'
 import { hasTable, listProjectIdeas } from './projects.js'
 import { ensureWorkbenchTables, listWorkItems, listWorkItemParts } from './workbench.js'
 import { findProjectFiles, foldName } from './project-files.js'
+import { docPageContent } from './workbench-docpage-content.js'
+import { isPlaceholderSectionTitle } from './workbench-docmodel.js'
 
 export const SEARCH_MIN_CHARS = 2
 export const SEARCH_MAX_CHARS = 200
@@ -166,7 +168,18 @@ export async function searchProject(project: ProjectRow, qRaw: unknown): Promise
     let partsError: string | null = null
     try {
       for (const w of items) {
-        for (const p of listWorkItemParts(w.id)) {
+        // #792: a document written on the document page keeps its text there (section titles + blocks), not in the parts.
+        const page = docPageContent(w.id)
+        for (const sec of page || []) {
+          for (const t of [{ text: isPlaceholderSectionTitle(sec.title) ? '' : sec.title, at: sec.updated_at }, ...sec.blocks.map((b) => ({ text: b.text, at: b.updated_at }))]) {
+            const m = matchSnippet(t.text, needle)
+            if (!m) continue
+            const h = hit('texts', w.title, m)
+            h.item_id = w.id; h.item_title = w.title; h.at = t.at
+            texts.push(h)
+          }
+        }
+        for (const p of page ? [] : listWorkItemParts(w.id)) {
           const mt = p.kind === 'text' ? matchSnippet(p.text, needle) : null
           if (mt) {
             const h = hit('texts', w.title, mt)

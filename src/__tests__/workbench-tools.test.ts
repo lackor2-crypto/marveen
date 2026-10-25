@@ -513,9 +513,12 @@ describe('workItem.addPart / listParts -- vegyes munkadarab', () => {
   })
 
   it('egy munkadarabba bekerul a KEP es a SZOVEG is -- ez a vegyes tartalom', () => {
-    expect(executeTool('workItem.addPart', { kind: 'text', text: 'A poszt szövege' }, ctx()).ok).toBe(true)
-    expect(executeTool('workItem.addPart', { kind: 'image', path: 'foto.jpg' }, ctx()).ok).toBe(true)
-    const r = executeTool('workItem.listParts', {}, ctx())
+    const mixed = createWorkItem({ project_id: projectId, title: 'Poszt', type: 'composite' })
+    if (!mixed.ok) throw new Error('munkadarab')
+    const c = () => ({ ...ctx(), workItemId: mixed.item.id })
+    expect(executeTool('workItem.addPart', { kind: 'text', text: 'A poszt szövege' }, c()).ok).toBe(true)
+    expect(executeTool('workItem.addPart', { kind: 'image', path: 'foto.jpg' }, c()).ok).toBe(true)
+    const r = executeTool('workItem.listParts', {}, c())
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect((r.data as any).count).toBe(2)
@@ -535,6 +538,32 @@ describe('workItem.addPart / listParts -- vegyes munkadarab', () => {
     const r = executeTool('workItem.addPart', { kind: 'image', path: 'nincs-ilyen.jpg' }, ctx())
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.detail).toMatch(/ENOENT|no such file/i)
+  })
+
+  // #792: a document written on the document page got the part "added" -- ok, yet it never showed on the page nor in its PDF.
+  it('dokumentumnal a szoveg es a kep a DOKUMENTUM-OLDALRA kerul, nem a lathatatlan reszekbe', () => {
+    const data = (r: ReturnType<typeof executeTool>) => { if (!r.ok) throw new Error(r.detail); return r.data as any }
+    const r = executeTool('workItem.addPart', { kind: 'text', text: 'A kereset indoklása.' }, ctx())
+    expect(r.ok).toBe(true)
+    if (r.ok) expect((r.data as any).on_document_page).toBe(true)
+    expect(executeTool('workItem.addPart', { kind: 'image', path: 'foto.jpg', caption: 'A kár fotója' }, ctx()).ok).toBe(true)
+    expect(listWorkItemParts(workItemId)).toHaveLength(0)
+    const o = data(executeTool('doc.outline', {}, ctx())) as any
+    expect(o.sections).toHaveLength(1)
+    expect(o.sections[0].blocks.map((b: any) => [b.kind, b.text])).toEqual([
+      ['paragraph', 'A kereset indoklása.'], ['image', 'Projektek/teszt/foto.jpg'], ['paragraph', 'A kár fotója'],
+    ])
+    // A second piece goes to the end of the same (last) section, and listParts says where the text is.
+    expect(executeTool('workItem.addPart', { kind: 'text', text: 'Második bekezdés.' }, ctx()).ok).toBe(true)
+    expect((data(executeTool('doc.outline', {}, ctx())) as any).sections[0].blocks).toHaveLength(4)
+    expect((data(executeTool('workItem.listParts', {}, ctx())) as any).note).toMatch(/document page/)
+  })
+
+  it('dokumentum-oldalra nem teheto kepformatum: kimondja, nem nyeli el', () => {
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'rajz.svg'), '<svg/>', 'utf-8')
+    const r = executeTool('workItem.addPart', { kind: 'image', path: 'rajz.svg' }, ctx())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.detail).toMatch(/jpg, png, gif or webp/)
   })
 
   it('ures reszlista NEM nema: kimondja, hogy a munkadarab letezik es ures', () => {
@@ -784,15 +813,19 @@ describe('projekt- es verzio-eszkozok (6. fazis)', () => {
   // #406 bugkereses 9.: halmazkent szamolva egy [A, A] -> [A] valtozas "nincs
   // kulonbseg" lett. Darabra kell szamolni.
   it('workItem.compareVersions: az ismetlodo resz torlese is latszik (multiset)', () => {
-    const add = () => executeTool('workItem.addPart', { id: workItemId, kind: 'text', text: 'Ugyanaz a bekezdés' }, ctx())
+    // #792: parts belong to a mixed item; a document's text goes onto its document page.
+    const mixed = createWorkItem({ project_id: projectId, title: 'Poszt', type: 'composite' })
+    if (!mixed.ok) throw new Error('munkadarab')
+    const id = mixed.item.id
+    const add = () => executeTool('workItem.addPart', { id, kind: 'text', text: 'Ugyanaz a bekezdés' }, ctx())
     expect(add().ok).toBe(true)
     expect(add().ok).toBe(true)
-    const v1 = getWorkItem(workItemId)!.current_version_id as string
-    const v2 = data(executeTool('workItem.createVersion', { id: workItemId }, ctx())).version as { id: string }
-    const parts = listWorkItemParts(workItemId)
+    const v1 = getWorkItem(id)!.current_version_id as string
+    const v2 = data(executeTool('workItem.createVersion', { id }, ctx())).version as { id: string }
+    const parts = listWorkItemParts(id)
     expect(parts).toHaveLength(2)
-    expect(removeWorkItemPart(parts[1].id, workItemId).ok).toBe(true)
-    const d = data(executeTool('workItem.compareVersions', { id: workItemId, from: v1, to: v2.id }, ctx()))
+    expect(removeWorkItemPart(parts[1].id, id).ok).toBe(true)
+    const d = data(executeTool('workItem.compareVersions', { id, from: v1, to: v2.id }, ctx()))
     expect(d.added).toEqual([])
     expect(d.removed).toHaveLength(1)
     expect((d.removed as { text: string }[])[0].text).toBe('Ugyanaz a bekezdés')

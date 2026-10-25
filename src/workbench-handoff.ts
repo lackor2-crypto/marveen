@@ -33,6 +33,8 @@ import {
 import { sourceRel } from './workbench-preview.js'
 import { listDecisions } from './workbench-decisions.js'
 import { buildZip, type ZipEntry } from './web/zip-writer.js'
+import { docPageContent, docPageFinal, type DocPageSection } from './workbench-docpage-content.js'
+import { isBlankLine, isPlaceholderSectionTitle } from './workbench-docmodel.js'
 
 type Lang = 'hu' | 'en'
 
@@ -60,7 +62,13 @@ export interface HandoffEntry {
   folder: string
   source: HandoffFile | null
   text_parts: number
+  /** #792: the text blocks of the document page (a document written there keeps its text there, not in the parts). */
+  page_blocks: number
   images: HandoffFile[]
+  /** #792: the files of the newest final (the final PDF, the annexes it saved), and whether the text changed since. */
+  finals: HandoffFile[]
+  final_label: string | null
+  final_stale: boolean
 }
 
 export interface HandoffPlan {
@@ -130,10 +138,15 @@ function inspect(rel: string | null): HandoffFile | null {
 function entryFor(item: WorkItemRow, index: number, project: ProjectRow): HandoffEntry {
   const version = item.current_version_id ? getWorkItemVersion(item.current_version_id) ?? null : null
   const parts = listWorkItemParts(item.id)
-  const images = parts
-    .filter((p) => p.kind === 'image' && p.asset_path)
-    .map((p) => inspect(p.asset_path))
+  // #792: an item on the document page shows the page, not the old parts (the same rule as the Export panel, #779).
+  const page = docPageContent(item.id)
+  const images = (page
+    ? page.flatMap((s) => s.blocks).map((b) => b.image)
+    : parts.filter((p) => p.kind === 'image').map((p) => p.asset_path))
+    .map((rel) => inspect(rel || null))
     .filter((f): f is HandoffFile => !!f)
+  let final: ReturnType<typeof docPageFinal> = null
+  try { final = docPageFinal(item) } catch { final = null }
   return {
     item_id: item.id,
     title: item.title,
@@ -142,8 +155,12 @@ function entryFor(item: WorkItemRow, index: number, project: ProjectRow): Handof
     version_no: version ? version.version_no : null,
     folder: `${String(index + 1).padStart(2, '0')}-${safeName(item.title)}`,
     source: inspect(sourceRel(item, version, project)),
-    text_parts: parts.filter((p) => p.kind === 'text').length,
+    text_parts: page ? 0 : parts.filter((p) => p.kind === 'text').length,
+    page_blocks: page ? page.reduce((n, s) => n + s.blocks.filter((b) => !b.image && !isBlankLine(b.text)).length, 0) : 0,
     images,
+    finals: final ? final.files.map((f) => inspect(f.rel)).filter((f): f is HandoffFile => !!f) : [],
+    final_label: final ? final.label : null,
+    final_stale: final ? final.stale : false,
   }
 }
 
@@ -165,7 +182,7 @@ export function planHandoff(projectId: string, scope: HandoffScope): HandoffPlan
   let total = 0
   let problems = 0
   for (const e of items) {
-    for (const f of [e.source, ...e.images]) {
+    for (const f of [e.source, ...e.finals, ...e.images]) {
       if (!f) continue
       if (f.problem) { problems++; continue }
       files++
@@ -215,6 +232,7 @@ function contentsHtml(
   now: Date,
   placed: Map<string, string>,
   partsBy: Map<string, WorkItemPartRow[]>,
+  pageBy: Map<string, DocPageSection[] | null>,
 ): string {
   const title = `${plan.project.name} -- ${L(lang, 'átadócsomag', 'handoff package')}`
   const scopeText = plan.scope === 'done'
@@ -237,7 +255,7 @@ function contentsHtml(
 
   const missing: string[] = []
   for (const e of plan.items) {
-    for (const f of [e.source, ...e.images]) {
+    for (const f of [e.source, ...e.finals, ...e.images]) {
       if (f && f.problem) missing.push(`${e.title}: ${f.name} (${PROBLEM_TEXT[f.problem][lang]})`)
     }
   }
@@ -258,7 +276,36 @@ function contentsHtml(
     out.push(`<h2 id="w${i + 1}">${i + 1}. ${esc(e.title)}</h2>`)
     const src = e.source && !e.source.problem ? placed.get(`${e.item_id}|${e.source.rel}`) : null
     if (src) out.push(`<p>${esc(L(lang, 'Fájl', 'File'))}: <a href="${hrefOf(src)}">${esc(src)}</a></p>`)
-    for (const p of partsBy.get(e.item_id) || []) {
+    const finals = e.finals.map((f) => (f.problem ? null : placed.get(`${e.item_id}|${f.rel}`))).filter((x): x is string => !!x)
+    for (const at of finals) out.push(`<p>${esc(L(lang, 'Végleges PDF', 'Final PDF'))}${e.final_label ? ` (${esc(e.final_label)})` : ''}: <a href="${hrefOf(at)}">${esc(at)}</a></p>`)
+    if (e.finals.length && e.final_stale) {
+      out.push(`<p class="warn">${esc(L(lang,
+        'A dokumentum a véglegesítés óta változott: a végleges PDF egy korábbi szöveget mutat, mint ami alább áll.',
+        'The document changed since it was finalized: the final PDF shows an earlier text than the one below.'))}</p>`)
+    }
+    const page = pageBy.get(e.item_id) || null
+    let pageText = 0
+    if (page) {
+      for (const sec of page) {
+        if (sec.title.trim() && !isPlaceholderSectionTitle(sec.title)) out.push(`<h3>${esc(sec.title)}</h3>`)
+        for (const b of sec.blocks) {
+          if (b.image) {
+            const at = placed.get(`${e.item_id}|${b.image}`)
+            if (at) { out.push(`<figure><img src="${hrefOf(at)}" alt="${esc(basename(b.image))}"></figure>`); pageText++ }
+          } else if (b.kind === 'table') {
+            const rows = b.text.split('\n').filter((r) => r.trim())
+            if (rows.length) { out.push('<table>' + rows.map((r) => '<tr>' + r.split(' | ').map((c) => `<td>${esc(c)}</td>`).join('') + '</tr>').join('') + '</table>'); pageText++ }
+          } else if (b.kind === 'list') {
+            const lines = b.text.split('\n').filter((r) => r.trim())
+            if (lines.length) { out.push('<ul>' + lines.map((r) => `<li>${esc(r.replace(/^\s*[-•*]\s+/, ''))}</li>`).join('') + '</ul>'); pageText++ }
+          } else if (!isBlankLine(b.text)) {
+            out.push(`<div class="txt">${esc(b.text)}</div>`)
+            pageText++
+          }
+        }
+      }
+    }
+    for (const p of page ? [] : partsBy.get(e.item_id) || []) {
       if (p.kind === 'text') {
         out.push(`<div class="txt">${esc(p.text)}</div>`)
       } else if (p.asset_path) {
@@ -266,7 +313,7 @@ function contentsHtml(
         if (at) out.push(`<figure><img src="${hrefOf(at)}" alt="${esc(p.caption || basename(p.asset_path))}">${p.caption ? `<figcaption>${esc(p.caption)}</figcaption>` : ''}</figure>`)
       }
     }
-    if (!src && !(partsBy.get(e.item_id) || []).length) {
+    if (!src && !finals.length && !pageText && !(page ? 0 : (partsBy.get(e.item_id) || []).length)) {
       out.push(`<p class="muted">${esc(L(lang, 'Ebben a munkadarabban még nincs tartalom.', 'This work item has no content yet.'))}</p>`)
     }
   })
@@ -319,16 +366,19 @@ export function buildHandoffZip(projectId: string, scope: HandoffScope, lang: La
     entries.push({ name: `${root}/${at}`, data })
   }
 
+  const pageBy = new Map<string, DocPageSection[] | null>()
   for (const e of plan.items) {
     partsBy.set(e.item_id, listWorkItemParts(e.item_id))
+    pageBy.set(e.item_id, docPageContent(e.item_id))
     const used = new Set<string>()
     add(e, e.source, used)
+    for (const f of e.finals) add(e, f, used)
     for (const img of e.images) add(e, img, used)
   }
   if (late) plan.problems += late
 
   const indexName = L(lang, 'Tartalom.html', 'Contents.html')
-  entries.unshift({ name: `${root}/${indexName}`, data: contentsHtml(plan, lang, now, placed, partsBy) })
+  entries.unshift({ name: `${root}/${indexName}`, data: contentsHtml(plan, lang, now, placed, partsBy, pageBy) })
   const zip = buildZip(entries, now)
   const filename = `${root}-${L(lang, 'atadas', 'handoff')}-${localDate(now)}.zip`
   return { ok: true, zip, filename, plan }
