@@ -26,8 +26,9 @@ import { ol } from './owner-lang.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
 import { annexPdfs, annexContentPdf, mergePdfs, type PackageError } from './workbench-docpackage.js'
 import { docSettings, listAnnexes } from './workbench-docannex.js'
-import { contentHash, docLangFor, fileStem, finalLang, finalPackageFiles, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
+import { contentHash, docLangFor, fileStem, letterFileStem, finalLang, finalPackageFiles, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
 import { hasDocModel, listBlocks } from './workbench-docmodel.js'
+import { detectTextLanguage, letterSubject, subjectFromLines } from './workbench-letterinfo.js'
 import { variantOf } from './workbench-doclang.js'
 import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
 import { resolveLifePath } from './life-explorer.js'
@@ -125,9 +126,9 @@ export function buildEml(input: MailInput): Buffer {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_BODY: Record<DocLang, (title: string, annexes: number, who: string) => string> = {
-  de: (title, n, who) => `Sehr geehrte Damen und Herren,\n\nanbei übersende ich Ihnen das Schreiben „${title}“${n ? ` mit ${n} Anlage${n === 1 ? '' : 'n'}` : ''} als PDF-Datei${n ? 'en' : ''} im Anhang.\n\nMit freundlichen Grüßen${who ? '\n' + who : ''}`,
-  en: (title, n, who) => `Dear Sir or Madam,\n\nplease find attached the letter "${title}"${n ? ` with ${n} annex${n === 1 ? '' : 'es'}` : ''} as PDF file${n ? 's' : ''}.\n\nKind regards${who ? '\n' + who : ''}`,
-  hu: (title, n, who) => `Tisztelt Címzett!\n\nCsatolva küldöm a(z) „${title}” című levelet${n ? ` és ${n} mellékletét` : ''} PDF-fájlként.\n\nÜdvözlettel${who ? '\n' + who : ''}`,
+  de: (title, n, who) => `Sehr geehrte Damen und Herren,\n\nanbei übersende ich Ihnen das Schreiben${title ? ` „${title}“` : ''}${n ? ` mit ${n} Anlage${n === 1 ? '' : 'n'}` : ''} als PDF-Datei${n ? 'en' : ''} im Anhang.\n\nMit freundlichen Grüßen${who ? '\n' + who : ''}`,
+  en: (title, n, who) => `Dear Sir or Madam,\n\nplease find attached the letter${title ? ` "${title}"` : ''}${n ? ` with ${n} annex${n === 1 ? '' : 'es'}` : ''} as PDF file${n ? 's' : ''}.\n\nKind regards${who ? '\n' + who : ''}`,
+  hu: (title, n, who) => `Tisztelt Címzett!\n\nCsatolva küldöm ${title ? `a(z) „${title}” című levelet` : 'a levelet'}${n ? ` és ${n} mellékletét` : ''} PDF-fájlként.\n\nÜdvözlettel${who ? '\n' + who : ''}`,
 }
 
 /**
@@ -136,18 +137,8 @@ const DEFAULT_BODY: Record<DocLang, (title: string, annexes: number, who: string
  * (Betreff / Subject / Tárgy / Re), else the first line after the date line of a letter. The title only when neither exists.
  */
 export function mailSubject(item: WorkItemRow): string {
-  try {
-    if (!hasDocModel(item.id)) return item.title
-    const lines = listBlocks(item.id).map(b => String(b.text ?? '').replace(/[\u200b\s]+/g, ' ').trim()).filter(Boolean)
-    for (const l of lines) {
-      const m = /^(?:betreff|betr\.?|subject|re|tárgy|targy)\s*[:.]\s*(.{3,250})$/i.exec(l)
-      if (m) return m[1].trim()
-    }
-    const di = lines.findIndex(l => l.length <= 60 && /\b\d{1,2}\.\s?\d{1,2}\.\s?\d{4}\b|\b\d{4}-\d{2}-\d{2}\b/.test(l))
-    const next = di >= 0 ? lines[di + 1] : undefined
-    if (next && next.length >= 6 && next.length <= 250 && !/[,:]$/.test(next) && !/^(sehr geehrte|dear|tisztelt)/i.test(next)) return next
-  } catch { /* fall back to the title */ }
-  return item.title
+  if (hasDocModel(item.id)) return letterSubject(item.id)
+  return hasDocxFinalPanel(item) ? subjectFromLines(docxParagraphs(item)) : ''
 }
 
 export function defaultMailBody(item: WorkItemRow, lang: DocLang, annexCount: number): string {
@@ -226,31 +217,22 @@ function folderOf(item: WorkItemRow): { dirAbs: string; dirRel: string } | null 
 }
 
 /** The draft as the page shows it, measured now (cheap: one row and one stat; nothing is rendered). Null when there is none. */
-// Whole-word markers of each language; the language of the TEXT is the one with the most hits.
-const LANG_WORDS: Record<DocLang, RegExp> = {
-  de: /\b(der|die|das|und|nicht|ich|sie|bitte|mit|für|von|zu|ist|ein|eine|auf|dem|den|bezüglich|sehr|geehrte)\b/gi,
-  hu: /\b(és|hogy|nem|egy|az|vagy|van|meg|kérem|tisztelt|szeretném|mert|volt|ezt)\b/gi,
-  en: /\b(the|and|of|to|is|for|with|that|this|please|dear|was|are|have)\b/gi,
-}
-
 /** #794: the language the document TEXT is written in (hu / en / de), null when it cannot be told (too little text). */
 /** The plain text of a Word item's file (tags stripped), '' when it cannot be read. */
-function docxPlainText(item: WorkItemRow): string {
+function docxParagraphs(item: WorkItemRow): string[] {
   const abs = item.source_path ? resolveLifePath(item.source_path) : null
-  if (!abs || !/\.docx$/i.test(abs)) return ''
+  if (!abs || !/\.docx$/i.test(abs)) return []
   try {
     const xml = execFileSync('unzip', ['-p', abs, 'word/document.xml'], { maxBuffer: 64 * 1024 * 1024, timeout: 20_000 }).toString('utf-8')
-    return xml.replace(/<\/w:p>/g, ' ').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim()
-  } catch { return '' }
+    return xml.split('</w:p>').map((p) => p.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim()).filter(Boolean)
+  } catch { return [] }
 }
+function docxPlainText(item: WorkItemRow): string { return docxParagraphs(item).join(' ') }
 
 export function textLanguageOf(item: WorkItemRow): DocLang | null {
   const word = !hasDocModel(item.id) && hasDocxFinalPanel(item)
   if (!hasDocModel(item.id) && !word) return null
-  const text = (word ? docxPlainText(item) : listBlocks(item.id).map((b) => b.text).join(' ')).slice(0, 6000)
-  const score = (l: DocLang): number => (text.match(LANG_WORDS[l]) || []).length
-  const ranked = (['de', 'hu', 'en'] as DocLang[]).map((l) => [l, score(l)] as const).sort((a, b) => b[1] - a[1])
-  return ranked[0][1] >= 3 && ranked[0][1] > ranked[1][1] ? ranked[0][0] : null
+  return detectTextLanguage(word ? docxPlainText(item) : listBlocks(item.id).map((b) => b.text).join(' '))
 }
 
 /**
@@ -394,7 +376,7 @@ export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Pr
   const lang = docLangFor(item, ui)
   const main = await renderPlainPdf(item, ui)
   if (!main.ok) return { ok: false, code: main.code, detail: main.detail }
-  const stem = fileStem(item.title)
+  const stem = fileStem(letterFileStem(item, lang))
   const resolve = resolverFor(item)
   const annexes = listAnnexes(item.id, resolve)
   if (!annexes.length) return { ok: true, files: [{ name: `${stem}.pdf`, data: main.pdf, kind: 'document' }] }

@@ -6,7 +6,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { simpleParser } from 'mailparser'
-import { initDatabase } from '../db.js'
+import { getDb, initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { addBlock, addSection, updateBlock } from '../workbench-docmodel.js'
@@ -219,7 +219,7 @@ describe('the e-mail draft of a work item', () => {
     const ses = createAgentSession({ project_id: word.project_id, work_item_id: word.id })
     addAgentMessage(ses.id, 'user', 'Kuldd a hivatalnak: amt@stadt.example.de')
     const pre = mailPrefill(word)
-    expect(pre).toMatchObject({ to: 'amt@stadt.example.de', subject: 'Antrag2' })
+    expect(pre).toMatchObject({ to: 'amt@stadt.example.de', subject: '' })
     expect(pre!.body.length).toBeGreaterThan(20)
     expect(mailDraftView(word)).toBeNull()
   })
@@ -244,7 +244,7 @@ describe('the e-mail draft of a work item', () => {
     const got = await boxSave(item())
     expect(got).toMatchObject({ account: 'work', to: 'amt@stadt.de', subject: 'Nachreichung' })
     // the submission is the FINAL PDF (named by the final), then every annex
-    expect(got.attachments[0]).toMatch(/Antwort auf das Schreiben – HU – v1\.pdf$/)
+    expect(got.attachments[0]).toMatch(/Levél – HU – v1\.pdf$/)
     expect(got.attachments.slice(1)).toEqual([
       'K1 – Mietvertrag (Korpás László).pdf',
       'K2 – Bescheid vom 04.07.2026.pdf',
@@ -290,12 +290,12 @@ describe('the e-mail draft of a work item', () => {
     expect(r.draft.attachments[0]!.kind).toBe('package')
   })
 
-  it('an empty body gets a short default text in the document language, the subject defaults to the title', async () => {
+  it('an empty body gets a short default text in the document language, the subject defaults to the letter\'s own subject line, never the title', async () => {
     write('Text eins')
     await makeFinal()
     const r = await saveMailDraft(item(), {}, 'hu')
     if (!r.ok) throw new Error('save')
-    expect(r.draft.subject).toBe('Antwort auf das Schreiben')
+    expect(r.draft.subject).toBe('')
     expect(r.draft.body.length).toBeGreaterThan(20)
   })
 
@@ -373,13 +373,32 @@ describe('the e-mail draft of a work item', () => {
     expect(defaultMailBody(item(), 'de', 0)).toContain('„Widerspruch gegen den Bescheid“')
   })
 
+  // #794 (Boss TG 3441/3445): a German letter goes out entirely in German -- the owner's Hungarian title appears nowhere
+  // (subject, text, attachment names), and the final PDF is not named "HU" because the dashboard is Hungarian.
+  it('a German letter under a Hungarian title: nothing Hungarian leaves the house (subject, text, file names)', async () => {
+    getDb().prepare('UPDATE work_items SET title = ? WHERE id = ?').run('Egy levelet akarok irni a Berlini Rendorsegnek.', itemId)
+    const s = addSection(itemId, '1', { status: 'done' })
+    if (!s.ok) throw new Error('section')
+    for (const t of ['Polizei Berlin', 'Chemnitz, den 25.10.2026', 'Aktenzeichen 58286237256 – Bitte um Erlass des Verwarnungsgeldes aus sozialen Gründen', 'Sehr geehrte Damen und Herren,', 'bezüglich der Verwarnung bitte ich Sie, das Verwarnungsgeld zu erlassen, und ich danke für die Prüfung.']) addBlock(itemId, s.section.id, { text: t, author: 'agent' })
+    await makeFinal('hu')
+    const pre = mailPrefill(item())!
+    expect(pre.lang).toBe('de')
+    const r = await saveMailDraft(item(), {}, 'hu')
+    if (!r.ok) throw new Error('save ' + r.code)
+    const view = mailDraftView(item())!
+    const out = [view.subject, view.body, ...view.attachments.map((a) => a.name), pre.subject, pre.body].join('\n')
+    expect(view.subject).toBe('Aktenzeichen 58286237256 – Bitte um Erlass des Verwarnungsgeldes aus sozialen Gründen')
+    expect(out).not.toMatch(/levelet|akarok|Rendorseg|Berlini|\bHU\b|Tisztelt|Csatolva/i)
+    expect(view.attachments[0].name).toMatch(/– DE – v\d+\.pdf$/)
+  })
+
   // #794 (Boss TG 10451): after the final PDF the form starts filled (subject, text in the final's language), with nothing stored.
   it('after the final PDF the form is prefilled in the language of the document text, and no row is stored', async () => {
     write('Sehr geehrte Damen und Herren, bezüglich der Verwarnung bitte ich Sie, das Verwarnungsgeld mit der Begründung zu erlassen, und ich danke für die Prüfung.')
     expect(mailPrefill(item())).toBeNull()
     await makeFinal('hu')
     const pre = mailPrefill(item())
-    expect(pre).toMatchObject({ to: '', subject: item().title, lang: 'de' })
+    expect(pre).toMatchObject({ to: '', subject: '', lang: 'de' })
     expect(pre!.body).toMatch(/^Sehr geehrte/)
     // #794 (Boss TG 10459): the recipient is the address the OWNER typed in the chat; the assistant's own text never counts
     const ses = createAgentSession({ project_id: item().project_id, work_item_id: item().id })

@@ -31,6 +31,7 @@ import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItem
 import { attachAsset, listWorkItemAssets, syncFolderAssets } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
 import { annexPdfs, mergePdfs, type PackageError } from './workbench-docpackage.js'
+import { letterLanguage, letterSubject, NAMELESS_LETTER } from './workbench-letterinfo.js'
 import { checkFiles, getProfile, itemProfileId, profileFileName, saveCourtCheck, type CheckFile, type CourtCheckResult } from './workbench-courtprofile.js'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -250,7 +251,22 @@ export function shortTitle(title: string, max = 60): string {
  * order), the language in the name (the Hungarian and the German one never look alike), and the number of the finalization.
  */
 export function finalFileName(item: WorkItemRow, lang: DocLang, versionNo: number, d = new Date()): string {
-  return `${localDate(d)} – ${shortTitle(item.title)} – ${lang.toUpperCase()} – v${versionNo}.pdf`
+  return `${localDate(d)} – ${letterFileStem(item, lang)} – ${lang.toUpperCase()} – v${versionNo}.pdf`
+}
+
+/**
+ * #794 (Boss TG 3445): a file that leaves the house is named from the LETTER (its own subject line, in its own language), never
+ * from the work item's title, which is the owner's note in his language. A letter without a subject line gets a plain word.
+ */
+export function letterFileStem(item: WorkItemRow, lang: DocLang): string {
+  const subject = letterSubject(item.id)
+  return subject ? shortTitle(subject) : NAMELESS_LETTER[lang]
+}
+
+/** The language a letter's file name and mail are in: a language version says it, else the TEXT, else the one asked for. */
+export function letterNameLang(item: WorkItemRow, ui: 'hu' | 'en'): DocLang {
+  if (variantOf(item.id)) return docLangFor(item, ui)
+  return letterLanguage(item.id) ?? docLangFor(item, ui)
 }
 
 export function draftFileName(item: WorkItemRow, lang: 'hu' | 'en'): string {
@@ -390,7 +406,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   // Only the submission (or the one combined file) goes to Finished materials. #753 (Boss, TG 4240): the annexes are listed
   // in Attachments already (linked Life-tree documents stand there as links), so their cover + content PDFs are NOT saved
   // anywhere -- they are checked here and made again, the same, when the package is sent (the content hash covers them).
-  const x = attachAsset(fresh, profileFileName(finalFileName(fresh, docLangFor(fresh, input.lang), listFinals(fresh.id).length + 1), profile, index++, total), bundle ?? r.pdf, { force: true, createdBy: input.by, into: 'finished' as const })
+  const x = attachAsset(fresh, profileFileName(finalFileName(fresh, letterNameLang(fresh, input.lang), listFinals(fresh.id).length + 1), profile, index++, total), bundle ?? r.pdf, { force: true, createdBy: input.by, into: 'finished' as const })
   if (!x.ok) return { ok: false, code: 'docpdf_failed', detail: 'the PDF could not be saved into the work item folder: ' + x.code, ...(x.code === 'unreachable' ? { convert: 'folder_unreachable' } : {}) }
   const main = { path: x.asset.path, name: x.asset.name }
   checkIn.push({ name: main.name, pdf: bundle ?? r.pdf, role: bundle ? 'bundle' : 'main', path: main.path })
