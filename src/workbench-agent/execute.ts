@@ -334,6 +334,7 @@ async function emailDraftTool(project: ProjectRow, ctx: ToolContext, input: Reco
   const r = await saveMailDraft(item, { to: input.to, cc: input.cc, subject: input.subject, body: input.body }, ctx.lang === 'en' ? 'en' : 'hu')
   if (!r.ok) {
     const why = r.code === 'bad_input' ? `the ${r.detail ?? 'input'} is not valid (to / cc: e-mail addresses; subject up to 300, body up to 20000 characters)`
+      : r.code === 'final_required' ? 'the final PDF does not exist yet (or the text changed since): the e-mail draft is made only after the final PDF, in its language -- ask the owner to make the final PDF first'
       : r.code === 'outline_empty' ? 'this work item has no document structure yet (write the document first)'
       : `the e-mail draft could not be made (${r.code}${r.label ? ' ' + r.label : ''}${r.detail ? ': ' + r.detail : ''})`
     return { ok: false, code: r.code === 'bad_input' || r.code === 'outline_empty' ? r.code : 'failed', detail: why }
