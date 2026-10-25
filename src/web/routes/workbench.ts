@@ -1248,6 +1248,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Kész a felolvasás: a hang rákerült az idővonalra. Mozgathatod, halkíthatod vagy törölheted.',
     en: 'The voiceover is ready: the sound is on the timeline. You can move it, turn it down or delete it.',
   },
+  timeline_render_reused: {
+    hu: 'Az idővonal nem változott a legutóbbi videó óta, ezért nem készítettem újat: a meglévő videó maradt (nem lett belőle „(2)” másolat).',
+    en: 'The timeline has not changed since the last video, so no new one was made: the existing video stays (no "(2)" copy).',
+  },
   timeline_rendered: {
     hu: 'Kész a videó. Új fájl lett belőle a projekt mappájában, a régi videók érintetlenek.',
     en: 'The video is ready. It is a new file in the project folder; the old videos are untouched.',
@@ -6214,7 +6218,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         body: {
           ok: true, file: r.file, seconds: r.seconds, item: getWorkItem(item.id) || item, versions: listWorkItemVersionsView(item.id),
           last_render: last ? { ...last, url: `/api/life/file?rel=${encodeURIComponent(last.rel)}&lang=${lang}`, current: r.current } : null,
-          ...tlState(), message: msg('timeline_rendered', lang),
+          ...tlState(), message: msg(r.reused ? 'timeline_render_reused' : 'timeline_rendered', lang), reused: r.reused,
         },
       }
     }

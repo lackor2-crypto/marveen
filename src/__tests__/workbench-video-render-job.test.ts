@@ -1,6 +1,6 @@
 // #669: the render as a background job -- the editor starts it, polls how far it is, and gets the same body the waiting call returns.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -150,6 +150,36 @@ describe('video render over HTTP, as a job', () => {
     // and the answer does not claim the video shows the current timeline
     expect(body.result.last_render.current).toBe(false)
     expect(now.body.last_render.current).toBe(false)
+  })
+  it.skipIf(!HAVE_FFMPEG)('#788: rendering an unchanged timeline again gives the same video back (no "(2).mp4"); a changed one makes a new file', async () => {
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x180:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', join(dir(), 'a.mp4')], { stdio: 'pipe' })
+    const ops = await callWorkbench(url('/ops'), 'POST', JSON.stringify({ ops: [{ op: 'addClip', src: 'Projektek/teszt/a.mp4', start: 0, end: 2.5 }] }), json)
+    expect(ops.status).toBe(201)
+    const mp4s = (): string[] => {
+      const out: string[] = []
+      const walk = (d: string): void => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else if (/\.mp4$/i.test(e.name) && e.name !== 'a.mp4') out.push(e.name) } }
+      walk(dir())
+      return out.sort()
+    }
+    const first = await callWorkbench(url('/render'), 'POST', JSON.stringify({}), json)
+    expect(first.status).toBe(201)
+    expect(first.body.reused).toBe(false)
+    expect(mp4s()).toEqual(['Nyári reklám.mp4'])
+    // the same timeline again: no second render, no copy, said so
+    const again = await callWorkbench(url('/render'), 'POST', JSON.stringify({}), json)
+    expect(again.status).toBe(201)
+    expect(again.body.reused).toBe(true)
+    expect(again.body.file.rel).toBe(first.body.file.rel)
+    expect(again.body.last_render.current).toBe(true)
+    expect(String(again.body.message)).toMatch(/nem változott|has not changed/)
+    expect(mp4s()).toEqual(['Nyári reklám.mp4'])
+    // a changed timeline: a new file, the earlier version's video stays
+    const edit = await callWorkbench(url('/ops'), 'POST', JSON.stringify({ ops: [{ op: 'setAspect', aspect: '9:16' }] }), json)
+    expect([200, 201]).toContain(edit.status)
+    const third = await callWorkbench(url('/render'), 'POST', JSON.stringify({}), json)
+    expect(third.status).toBe(201)
+    expect(third.body.reused).toBe(false)
+    expect(mp4s()).toEqual(['Nyári reklám (2).mp4', 'Nyári reklám.mp4'])
   })
 })
 
