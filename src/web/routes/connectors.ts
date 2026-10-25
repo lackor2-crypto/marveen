@@ -11,7 +11,7 @@ import {
   type McpListEntry,
 } from '../../mcp-list-parser.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
-import { readFileOr, AGENTS_BASE_DIR, listAgentNames } from '../agent-config.js'
+import { readFileOr, AGENTS_BASE_DIR, listAgentNames, readConfigForUpdate } from '../agent-config.js'
 import { getMcpListCache, refreshMcpListCache, purgeFromMcpListCache } from '../mcp-list.js'
 import { readBody, json } from '../http-helpers.js'
 import { shellEscape } from '../sanitize.js'
@@ -617,8 +617,7 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
     const targetSet = new Set(targetAgents)
     for (const agentName of targetAgents) {
       const mcpPath = join(AGENTS_BASE_DIR, agentName, '.mcp.json')
-      let mcpConfig: any = {}
-      try { mcpConfig = JSON.parse(readFileOr(mcpPath, '{}')) } catch {}
+      const mcpConfig = readConfigForUpdate(mcpPath)
       if (!mcpConfig.mcpServers) mcpConfig.mcpServers = {}
       mcpConfig.mcpServers[connectorName] = connectorConfig
       atomicWriteFileSync(mcpPath, JSON.stringify(mcpConfig, null, 2))

@@ -18,7 +18,7 @@ import { sweepExpiredDeviceKeys } from './web/auth-device-keys.js'
 import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-origin.js'
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
-import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
+import { AGENTS_BASE_DIR, listAgentNames, CorruptConfigError } from './web/agent-config.js'
 import { startDashboardBackup } from './backup/dashboard.js'
 import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureAvailabilitySection, ensureGlobalAvailabilityRule, ensureShortReplySection, ensureGlobalShortReplyRule, ensureBrowserClickthroughSection, ensureGlobalBrowserClickthroughRule, ensureFollowReferenceSection, ensureGlobalFollowReferenceRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
@@ -399,6 +399,14 @@ export function startWebServer(port = 3420): http.Server {
           error: 'bad_json_body',
           message: 'Hibás JSON törzs, a kérés nem hajtódott végre: a szöveges mezőkben a sortörést és az idézőjelet escape-elni kell. / Malformed JSON body, the request was not executed: escape newlines and quotes inside text fields.',
         }, 400)
+        return
+      }
+      // #801: an agent's config file is unreadable; the update was refused and nothing overwritten -- say so, and where.
+      if (err instanceof CorruptConfigError) {
+        json(res, {
+          error: 'config_unreadable',
+          message: `Ez a beállítófájl sérült, ezért NEM írtam felül (semmi nem veszett el): ${err.path}${err.copy ? ` -- másolat: ${err.copy}` : ''}. Javítsd vagy töröld a fájlt, és próbáld újra. / This settings file is unreadable, so it was NOT overwritten (nothing was lost): ${err.path}${err.copy ? ` -- copy: ${err.copy}` : ''}. Fix or remove the file, then try again.`,
+        }, 409)
         return
       }
       logger.error({ err, method, path }, 'Web szerver hiba')

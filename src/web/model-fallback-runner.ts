@@ -12,6 +12,7 @@ import {
   writeAgentModel,
   resolveModelId,
   DEFAULT_MODEL,
+  readConfigForUpdate,
 } from './agent-config.js'
 import {
   agentRunState,
@@ -56,8 +57,8 @@ function readMainModel(): string {
 
 function writeMainModel(model: string): void {
   if (!isValidModelId(model)) throw new InvalidModelIdError(model)
-  let cfg: Record<string, unknown> = {}
-  try { cfg = JSON.parse(readFileSync(MAIN_SETTINGS_PATH, 'utf-8')) } catch {}
+  // #801: an unreadable settings.json is not replaced by { model } alone (its hooks and permissions with it).
+  const cfg = readConfigForUpdate(MAIN_SETTINGS_PATH)
   cfg.model = model
   atomicWriteFileSync(MAIN_SETTINGS_PATH, JSON.stringify(cfg, null, 2))
 }
