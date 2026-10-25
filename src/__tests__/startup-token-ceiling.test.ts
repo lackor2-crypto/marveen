@@ -99,6 +99,30 @@ describe('report', () => {
   })
 })
 
+describe('measurer summary', () => {
+  it('derives harness = measured - controllable and never invents it without a measured figure', () => {
+    const f = fake(35_000, 35_000)
+    const env = { STARTUP_TOKEN_CEILING: '50000' }
+    const args = `${JSON.stringify(f.cwd)}, root=${JSON.stringify(f.root)}, home=${JSON.stringify(f.home)}`
+    const none = py(`print(json.dumps(L.summary(L.report(${args}))))`, env)
+    expect(none).toMatchObject({ total: null, harness: null, controllable: 20_000, ceiling: 50_000 })
+    const withMeasured = py(`r = L.report(${args}); r['measured_total_tokens'] = 90000; print(json.dumps(L.summary(r)))`, env)
+    expect(withMeasured).toMatchObject({ total: 90_000, harness: 70_000, controllable: 20_000, controllable_over_ceiling: false })
+  })
+  it('renders the four numbers in both languages and flags an over-ceiling controllable part', () => {
+    const f = fake(35_000, 35_000)
+    const args = `${JSON.stringify(f.cwd)}, root=${JSON.stringify(f.root)}, home=${JSON.stringify(f.home)}`
+    const out = execFileSync('python3', ['-I', '-c', `import sys; sys.path.insert(0, ${JSON.stringify(LIB)}); import startup_budget_lib as L; r = L.report(${args}); r['measured_total_tokens'] = 90000; print(L.render(r))`], {
+      env: { PATH: process.env.PATH ?? '', STARTUP_TOKEN_CEILING: '15000' }, encoding: 'utf8',
+    })
+    expect(out).toContain('harness')
+    expect(out).toContain('70 000')
+    expect(out).toContain('Plafon / Ceiling')
+    expect(out).toContain('WARNING')
+    expect(out).toContain('ESTIMATES')
+  })
+})
+
 describe('TS side', () => {
   it('has a safe default and a Settings entry with HU+EN texts', () => {
     expect(STARTUP_TOKEN_CEILING_DEFAULT).toBe(50_000)
