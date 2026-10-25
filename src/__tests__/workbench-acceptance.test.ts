@@ -11,6 +11,7 @@
 //
 // A kitakaras-proba (1/B) a `workbench-redact.test.ts`-ben, a 2. fazis
 // probaesete a `workbench-routes.test.ts`-ben fut; itt nincs masodik peldanyuk.
+import { listAnnexes } from '../workbench-docannex.js'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Readable } from 'node:stream'
 import { spawnSync } from 'node:child_process'
@@ -675,8 +676,8 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
       return r.data as Record<string, any>
     }
     tde('doc.annexSettings', { scheme: 'anlage' })
-    tde('doc.addAnnex', { path: annexFile(e, lease, 'Mietvertrag.pdf'), title: 'Mietvertrag' })
-    tde('doc.addAnnex', { path: annexFile(e, payment, 'Kontoauszug.pdf'), title: 'Kontoauszug' })
+    // #794: the variant has no annex list of its own, it carries the original's (same files, same order), in its own label scheme.
+    expect(listAnnexes(de).map((a) => [a.label, a.title])).toEqual([['Anlage K1', 'Bérleti szerződés'], ['Anlage K2', 'Átutalási igazolás']])
     tde('doc.setCourt', { profile: 'de-ervv' })
     const deCheck = documentCheck(de)
     expect(deCheck.items.filter((i) => !i.ok), JSON.stringify(deCheck.items)).toEqual([])
