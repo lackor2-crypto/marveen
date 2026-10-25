@@ -2374,9 +2374,11 @@
       return info
     }
     function folderGone(path) { return hideOn && hideInfo(path).gone }
+    // #794 (Boss TG 10463): a folder that stays in the tree (it holds something that is still shown) keeps its own loose files
+    // too -- the Context and To-do notes of a finalized item were hidden although the folder itself stood there with a count.
     function looseShown(path) {
       var own = byPlace[path] || []
-      return !(hideOn && own.length && own.every(itHidden))
+      return !(hideOn && own.length && own.every(itHidden)) || !folderGone(path)
     }
     function count(path) {
       var own = byPlace[path] || []

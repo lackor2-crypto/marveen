@@ -150,6 +150,30 @@ describe('#552 hide finalized work: the tree', () => {
     expect(h.html()).toContain('workbench.hide_done.count:{"n":5}')
   })
 
+  // #794 (Boss TG 10463): the finalized item is hidden, but its folder stays (a sub-folder holds a file): the folder's own
+  // Context / To-do notes stay with it, and the item itself is still gone.
+  it('on: a folder that stays shows its own loose files, the finalized item stays hidden', async () => {
+    const f = `${box}/Level`
+    const its = [item('lv', 'Level', f, 'done'), item('other', 'Mas', `${box}/Vegyes`, 'in_progress')]
+    const wf = {
+      box, folders: [f, `${f}/Mellekletek`, `${box}/Vegyes`], truncated: false,
+      files: { [f]: [{ name: 'Kontextus - Level.md', size: 1, rel: 'x/Kontextus - Level.md' }], [`${f}/Mellekletek`]: [{ name: 'K1.pdf', size: 1, rel: 'x/K1.pdf' }] },
+    }
+    const h = workbenchHarness({ storage: { 'wb.hide.done': '1' } })
+    h.respond((url) => {
+      if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(its), work_folders: wf } }
+      if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: its[1], versions: [], parts: [], approval: null } }
+      if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos: [] } }
+      return { status: 200, body: {} }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Robotok')
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="other"'))
+    const t = tree(h.html())
+    expect(t).toContain(`data-wb-folder="${f}"`)
+    expect(t).toContain('Kontextus - Level.md')
+    expect(t).not.toContain('data-wb-item="lv"')
+  })
+
   // Boss TG 8804: "hiding means hiding" -- the finalized item is gone from the list even while it is open.
   it('the open finalized item is hidden too; the click on the switch persists and brings everything back', async () => {
     const h = open({ 'wb.hide.done': '1' })

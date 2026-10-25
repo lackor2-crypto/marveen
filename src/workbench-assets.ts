@@ -539,15 +539,18 @@ export function listProjectFolderLevel(project: ProjectRow, folder: unknown, opt
  * it is listed there with the real path, flagged `linked` (the page offers no rename / move on it).
  */
 function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): void {
-  let rows: { folder: string; life_rel: string | null; id: string; item: string }[] = []
+  let rows: { folder: string; life_rel: string | null; path: string; id: string; item: string }[] = []
   try {
-    rows = getDb().prepare(`SELECT w.folder AS folder, a.life_rel AS life_rel, a.id AS id, a.work_item_id AS item FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id
-      WHERE w.project_id = ? AND w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != '' AND a.path LIKE 'doc:%' ORDER BY a.position`).all(project.id) as typeof rows
+    rows = getDb().prepare(`SELECT w.folder AS folder, a.life_rel AS life_rel, a.path AS path, a.id AS id, a.work_item_id AS item FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id
+      WHERE w.project_id = ? AND w.deleted_at IS NULL AND w.folder IS NOT NULL AND w.folder != '' ORDER BY a.position`).all(project.id) as typeof rows
   } catch { return /* no annex table yet: nothing is linked */ }
   const have = new Set(folders)
   for (const r of rows) {
-    const rel = String(r.life_rel ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
-    if (!rel) continue
+    // A plain annex (#794, 7216) is a file of the project folder, a linked one ("doc:") a Life-tree document.
+    const plain = !String(r.path).startsWith('doc:')
+    const own = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    const rel = plain ? [own, String(r.path ?? '').replace(/\\/g, '/').replace(/^\/+/, '')].filter(Boolean).join('/') : String(r.life_rel ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
+    if (!rel || (plain && (rel.includes(`/${r.folder}/`) || rel.startsWith(`${r.folder}/`)))) continue
     const key = ['Mell\u00e9kletek', 'Attachments'].map((n) => `${r.folder}/${n}`).find((k) => have.has(k))
     if (!key) continue
     const name = rel.slice(rel.lastIndexOf('/') + 1)

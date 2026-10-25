@@ -17,6 +17,7 @@ import { resetLibreOfficeProbe } from '../office-convert.js'
 import { attachAsset, markPlainItem } from '../workbench-assets.js'
 import { finalizeWorkItem } from '../workbench-approval.js'
 import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
+import { addAgentMessage, createAgentSession } from '../workbench-agent/sessions.js'
 import { registerMailboxEngine, _setGoogleEngine } from '../mail-send.js'
 
 /** A fake LibreOffice: the PDF it writes carries a checksum of the source, so any change of the text shows in the bytes. */
@@ -349,8 +350,14 @@ describe('the e-mail draft of a work item', () => {
     expect(mailPrefill(item())).toBeNull()
     await makeFinal('hu')
     const pre = mailPrefill(item())
-    expect(pre).toMatchObject({ subject: item().title, lang: 'de' })
+    expect(pre).toMatchObject({ to: '', subject: item().title, lang: 'de' })
     expect(pre!.body).toMatch(/^Sehr geehrte/)
+    // #794 (Boss TG 10459): the recipient is the address the OWNER typed in the chat; the assistant's own text never counts
+    const ses = createAgentSession({ project_id: item().project_id, work_item_id: item().id })
+    addAgentMessage(ses.id, 'assistant', 'Kuldhetem a level a hamis@example.com cimre?')
+    expect(mailPrefill(item())!.to).toBe('')
+    addAgentMessage(ses.id, 'user', 'Irj a berlini rendorsegnek: poststelle@polizei.example.de, kerlek.')
+    expect(mailPrefill(item())!.to).toBe('poststelle@polizei.example.de')
     expect(mailDraftView(item())).toBeNull()
     const saved = await saveMailDraft(item(), { subject: pre!.subject, body: pre!.body }, 'hu')
     if (!saved.ok) throw new Error('save ' + saved.code)

@@ -12,6 +12,7 @@
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a keres
 // nyelven. A streamben ugyanez `event: notice` / `event: error` sorkent jon.
+import { recordTaskFromChat } from '../../workbench-item-context.js'
 import { privacyState } from '../../workbench-privacy.js'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -889,6 +890,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       const history = prior ?? listAgentMessages(session.id)
       const text = input.message.trim()
       if (!prior) addAgentMessage(session.id, resumeCount !== undefined ? 'system' : 'user', text)
+      if (!prior && resumeCount === undefined && item) { try { recordTaskFromChat(item, project, text) } catch { /* the notes never stop a chat turn */ } }
       // #455: a stopped local Ollama would make the CLI retry for minutes and
       // then say nothing useful -- ask it first and name the actual error.
       if (modelRoute === 'ollama') {
