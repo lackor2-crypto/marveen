@@ -48,6 +48,16 @@ import {
 export const LIMIT_WAKE_INITIAL_DELAY_MS = 45_000
 export const LIMIT_WAKE_INTERVAL_MS = 20_000
 
+// #799: after a limit reset every woken session reads its whole startup context
+// at once, and the first 5h window opened at ~75% (measured). The wakes are sent
+// ONE AGENT AT A TIME with a gap, so the startup costs spread over the window's
+// start instead of landing in the same minute. Overridable for tests (0 = none).
+export const LIMIT_WAKE_STAGGER_MS = Number.isFinite(Number(process.env['LIMIT_WAKE_STAGGER_MS'])) && process.env['LIMIT_WAKE_STAGGER_MS'] !== undefined
+  ? Math.max(0, Number(process.env['LIMIT_WAKE_STAGGER_MS']))
+  : 60_000
+const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms))
+let ticking = false
+
 const STATE_PATH = join(STORE_DIR, 'limit-wake-state.json')
 const ALIVE_PATH = join(STORE_DIR, 'limit-wake-alive.json')
 const WAKE_SCRIPT = join(PROJECT_ROOT, 'scripts', 'agent-wake.sh')
@@ -269,12 +279,15 @@ export function _resetLimitWakeForTest(): void {
   realOutageAtBoot = null
   startupDone.clear()
   states = null
+  ticking = false
 }
 
 async function tick(): Promise<void> {
   // Fenced like the other watchers: this is a setInterval callback, and an
   // escaped throw would reach the uncaughtException handler and take the
   // dashboard down over a missing tmux binary.
+  if (ticking) return
+  ticking = true
   try {
     const now = Date.now()
     // Read BEFORE writing: this is the previous instance's last heartbeat.
@@ -321,23 +334,30 @@ async function tick(): Promise<void> {
     // legitimately contain both (one account's window rolled over in the same
     // tick the dashboard came up).
     for (const reason of ['limit-reset', 'startup'] as WakeReason[]) {
-      const agents = decisions.filter((d: WakeDecision) => d.reason === reason).map(d => d.agent)
-      if (agents.length === 0) continue
-      logger.info({ limitWake: true, reason, agents }, 'limit-wake: waking account agents')
-      const ok = await runWakeScript(agents, wakeMessage(reason))
-      if (ok) {
-        // Only a wake the script actually delivered consumes the boundary.
-        for (const d of decisions.filter((x: WakeDecision) => x.reason === reason)) {
+      const group = decisions.filter((d: WakeDecision) => d.reason === reason)
+      if (group.length === 0) continue
+      const woken: string[] = []
+      for (let i = 0; i < group.length; i++) {
+        const d = group[i]
+        // The main agent first (it coordinates), then the rest, one by one.
+        if (i > 0 && LIMIT_WAKE_STAGGER_MS > 0) await sleep(LIMIT_WAKE_STAGGER_MS)
+        logger.info({ limitWake: true, reason, agents: [d.agent], staggered: group.length > 1 }, 'limit-wake: waking account agent')
+        const ok = await runWakeScript([d.agent], wakeMessage(reason))
+        if (ok) {
+          // Only a wake the script actually delivered consumes the boundary.
           states![d.agent] = recordWakeSuccess(states![d.agent] ?? INITIAL_WAKE_STATE, d)
+          writeStates(states!)
+          woken.push(d.agent)
+        } else {
+          logger.warn({ limitWake: true, reason, agents: [d.agent] }, 'limit-wake: wake attempt did not complete cleanly; the boundary stays unconsumed, retry after the cooldown')
         }
-        writeStates(states!)
-        notifyOwner(reason, agents)
-      } else {
-        logger.warn({ limitWake: true, reason, agents }, 'limit-wake: wake attempt did not complete cleanly; the boundary stays unconsumed, retry after the cooldown')
       }
+      if (woken.length > 0) notifyOwner(reason, woken)
     }
   } catch (err) {
     logger.warn({ err }, 'limit-wake: tick error')
+  } finally {
+    ticking = false
   }
 }
 
