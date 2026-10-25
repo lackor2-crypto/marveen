@@ -16,7 +16,7 @@ import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { attachAsset, markPlainItem } from '../workbench-assets.js'
 import { finalizeWorkItem } from '../workbench-approval.js'
-import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
+import { annexFileStem, buildEml, cleanAddresses, defaultMailBody, encodeHeaderText, forgetMailDraft, mailDraftView, mailPrefill, mailSubject, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
 import { addAgentMessage, createAgentSession } from '../workbench-agent/sessions.js'
 import { registerMailboxEngine, _setGoogleEngine } from '../mail-send.js'
 
@@ -360,6 +360,17 @@ describe('the e-mail draft of a work item', () => {
     if (!r.ok) throw new Error('save ' + r.code)
     expect(r.draft.body).toMatch(/^(Sehr geehrte|Dear Sir)/)
     expect(r.draft.body).not.toMatch(/^Tisztelt/)
+  })
+
+  // #794 (Boss TG 3435): the title is what the owner typed in his language; the mail's subject is the letter's own subject line.
+  it('the subject is the subject line of the letter (labelled, or the line after the date), the title only as a fallback', () => {
+    const s = addSection(itemId, '1', { status: 'done' })
+    if (!s.ok) throw new Error('section')
+    for (const t of ['Polizei Berlin', 'Chemnitz, den 25.10.2026', 'Aktenzeichen 58286237256 – Bitte um Erlass', 'Sehr geehrte Damen und Herren,']) addBlock(itemId, s.section.id, { text: t, author: 'agent' })
+    expect(mailSubject(item())).toBe('Aktenzeichen 58286237256 – Bitte um Erlass')
+    addBlock(itemId, s.section.id, { text: 'Betreff: Widerspruch gegen den Bescheid', author: 'agent' })
+    expect(mailSubject(item())).toBe('Widerspruch gegen den Bescheid')
+    expect(defaultMailBody(item(), 'de', 0)).toContain('„Widerspruch gegen den Bescheid“')
   })
 
   // #794 (Boss TG 10451): after the final PDF the form starts filled (subject, text in the final's language), with nothing stored.
