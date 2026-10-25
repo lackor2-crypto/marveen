@@ -23,6 +23,8 @@ import { getProject, updateProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
 import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
 import { familyLines } from '../../workbench-agent/context.js'
+import { variantLanguageRule } from '../../workbench-agent/doc-language.js'
+import { variantOf } from '../../workbench-doclang.js'
 import { msg, type Lang } from '../../workbench-agent/messages.js'
 import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
 import { pickAIProvider, whyNoAIProvider } from '../../workbench-agent/provider.js'
@@ -127,7 +129,8 @@ function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; f
   const attachHint = item.source_path || item.type === 'document'
     ? null
     : `This work item has no file yet. If you create a text, md or other file for it, put it in the work item folder${item.folder ? ` (${item.folder})` : ' (or the project folder)'} and then attach it so the owner sees it in the preview next to the chat: curl -s -X POST -H "Authorization: Bearer $(cat ${DASHBOARD_TOKEN_PATH})" -H "Content-Type: application/json" "http://localhost:${WEB_PORT}/api/workbench/items/${item.id}/versions" -d '{"source_path":"<path inside the project folder>"}'. Never leave such a file only on disk. Exception: never attach the work item's context file ("Kontextus - ....md" / "Context - ....md"); that is the case notes, not the item's file.`
-  const hints = [privacyHint, attachHint, documentsHint, item.type === 'document' ? docTools : null, item.type === 'document' ? langTools : null].filter(Boolean).join('\n')
+  const variant = variantOf(item.id)
+  const hints = [variant ? variantLanguageRule(variant.lang) : null, privacyHint, attachHint, documentsHint, item.type === 'document' ? docTools : null, item.type === 'document' ? langTools : null].filter(Boolean).join('\n')
   return { title: item.title, type: item.type, file: item.source_path ?? null, folder: item.folder ?? null, materials, documentsHint: hints || null, family: familyLines(item) }
 }
 
