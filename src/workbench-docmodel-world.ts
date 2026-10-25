@@ -93,7 +93,9 @@ export function itemDocumentsFor(project: ProjectRow, itemId: string): { path: s
 const baseOf = (p: string): string => String(p || '').replace(/\\/g, '/').split('/').filter(Boolean).pop()?.normalize('NFC').toLowerCase() || ''
 
 export function sourceWorldFor(project: ProjectRow, itemId: string): SourceWorld {
-  const docs = (): { path: string; abs: string; name: string }[] => itemDocumentsFor(project, itemId)
+  // Resolved once per world: the Life tree can sit on a slow drive and every lookup is a realpath.
+  let cache: { path: string; abs: string; name: string }[] | null = null
+  const docs = (): { path: string; abs: string; name: string }[] => (cache ??= itemDocumentsFor(project, itemId))
   return {
     // #794 (Boss, TG 3375): a source path that points next to the project folder ("../../Bakos Éva/...", a path the agent
     // counted by hand) is not "missing": the same file is one of the item's own documents, found by its name when it is the only one.
