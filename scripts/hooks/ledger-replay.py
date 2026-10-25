@@ -28,6 +28,7 @@ import json
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ledger_lib  # noqa: E402
+import startup_budget_lib  # noqa: E402
 
 # How many chars of transcript context to inject (~4 chars/token, so 16000 chars
 # ~= 4000 tokens). This is a CHEAP coarse pre-trim only; the authoritative guard
@@ -227,7 +228,11 @@ def main():
     # Authoritative guard: keep the FINAL payload's real UTF-8 byte size under the
     # harness's injection cap, dropping oldest turns and re-measuring until it
     # fits (freshest END survives).
-    out = _fit_output(transcript, open_q, owner, _byte_budget())
+    # #799: the start as a whole has a token ceiling (STARTUP_TOKEN_CEILING). The conversation block gets
+    # what is left after the fixed part (CLAUDE.md chain); the oldest turns fall off first, the freshest
+    # survives. It can only tighten the budget above, never loosen it.
+    budget = startup_budget_lib.conversation_budget_bytes(cwd, _byte_budget())
+    out = _fit_output(transcript, open_q, owner, budget)
 
     print(json.dumps(out, ensure_ascii=False))
     sys.exit(0)

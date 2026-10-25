@@ -27,6 +27,7 @@ const EXEMPT: Record<string, string> = {
   WORKBENCH_GEMINI_API_KEY:
     'Configured in the Workbench capabilities panel (image_gen), which has its own walk-through and status row; the key is only needed there.',
   TOKEN_USAGE_RETENTION_DAYS: 'Not a credential: a retention period that happens to contain the word TOKEN.',
+  STARTUP_TOKEN_CEILING: 'Not a credential: a cap on how many LLM tokens one session start may cost (#799).',
 }
 
 const keyedSettings = SETTINGS_REGISTRY.filter(d =>

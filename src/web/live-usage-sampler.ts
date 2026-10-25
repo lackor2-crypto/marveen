@@ -19,6 +19,7 @@ import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { resolveMainAgentConfigDir } from './agent-process.js'
 import { atomicWriteFileSync } from './atomic-write.js'
+import { appendUsageSample, usageHistoryPath } from './usage-history.js'
 import {
   liveUsageForAccount, readAccountAccessToken, readFleetToken,
   type LiveUsageResult,
@@ -63,6 +64,7 @@ export async function sampleMainLiveUsage(
     fetchUsage?: (token: string | null) => Promise<LiveUsageResult>
     write?: (path: string, data: string) => void
     path?: string
+    historyPath?: string
   } = {},
 ): Promise<'written' | 'skipped'> {
   try {
@@ -78,6 +80,15 @@ export async function sampleMainLiveUsage(
     }
     lastFailure = ''
     ;(deps.write ?? ((p, d) => { mkdirSync(dirname(p), { recursive: true }); atomicWriteFileSync(p, d, { mode: 0o600 }) }))(deps.path ?? liveUsageFilePath(), liveUsageFileBody(MAIN_AGENT_ID, r))
+    // #799: keep the reading, the live file above is overwritten every minute.
+    // An injected writer means a test: it must not touch the real store, so no default history path then.
+    const historyPath = deps.historyPath ?? (deps.write ? null : usageHistoryPath(MAIN_AGENT_ID))
+    if (historyPath) appendUsageSample(historyPath, {
+      t: r.usage.measuredAt,
+      fiveHourPct: r.usage.fiveHour?.usedPct ?? null,
+      fiveHourResetsAt: r.usage.fiveHour?.resetsAt ?? null,
+      sevenDayPct: r.usage.sevenDay?.usedPct ?? null,
+    })
     return 'written'
   } catch (err) {
     logger.warn({ err }, 'live usage sampler: mintavetel hiba')

@@ -622,6 +622,19 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     valueSet: ['Europe/London', 'Europe/Budapest', 'UTC', 'Europe/Dublin', 'Europe/Berlin', 'Europe/Bucharest', 'America/New_York'],
   },
   {
+    key: 'STARTUP_TOKEN_CEILING',
+    type: 'int',
+    // #799: a hard ceiling on what ONE session start may cost. Conservative until the real "tokens per 1%
+    // of the 5h frame" is measured from store/rate-limit-status/history-<main>.jsonl.
+    default: 50000,
+    min: 0,
+    max: 1000000,
+    description: 'Egy session indulásának legfeljebb ennyi tokenje lehet (a kontextus legrégebbi részeit levágjuk, amíg belefér). 0 = nincs plafon. Miért: a keret-visszaálláskor egyszerre induló sessionök indulása már 100 ezer token körül van, és 4-5 egyszerre induló session az 5 órás keret felét-háromnegyedét elviszi. A szám becslés (karakterszám / 3,5), nem pontos tokenszámlálás.',
+    module: 'agents',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
     key: 'DEFAULT_AGENT_MODEL',
     type: 'string',
     default: DISTRIBUTION_DEFAULT_AGENT_MODEL,

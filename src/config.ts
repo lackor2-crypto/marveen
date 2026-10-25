@@ -608,3 +608,14 @@ export const CODE_BRIDGE_EXCLUDE = (cfg('CODE_BRIDGE_EXCLUDE') ?? '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter((s) => s.length > 0)
+
+// #799: the most tokens one session start may cost (see config-registry STARTUP_TOKEN_CEILING).
+// 0 switches the ceiling off; an unparsable value falls back to the safe default instead of
+// silently disabling the guard.
+export const STARTUP_TOKEN_CEILING_DEFAULT = 50_000
+export function startupTokenCeiling(): number {
+  const raw = (cfg('STARTUP_TOKEN_CEILING') ?? '').trim()
+  if (raw === '') return STARTUP_TOKEN_CEILING_DEFAULT
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : STARTUP_TOKEN_CEILING_DEFAULT
+}
