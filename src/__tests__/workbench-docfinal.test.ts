@@ -318,7 +318,9 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     const o = documentOutline(itemId)
     const xml = buildFodt(toRenderOutline(o), { title: 'Válaszbeadvány', author: 'Teszt Elek', draft: false, lang: 'hu', target: 'docx' })
     expect(xml).toContain('A tárgyalás 2027. március 17-én 10:30-kor lesz.')
-    expect(xml).toContain('<text:p text:style-name="Title">Válaszbeadvány</text:p>')
+    // The item's own title is never printed into the document.
+    expect(xml).not.toContain('<text:p text:style-name="Title">')
+    expect(xml).not.toContain('>Válaszbeadvány</text:p>')
     expect(xml).toContain('text:style-name="Heading_20_1" text:outline-level="1">1. Tényállás<')
     expect(xml).not.toContain('draw:name="Watermark"')
     expect(xml).not.toContain('PISZKOZAT')
@@ -461,7 +463,7 @@ describe.skipIf(!HAS_SOFFICE)('valodi LibreOffice-szal', () => {
     const part = (name: string): string => spawnSync('unzip', ['-p', p, name], { encoding: 'utf-8' }).stdout
     const doc = part('word/document.xml')
     expect(doc).toContain('<w:pStyle w:val="Heading1"/>')
-    expect(doc).toContain('<w:pStyle w:val="Title"/>')
+    expect(doc).not.toContain('<w:pStyle w:val="Title"/>')
     expect(doc).toContain('w:footnoteReference')
     expect(doc).toContain('<w:numId w:val="')
     expect(part('word/footnotes.xml')).toContain('Lásd a K1. mellékletet.')
