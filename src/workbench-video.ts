@@ -43,15 +43,16 @@ export interface VideoToolStatus { state: VideoToolState; path: string | null; d
 
 export type RunResult = { ok: true } | { ok: false; timeout: boolean; detail: string }
 /** `onData` gets every chunk the program writes to stderr (a render reads its `-progress` lines from it). */
-export type Runner = (cmd: string, args: string[], timeoutMs: number, onData?: (chunk: string) => void) => Promise<RunResult>
+/** `opts.cwd` (#790): the folder the program runs in (a render reads its subtitle file by a bare name from there). */
+export type Runner = (cmd: string, args: string[], timeoutMs: number, onData?: (chunk: string) => void, opts?: { cwd?: string }) => Promise<RunResult>
 
-const defaultRunner: Runner = (cmd, args, timeoutMs, onData) => new Promise((resolve) => {
+const defaultRunner: Runner = (cmd, args, timeoutMs, onData, opts) => new Promise((resolve) => {
   let err = ''
   let done = false
   const finish = (r: RunResult) => { if (!done) { done = true; resolve(r) } }
   let child: ReturnType<typeof spawn>
   try {
-    child = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+    child = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, ...(opts?.cwd ? { cwd: opts.cwd } : {}) })
   } catch (e) {
     finish({ ok: false, timeout: false, detail: e instanceof Error ? e.message : String(e) })
     return
@@ -179,8 +180,8 @@ function dropPartial(abs: string): void {
   try { if (existsSync(abs)) unlinkSync(abs) } catch { /* nem kritikus: a nev ugyis foglalt marad, a kovetkezo mentes (2)-t kap */ }
 }
 
-async function runTo(cmd: string, args: string[], out: string, timeoutMs: number, onData?: (chunk: string) => void): Promise<{ ok: true; bytes: number } | VideoFail> {
-  const r = await runner(cmd, args, timeoutMs, onData)
+async function runTo(cmd: string, args: string[], out: string, timeoutMs: number, onData?: (chunk: string) => void, opts?: { cwd?: string }): Promise<{ ok: true; bytes: number } | VideoFail> {
+  const r = await runner(cmd, args, timeoutMs, onData, opts)
   if (!r.ok) {
     dropPartial(out)
     return { ok: false, code: r.timeout ? 'video_timeout' : 'video_failed', detail: r.timeout ? null : r.detail }

@@ -41,7 +41,8 @@ export interface RenderInputs {
   abs: Record<string, string>
   /** Whether each source video has an audio track. */
   hasAudio: Record<string, boolean>
-  /** Absolute path of the ASS file, when there are subtitles. */
+  /** The ASS file, when there are subtitles: #790 its bare name (ASS_NAME), ffmpeg runs in its folder -- a full path in the
+   *  filter text breaks on Windows. */
   assPath: string | null
   out: string
 }
@@ -374,6 +375,9 @@ export function progressSeconds(chunk: string): number | null {
   return last
 }
 
+/** #790: the subtitle file's bare name (ffmpeg runs in its folder). Only letters and a dot: nothing to escape in a filter. */
+export const ASS_NAME = 'subs.ass'
+
 export async function renderTimeline(project: ProjectRow, itemId: string, title: string, doc: TimelineDoc, onProgress?: (fraction: number) => void): Promise<RenderResult> {
   if (!doc.clips.length) return { ok: false, code: 'render_empty' }
   if (videoBusy.has(itemId)) return { ok: false, code: 'video_busy' }
@@ -408,11 +412,13 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
       const ok = await filters(ff.path)
       if (ok === false && doc.subtitles.length) return { ok: false, code: 'render_no_subtitle_filter' }
     }
+    // #790: the subtitle file is read by its bare name from the folder ffmpeg runs in. Its full path inside the filter
+    // text broke the render on Windows (the drive's ':' and the '\\' are special there, an apostrophe in a user name too).
     let assPath: string | null = null
     if (doc.subtitles.length) {
       tmp = mkdtempSync(join(tmpdir(), 'wbsub'))
-      assPath = join(tmp, 'subs.ass')
-      writeFileSync(assPath, buildAss(doc), 'utf-8')
+      writeFileSync(join(tmp, ASS_NAME), buildAss(doc), 'utf-8')
+      assPath = ASS_NAME
     }
     const stem = baseNameForNextVersion(title || 'video').replace(/\.[^.]+$/, '') || 'video'
     // #496: the video goes to the work item (its own folder, else beside the timeline), never beside its first clip --
@@ -436,7 +442,7 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
         if (sec !== null) onProgress(Math.min(0.99, Math.max(0, sec / total)))
       }
     }
-    const r = await videoRunTo(ff.path, args, out.abs, RENDER_TIMEOUT_MS, tap)
+    const r = await videoRunTo(ff.path, args, out.abs, RENDER_TIMEOUT_MS, tap, tmp ? { cwd: tmp } : undefined)
     if (!r.ok) return r
     return { ok: true, file: { rel: out.rel, name: out.name, bytes: r.bytes }, seconds: timelineDuration(doc) }
   } finally {
