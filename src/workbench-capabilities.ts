@@ -32,7 +32,7 @@ import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { listAIProviders } from './workbench-agent/provider.js'
 import { activeWebSearchProvider, lastWebSearchProbe, probeWebSearch } from './workbench-agent/web-search.js'
 import { imageAiConfig } from './workbench-image-ai.js'
-import { ffprobeBeside } from './workbench-video-render.js'
+import { ffprobeBeside } from './ffprobe-path.js'
 
 export type CapabilityState =
   /** Mukodik, meg is mertuk. */
