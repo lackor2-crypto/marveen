@@ -335,7 +335,11 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   const to = input.to === undefined ? (prev?.to_addr ?? '') : cleanAddresses(input.to)
   const cc = input.cc === undefined ? (prev?.cc_addr ?? '') : cleanAddresses(input.cc)
   if (to === null || cc === null) return { ok: false, code: 'bad_input', detail: 'address' }
-  const lang = docLangFor(item, ui)
+  // #794 (Boss TG 10425/10429): the draft exists only AFTER the final PDF, and it is written in the language of THAT PDF
+  // (the final's label says it), not in whatever the work item or the page happens to be in.
+  const fin = hasDocModel(item.id) ? finalState(item) : null
+  if (hasDocModel(item.id) && !hasDocxFinalPanel(item) && (!fin || fin.stale)) return { ok: false, code: 'final_required', detail: null }
+  const lang: DocLang = fin && !fin.stale ? finalLang(fin, docLangFor(item, ui) === 'en' ? 'en' : 'hu') : docLangFor(item, ui)
   const subjectRaw = input.subject === undefined ? (prev?.subject ?? '') : String(input.subject)
   const subject = oneLine(subjectRaw) || item.title
   if (subject.length > SUBJECT_MAX) return { ok: false, code: 'bad_input', detail: 'subject' }
@@ -363,6 +367,20 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
  * nothing to remake; the page says "outdated" when the document changed, and the next press makes the attachments again.
  */
 export async function refreshMailDraft(_item: WorkItemRow, _ui: 'hu' | 'en'): Promise<void> { /* nothing to remake (#725) */ }
+
+/**
+ * #794: a new final PDF (possibly in another language) starts the draft text again -- but only when the owner never touched
+ * it: a stored body that is still one of the default texts (and a subject that is still the title) is dropped, so the next
+ * draft is written in the language of the NEW final. A text the owner edited stays as it is.
+ */
+export function resetUntouchedMailText(item: WorkItemRow): boolean {
+  const row = getRow(item.id)
+  if (!row) return false
+  const n = listAnnexes(item.id).length
+  const untouched = (['hu', 'en', 'de'] as DocLang[]).some((l) => row.body === defaultMailBody(item, l, n))
+  if (!untouched) return false
+  return forgetMailDraft(item.id)
+}
 
 /** Forget the stored draft row (a message already in the Drafts folder stays there). */
 export function forgetMailDraft(itemId: string): boolean {

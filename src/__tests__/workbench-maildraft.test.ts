@@ -17,7 +17,7 @@ import { resetLibreOfficeProbe } from '../office-convert.js'
 import { markPlainItem } from '../workbench-assets.js'
 import { finalizeDocxItem } from '../workbench-docxfinal.js'
 import { reopenWorkItem } from '../workbench-approval.js'
-import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
+import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
 import { registerMailboxEngine, _setGoogleEngine } from '../mail-send.js'
 
 /** A fake LibreOffice: the PDF it writes carries a checksum of the source, so any change of the text shows in the bytes. */
@@ -142,6 +142,14 @@ describe('the e-mail draft of a work item', () => {
       if (!a.ok) throw new Error('annex ' + a.code)
     }
   }
+  /** #794: the draft exists only after the final PDF, so a test that wants a draft first makes the final (in `lang`). */
+  async function makeFinal(lang: 'hu' | 'en' = 'hu'): Promise<void> {
+    const it0 = item()
+    const hash = contentHash(it0)
+    recordReview(itemId, hash, 'owner')
+    const f = await finalizeDocument(it0, { accept: true, hash, by: 'owner', lang })
+    if (!f.ok) throw new Error('finalize ' + f.code + ' ' + f.detail)
+  }
   const emlFiles = (): string[] => {
     const f = getWorkItem(itemId)!.folder
     if (!f) return []
@@ -221,16 +229,19 @@ describe('the e-mail draft of a work item', () => {
   it('puts the document and every annex as its own PDF into the mailbox, named by label and title, and writes no file', async () => {
     write('Text eins')
     annexes()
+    await makeFinal()
+    const folderBefore = getWorkItem(itemId)!.folder ?? ''
     const r = await saveMailDraft(item(), { from_account: 'work', from_addr: 'me@example.com', to: 'amt@stadt.de', subject: 'Nachreichung', body: 'Guten Tag' }, 'hu')
     if (!r.ok) throw new Error('save: ' + r.code + ' ' + r.detail)
     expect(r.new_file).toBe(false)
     expect(r.draft.file).toBe('')
-    // the item gets no folder of its own just because a mail draft was made
-    expect(getWorkItem(itemId)!.folder ?? '').toBe('')
+    // making the mail draft adds nothing to the item's folder (the final PDF made it before)
+    expect(getWorkItem(itemId)!.folder ?? '').toBe(folderBefore)
     const got = await boxSave(item())
     expect(got).toMatchObject({ account: 'work', to: 'amt@stadt.de', subject: 'Nachreichung' })
-    expect(got.attachments).toEqual([
-      'Antwort auf das Schreiben.pdf',
+    // the submission is the FINAL PDF (named by the final), then every annex
+    expect(got.attachments[0]).toMatch(/Antwort auf das Schreiben – HU – v1\.pdf$/)
+    expect(got.attachments.slice(1)).toEqual([
       'K1 – Mietvertrag (Korpás László).pdf',
       'K2 – Bescheid vom 04.07.2026.pdf',
     ])
@@ -268,6 +279,7 @@ describe('the e-mail draft of a work item', () => {
     write('Text eins')
     annexes()
     setDocSettings(itemId, { annex_mode: 'combined' })
+    await makeFinal()
     const r = await saveMailDraft(item(), {}, 'en')
     if (!r.ok) throw new Error('save: ' + r.code + ' ' + r.detail)
     expect(r.draft.attachments).toHaveLength(1)
@@ -276,6 +288,7 @@ describe('the e-mail draft of a work item', () => {
 
   it('an empty body gets a short default text in the document language, the subject defaults to the title', async () => {
     write('Text eins')
+    await makeFinal()
     const r = await saveMailDraft(item(), {}, 'hu')
     if (!r.ok) throw new Error('save')
     expect(r.draft.subject).toBe('Antwort auf das Schreiben')
@@ -284,6 +297,7 @@ describe('the e-mail draft of a work item', () => {
 
   it('the chosen sender account is stored and kept by a later save that leaves it out', async () => {
     write('Text eins')
+    await makeFinal()
     const r = await saveMailDraft(item(), { from_account: 'work', from_addr: 'me@example.com', to: 'amt@stadt.de' }, 'hu')
     if (!r.ok) throw new Error('save')
     expect(r.draft).toMatchObject({ from_account: 'work', from_addr: 'me@example.com' })
@@ -295,6 +309,33 @@ describe('the e-mail draft of a work item', () => {
     expect(cleared.draft).toMatchObject({ from_account: '', from_addr: '' })
   })
 
+  // #794 (Boss TG 10425/10429): nothing is generated before the final PDF, and the text follows the language of that PDF.
+  it('refuses a draft before the final PDF exists, and writes the text in the language of the final', async () => {
+    write('Text eins')
+    const early = await saveMailDraft(item(), {}, 'hu')
+    expect(early).toMatchObject({ ok: false, code: 'final_required' })
+    expect(mailDraftView(item())).toBeNull()
+    await makeFinal('en')
+    const r = await saveMailDraft(item(), {}, 'hu')
+    if (!r.ok) throw new Error('save ' + r.code)
+    expect(r.draft.body).toMatch(/^Dear Sir or Madam/)
+  })
+
+  it('a new final starts an untouched default text again, but keeps a text the owner edited', async () => {
+    const blockId = write('Text eins')
+    await makeFinal('en')
+    const first = await saveMailDraft(item(), {}, 'hu')
+    if (!first.ok) throw new Error('save')
+    expect(first.draft.body).toMatch(/^Dear Sir or Madam/)
+    expect(resetUntouchedMailText(item())).toBe(true)
+    expect(mailDraftView(item())).toBeNull()
+    const own = await saveMailDraft(item(), { body: 'My own words' }, 'hu')
+    if (!own.ok) throw new Error('save2')
+    updateBlock(itemId, blockId, { text: 'Text zwei', author: 'owner' })
+    expect(resetUntouchedMailText(item())).toBe(false)
+    expect(mailDraftView(item())!.body).toBe('My own words')
+  })
+
   it('a bad address is refused with nothing written', async () => {
     write('Text eins')
     const r = await saveMailDraft(item(), { to: 'nem cim' }, 'hu')
@@ -304,12 +345,14 @@ describe('the e-mail draft of a work item', () => {
 
   it('a change of the document makes the stored draft "outdated"; saving again makes it current', async () => {
     const blockId = write('Text eins')
+    await makeFinal()
     const first = await saveMailDraft(item(), { to: 'amt@stadt.de' }, 'hu')
     if (!first.ok) throw new Error('save')
     expect(first.draft.state).toBe('current')
     updateBlock(itemId, blockId, { text: 'Text zwei, ganz anders', author: 'owner' })
     await mirrorOutlineToFile(itemId)
     expect(mailDraftView(item())!.state).toBe('outdated')
+    await makeFinal()
     const again = await saveMailDraft(item(), {}, 'hu')
     if (!again.ok) throw new Error('save2')
     expect(again.draft.state).toBe('current')
@@ -318,10 +361,12 @@ describe('the e-mail draft of a work item', () => {
 
   it('a new annex shows up in the attachment list when the draft is saved again', async () => {
     write('Text eins')
+    await makeFinal()
     const first = await saveMailDraft(item(), {}, 'hu')
     if (!first.ok) throw new Error('save')
     expect(first.draft.attachments).toHaveLength(1)
     annexes()
+    await makeFinal()
     const again = await saveMailDraft(item(), {}, 'hu')
     if (!again.ok) throw new Error('save2')
     expect(again.draft.attachments).toHaveLength(3)
@@ -329,6 +374,7 @@ describe('the e-mail draft of a work item', () => {
 
   it('an old row that still points to an .eml file is kept as it is on disk, and the next save stops tracking it', async () => {
     write('Text eins')
+    await makeFinal()
     const first = await saveMailDraft(item(), {}, 'hu')
     if (!first.ok) throw new Error('save')
     const old = join(projDir(), 'Iratok')
@@ -341,6 +387,7 @@ describe('the e-mail draft of a work item', () => {
 
   it('forgetting the draft stops tracking it', async () => {
     write('Text eins')
+    await makeFinal()
     const first = await saveMailDraft(item(), {}, 'hu')
     if (!first.ok) throw new Error('save')
     expect(forgetMailDraft(itemId)).toBe(true)

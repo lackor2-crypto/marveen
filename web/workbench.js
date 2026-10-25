@@ -10486,7 +10486,7 @@
     // The order of the work: the final PDF first, then the e-mail draft that carries it, then the record of the sending.
     var finalCurrent = !!(f && !f.stale)
     // #723: while the Word item's own mail panel is open, the same box is not drawn twice (one form, one set of fields).
-    var mailBox = WB.docxMailFor && WB.docxMailFor === WB.selectedId ? '' : finalCurrent || (o.mail_draft && !ro) ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
+    var mailBox = WB.docxMailFor && WB.docxMailFor === WB.selectedId ? '' : finalCurrent ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
     return '<div class="wb-outline-pdf">' + tools + finalLine + (courtOnly() ? courtBoxHtml(ro) : '') + fin + mailBox + sentBoxHtml(o, f, ro) + '</div>'
   }
 

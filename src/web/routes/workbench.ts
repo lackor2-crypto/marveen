@@ -72,7 +72,7 @@ import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryT
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
-import { forgetMailDraft, mailDraftView, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
+import { forgetMailDraft, mailDraftView, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
 // The mail routes register the shared sender's mailbox engine (src/mail-send.ts, #797) when they load.
 import './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
@@ -203,6 +203,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   sent_bad_input: { hu: 'Add meg a dátumot (naptárból) és a címzettet. Az időpont óra:perc alakban kell (például 14:30), a szövegek legfeljebb 300 karakteresek.', en: 'Give the date (from the calendar) and the recipient. The time must be hours:minutes (for example 14:30), and each text at most 300 characters.' },
   sent_too_many: { hu: 'Ennél a beadványnál már 100 elküldés van rögzítve, többet nem tudok felvenni.', en: 'This submission already has 100 sendings recorded; no more can be added.' },
   maildraft_bad_input: { hu: 'A címzett vagy a másolatot kapó nem érvényes e-mail-cím, vagy a tárgy / a szöveg túl hosszú. Több címet vesszővel válassz el.', en: 'The recipient or the copy address is not a valid e-mail address, or the subject / text is too long. Separate several addresses with a comma.' },
+  maildraft_final_required: { hu: 'A levélpiszkozat a végleges PDF elkészülte után készülhet el, és a végleges PDF nyelvén íródik. Előbb készítsd el a Végleges PDF-et.', en: 'The e-mail draft can only be made after the final PDF exists, and it is written in the language of that PDF. Make the final PDF first.' },
   maildraft_no_draft: { hu: 'Előbb készítsd el a levélpiszkozatot (Levélpiszkozat készítése).', en: 'Make the e-mail draft first.' },
   maildraft_no_account: { hu: 'Válaszd ki a feladót (melyik e-mail fiókból menjen a levél), és mentsd a piszkozatot.', en: 'Choose the sender (which e-mail account the message goes from), and save the draft.' },
   maildraft_save_failed: { hu: 'Nem sikerült a fiók Piszkozatok mappájába tenni a levelet. A pontos ok a részletekben van.', en: 'The message could not be put into the account Drafts folder. The exact reason is in the details.' },
@@ -4434,6 +4435,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       // #552: a successful finalize by the owner also marks the work item finalized (done); a failure returned above.
       try { finalizeWorkItem(item.id, { by: actor(ctx) || 'dashboard' }) } catch { /* the PDF is made; the status is best effort */ }
+      // #794: a draft text nobody edited belonged to the previous final (maybe another language): start it again from this one.
+      try { resetUntouchedMailText(item) } catch { /* best effort: the draft is rebuilt from the final when it is saved */ }
       json(res, { ok: true, final: r.final, file: r.asset_path, reused: r.reused === true, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id), placement: checkPlacementAfter(item, 'finalize', lang) })
       return true
     }
@@ -4596,6 +4599,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         if (r.code === 'outline_empty') return fail(res, 404, 'outline_empty', lang)
         if (r.code === 'docx_mail_no_pdf') return fail(res, 409, 'docx_mail_no_pdf', lang)
         if (r.code === 'bad_input') return failDetail(res, 400, 'maildraft_bad_input', lang, r.detail)
+        if (r.code === 'final_required') return fail(res, 409, 'maildraft_final_required', lang)
         if (r.code === 'no_folder' || r.code === 'write_failed') return failDetail(res, r.code === 'no_folder' ? 409 : 500, 'maildraft_' + r.code, lang, r.detail)
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }
