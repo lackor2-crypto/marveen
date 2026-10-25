@@ -71,7 +71,7 @@ export async function timelineRender(project: ProjectRow, ctx: ToolContext, inpu
   // #786: the same road as the editor: the version is saved BEFORE the render, the mp4 is recorded on it.
   const r = await renderTimelineToVersion(project, v.item, 'workbench-agent')
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail || r.code }
-  return { ok: true, data: { path: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes, note: 'a NEW mp4 file was made in the project folder; nothing was overwritten' } }
+  return { ok: true, data: { path: r.file.rel, name: r.file.name, seconds: r.seconds, bytes: r.file.bytes, note: r.reused ? 'the timeline has not changed since the last video: that video is given back, no new file was made' : 'a NEW mp4 file was made in the project folder; nothing was overwritten', reused: r.reused } }
 }
 
 export async function timelineAutoSubtitle(project: ProjectRow, ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {
