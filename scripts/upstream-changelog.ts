@@ -26,6 +26,7 @@ import {
 import { resolveUpstreamRef, upstreamBase } from '../src/upstream-refs.js'
 import { runGate, parseDenylist, PRINCIPLES } from '../src/upstream-principle-gate.js'
 import { gatherCommits } from '../src/upstream-principle-gate-git.js'
+import { openRouterChat } from '../src/ai-call.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'store', 'upstream-changes.json')
@@ -132,39 +133,15 @@ async function translate(items: UpstreamCommit[], key: string): Promise<Record<s
       body: String((b as unknown as Record<string, unknown>)._body ?? ''),
       files: b.files,
     })))
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 90_000)
-    try {
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
-          'HTTP-Referer': 'https://marveen.local',
-          'X-Title': 'Marveen Upstream Changelog',
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-          max_tokens: 2000,
-        }),
-      })
-      if (!res.ok) {
-        process.stderr.write(`  batch ${i / BATCH + 1}: HTTP ${res.status}\n`)
-        continue
-      }
-      const data = await res.json() as { choices?: { message?: { content?: string } }[] }
-      const text = data.choices?.[0]?.message?.content ?? ''
-      const got = parseSummaryResponse(text, batch.map(b => b.sha))
-      Object.assign(result, got)
-      process.stderr.write(`  ${Object.keys(result).length}/${items.length} kesz\n`)
-    } catch (e) {
-      process.stderr.write(`  batch ${i / BATCH + 1}: ${(e as Error).message}\n`)
-    } finally {
-      clearTimeout(timer)
+    // #796: the shared AI road (402 retry, timeout, the error sentence) instead of an own fetch.
+    const r = await openRouterChat({ apiKey: key, model: MODEL, prompt, temperature: 0.2, maxTokens: 2000, timeoutMs: 90_000, title: 'Marveen Upstream Changelog' })
+    if (!r.ok) {
+      process.stderr.write(`  batch ${i / BATCH + 1}: ${r.status ? `HTTP ${r.status} ` : ''}${r.message}\n`)
+      continue
     }
+    const got = parseSummaryResponse(r.text, batch.map(b => b.sha))
+    Object.assign(result, got)
+    process.stderr.write(`  ${Object.keys(result).length}/${items.length} kesz\n`)
   }
   return result
 }

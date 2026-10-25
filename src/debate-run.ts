@@ -29,9 +29,9 @@ import {
   type BoardItem, type BoardSummary, type StopAdvice, type ConformityWarning,
 } from './debate-board.js'
 import { CONCLUDE_OUT_TOKENS, CHARS_PER_TOKEN, DEFAULT_OUT_TOKENS, estimateCalls, type Estimate, type EstimateCall, type ModelPrice } from './debate-estimate.js'
+import { openRouterChat } from './ai-call.js'
 
 export const DEBATE_LOG_PATH = join(STORE_DIR, 'debate-log.jsonl')
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const VAULT_SECRET_ID = 'openrouter-fleet-key'
 const PER_MODEL_TIMEOUT_MS = 150_000
 const EMPTY_RESPONSE_MAX_RETRIES = 2
@@ -420,34 +420,17 @@ async function callModelOnce(spec: string, system: string, prompt: string, key: 
   }
   if (!key) return { model: spec, ok: false, error: 'no OpenRouter key in the vault' }
   const orModel = route.kind === 'openrouter' ? model : spec
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS)
-  try {
-    const body: Record<string, unknown> = {
-      model: orModel,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
-      reasoning: { effort: 'low' },
-    }
-    if (webSearch) body.plugins = [{ id: 'web' }]
-    const resp = await fetch(OPENROUTER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'X-Title': 'Marveen debate' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
-    const data = await resp.json().catch(() => null) as
-      { error?: { message?: string }; choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null
-    if (!resp.ok) return { model: spec, ok: false, error: (data?.error?.message || `HTTP ${resp.status}`) + (subscriptionError ? ` (Claude subscription: ${subscriptionError})` : '') }
-    return {
-      model: spec, ok: true, text: data?.choices?.[0]?.message?.content ?? '',
-      tokensIn: data?.usage?.prompt_tokens ?? null, tokensOut: data?.usage?.completion_tokens ?? null,
-    }
-  } catch (err) {
-    const e = err as Error
-    return { model: spec, ok: false, error: e.name === 'AbortError' ? `timeout after ${PER_MODEL_TIMEOUT_MS}ms` : String(e.message || e) }
-  } finally {
-    clearTimeout(timer)
+  // #796: the shared AI road (402 retry with the affordable ceiling, timeout, the error sentence) instead of an own fetch.
+  const r = await openRouterChat({
+    apiKey: key, model: orModel, system, prompt, timeoutMs: PER_MODEL_TIMEOUT_MS, title: 'Marveen debate',
+    extra: { reasoning: { effort: 'low' }, ...(webSearch ? { plugins: [{ id: 'web' }] } : {}) },
+  })
+  if (!r.ok) {
+    // The provider's own words for the debate log; the actionable sentence when the credit ran out or no key is set.
+    const why = r.code === 'credit' || r.code === 'nokey' ? r.message : (r.detail || r.message)
+    return { model: spec, ok: false, error: why + (subscriptionError ? ` (Claude subscription: ${subscriptionError})` : '') }
   }
+  return { model: spec, ok: true, text: r.text, tokensIn: r.tokensIn, tokensOut: r.tokensOut }
 }
 
 /** A reasoning model sometimes answers 200 with an empty message on the first try (see scripts/debate.mjs): retried. */

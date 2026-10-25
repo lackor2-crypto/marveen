@@ -23,7 +23,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MAIN_AGENT_ID, OLLAMA_URL } from './config.js'
+import { MAIN_AGENT_ID } from './config.js'
 import { logger } from './logger.js'
 import { tierForPct, STALE_AFTER_MS } from './rate-limit-status.js'
 import { tryResolveFromPath } from './platform.js'
@@ -34,6 +34,7 @@ import { readRateLimitSnapshot } from './web/rate-limit-status-io.js'
 import { T, type AiInfo, type DateCandidate, type InboxSuggestion, type KnownFolder, type Prefetched } from './life-inbox-analyze.js'
 import { humanLocation } from './life-explorer.js'
 import type { LifeConfig } from './life-tree.js'
+import { ollamaGenerate, ollamaModels } from './ai-call.js'
 
 const CLAUDE_TIMEOUT_MS = 120_000
 // A small model on CPU: tens of seconds per document. One item per call, and
@@ -181,20 +182,6 @@ const realClaudeRunner: ClaudeRunner = (system, prompt, account) => {
   })
 }
 
-async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Promise<any> {
-  const ctl = new AbortController()
-  const timer = setTimeout(() => ctl.abort(), timeoutMs)
-  try {
-    const r = await fetch(url, { ...init, signal: ctl.signal })
-    if (!r.ok) return null
-    return await r.json()
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
 /** The largest installed chat model (embedding models cannot answer). */
 export function pickOllamaModel(models: Array<{ name: string; size?: number }>): string {
   const chat = models.filter((m) => !/embed|bge|minilm|nomic/i.test(m.name))
@@ -202,16 +189,11 @@ export function pickOllamaModel(models: Array<{ name: string; size?: number }>):
   return chat[0]?.name || ''
 }
 
+// #796: the local model on the shared AI road (src/ai-call.ts), like every other AI call.
 const realOllamaRunner: OllamaRunner = async (system, prompt) => {
-  const tags = await fetchJson(`${OLLAMA_URL}/api/tags`, {}, 3000)
-  const model = pickOllamaModel(Array.isArray(tags?.models) ? tags.models : [])
+  const model = pickOllamaModel(await ollamaModels())
   if (!model) return 'missing'
-  const j = await fetchJson(`${OLLAMA_URL}/api/generate`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, system, prompt, stream: false, format: 'json', options: { temperature: 0.1, num_ctx: 8192 } }),
-  }, OLLAMA_TIMEOUT_MS)
-  if (!j || typeof j.response !== 'string') return null
-  return { text: j.response, model }
+  return ollamaGenerate({ model, system, prompt, format: 'json', options: { temperature: 0.1, num_ctx: 8192 }, timeoutMs: OLLAMA_TIMEOUT_MS })
 }
 
 let claudeRunner: ClaudeRunner = realClaudeRunner
