@@ -7944,7 +7944,8 @@
           vtTake(r.data.result)
           window.showToast(r.data.result.message || t('workbench.vt.rendered'))
         } else if (job && job.state === 'error' && job.error) {
-          WB.vtError = { message: t('workbench.vt.render_failed', { code: job.error.code }), detail: job.error.detail || '' }
+          // #789: the server's own sentence when it has one (what is wrong and what to do), else the code.
+          WB.vtError = { message: job.error.message && job.error.message !== job.error.code ? job.error.message : t('workbench.vt.render_failed', { code: job.error.code }), detail: job.error.detail || '' }
         } else {
           // Nothing is running and nothing finished: the dashboard was restarted meanwhile.
           WB.vtError = { message: t('workbench.vt.render_interrupted'), detail: '' }

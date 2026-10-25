@@ -32,6 +32,7 @@ import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { listAIProviders } from './workbench-agent/provider.js'
 import { activeWebSearchProvider, lastWebSearchProbe, probeWebSearch } from './workbench-agent/web-search.js'
 import { imageAiConfig } from './workbench-image-ai.js'
+import { ffprobeBeside } from './workbench-video-render.js'
 
 export type CapabilityState =
   /** Mukodik, meg is mertuk. */
@@ -128,6 +129,20 @@ export async function probeFfmpeg(opts: { force?: boolean; candidates?: string[]
   }, opts)
 }
 
+/**
+ * #789: FFmpeg TOGETHER with its ffprobe. The video render measures every clip (length, sound) with ffprobe, so an ffmpeg
+ * without it renders nothing; the measure says that, with the place it looked at, instead of "ok".
+ */
+export async function probeVideoTools(opts: { force?: boolean } = {}): Promise<CommandProbe> {
+  const p = await probeFfmpeg(opts)
+  if (p.reason !== 'ok' || !p.path) return p
+  const where = ffprobeBeside(p.path)
+  // A candidate, not a configured path: the owner did not type it, so a missing file is "not installed", not "wrong setting".
+  const q = await probeCommand({ id: `ffprobe|${where}`, configured: null, candidates: [where], versionArgs: ['-version'], timeoutMs: 20_000 }, opts)
+  if (q.reason === 'ok') return p
+  return { ...p, available: false, reason: q.reason, detail: `ffprobe (${where}): ${q.detail ?? 'not found'}` }
+}
+
 export const CAPABILITIES: CapabilityDescriptor[] = [
   {
     key: 'pdf_preview',
@@ -194,13 +209,13 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     how_to: {
       hu: [
         'Linux (Ubuntu/Debian): sudo apt install ffmpeg',
-        'Windows: töltsd le a ffmpeg.org oldalról, csomagold ki, és írd be alább a teljes útvonalát (például: C:\\ffmpeg\\bin\\ffmpeg.exe).',
+        'Windows: töltsd le a ffmpeg.org oldalról, csomagold ki, és írd be alább a teljes útvonalát (például: C:\\ffmpeg\\bin\\ffmpeg.exe). Ugyanabban a mappában legyen az ffprobe.exe is (a csomag része).',
         'macOS: brew install ffmpeg',
         'Utána nyomd meg az "Ellenőrzés most" gombot.',
       ],
       en: [
         'Linux (Ubuntu/Debian): sudo apt install ffmpeg',
-        'Windows: download it from ffmpeg.org, unpack it, and type the full path below (for example: C:\\ffmpeg\\bin\\ffmpeg.exe).',
+        'Windows: download it from ffmpeg.org, unpack it, and type the full path below (for example: C:\\ffmpeg\\bin\\ffmpeg.exe). Keep ffprobe.exe in the same folder (it comes in the package).',
         'macOS: brew install ffmpeg',
         'Then press "Check now".',
       ],
@@ -208,7 +223,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
     obtain_url: 'https://ffmpeg.org/download.html',
     setting_key: 'WORKBENCH_FFMPEG_PATH',
     testable: true,
-    async measure(force) { return fromProbe(await probeFfmpeg({ force })) },
+    async measure(force) { return fromProbe(await probeVideoTools({ force })) },
   },
   {
     key: 'ai_agent',

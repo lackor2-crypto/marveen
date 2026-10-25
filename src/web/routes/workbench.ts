@@ -1268,6 +1268,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez a gép videóprogramja nem tud feliratot a képre írni. Vedd ki a feliratokat, vagy telepíts teljes ffmpeg-et (a Képességek panel megmondja, hogyan). A videó emiatt nem készült el, hogy ne feliratok nélkül kapd meg csendben.',
     en: 'This machine\'s video program cannot burn subtitles into the picture. Remove the subtitles, or install a full ffmpeg (the Capabilities panel says how). The video was not made, so you do not get it silently without subtitles.',
   },
+  render_no_ffprobe: {
+    hu: 'Hiányzik az ffprobe program (az ffmpeg mellől): ez méri meg a videók hosszát és hangját, nélküle nem készül videó. Telepítsd a teljes ffmpeg-csomagot (Linuxon: sudo apt install ffmpeg; Windowson az ffprobe.exe legyen az ffmpeg.exe mellett). A részletekben, hol kerestem. A Képességek panel is megmutatja.',
+    en: 'The ffprobe program is missing (from beside ffmpeg): it measures the length and the sound of the videos, and no video is made without it. Install the full ffmpeg package (Linux: sudo apt install ffmpeg; on Windows ffprobe.exe must sit beside ffmpeg.exe). The details say where I looked. The Capabilities panel shows it too.',
+  },
   render_probe_failed: {
     hu: 'Nem tudtam megnézni, van-e hang az egyik videóban (az ffprobe nem válaszolt). A részletek megmondják, melyik fájl.',
     en: 'I could not check whether one of the videos has sound (ffprobe did not answer). The details say which file.',
@@ -5999,7 +6003,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const owner = getProject(item.project_id)
       const filled = owner ? await fillClipEnds(owner, body['ops']) : { ok: true as const, ops: body['ops'] }
       if (!filled.ok) {
-        return failDetail(res, filled.code === 'video_no_ffmpeg' || filled.code === 'video_ffmpeg_check_failed' ? 503 : 400, filled.code, lang, ('detail' in filled && filled.detail) || null)
+        return failDetail(res, filled.code === 'video_no_ffmpeg' || filled.code === 'video_ffmpeg_check_failed' || filled.code === 'render_no_ffprobe' ? 503 : 400, filled.code, lang, ('detail' in filled && filled.detail) || null)
       }
       const applied = applyTimelineOps(current.doc, filled.ops)
       if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
@@ -6186,7 +6190,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // starts at once and answers 202; GET /render-status tells how far it is and, when it is done, carries the same body the waiting call returns.
     const renderStatusFor = (): { status: number; body: Record<string, unknown> } => {
       const job = getRenderJob(item.id)
-      return { status: 200, body: { job: jobStatus(job), ...(job && job.state === 'done' ? { result: job.result } : {}) } }
+      const st = jobStatus(job)
+      // #789: a failed job carries the person-readable sentence too (the editor showed only the code before).
+      const shown = st && st.error ? { ...st, error: { ...st.error, message: msg(st.error.code, lang) } } : st
+      return { status: 200, body: { job: shown, ...(job && job.state === 'done' ? { result: job.result } : {}) } }
     }
     type RenderFailure = { status: number; code: string; detail: string | null }
     const runRender = async (onProgress?: (f: number) => void): Promise<{ ok: true; body: Record<string, unknown> } | ({ ok: false } & RenderFailure)> => {
@@ -6197,7 +6204,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!r.ok) {
         if (r.from === 'store') return { ok: false, status: tlStatus(r.code), code: r.code, detail: r.detail }
         const status = r.code === 'video_busy' ? 409
-          : r.code === 'video_no_ffmpeg' || r.code === 'video_ffmpeg_check_failed' || r.code === 'render_no_subtitle_filter' ? 503
+          : r.code === 'video_no_ffmpeg' || r.code === 'video_ffmpeg_check_failed' || r.code === 'render_no_subtitle_filter' || r.code === 'render_no_ffprobe' ? 503
           : r.code === 'video_failed' || r.code === 'video_timeout' || r.code === 'write_failed' ? 500 : 400
         return { ok: false, status, code: r.code, detail: r.detail }
       }

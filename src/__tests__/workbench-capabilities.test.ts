@@ -101,6 +101,7 @@ describe('a NULLA ket dolgot jelenthet', () => {
 
   it('ha ott van, a VALODI verziot es utat mondja', async () => {
     const bin = fakeBin('ffmpeg', 'ffmpeg version 7.1 Copyright (c)')
+    fakeBin('ffprobe', 'ffprobe version 7.1') // #789: the package ships it beside ffmpeg; the render needs it
     process.env['MARVEEN_FFMPEG'] = bin
     resetCapabilityProbes()
     const row = await describeCapability(getCapability('video_render')!, 'hu', true)

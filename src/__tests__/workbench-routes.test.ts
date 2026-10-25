@@ -854,6 +854,8 @@ describe('Munkapad: kepesseg-kezelo (8. fazis)', () => {
     const bin = join(dir, 'ffmpeg')
     writeFileSync(bin, '#!/bin/sh\necho "ffmpeg version 7.1"\n')
     chmodSync(bin, 0o755)
+    writeFileSync(join(dir, 'ffprobe'), '#!/bin/sh\necho "ffprobe version 7.1"\n') // #789: ffprobe beside ffmpeg
+    chmodSync(join(dir, 'ffprobe'), 0o755)
     process.env['MARVEEN_FFMPEG'] = bin
     const ok = await call('/api/workbench/capabilities/video_render/test', 'POST', {})
     expect(ok.body.capability.state).toBe('ok')
@@ -868,6 +870,8 @@ describe('Munkapad: kepesseg-kezelo (8. fazis)', () => {
     const bin = join(dir, 'ffmpeg')
     writeFileSync(bin, '#!/bin/sh\necho "ffmpeg version 6.0"\n')
     chmodSync(bin, 0o755)
+    writeFileSync(join(dir, 'ffprobe'), '#!/bin/sh\necho "ffprobe version 6.0"\n') // #789: ffprobe beside ffmpeg
+    chmodSync(join(dir, 'ffprobe'), 0o755)
     const r = await call('/api/workbench/capabilities/video_render/setting', 'POST', { value: bin })
     expect(r.status).toBe(200)
     expect(r.body.saved).toBe(true)

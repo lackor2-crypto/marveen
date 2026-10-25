@@ -30,7 +30,7 @@ export const RENDER_TIMEOUT_MS = 4 * VIDEO_TRIM_TIMEOUT_MS
 
 export type RenderFailCode =
   | 'render_empty' | 'render_clip_beyond_end' | 'render_source_missing' | 'render_source_outside' | 'render_no_subtitle_filter'
-  | 'render_probe_failed'
+  | 'render_probe_failed' | 'render_no_ffprobe'
 
 export type RenderFail = { ok: false; code: RenderFailCode; detail?: string | null }
 
@@ -304,7 +304,12 @@ export interface MediaProbe { audio: boolean; duration: number | null }
 type Probe = (ffmpegPath: string, abs: string) => Promise<MediaProbe | null>
 type Filters = (ffmpegPath: string) => Promise<boolean | null>
 
-const ffprobePath = (ffmpegPath: string): string => join(dirname(ffmpegPath), basename(ffmpegPath).replace(/ffmpeg/i, 'ffprobe'))
+/** #789: where ffprobe is expected: beside the ffmpeg that was found (the same package ships both). One place for the render
+ *  and the capability check. */
+export function ffprobeBeside(ffmpegPath: string): string {
+  return join(dirname(ffmpegPath), basename(ffmpegPath).replace(/ffmpeg/i, 'ffprobe'))
+}
+const ffprobePath = ffprobeBeside
 
 const defaultProbe: Probe = (ffmpegPath, abs) => new Promise((resolve) => {
   execFile(ffprobePath(ffmpegPath), ['-v', 'error', '-show_entries', 'stream=codec_type:format=duration', '-of', 'json', abs],
@@ -324,6 +329,20 @@ const defaultFilters: Filters = (ffmpegPath) => new Promise((resolve) => {
   })
 })
 
+/** #789: is ffprobe missing (not found at all, as opposed to failing on one file)? Asked only after a probe failed. */
+const defaultFfprobeMissing = (ffmpegPath: string): Promise<boolean> => new Promise((resolve) => {
+  execFile(ffprobeBeside(ffmpegPath), ['-version'], { timeout: 20_000, windowsHide: true }, (err) => {
+    resolve(!!err && ((err as NodeJS.ErrnoException).code === 'ENOENT' || (err as NodeJS.ErrnoException).code === 'EACCES'))
+  })
+})
+let ffprobeMissing: (ffmpegPath: string) => Promise<boolean> = defaultFfprobeMissing
+
+/** A failed probe of `src`: "ffprobe is missing" (with where it was looked for) or "this file could not be read". */
+async function probeFail(ffmpegPath: string, src: string): Promise<RenderFail> {
+  if (await ffprobeMissing(ffmpegPath)) return { ok: false, code: 'render_no_ffprobe', detail: ffprobeBeside(ffmpegPath) }
+  return { ok: false, code: 'render_probe_failed', detail: src }
+}
+
 let probe: Probe = defaultProbe
 let filters: Filters = defaultFilters
 /** Tests only. */
@@ -332,9 +351,10 @@ export function probeMedia(ffmpegPath: string, abs: string): Promise<MediaProbe 
   return probe(ffmpegPath, abs)
 }
 
-export function _setRenderDeps(d: { probe?: Probe; filters?: Filters } = {}): void {
+export function _setRenderDeps(d: { probe?: Probe; filters?: Filters; ffprobeMissing?: (ffmpegPath: string) => Promise<boolean> } = {}): void {
   probe = d.probe || defaultProbe
   filters = d.filters || defaultFilters
+  ffprobeMissing = d.ffprobeMissing || defaultFfprobeMissing
 }
 
 export type RenderResult =
@@ -377,7 +397,7 @@ export async function renderTimeline(project: ProjectRow, itemId: string, title:
     for (const c of doc.clips) {
       if (!(c.src in hasAudio)) {
         const p = await probe(ff.path, abs[c.src])
-        if (p === null) return { ok: false, code: 'render_probe_failed', detail: c.src }
+        if (p === null) return await probeFail(ff.path, c.src)
         hasAudio[c.src] = p.audio
         durations[c.src] = p.duration
       }
@@ -496,7 +516,8 @@ export async function fillClipEnds(project: ProjectRow, ops: unknown): Promise<{
     const ff = await videoTool()
     if (!ff.ok) return ff
     const p = await probe(ff.path, r.abs)
-    if (p === null || p.duration === null) return { ok: false, code: 'render_probe_failed', detail: o.src }
+    if (p === null) return await probeFail(ff.path, o.src)
+    if (p.duration === null) return { ok: false, code: 'render_probe_failed', detail: o.src }
     out.push({ ...o, end: Math.floor(p.duration * 1000) / 1000 })
   }
   return { ok: true, ops: out }
