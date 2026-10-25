@@ -1,7 +1,7 @@
 // #777 (Boss TG 2026-10-24: "Nem kell atkotni semmit, a birosagi oldalt kell helyette hasznalni. Butitott valtozatban."):
 // a note read onto the document page (text profile) is finalized by the court document's OWN route (/outline/finalize,
-// review -> tick -> final PDF in Finished materials), and the separate note panel (#667) refuses it, so a fix in the court
-// finalize reaches every document. Runs on an empty in-memory DB with a fake LibreOffice: a fresh install behaves the same.
+// review -> tick -> final PDF in Finished materials); #803 removed the separate note (#667) / Word (#719) finalize, so a fix in
+// the court finalize reaches every document. Runs on an empty in-memory DB with a fake LibreOffice: a fresh install behaves the same.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -116,9 +116,39 @@ describe('#777 the text profile finalizes on the court document route', () => {
     expect(getWorkItem(w.item.id)!.status).toBe('done')
   })
 
-  it('a note NOT on the document page keeps its own panel (nothing else can finalize it)', async () => {
+  // #803 (Boss TG: "egy helyen javitunk, mindenhol javitva van"): the old panels are gone, not kept as a fallback.
+  it('#803: a note / Word file NOT on the document page has no old finalize to fall back on: it is pointed to the page', async () => {
     const note = mkNote('Vazlat.md', 'Csak egy sor.\n', 'Vázlat')
     const r = await callWorkbench(`/api/workbench/items/${note.id}/approval`, 'POST', { action: 'finalize', pdf: true })
-    expect(r.body.error).not.toBe('final_on_document_page')
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('final_needs_document_page')
+    expect(getWorkItem(note.id)!.status).not.toBe('done')
+    writeFileSync(join(depot, dirRel, 'Brief.docx'), 'PK-docx', 'utf-8')
+    const w = createWorkItem({ project_id: pid, title: 'Brief', type: 'document' })
+    if (!w.ok) throw new Error('munkadarab')
+    getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`${dirRel}/Brief.docx`, w.item.id)
+    const d = await callWorkbench(`/api/workbench/items/${w.item.id}/approval`, 'POST', { action: 'finalize', pdf: true })
+    expect(d.status).toBe(409)
+    expect(d.body.error).toBe('final_needs_document_page')
+    expect(getWorkItem(w.item.id)!.status).not.toBe('done')
+  })
+
+  it('#803: a drafted document with its own page AND a Word path from elsewhere also finalizes on the court route only', async () => {
+    writeFileSync(join(depot, dirRel, 'Klage.docx'), 'PK-docx', 'utf-8')
+    const w = createWorkItem({ project_id: pid, title: 'Klage', type: 'document' })
+    if (!w.ok) throw new Error('munkadarab')
+    const sec = addSection(w.item.id, 'Klage')
+    if (!sec.ok) throw new Error('fejezet')
+    expect(addBlock(w.item.id, sec.section.id, { kind: 'paragraph', text: 'Der Kläger beantragt.', author: 'owner' }).ok).toBe(true)
+    getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`${dirRel}/Klage.docx`, w.item.id)
+    const old = await callWorkbench(`/api/workbench/items/${w.item.id}/approval`, 'POST', { action: 'finalize', pdf: true })
+    expect(old.status).toBe(409)
+    expect(old.body.error).toBe('final_on_document_page')
+    const base = `/api/workbench/items/${w.item.id}/outline`
+    const hash = (await callWorkbench(base, 'GET')).body.outline.content_hash as string
+    expect((await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')).status).toBe(200)
+    const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash })
+    expect(fin.status).toBe(200)
+    expect(getWorkItem(w.item.id)!.status).toBe('done')
   })
 })

@@ -27,7 +27,8 @@ export function workItemTypeForFile(name: string, mime?: string | null): WorkIte
   const ext = extname(n).slice(1).toLowerCase()
   if (ext === 'svg') return 'graphic'
   if (isPresentationFile(n)) return 'presentation'
-  if (ext === 'md' || ext === 'txt') return 'note'
+  // #803: a .markdown file is a note too, so it is read onto the document page and finalized there like any .md.
+  if (ext === 'md' || ext === 'markdown' || ext === 'txt') return 'note'
   const k = fileKind(n).kind
   if (k === 'image') return 'image'
   if (k === 'video') return 'video'

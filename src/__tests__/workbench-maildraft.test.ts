@@ -14,9 +14,8 @@ import { addAnnex, setDocSettings } from '../workbench-docannex.js'
 import { contentHash, finalizeDocument, recordReview, resolverFor } from '../workbench-docfinal.js'
 import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
-import { markPlainItem } from '../workbench-assets.js'
-import { finalizeDocxItem } from '../workbench-docxfinal.js'
-import { reopenWorkItem } from '../workbench-approval.js'
+import { attachAsset, markPlainItem } from '../workbench-assets.js'
+import { finalizeWorkItem } from '../workbench-approval.js'
 import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
 import { registerMailboxEngine, _setGoogleEngine } from '../mail-send.js'
 
@@ -181,15 +180,17 @@ describe('the e-mail draft of a work item', () => {
 
   // #723 (Boss TG 3935: "feladot is irni kell az emailhoz ... egy kodsort hasznaljunk csak"): a finalized Word item makes
   // its mail with this same code -- the sender account, the From line, the final PDF attached, in Finished materials.
-  it('a finalized Word item: the same draft with the sender, its final PDF attached, straight into the mailbox', async () => {
+  it('a Word item finalized with the old panel: the same draft with the sender, its final PDF attached, straight into the mailbox', async () => {
     writeFileSync(join(projDir(), 'Iratok', 'Antrag.docx'), 'PK fake word')
     const w = createWorkItem({ project_id: pid, title: 'Antrag', type: 'document', source_path: 'Projektek/Iroda/Iratok/Antrag.docx' })
     if (!w.ok) throw new Error('item')
     markPlainItem(w.item.id)
     const before = await saveMailDraft(w.item, { to: 'amt@stadt.de' }, 'hu')
     expect(before).toMatchObject({ ok: false, code: 'docx_mail_no_pdf' })
-    const f = await finalizeDocxItem(getWorkItem(w.item.id)!, { by: 'owner', ui: 'hu' })
-    if (!f.ok) throw new Error('finalize ' + f.code + ' ' + f.detail)
+    // #803: the old Word finalize is gone; what it left (its final PDF in Finished materials, the item done) still mails.
+    const pdf = attachAsset(getWorkItem(w.item.id)!, 'Antrag - végleges.pdf', Buffer.from('%PDF-1.4 old panel'), { force: true, createdBy: 'owner', into: 'finished' })
+    if (!pdf.ok) throw new Error('pdf ' + pdf.code)
+    if (!finalizeWorkItem(w.item.id, { by: 'owner' }).ok) throw new Error('finalize')
     const word = getWorkItem(w.item.id)!
     const r = await saveMailDraft(word, { from_account: 'work', from_addr: 'me@example.com', to: 'amt@stadt.de', subject: 'Antrag' }, 'hu')
     if (!r.ok) throw new Error('save ' + r.code)
@@ -202,22 +203,6 @@ describe('the e-mail draft of a work item', () => {
     expect(readdirSync(join(projDir(), 'Iratok', 'Elkészített anyagok')).filter((n) => n.endsWith('.eml'))).toEqual([])
     expect(readdirSync(join(projDir(), 'Iratok')).sort()).toEqual(['Antrag.docx', 'Elkészített anyagok', 'bescheid.pdf', 'vertrag.pdf'])
     expect(mailDraftView(word)).toMatchObject({ from_account: 'work', state: 'current' })
-  })
-
-  // #725 (Boss TG 3987): finalizing an unchanged Word file again reuses the final PDF that is there; no "(2)" copy.
-  it('finalizing an unchanged Word file again makes no new PDF', async () => {
-    writeFileSync(join(projDir(), 'Iratok', 'Antrag.docx'), 'PK fake word')
-    const w = createWorkItem({ project_id: pid, title: 'Antrag', type: 'document', source_path: 'Projektek/Iroda/Iratok/Antrag.docx' })
-    if (!w.ok) throw new Error('item')
-    markPlainItem(w.item.id)
-    const first = await finalizeDocxItem(getWorkItem(w.item.id)!, { by: 'owner', ui: 'hu' })
-    if (!first.ok) throw new Error('finalize ' + first.code)
-    const re = reopenWorkItem(w.item.id, { by: 'owner' })
-    if (!re.ok) throw new Error('reopen ' + re.code)
-    const second = await finalizeDocxItem(getWorkItem(w.item.id)!, { by: 'owner', ui: 'hu' })
-    if (!second.ok) throw new Error('finalize2 ' + second.code)
-    expect(second.pdf_path).toBe(first.pdf_path)
-    expect(readdirSync(join(projDir(), 'Iratok', 'Elkészített anyagok')).filter((n) => n.endsWith('.pdf'))).toHaveLength(1)
   })
 
   it('an item without a document makes no draft', async () => {

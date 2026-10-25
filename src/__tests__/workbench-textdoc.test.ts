@@ -172,11 +172,14 @@ describe('#673 the front end shares ONE page renderer (source guard)', () => {
   // court document's OWN finalize panel and route, not by the separate note / Word panels.
   it('#777 the text profile finalizes with the court document panel, not a separate one', () => {
     const top = js.slice(js.indexOf('function finalizeTopHtml('), js.indexOf('function finalizeTopHtml(') + 3000)
-    expect(top).toContain("if ((it.type === 'document' && !it.source_path) || isTextProfile(it)) {")
+    // #803: one test decides what is on the page (finalOnPage); the text profile is part of it, the old panel is gone.
+    expect(top).toContain('if (finalOnPage(it)) {')
     expect(top).toContain('data-wb-act="sh-final"')
-    const panel = js.slice(js.indexOf('function noteFinalPanelHtml('), js.indexOf('function noteFinalPanelHtml(') + 600)
-    expect(panel).toContain('|| isTextProfile(it) || archived()) return')
-    expect(js).toContain("else if (a === 'item-finalize' && WB.detail && isTextProfile(WB.detail.item)) { WB.shFinal = !WB.shFinal")
+    const onPage = js.slice(js.indexOf('function finalOnPage('), js.indexOf('function finalOnPage(') + 400)
+    expect(onPage).toContain('if (isTextProfile(it)) return true')
+    const panel = js.slice(js.indexOf('function noteFinalPanelHtml('), js.indexOf('function noteFinalPanelHtml(') + 900)
+    expect(panel).toContain('!isTableFinalItem(it) || archived()) return')
+    expect(js).toContain("else if (a === 'item-finalize' && WB.detail && finalOnPage(WB.detail.item)) { WB.shFinal = !WB.shFinal")
   })
   it('every new text is in both languages', () => {
     for (const k of ['reimport', 'reimport_tip', 'reimport_confirm', 'reimported']) {

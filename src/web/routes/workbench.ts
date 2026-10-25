@@ -79,9 +79,9 @@ import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../
 import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { pageBreaksFor } from '../../workbench-docpages.js'
-import { finalizeTextItem, hasTextFinalPanel } from '../../workbench-notefinal.js'
+import { hasTextFinalPanel } from '../../workbench-notefinal.js'
 import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefinal.js'
-import { finalizeDocxItem, hasDocxFinalPanel } from '../../workbench-docxfinal.js'
+import { hasDocxFinalPanel } from '../../workbench-docxfinal.js'
 import { decideWorkmodeProposal, DEFAULT_WORKMODE, getWorkmode, listWorkmodeProposals, resetWorkmode, setWorkmode, sheetWithRule, WORKMODE_MAX_CHARS } from '../../workbench-workmode.js'
 import { checkPlacementAfter, lifeMoveIssues } from '../../workbench-placement-check.js'
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
@@ -347,17 +347,13 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ez a munkadarab a dokumentum-oldalon áll, ezért ugyanúgy véglegesíted, mint egy bírósági dokumentumot: a felső Véglegesítés gomb megnyitja a lépéseket (átnézés, pipa, végleges PDF), utána jöhet a levélpiszkozat.',
     en: 'This work item stands on the document page, so you finalize it the same way as a court document: the Finalize button at the top opens the steps (review, tick, final PDF), then the e-mail draft.',
   },
+  final_needs_document_page: {
+    hu: 'Ezt a munkadarabot a dokumentum-oldalon kell véglegesíteni, ugyanúgy, mint egy bírósági dokumentumot, de a szövege még nincs az oldalon. Nyisd meg a munkadarabot: a Marveen beolvassa az oldalra (ha hibát ír, a hibaüzenet alatti gombbal próbáld újra). Utána a felső Véglegesítés gomb megnyitja a lépéseket.',
+    en: 'This work item is finalized on the document page, the same way as a court document, but its text is not on the page yet. Open the work item: Marveen reads it onto the page (if it shows an error, retry with the button under the message). Then the Finalize button at the top opens the steps.',
+  },
   note_final_not_text: {
     hu: 'Ennek a munkadarabnak nincs szöveges (.md / .txt) fájlja, ezért nem készíthető belőle PDF.',
     en: 'This work item has no text (.md / .txt) file, so no PDF can be made of it.',
-  },
-  note_final_unreadable: {
-    hu: 'A munkadarab fájlja nem olvasható (törölték vagy áthelyezték?). Nézd meg a Raktárban, hogy megvan-e, és próbáld újra.',
-    en: 'The file of this work item cannot be read (deleted or moved?). Check that it is still in the Depot, then try again.',
-  },
-  note_final_pdf_failed: {
-    hu: 'A PDF nem készült el, ezért a munkadarab nincs véglegesítve. Próbáld újra; ha megint hibát kapsz, a részlet a hibaüzenetben van.',
-    en: 'The PDF could not be made, so the work item is not finalized. Try again; if it fails again, the detail is in the error message.',
   },
   note_final_save_failed: {
     hu: 'A PDF elkészült, de az Elkészített anyagok mappába nem sikerült elmenteni, ezért a munkadarab nincs véglegesítve.',
@@ -366,22 +362,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   note_final_bad_translation: {
     hu: 'A lefordított szöveg vagy a nyelv kódja nem megfelelő, ezért nem készült PDF. Fordítsd le újra a szöveget, és próbáld újra.',
     en: 'The translated text or its language code is not usable, so no PDF was made. Translate the text again and retry.',
-  },
-  docx_final_not_docx: {
-    hu: 'Ennek a munkadarabnak nincs Word-fájlja (docx), ezért nem véglegesíthető ezen a panelen.',
-    en: 'This work item has no Word file (docx), so it cannot be finalized from this panel.',
-  },
-  docx_final_unreadable: {
-    hu: 'A Word-fájl nem olvasható (törölték vagy áthelyezték?). Nézd meg a Raktárban, hogy megvan-e, és próbáld újra.',
-    en: 'The Word file cannot be read (deleted or moved?). Check that it is still in the Depot, then try again.',
-  },
-  docx_final_save_failed: {
-    hu: 'A PDF elkészült, de az Elkészített anyagok mappába nem sikerült elmenteni, ezért a munkadarab nincs véglegesítve.',
-    en: 'The PDF was made, but it could not be saved into the Finished materials folder, so the work item is not finalized.',
-  },
-  docx_final_already_done: {
-    hu: 'Ez a munkadarab már véglegesítve van. Ha módosítani akarod, előbb nyisd újra.',
-    en: 'This work item is already finalized. Reopen it first if you want to change it.',
   },
   docx_mail_no_pdf: {
     hu: 'Még nincs végleges PDF az Elkészített anyagok mappában. Előbb véglegesítsd a munkadarabot, utána készülhet az e-mail.',
@@ -446,14 +426,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   textdoc_import_failed: {
     hu: 'A szöveget nem sikerült a dokumentum-oldalra beolvasni, ezért a jegyzet változatlan maradt.',
     en: 'The text could not be read into the document page, so the note stayed as it was.',
-  },
-  note_final_no_variant: {
-    hu: 'Ehhez a nyelvhez még nincs mentett változat. Fordítsd le a szöveget a Fordítás nézetben, mentsd el változatként, és próbáld újra.',
-    en: 'There is no saved version in this language yet. Translate the text in the Translation view, save it as a version, and retry.',
-  },
-  note_final_already_done: {
-    hu: 'Ez a munkadarab már véglegesítve van. Ha újra kell, előbb nyisd újra.',
-    en: 'This work item is already finalized. To do it again, reopen it first.',
   },
   approval_bad_action: {
     hu: 'Ismeretlen jóváhagyási lépés.',
@@ -5055,27 +5027,12 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     } else if (action === 'finalize' || action === 'reopen') {
       // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.
       if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
-      // #777: a note / Word file read onto the document page (text profile) has ONE finalize: the court document's own
-      // (/outline/finalize), so a fix there reaches it too. The separate panels below are only for a file not on the page.
-      if (action === 'finalize' && body['pdf'] === true && (hasTextFinalPanel(item) || hasDocxFinalPanel(item)) && textProfileOf(item)) {
-        return fail(res, 409, 'final_on_document_page', lang)
-      }
-      // #667: a text-file item (.md / .txt) is finalized from the panel with its PDF, which lands in Finished materials.
-      if (action === 'finalize' && body['pdf'] === true && hasTextFinalPanel(item)) {
-        const tf = await finalizeTextItem(item, { by: who || 'dashboard', lang: body['lang'] == null ? null : String(body['lang']), text: typeof body['text'] === 'string' ? body['text'] : null })
-        if (!tf.ok) return failDetail(res, tf.code === 'note_final_already_done' ? 409 : tf.code === 'note_final_not_text' || tf.code === 'note_final_bad_translation' || tf.code === 'note_final_no_variant' ? 400 : 500, tf.code, lang, tf.detail)
-        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name }, placement: checkPlacementAfter(item, 'finalize', lang) })
-        return true
-      }
-      // #719: a Word (.docx) item is finalized from its own panel; the PDF lands NEXT TO the Word file (no folder is made).
-      if (action === 'finalize' && body['pdf'] === true && hasDocxFinalPanel(item)) {
-        const df = await finalizeDocxItem(item, { by: who || 'dashboard', ui: lang })
-        if (!df.ok) {
-          if (df.code === 'convert') return docEditFail(res, { code: df.convert || 'convert_failed', detail: df.detail }, lang)
-          return failDetail(res, df.code === 'docx_final_already_done' ? 409 : df.code === 'docx_final_not_docx' ? 400 : 500, df.code, lang, df.detail)
-        }
-        json(res, { item: df.item, approval: workItemApprovalState(item.id), final: { path: df.pdf_path, name: df.pdf_name, pdf_name: df.pdf_name }, placement: checkPlacementAfter(item, 'finalize', lang) })
-        return true
+      // #777 / #803 (Boss TG: "egy helyen javitunk, mindenhol javitva van"): a note / Word file has ONE finalize, the court
+      // document's own (/outline/finalize), so a fix there reaches every document. The old #667 note and #719 Word panels
+      // are gone: a request for them is pointed to the document page (or told the text is not read onto it yet).
+      if (action === 'finalize' && body['pdf'] === true) {
+        if ((hasTextFinalPanel(item) || hasDocxFinalPanel(item)) && (textProfileOf(item) || hasDocModel(item.id))) return fail(res, 409, 'final_on_document_page', lang)
+        if (isTextProfileCandidate(item) || isWordProfileCandidate(item)) return fail(res, 409, 'final_needs_document_page', lang)
       }
       // #674: a table item is finalized from its own panel; the workbook (and a PDF, when LibreOffice is there) lands in Finished materials.
       if (action === 'finalize' && body['pdf'] === true && hasTableFinalPanel(item)) {
