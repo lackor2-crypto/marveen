@@ -196,12 +196,15 @@ export function rewriteAnnexRefs(itemId: string, from: Pick<DocSettings, 'annex_
 
 export function docSettings(itemId: string): DocSettings {
   ensureAnnexTables()
-  const r = getDb().prepare('SELECT annex_scheme, annex_prefix, annex_mode FROM wb_doc_settings WHERE work_item_id = ?').get(itemId) as DocSettings | undefined
-  if (!r) return { ...DEFAULT_SETTINGS }
+  const get = (id: string) => getDb().prepare('SELECT annex_scheme, annex_prefix, annex_mode FROM wb_doc_settings WHERE work_item_id = ?').get(id) as DocSettings | undefined
+  const r = get(itemId) ?? DEFAULT_SETTINGS
+  // #794: the annex mode (separate / combined) is the original's, a variant is made the same way.
+  const owner = annexOwnerId(itemId)
+  const mode = owner === itemId ? r.annex_mode : (get(owner)?.annex_mode ?? DEFAULT_SETTINGS.annex_mode)
   return {
     annex_scheme: ANNEX_SCHEMES.includes(r.annex_scheme) ? r.annex_scheme : DEFAULT_SETTINGS.annex_scheme,
     annex_prefix: /^[A-Z]{1,2}$/.test(r.annex_prefix) ? r.annex_prefix : DEFAULT_SETTINGS.annex_prefix,
-    annex_mode: ANNEX_MODES.includes(r.annex_mode) ? r.annex_mode : DEFAULT_SETTINGS.annex_mode,
+    annex_mode: ANNEX_MODES.includes(mode) ? mode : DEFAULT_SETTINGS.annex_mode,
   }
 }
 
@@ -251,9 +254,22 @@ export const LINKED_PREFIX = 'doc:'
 export const isLinkedPath = (p: string): boolean => String(p || '').startsWith(LINKED_PREFIX)
 const baseName = (p: string): string => String(p || '').slice(String(p || '').lastIndexOf('/') + 1)
 
+/**
+ * #794: a language variant has no annex list of its own, it uses the one of its original (same files, same order),
+ * so the PDF made of the variant carries the same annexes. The variants table may not exist yet: then nothing is one.
+ */
+export function annexOwnerId(itemId: string): string {
+  try {
+    const r = getDb().prepare('SELECT source_item_id FROM wb_doc_variants WHERE work_item_id = ?').get(itemId) as { source_item_id: string } | undefined
+    return r?.source_item_id || itemId
+  } catch { return itemId }
+}
+
+const INHERITED = { ok: false, code: 'bad_input', detail: 'a language variant uses the annexes of its original: change them there' } as const
+
 function listAnnexRows(itemId: string): AnnexRow[] {
   ensureAnnexTables()
-  return getDb().prepare('SELECT * FROM wb_doc_annexes WHERE work_item_id = ? ORDER BY position, created_at').all(itemId) as AnnexRow[]
+  return getDb().prepare('SELECT * FROM wb_doc_annexes WHERE work_item_id = ? ORDER BY position, created_at').all(annexOwnerId(itemId)) as AnnexRow[]
 }
 
 /** A projekt fajljainak feloldasa (a hivo adja, hogy a modul tesztelheto maradjon). */
@@ -315,6 +331,7 @@ function applyOrder(itemId: string, oldOrder: AnnexRow[], newOrder: (AnnexRow | 
 }
 
 export function addAnnex(itemId: string, input: { path?: unknown; title?: unknown; position?: unknown }, resolve: FileResolver, by: string | null): AnnexResult<{ annex: AnnexView; rewritten: number }> {
+  if (annexOwnerId(itemId) !== itemId) return INHERITED
   ensureAnnexTables()
   const path = String(input.path ?? '').replace(/\\/g, '/').replace(/^\/+/, '').trim()
   if (!path) return { ok: false, code: 'bad_input', detail: 'path (a file of the project folder) is required' }
@@ -343,6 +360,7 @@ export function addAnnex(itemId: string, input: { path?: unknown; title?: unknow
 }
 
 export function updateAnnex(itemId: string, id: string, patch: { title?: unknown; position?: unknown }): AnnexResult<{ annex: AnnexRow; rewritten: number }> {
+  if (annexOwnerId(itemId) !== itemId) return INHERITED
   const rows = listAnnexRows(itemId)
   const a = rows.find((r) => r.id === String(id || ''))
   if (!a) return { ok: false, code: 'not_found', detail: 'no annex with this id in this document' }
@@ -369,6 +387,7 @@ export function updateAnnex(itemId: string, id: string, patch: { title?: unknown
  * its own number for it -- but only once in one list.
  */
 export function linkAnnex(itemId: string, input: { docId: string; lifeRel: string; title?: unknown; position?: unknown }, resolve: FileResolver, by: string | null): AnnexResult<{ annex: AnnexView; rewritten: number }> {
+  if (annexOwnerId(itemId) !== itemId) return INHERITED
   ensureAnnexTables()
   const docId = String(input.docId || '').trim()
   if (!/^DOC-[A-Z0-9]{4,40}$/.test(docId)) return { ok: false, code: 'bad_input', detail: 'docId must be a document id' }
@@ -412,6 +431,7 @@ export function rememberLinkedRel(annexId: string, lifeRel: string): void {
  * a cim es a szovegbeli hivatkozasok maradnak.
  */
 export function setAnnexPath(itemId: string, id: string, rawPath: string, resolve: FileResolver): AnnexResult<{ annex: AnnexRow }> {
+  if (annexOwnerId(itemId) !== itemId) return INHERITED
   const rows = listAnnexRows(itemId)
   const a = rows.find((r) => r.id === String(id || ''))
   if (!a) return { ok: false, code: 'not_found', detail: 'no annex with this id in this document' }
@@ -424,6 +444,7 @@ export function setAnnexPath(itemId: string, id: string, rawPath: string, resolv
 
 /** Levetel a jegyzekrol (a fajl a mappaban marad). A ra mutato hivatkozasbol hiany-jeloles lesz. */
 export function removeAnnex(itemId: string, id: string): AnnexResult<{ removed: string; rewritten: number }> {
+  if (annexOwnerId(itemId) !== itemId) return INHERITED
   const rows = listAnnexRows(itemId)
   const a = rows.find((r) => r.id === String(id || ''))
   if (!a) return { ok: false, code: 'not_found', detail: 'no annex with this id in this document' }

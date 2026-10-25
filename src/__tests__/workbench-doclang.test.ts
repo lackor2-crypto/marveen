@@ -11,6 +11,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem, purgeWorkItem, setWorkItemDeleted, type WorkItemRow } from '../workbench.js'
 import { addSection, addBlock, addClaim, documentOutline, documentCheck, updateBlock, removeSection, type SourceWorld } from '../workbench-docmodel.js'
+import { addAnnex, listAnnexes, removeAnnex, setDocSettings, docSettings } from '../workbench-docannex.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
 import {
   createVariant, variantInfo, variantsSummary, translateSection, addGlossaryTerm, removeGlossaryTerm, listGlossary,
@@ -86,6 +87,24 @@ describe('nyelvi valtozatok a dokumentummodellben', () => {
     source_section: secId, title: '1. Sachverhalt',
     blocks: [{ text, claims: [{ source_claim: claimId, text: CLAIM_DE }] }],
   }, 'workbench-agent')
+
+  it('#794: a valtozat az eredeti mellekletlistajat orokli (ugyanazok a fajlok, ugyanaz a sorrend, ugyanaz a mod), de nem szerkesztheto rajta', () => {
+    const resolve = (p: string) => (p === 'Level/idezes.pdf' ? { abs: join(projDir(), 'Level', 'idezes.pdf'), name: 'idezes.pdf' } : null)
+    const a = addAnnex(src.id, { path: 'Level/idezes.pdf', title: 'Idezes' }, resolve, 'teszt')
+    expect(a.ok).toBe(true)
+    setDocSettings(src.id, { annex_mode: 'combined' })
+    const v = makeDe()
+    const list = listAnnexes(v.id, resolve)
+    expect(list.map((x) => [x.path, x.title, x.label])).toEqual([['Level/idezes.pdf', 'Idezes', 'K1']])
+    expect(list[0].id).toBe(a.ok ? a.annex.id : '')
+    expect(docSettings(v.id).annex_mode).toBe('combined')
+    // the variant cannot change the list: it would silently hide behind the inherited one
+    const add = addAnnex(v.id, { path: 'Level/idezes.pdf' }, resolve, 'teszt')
+    expect(add.ok).toBe(false)
+    if (a.ok) expect(removeAnnex(v.id, a.annex.id).ok).toBe(false)
+    expect(listAnnexes(src.id, resolve)).toHaveLength(1)
+    expect(listAnnexes(v.id, resolve)).toHaveLength(1)
+  })
 
   it('a valtozat az eredeti mappajaba kerul: nincs uj mappa, nincs almappa (Boss TG 3049/3060)', async () => {
     const { ensureWorkItemFolder } = await import('../workbench-assets.js')
