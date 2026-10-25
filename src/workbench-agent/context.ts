@@ -24,7 +24,8 @@ import { brandForContext } from '../workbench-brand.js'
 import { researchForContext } from '../workbench-research.js'
 import { workmodeForContext } from '../workbench-workmode.js'
 import { toolsForPrompt } from './tools.js'
-import { documentLanguageName, documentLanguageRule } from './doc-language.js'
+import { documentLanguageName, documentLanguageRule, variantLanguageRule } from './doc-language.js'
+import { variantOf } from '../workbench-doclang.js'
 import type { AIMessage } from './provider.js'
 import type { AgentMessageRow } from './sessions.js'
 import { listWorkItemAssetsSynced, withDocState } from '../workbench-assets.js'
@@ -139,7 +140,8 @@ export async function buildContext(
     parts.push({ key, chars: text.length })
   }
 
-  add('language', `Answer language: ${documentLanguageName(lang)}\n${documentLanguageRule(lang)}`)
+  const variant = workItem ? variantOf(workItem.id) : null
+  add('language', `Answer language: ${documentLanguageName(lang)}\n${documentLanguageRule(lang)}${variant ? '\n' + variantLanguageRule(variant.lang) : ''}`)
 
   // #758: the owner's Work mode sheet, early, so the clamp at the end never cuts it. Unreadable is not "no rules".
   let workmode: string

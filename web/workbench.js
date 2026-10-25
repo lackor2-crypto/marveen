@@ -10793,7 +10793,6 @@
       if (!c) return
       var x = opts[parseInt(c.value, 10)]
       close()
-      WB.finalLangChosen = x.id // asked once: the same document is not asked about again
       if (x.here) { onThis(); return }
       // The chosen language is the one that is opened: switch to it and carry on, no second question and no second click.
       // The window is opened inside this click (a popup opened later would be blocked) and pointed at the PDF when it is known.
@@ -11096,9 +11095,10 @@
     } else if (a === 'outline-review') {
       // A link maga nyitja meg a PDF-et uj lapon; a szerver akkor rogziti az
       // atnezest, ha elkeszult, es a tartalom ugyanaz. Utana onnan olvassuk vissza.
-      // #794: with more than one language version the owner chooses which one is opened (no silent default).
+      // #794: with more than one language version the owner chooses which one is opened -- EVERY press asks again (Boss TG 3370:
+      // a slip of the finger must be correctable; the switch itself opens the PDF without going through this click).
       var rvOpts = finalLangOptions(WB.detail && WB.detail.outline)
-      if (rvOpts.length > 1 && ev && WB.finalLangChosen !== WB.selectedId) {
+      if (rvOpts.length > 1 && ev) {
         ev.preventDefault()
         var rvHref = act.getAttribute('href')
         pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { window.open(rvHref, '_blank', 'noopener'); watchReview() })

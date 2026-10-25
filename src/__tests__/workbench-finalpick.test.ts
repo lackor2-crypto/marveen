@@ -14,7 +14,8 @@ describe('workbench language choice before review / mail (#794)', () => {
     expect(js).toMatch(/name="wbFinalLang" value="' \+ i \+ '">/)
     expect(js).not.toMatch(/name="wbFinalLang" value=[^>]*checked/)
     expect(js).toMatch(/id="wbFinalLangGo" disabled/)
-    expect(js).toMatch(/rvOpts\.length > 1 && ev && WB\.finalLangChosen !== WB\.selectedId\)/)
+    expect(js).toMatch(/rvOpts\.length > 1 && ev\)/)
+    expect(js).not.toMatch(/finalLangChosen/)
     expect(js).toMatch(/outlineAction\(a, act, e\)/)
   })
   it('the chosen language opens at once: no second question, no second click, and every language stays in the list', () => {

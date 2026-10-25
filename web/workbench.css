@@ -1,3 +1,6 @@
+/* #794 (Boss, TG 3372: "ez a sarga olvashatatlan"): warning TEXT on the light panels needs a dark amber (the bright --warning is ~2:1 there); dark theme keeps it. */
+:root { --wb-warn-text: #8a4b00; }
+[data-theme="dark"] { --wb-warn-text: var(--warning, #d4a52c); }
 /* AI Munkapad (kanban #336, 740b432a, 1. fazis).
  *
  * Kulon stiluslap, hogy a web/style.css-t ne kelljen bovitani (fork-barat).
@@ -376,7 +379,7 @@
 .wb-tool { font-size: 0.82rem; margin-top: 4px; overflow-wrap: anywhere; }
 .wb-tool-name { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .wb-tool-bad { color: var(--danger, #d33); }
-.wb-tool-wait { color: var(--warning, #b45309); }
+.wb-tool-wait { color: var(--wb-warn-text); }
 .wb-chat-activity { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; margin: 0 0 6px; flex-wrap: wrap; }
 .wb-chat-activity-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted, #9ca3af); flex: 0 0 auto; }
 .wb-chat-activity-busy .wb-chat-activity-dot { background: var(--success, #16a34a); animation: wbPulse 1.2s ease-in-out infinite; }
@@ -1035,9 +1038,9 @@
 .wb-td-rem-warn { font-style: italic; }
 .wb-td-repeat { font-size: 12px; opacity: .8; white-space: nowrap; }
 .wb-td-overdue .wb-td-due { color: var(--danger, #cf222e); font-weight: 600; opacity: 1; }
-.wb-td-today .wb-td-due { color: var(--warning, #9a6700); font-weight: 600; opacity: 1; }
+.wb-td-today .wb-td-due { color: var(--wb-warn-text); font-weight: 600; opacity: 1; }
 .wb-td-gcal { font-size: 12px; opacity: .8; }
-.wb-td-gcal-warn { color: var(--warning, #9a6700); opacity: 1; }
+.wb-td-gcal-warn { color: var(--wb-warn-text); opacity: 1; }
 @media (max-width: 700px) {
   .wb-td-check { width: 36px; height: 36px; }
   .wb-td-form .wb-input { font-size: 16px; }
@@ -1135,7 +1138,7 @@
 .wb-post-files ul { margin: 4px 0 0; padding-left: 18px; }
 .wb-post-files li { word-break: break-word; }
 .wb-doc-state { font-size: 0.75rem; }
-.wb-doc-low { font-size: 0.75rem; color: var(--warning, #b45309); }
+.wb-doc-low { font-size: 0.75rem; color: var(--wb-warn-text); }
 .wb-outline { margin: 8px 0 12px; padding: 8px 10px; border: 1px solid var(--border, #d1d5db); border-radius: 6px; }
 .wb-outline-sec { margin: 8px 0; }
 .wb-outline-sec h4 { margin: 6px 0; }
@@ -1254,7 +1257,7 @@
 .wb-court h4 { margin: 0 0 4px; }
 .wb-court-list { margin: 4px 0; padding-left: 18px; }
 .wb-court-err { color: var(--danger, #b91c1c); }
-.wb-court-warn { color: var(--warning, #92400e); }
+.wb-court-warn { color: var(--wb-warn-text); }
 .wb-court-prop { margin: 6px 0; padding: 6px 8px; border-left: 3px solid var(--accent, #2563eb); background: var(--surface-2, rgba(37, 99, 235, 0.05)); }
 .wb-court-prop a { word-break: break-all; }
 
@@ -2271,7 +2274,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-grp.wb-linked-row.wb-item-active, .wb-grp.wb-linked-row:has(> .wb-item-active) { background: color-mix(in srgb, var(--wb-grp) calc(var(--wb-grp-a-on, 26%) * 0.45), transparent); }
 
 /* #698: a gentle "may be in the wrong place" note on a file row: amber, never red; the soft kind is paler still. */
-.wb-misplaced { display: inline-block; margin-left: 4px; font-size: 0.85em; line-height: 1; padding: 1px 4px; border-radius: 4px; cursor: help; color: var(--warning, #b45309); border: 1px solid color-mix(in srgb, var(--warning, #b45309) 55%, transparent); background: color-mix(in srgb, var(--warning, #b45309) 10%, transparent); }
+.wb-misplaced { display: inline-block; margin-left: 4px; font-size: 0.85em; line-height: 1; padding: 1px 4px; border-radius: 4px; cursor: help; color: var(--wb-warn-text); border: 1px solid color-mix(in srgb, var(--warning, #b45309) 55%, transparent); background: color-mix(in srgb, var(--warning, #b45309) 10%, transparent); }
 .wb-misplaced-soft { opacity: 0.6; border-style: dashed; background: transparent; }
 
 /* #700: file upload at the bottom of the left tree, above the Trash. */
@@ -2283,7 +2286,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-treeup-sel { width: 100%; max-width: 100%; box-sizing: border-box; }
 .wb-treeup-mism { margin: 0 0 8px; padding-left: 18px; }
 .wb-treeup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.wb-treeup-err { color: var(--warning, #b45309); }
+.wb-treeup-err { color: var(--wb-warn-text); }
 
 .wb-vt-progress { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin: 8px 0 4px; }
 .wb-vt-progress > span { display: block; height: 100%; background: var(--accent, #6d4aff); transition: width 0.6s linear; }
