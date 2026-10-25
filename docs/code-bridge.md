@@ -515,6 +515,10 @@ Ezért a végrehajtó minden bejelentkezése (felderítés, feladat-kivétel,
 - **Egy feladat egyszerre.** A worker sorosít; két párhuzamos `--resume`
   ugyanarra a sessionre egymásra írná a naplót.
 - **Futó feladat nem állítható le** Telegramról (csak `queued` törölhető).
+  Kivétel (#774): a Jóváhagyások oldal X gombja egy futó ellenőrzési
+  feladatra leállítást kér (`stop_requested_at`); a heartbeat válasza ekkor
+  `{ ok: true, stop: true }`, a worker leállítja a `claude.exe`-t, és a
+  beérkező eredmény `cancelled` lesz (nem kerül vissza a sorba).
 - **Ne gépelj a panelbe, amíg fut egy feladat** az adott sessionben. Az új
   köröket a panel újranyitása után látod.
 - **A saját, élő beszélgetésed sessionjére ne adj fel feladatot** -- oda a

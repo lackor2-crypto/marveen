@@ -126,6 +126,8 @@ export interface CodeTask {
   /** #598: null | 'pending' | 'held' | 'fresh' (see ensureTables). */
   topicState: string | null
   holdCard: string | null
+  /** #774: when the owner asked a RUNNING task to stop (null = never). */
+  stopRequestedAt: number | null
 }
 
 // A claimed task whose worker went silent (crash, reboot, network drop) must not
@@ -246,6 +248,9 @@ function ensureTables(): void {
   // #550 (6): the worker whose lease was reaped may still be running the ORIGINAL run; its answer is
   // recognised by this host, even after the task went back to the queue or was claimed by another host.
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN prev_host TEXT') } catch { /* mar letezik */ }
+  // #774: the owner took back the review this running task belongs to. The worker reads it on its next
+  // heartbeat and stops claude.exe; the answer that still comes in closes the task as 'cancelled'.
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN stop_requested_at INTEGER') } catch { /* mar letezik */ }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
   // Worker presence. The bridge has exactly ONE silent failure mode: the
@@ -876,6 +881,7 @@ function rowToTask(row: Record<string, unknown>): CodeTask {
     runSessionId: (row['run_session_id'] as string | null) ?? null,
     topicState: (row['topic_state'] as string | null) ?? null,
     holdCard: (row['hold_card'] as string | null) ?? null,
+    stopRequestedAt: (row['stop_requested_at'] as number | null) ?? null,
   }
 }
 
@@ -1883,6 +1889,15 @@ export function completeCodeTaskDetailed(
     return { task: getCodeTask(id), outcome: 'cancelled' }
   }
 
+  // #774: the owner asked this run to stop. Whatever the worker reports now -- the killed CLI's tail, or a
+  // full answer from a worker too old to stop it -- the task ends as 'cancelled', never re-queued or announced.
+  if (existing.status === 'running' && existing.stopRequestedAt !== null) {
+    getDb()
+      .prepare(`UPDATE code_tasks SET status = 'cancelled', finished_at = ?, lease_expires_at = NULL, result = ?, summary = ? WHERE id = ?`)
+      .run(now, result, result ? summarizeResult(result) : null, id)
+    return { task: getCodeTask(id), outcome: 'cancelled' }
+  }
+
   // Already decided (a duplicate POST, or a retry after a lost response):
   // idempotent, and above all no second notification.
   if (existing.status === 'done' || existing.status === 'error') {
@@ -2019,6 +2034,20 @@ export function cancelCodeTask(id: string, now = Date.now()): CodeTask | null {
 }
 
 /**
+ * #774: ask a RUNNING task to stop. The row stays 'running' (claude.exe really is still going) until the
+ * worker answers: its heartbeat reply carries `stop: true`, it kills the CLI, and the result it then posts
+ * closes the task as 'cancelled' (see completeCodeTaskDetailed). A worker that never answers again is
+ * cancelled by the lease reaper instead of being re-queued. Returns false when the task is not running.
+ */
+export function requestStopCodeTask(id: string, now = Date.now()): boolean {
+  ensureTables()
+  const info = getDb()
+    .prepare(`UPDATE code_tasks SET stop_requested_at = COALESCE(stop_requested_at, ?) WHERE id = ? AND status = 'running'`)
+    .run(now, id)
+  return info.changes > 0
+}
+
+/**
  * Re-queue tasks whose worker stopped heartbeating; error out the ones that have
  * burned their attempts. Returns the tasks that were pushed to 'error' so the
  * caller can notify -- a silently dropped task is exactly the failure this whole
@@ -2064,7 +2093,10 @@ export function reapExpiredCodeLeases(now = Date.now()): { requeued: string[]; f
   const failed: CodeTask[] = []
   for (const row of rows) {
     const task = rowToTask(row)
-    if (task.attempts >= MAX_ATTEMPTS) {
+    if (task.stopRequestedAt !== null) {
+      // #774: the owner stopped it; a silent worker is no reason to start the work again.
+      db.prepare(`UPDATE code_tasks SET status = 'cancelled', finished_at = ?, lease_expires_at = NULL WHERE id = ?`).run(now, task.id)
+    } else if (task.attempts >= MAX_ATTEMPTS) {
       db.prepare(
         `UPDATE code_tasks SET status = 'error', error = ?, finished_at = ?, lease_expires_at = NULL WHERE id = ?`,
       ).run(`worker stopped responding after ${task.attempts} attempt(s)`, now, task.id)
