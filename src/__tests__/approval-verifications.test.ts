@@ -444,7 +444,7 @@ describe('POST /api/approvals/:id/verify/cancel', () => {
     expect(listCodeTasks({ project: 'someproject' })[0]!.status).toBe('cancelled')
   })
 
-  it('says so when a VS Code task already runs: it cannot be stopped, and is not marked cancelled', async () => {
+  it('a VS Code task that already runs is asked to stop (the worker kills it), and is counted, not hidden', async () => {
     const approval = createApproval({ id: 'x3', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
     await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject'] }).ctx)
     const task = listCodeTasks({ project: 'someproject' })[0]!
@@ -453,7 +453,8 @@ describe('POST /api/approvals/:id/verify/cancel', () => {
     const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify/cancel`)
     await tryHandleApprovals(ctx)
     expect(out.body).toEqual({ removed: 1, cancelledTasks: 0, runningTasks: 1 })
-    expect(listCodeTasks({ project: 'someproject' })[0]!.status).toBe('running')
+    // Still running until the worker confirms; the stop request is what its next heartbeat reads.
+    expect(listCodeTasks({ project: 'someproject' })[0]).toMatchObject({ status: 'running', stopRequestedAt: expect.any(Number) })
   })
 
   it('404 for an unknown approval', async () => {

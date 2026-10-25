@@ -1446,7 +1446,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       recordCodeWorkerSeen(hbHost, 'heartbeat')
       // Kartya 15e9476a (#276): a worker megmondja, melyik fulben fut a munka.
       const ok = heartbeatCodeTask(task.id, hbHost, Date.now(), body?.runSessionId ?? null)
-      json(res, { ok }, ok ? 200 : 409)
+      // #774: `stop` = the owner took this run back; the worker kills claude.exe and posts what it has.
+      json(res, ok && task.stopRequestedAt !== null ? { ok, stop: true } : { ok }, ok ? 200 : 409)
       return true
     }
 

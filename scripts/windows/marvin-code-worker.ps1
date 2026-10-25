@@ -74,7 +74,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-10-13.1'
+$script:WorkerVersion = '2026-10-25.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -340,7 +340,7 @@ $script:LifeMaxStallSec = 1200
 function Start-LifeThread {
   if ($DiscoverOnly) { return }
   $script:Life = [hashtable]::Synchronized(@{
-    Stop = $false; TaskId = $null; RunSession = $null; Token = $script:BridgeToken
+    Stop = $false; TaskId = $null; RunSession = $null; Token = $script:BridgeToken; StopTask = $false
     MainBeat = (Get-Date).ToUniversalTime().Ticks
   })
   $rs = [runspacefactory]::CreateRunspace()
@@ -370,7 +370,11 @@ function Start-LifeThread {
             $req.Headers.Add('Authorization', 'Bearer ' + $L.Token)
             $req.ContentLength = $bytes.Length
             $st = $req.GetRequestStream(); $st.Write($bytes, 0, $bytes.Length); $st.Close()
-            $resp = $req.GetResponse(); $resp.Close()
+            $resp = $req.GetResponse()
+            # #774: the owner took this run back -- the main loop kills claude.exe on its next tick.
+            $rd = New-Object System.IO.StreamReader($resp.GetResponseStream())
+            if ($rd.ReadToEnd() -match '"stop"\s*:\s*true') { $L.StopTask = $true }
+            $rd.Close(); $resp.Close()
           }
         }
       } catch { }
@@ -427,7 +431,8 @@ function Test-WorkWaiting {
   $script:LastDiscoveryClaim = Get-Date
   if ($null -ne $script:InTaskId) {
     try {
-      Invoke-Bridge -Path ('/api/code/tasks/' + $script:InTaskId + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $script:InTaskRunSessionId } | Out-Null
+      $hb = Invoke-Bridge -Path ('/api/code/tasks/' + $script:InTaskId + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $script:InTaskRunSessionId }
+      if ($hb -and $hb.stop) { $script:StopTaskRequested = $true }
     } catch { }
     return
   }
@@ -1283,7 +1288,8 @@ function Invoke-CodeTask {
   $partialHeld = ''
   $lastPartial = Get-Date
   $script:InTaskId = $Task.id
-  if ($script:Life) { $script:Life.RunSession = $runSessionId; $script:Life.TaskId = $Task.id }
+  $script:StopTaskRequested = $false
+  if ($script:Life) { $script:Life.StopTask = $false; $script:Life.RunSession = $runSessionId; $script:Life.TaskId = $Task.id }
   $script:InTaskRunSessionId = $runSessionId
   while (-not $proc.HasExited) {
     Start-Sleep -Seconds 2
@@ -1291,7 +1297,8 @@ function Invoke-CodeTask {
     if (((Get-Date) - $lastBeat).TotalSeconds -ge 60) {
       $lastBeat = Get-Date
       try {
-        Invoke-Bridge -Path ('/api/code/tasks/' + $Task.id + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $runSessionId } | Out-Null
+        $hb = Invoke-Bridge -Path ('/api/code/tasks/' + $Task.id + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $runSessionId }
+        if ($hb -and $hb.stop) { $script:StopTaskRequested = $true }
       } catch {
         Write-Log ('heartbeat failed: ' + $_.Exception.Message) 'WARN'
       }
@@ -1330,7 +1337,11 @@ function Invoke-CodeTask {
         } catch { }
       }
     }
-    if ($transcript -and ((Get-Date) - $lastActivity).TotalSeconds -gt $TaskIdleSeconds) {
+    if ($script:StopTaskRequested -or ($script:Life -and $script:Life.StopTask)) {
+      # #774: the owner took the review back on the Approvals page; free the executor now.
+      $timedOut = $true
+      $timeoutReason = 'stopped by the owner (taken back on the dashboard)'
+    } elseif ($transcript -and ((Get-Date) - $lastActivity).TotalSeconds -gt $TaskIdleSeconds) {
       $timedOut = $true
       $timeoutReason = "no progress for $TaskIdleSeconds s (transcript silent) -- stopped"
     } elseif (((Get-Date) - $started).TotalSeconds -gt $TaskTimeoutSeconds) {
@@ -1344,7 +1355,8 @@ function Invoke-CodeTask {
     }
   }
   $script:InTaskId = $null
-  if ($script:Life) { $script:Life.TaskId = $null }
+  $script:StopTaskRequested = $false
+  if ($script:Life) { $script:Life.TaskId = $null; $script:Life.StopTask = $false }
   $script:InTaskRunSessionId = $null
   try { $proc.WaitForExit(15000) | Out-Null } catch { }
 

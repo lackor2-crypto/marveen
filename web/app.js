@@ -26669,8 +26669,8 @@ function _renderApprovalsTableNow() {
 }
 
 // #774 (Boss TG 10319): take back the reviews still running on an approval, so a VS Code executor
-// holding queued review tasks is free again. A task that already runs cannot be stopped (the CLI has
-// no remote stop): the toast says so instead of claiming the executor is free.
+// holding review tasks is free again. Queued tasks are cancelled; a task that already runs is asked to
+// stop, and the worker kills the CLI on its next heartbeat -- the toast says it takes up to a minute.
 async function _cancelApprovalVerifications(id, btn) {
   if (btn) btn.disabled = true
   try {

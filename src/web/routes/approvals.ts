@@ -25,7 +25,7 @@ import {
   type VerificationMode,
 } from '../../approval-verification-dispatch.js'
 import { NO_RESPONSE_NOT_WAITING } from '../../approval-verification-sweep.js'
-import { enqueueCodeTask, getCodeSession, listCodeTasks, cancelCodeTask } from '../code-bridge-store.js'
+import { enqueueCodeTask, getCodeSession, listCodeTasks, cancelCodeTask, requestStopCodeTask } from '../code-bridge-store.js'
 import { CODE_BRIDGE_ENABLED } from '../../config.js'
 import type { RouteContext } from './types.js'
 import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
@@ -399,15 +399,17 @@ export interface VerifyCancelResult {
   removed: number
   /** Queued VS Code tasks called off: these no longer hold the executor. */
   cancelledTasks: number
-  /** VS Code tasks already RUNNING: the CLI cannot be stopped remotely, so these finish on their own and their answer is ignored. */
+  /** VS Code tasks already RUNNING: asked to stop -- the worker kills claude.exe on its next heartbeat
+   *  (within about a minute), and whatever it still reports is filed as cancelled. */
   runningTasks: number
 }
 
 /**
  * Boss (TG 10319, #774): "visszavonom a munkat ... lenullaz". Takes back every review still running
  * on this approval: the pending rows are deleted, and the queued VS Code tasks behind them are
- * cancelled so the executor is free for other work. A task that is already running cannot be
- * interrupted (see POST /api/code/tasks/:id/cancel), and is reported as such, not hidden.
+ * cancelled so the executor is free for other work. A task that is already running is asked to
+ * stop (requestStopCodeTask): the worker kills the CLI on its next heartbeat, and the count is
+ * reported, not hidden.
  */
 export function cancelVerificationsForApproval(approvalId: string): VerifyCancelResult {
   const rows = deletePendingApprovalVerifications(approvalId)
@@ -420,7 +422,7 @@ export function cancelVerificationsForApproval(approvalId: string): VerifyCancel
     const mine = listCodeTasks({ project, limit: 200 })
       .filter((t) => t.origin === 'dashboard' && t.prompt.includes(approvalId) && (t.status === 'queued' || t.status === 'running'))
     for (const t of mine) {
-      if (t.status === 'running') { runningTasks++; continue }
+      if (t.status === 'running') { if (requestStopCodeTask(t.id)) runningTasks++; continue }
       cancelCodeTask(t.id)
       cancelledTasks++
     }
