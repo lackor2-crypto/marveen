@@ -6825,7 +6825,7 @@ window._i18n.hu = {
   "workbench.finalpick.here": "(ez van most megnyitva)",
   "workbench.finalpick.cancel": "Mégse",
   "workbench.finalpick.go": "Ezt választom",
-  "workbench.finalpick.switched": "Átváltottam a(z) {lang} változatra. Nyomd meg újra a „Megnyitom és átnézem” gombot.",
+  "workbench.finalpick.switched": "Átváltottam a(z) {lang} változatra, megnyitom az átnézéshez.",
   "workbench.finalpick.mail_confirm": "Az e-mailhez ennek a változatnak a PDF-je csatolódik: {lang}. Biztosan ezt akarod?",
   "workbench.finalpick.mail_lang": "A csatolt dokumentum nyelve: {lang}",
   "workbench.mail.to": "Címzett:",

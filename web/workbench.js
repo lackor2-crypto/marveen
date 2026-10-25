@@ -10753,6 +10753,8 @@
     if (o.variant) {
       var vs = [{ id: WB.selectedId, label: docLangName(o.variant.lang), here: true }]
       if (o.variant.source_item_id) vs.push({ id: o.variant.source_item_id, label: t('workbench.finalpick.original'), here: false })
+      // The other language versions of the same original are choices too (the Hungarian one must not vanish from the list).
+      ;(o.siblings || []).forEach(function (x) { vs.push({ id: x.item_id, label: docLangName(x.lang), here: false, incomplete: !!(x.stale || x.untranslated) }) })
       return vs.length > 1 ? vs : []
     }
     if (!(o.variants || []).length) return []
@@ -10791,10 +10793,35 @@
       if (!c) return
       var x = opts[parseInt(c.value, 10)]
       close()
+      WB.finalLangChosen = x.id // asked once: the same document is not asked about again
       if (x.here) { onThis(); return }
+      // The chosen language is the one that is opened: switch to it and carry on, no second question and no second click.
+      // The window is opened inside this click (a popup opened later would be blocked) and pointed at the PDF when it is known.
+      var win = null
+      try { win = window.open('', '_blank') } catch (_e) { win = null }
       window.showToast(t('workbench.finalpick.switched', { lang: x.label }))
       selectItem(x.id)
+      openReviewWhenLoaded(x.id, win)
     })
+  }
+  /** After switching to another language version: wait for its outline, then open its PDF in the window opened by the click. */
+  function openReviewWhenLoaded(id, win) {
+    var tries = 0
+    var poll = function () {
+      tries++
+      if (WB.selectedId !== id) { if (win && !win.closed) win.close(); return }
+      var link = WB.detail && WB.detail.outline ? (document.querySelector('[data-wb-act="outline-review"]') || document.querySelector('.wb-outline-pdf-tools a')) : null
+      var href = link && link.getAttribute('href')
+      if (href && href.indexOf('/items/' + encodeURIComponent(id) + '/') >= 0) {
+        if (win && !win.closed) win.location.href = href
+        else window.open(href, '_blank', 'noopener')
+        watchReview()
+        return
+      }
+      if (tries > 60) { if (win && !win.closed) win.close(); return }
+      setTimeout(poll, 150)
+    }
+    poll()
   }
 
   function watchReview() {
@@ -11071,7 +11098,7 @@
       // atnezest, ha elkeszult, es a tartalom ugyanaz. Utana onnan olvassuk vissza.
       // #794: with more than one language version the owner chooses which one is opened (no silent default).
       var rvOpts = finalLangOptions(WB.detail && WB.detail.outline)
-      if (rvOpts.length > 1 && ev) {
+      if (rvOpts.length > 1 && ev && WB.finalLangChosen !== WB.selectedId) {
         ev.preventDefault()
         var rvHref = act.getAttribute('href')
         pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { window.open(rvHref, '_blank', 'noopener'); watchReview() })

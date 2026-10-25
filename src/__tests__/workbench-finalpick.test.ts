@@ -14,8 +14,15 @@ describe('workbench language choice before review / mail (#794)', () => {
     expect(js).toMatch(/name="wbFinalLang" value="' \+ i \+ '">/)
     expect(js).not.toMatch(/name="wbFinalLang" value=[^>]*checked/)
     expect(js).toMatch(/id="wbFinalLangGo" disabled/)
-    expect(js).toMatch(/rvOpts\.length > 1 && ev\)/)
+    expect(js).toMatch(/rvOpts\.length > 1 && ev && WB\.finalLangChosen !== WB\.selectedId\)/)
     expect(js).toMatch(/outlineAction\(a, act, e\)/)
+  })
+  it('the chosen language opens at once: no second question, no second click, and every language stays in the list', () => {
+    expect(js).toMatch(/openReviewWhenLoaded\(x\.id, win\)/)
+    expect(js).toMatch(/window\.open\('', '_blank'\)/)
+    expect(js).toMatch(/\(o\.siblings \|\| \[\]\)\.forEach/)
+    const srv = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf8')
+    expect(srv).toMatch(/siblings: variant \? variantsSummary\(variant\.source_item_id\)\.filter\(\(x\) => x\.item_id !== item\.id\)/)
   })
   it('the mail draft names the attachment language and asks before it is made', () => {
     expect(js).toMatch(/workbench\.finalpick\.mail_confirm/)

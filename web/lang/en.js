@@ -6751,7 +6751,7 @@ window._i18n.en = {
   "workbench.finalpick.here": "(currently open)",
   "workbench.finalpick.cancel": "Cancel",
   "workbench.finalpick.go": "Use this one",
-  "workbench.finalpick.switched": "Switched to the {lang} version. Press “Open and review” again.",
+  "workbench.finalpick.switched": "Switched to the {lang} version, opening it for review.",
   "workbench.finalpick.mail_confirm": "The PDF of this version will be attached to the e-mail: {lang}. Are you sure?",
   "workbench.finalpick.mail_lang": "Language of the attached document: {lang}",
   "workbench.mail.to": "To:",
