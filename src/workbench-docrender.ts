@@ -464,7 +464,8 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   // A Word-valtozatban a hiany-jelolesek kiemelve maradnak (a `draft` itt csak a kiemelest jelenti), vizjel nelkul.
   const o = docx ? { ...opts, draft: true } : opts
   const L = LABELS[o.lang]
-  const body: string[] = [`<text:p text:style-name="${docx ? 'Title' : 'TitleFirst'}">${inline(o.title)}</text:p>`]
+  // The work item's own title (its file name) is never printed into the document: not as a main heading, not in the page header.
+  const body: string[] = []
   let tables = 0
   const extraStyles: string[] = []
   let notes = 0
@@ -559,7 +560,7 @@ ${extraStyles.join('\n')}
 </office:automatic-styles>
 <office:master-styles>
 <style:master-page style:name="First" style:page-layout-name="pm1" style:next-style-name="Standard"><style:header>${watermark || '<text:p text:style-name="HeaderMark"/>'}</style:header>${footer}</style:master-page>
-<style:master-page style:name="Standard" style:page-layout-name="pm1">${docx ? '' : `<style:header>${watermark}<text:p text:style-name="Header">${inline(o.title)}</text:p></style:header>`}${footer}</style:master-page>
+<style:master-page style:name="Standard" style:page-layout-name="pm1">${docx || !watermark ? '' : `<style:header>${watermark}</style:header>`}${footer}</style:master-page>
 </office:master-styles>
 <office:body><office:text>
 ${body.join('\n')}
