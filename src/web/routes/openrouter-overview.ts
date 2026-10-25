@@ -90,6 +90,11 @@ export async function fetchOpenRouterCredits(managementKey: string): Promise<Cre
   return value
 }
 
+/** The last balance fetched for this key, without a fetch (the sync self-check reads it; null: not fetched yet). */
+export function peekOpenRouterCredits(managementKey: string): Credits | null {
+  return creditsCache.get(managementKey)?.value ?? null
+}
+
 /** Test-only: forget cached balances. */
 export function resetOpenRouterCreditsCacheForTest(): void {
   creditsCache.clear()
