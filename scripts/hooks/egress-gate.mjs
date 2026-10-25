@@ -1,30 +1,26 @@
 #!/usr/bin/env node
 // PreToolUse hook: WebFetch egress gate. Since 2026-10-24 (owner decision) any public
-// http/https URL is allowed; only internal/non-public targets are refused. The built-in
-// and runtime allowlists below still short-circuit to allow (local dashboard ports etc.).
+// http/https URL is allowed; only internal/non-public targets are refused
+// (loopback, private/link-local ranges incl. the cloud metadata address,
+// single-label hosts, internal suffixes, non-http(s) schemes, unparseable URLs).
+// The point is no longer "which sites may be read" but "a fetched page must not
+// be able to aim a fetch at this machine's own network".
 //
-// Any WebFetch call from the main agent must target a known, legitimate API
-// endpoint. Arbitrary web content (RSS feeds, docs, news pages, public APIs
-// not in the allowlist) MUST go through the quarantine-reader sub-agent
-// instead, so the fetched content is quarantined, wrapped, and never executed
-// as instructions in the main agent's context.
-//
-// Two-tier allowlist:
-//   1. Built-in (ALLOWED_PREFIXES): hard-coded, always enforced.
+// Allowlists (checked first, they short-circuit to allow):
+//   1. Built-in (ALLOWED_PREFIXES): local dashboard + Ollama ports and the known
+//      APIs. The local ports matter: without them the internal-host rule below
+//      would refuse the agent's own dashboard.
 //   2. Runtime (store/egress-allowlist.json): operator-managed, loaded on each
 //      invocation. Shape: { "domains": ["example.com"], "prefixes": ["https://host/path/"] }
-//      Both keys are optional. Missing file or malformed JSON -> treated as empty
-//      lists (FAIL-OPEN on the file, FAIL-SAFE on the decision: the built-in list
-//      still guards; no extra URLs are allowed merely because the file is missing).
+//      Both keys are optional. Missing file or malformed JSON -> empty lists.
+//      Only `prefixes` still matters (to open a specific INTERNAL prefix);
+//      `domains` is no longer consulted -- every public domain is open anyway.
 //
-// When a URL is not on either allowlist:
-//   - The tool call is HARD-BLOCKED (decision: deny).
-//   - The blocked call is appended to EGRESS_BLOCK_LOG for operator review.
-//   - The operator can approve the URL/domain: add it to store/egress-allowlist.json,
-//     then re-run the WebFetch. No restart required.
+// A refused call is HARD-BLOCKED (decision: deny) and appended to
+// EGRESS_BLOCK_LOG: `tail -f store/egress-blocked.log`
 //
-// The log is separate from the main Marveen log so operators can grep it
-// independently: `tail -f store/egress-blocked.log`
+// The quarantine-reader sub-agent stays the recommended route for external
+// content: it is about not trusting what a page says, not about reachability.
 //
 // Scope: this guard covers the Claude Code WebFetch tool only. It does NOT
 // intercept WebSearch, curl/Bash network calls, or MCP-server outbound
@@ -216,7 +212,7 @@ if (isInvokedDirectly()) {
   const url = String(payload?.tool_input?.url ?? '')
   const runtimeList = loadRuntimeAllowlist()
   if (isEgressBlocked(payload?.tool_name, payload?.tool_input, runtimeList)) {
-    logBlocked(url, 'not on egress allowlist')
+    logBlocked(url, 'internal or non-public address')
     deny(BLOCK_MESSAGE)
   }
   allow()

@@ -676,10 +676,10 @@ export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemp
     allow: profile.filesystem.allow.map(p => resolveProfilePlaceholders(p, ctx)),
     deny: profile.filesystem.deny.map(p => resolveProfilePlaceholders(p, ctx)),
   }
-  // Egress gate: applied to ALL agents including MAIN_AGENT_ID. WebFetch calls
-  // that are not on the known API allowlist are hard-blocked and logged;
-  // arbitrary web content must go through the quarantine-reader sub-agent. Every
-  // agent can be hijacked via an injected WebFetch call, including the main one.
+  // Egress gate: applied to ALL agents including MAIN_AGENT_ID. Any public
+  // http(s) URL is allowed (owner decision 2026-10-24); WebFetch calls aimed at
+  // internal/non-public addresses are hard-blocked and logged. Every agent can be
+  // hijacked via an injected WebFetch call, including the main one.
   //
   // The email-send + self-pace governance hard-gates that used to be wired here
   // for sub-agents were removed 2026-08-20 by the owner's decision (Telegram msg
@@ -699,7 +699,7 @@ const LEGACY_SELF_PACE_TOOL_DENY = ['ScheduleWakeup', 'CronCreate', 'CronDelete'
 const LEGACY_GOVERNANCE_GATE_SCRIPTS = ['email-send-gate.mjs', 'self-pace-gate.mjs']
 
 // Idempotently wire the egress-gate PreToolUse hook (hard-blocks WebFetch to
-// any URL not on the known API allowlist, logs blocked calls). Applied to ALL
+// internal/non-public addresses, logs blocked calls). Applied to ALL
 // agents including MAIN_AGENT_ID -- the hook defends against prompt-injection
 // that exfiltrates data via an outbound WebFetch, and the main agent faces the
 // same risk as sub-agents. Same dedupe shape as the other gate injectors.
