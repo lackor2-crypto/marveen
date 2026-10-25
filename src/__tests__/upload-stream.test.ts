@@ -76,6 +76,19 @@ describe('streamBodyToStage over a real connection', () => {
     expect(partFiles().filter((n) => !before.has(n))).toEqual([])
   })
 
+  it('a body refused before its staging file is even open leaves no empty .part behind (open/unlink race)', async () => {
+    const { EventEmitter } = await import('node:events')
+    const before = partFiles()
+    // A request whose first chunk is already over the limit, delivered synchronously: the write stream has not opened
+    // its file yet when the refusal comes. Before the fix the unlink ran first and the late open left a 0-byte .part.
+    const req = Object.assign(new EventEmitter(), { pause() {}, resume() {} })
+    const p = streamBodyToStage(req as unknown as http.IncomingMessage, 10)
+    req.emit('data', Buffer.alloc(64, 1))
+    await expect(p).rejects.toBeInstanceOf(RequestBodyTooLargeError)
+    await new Promise((r) => setTimeout(r, 200))
+    expect(partFiles().filter((n) => !before.includes(n))).toEqual([])
+  })
+
   it('a body over the limit WITHOUT a Content-Length still gets the 413 answer, not a dropped connection', async () => {
     const before = new Set(partFiles())
     const port = await start(1024 * 1024)

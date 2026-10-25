@@ -153,6 +153,8 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   'context-broker.json', /^context-guard-last-pane-/, 'context-restart-gate.json',
   'context-restart-gate-status.json', 'drive-delete-queue.json', 'external-ops-last-run',
   'pr-ledger-status.json', 'agent-availability.json',
+  // #772: the last OpenRouter 402 the self-check shows -- the next chat call measures it again.
+  'openrouter-credit.json',
   // #434: the live Workbench session's scratch cwd and its Claude session ids --
   // both point at the OLD machine's Claude transcripts, useless after a restore.
   'workbench-live', 'workbench-live-sessions.json',

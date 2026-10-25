@@ -128,9 +128,13 @@ export function streamBodyToStage(req: http.IncomingMessage, maxBytes: number = 
     const bail = (err: Error): void => {
       if (settled) return
       settled = true
+      // The stream opens its file asynchronously. Removing it right after destroy() raced that open: on a busy machine
+      // the unlink ran first (nothing there yet), then the open created an empty .part that stayed for STALE_MS. Remove
+      // it once the stream has closed, and only then answer.
+      const done = (): void => { discardFile(path); reject(err) }
+      if (ws.closed) { done(); return }
+      ws.once('close', done)
       ws.destroy()
-      discardFile(path)
-      reject(err)
     }
     ws.on('error', (e: NodeJS.ErrnoException) => bail(new UploadDiskError(e.message, e.code === 'ENOSPC' || e.code === 'EDQUOT')))
     req.on('data', (c: Buffer) => {

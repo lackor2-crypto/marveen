@@ -9,6 +9,7 @@
 // account endpoints (credits, activity) -- none of them is a chat call.
 
 import { OLLAMA_URL, APP_LANG } from './config.js'
+import { noteCredit402, noteCreditOk } from './openrouter-credit-note.js'
 
 export const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions'
 /** Below this a 402 retry cannot hold a useful answer: the credit sentence is shown instead. */
@@ -117,6 +118,8 @@ export async function openRouterChat(input: OpenRouterChatInput): Promise<OpenRo
       status = res.status
       body = await bodyOf(res).catch(() => '')
       if (!res.ok) {
+        // The Overview self-check shows it (#772): the balance itself needs the optional management key.
+        if (res.status === 402) noteCredit402(affordableTokens(body))
         // Nearly out of credit: refused for the token CEILING, not the text. Once more with what the account can afford.
         const afford = res.status === 402 && !retried ? affordableTokens(body) : null
         if (afford !== null && afford >= MIN_RETRY_TOKENS && (maxTokens === undefined || afford < maxTokens)) {
@@ -128,6 +131,8 @@ export async function openRouterChat(input: OpenRouterChatInput): Promise<OpenRo
         const code = res.status === 402 ? 'credit' : res.status === 401 || res.status === 403 ? 'key' : res.status === 429 ? 'busy' : 'http'
         return { ok: false, status: res.status, code, message: openRouterErrorMessage(res.status, raw, lang), detail: raw.slice(0, 500) }
       }
+      // A full-size answer means the credit is back; an answer that only fit after a 402 retry does not.
+      if (!retried) noteCreditOk()
       const data = JSON.parse(body) as { model?: string; choices?: { message?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number } }
       return {
         ok: true,

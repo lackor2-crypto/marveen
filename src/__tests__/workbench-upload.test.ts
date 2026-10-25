@@ -14,6 +14,12 @@ import { workItemTypeForFile, titleFromFileName } from '../workbench-upload.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
 
+// The staging dir is the real store/ one, shared with every test file running in parallel (and with a leftover of an
+// earlier crashed run): "no staging file left" means "no NEW one from this request".
+const partFiles = (): string[] => {
+  try { return readdirSync(join(STORE_DIR, 'upload-tmp')).filter((n) => n.endsWith('.part')) } catch { return [] }
+}
+
 describe('fajl -> munkadarab-fajta es nev', () => {
   it('a fajtat a fajl NEVE donti el, a bongeszo tipusa csak tartalek', () => {
     expect(workItemTypeForFile('foto.JPG')).toBe('image')
@@ -145,6 +151,7 @@ describe('POST /api/workbench/items/upload', () => {
     useDepot()
     const big = Buffer.alloc(3 * 1024 * 1024 + 17)
     for (let i = 0; i < big.length; i++) big[i] = (i * 31 + 7) & 0xff
+    const before = partFiles()
     const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=nagy.mp4`, 'POST', big)
     expect(r.status).toBe(201)
     const rel = String(r.body.file?.rel ?? r.body.rel ?? '')
@@ -152,17 +159,18 @@ describe('POST /api/workbench/items/upload', () => {
     const saved = readFileSync(join(depot, rel))
     expect(saved.length).toBe(big.length)
     expect(saved.equals(big)).toBe(true)
-    expect(readdirSync(join(STORE_DIR, 'upload-tmp')).filter((n) => n.endsWith('.part'))).toEqual([])
+    expect(partFiles().filter((n) => !before.includes(n))).toEqual([])
   })
 
   it('#663: a limitnel nagyobb torzs (bejelentett meret nelkul) is elutasitott, es nem marad ideiglenes fajl', async () => {
     useDepot()
     setOverride('WORKBENCH_UPLOAD_MAX_MB', 1)
     try {
+      const before = partFiles()
       const r = await callWorkbench(`/api/workbench/items/upload?project=${pid}&name=b.mp4`, 'POST', Buffer.alloc(2 * 1024 * 1024, 1), { 'content-length': '0' })
       expect(r.status).toBe(413)
       expect(r.body.error).toBe('upload_too_large')
-      expect(readdirSync(join(STORE_DIR, 'upload-tmp')).filter((n) => n.endsWith('.part'))).toEqual([])
+      expect(partFiles().filter((n) => !before.includes(n))).toEqual([])
     } finally {
       setOverride('WORKBENCH_UPLOAD_MAX_MB', 0)
     }

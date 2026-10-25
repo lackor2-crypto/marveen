@@ -113,7 +113,10 @@ describe('video render over HTTP, as a job', () => {
     const again = await callWorkbench(url('/render'), 'POST', JSON.stringify({ async: true }), json)
     expect([409, 202]).toContain(again.status)
     let body: any = null
-    for (let i = 0; i < 100; i += 1) {
+    // A deadline, not a fixed count: under a loaded full suite (load ~11) the ffmpeg render took longer than the old
+    // 100 x 200 ms and the test went red with nothing wrong (#772, measured 2026-10-25).
+    const until = Date.now() + 75_000
+    while (Date.now() < until) {
       const st = await callWorkbench(url('/render-status'), 'GET')
       if (st.body.job && st.body.job.state !== 'running') { body = st.body; break }
       await new Promise((r) => setTimeout(r, 200))
@@ -122,7 +125,7 @@ describe('video render over HTTP, as a job', () => {
     expect(body.job.state).toBe('done')
     expect(body.result.file.name).toBe('Nyári reklám.mp4')
     expect(body.result.last_render).toMatchObject({ name: 'Nyári reklám.mp4', current: true })
-  })
+  }, 90_000)
   it.skipIf(!HAVE_FFMPEG)('#786: an edit made while it renders stays in the working copy; the mp4 is recorded on the timeline it was made from', async () => {
     execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x180:rate=25', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', join(dir(), 'a.mp4')], { stdio: 'pipe' })
     const ops = await callWorkbench(url('/ops'), 'POST', JSON.stringify({ ops: [{ op: 'addClip', src: 'Projektek/teszt/a.mp4', start: 0, end: 2.5 }] }), json)

@@ -90,6 +90,9 @@ import { computeBackupHealth } from '../backup/health.js'
 import { stateExists } from '../backup/state.js'
 import { readConfig as readBackupConfig, resolveDestinations } from '../backup/destinations.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
+import { peekOpenRouterCredits } from './routes/openrouter-overview.js'
+import { deriveOpenRouterCreditsView } from '../openrouter-credits.js'
+import { openRouterCreditRows } from '../openrouter-credit-note.js'
 import { dashboardTokenGuardRows } from './dashboard-token-guard.js'
 import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
@@ -2352,6 +2355,17 @@ export function megaRows(
   return rows
 }
 
+// #772: low OpenRouter credit -- the measured balance (management key, as cached by the Overview) or the last 402.
+function creditRows(now: number): HealthRow[] {
+  let balance = null
+  try {
+    const k = getSecret('openrouter-management-key')
+    const raw = k ? peekOpenRouterCredits(k) : null
+    balance = raw ? deriveOpenRouterCreditsView(raw) : null
+  } catch { /* no Vault: the 402 note still speaks */ }
+  return openRouterCreditRows(balance, undefined, now)
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -2365,6 +2379,8 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...googleClientRows(),
     ...vaultBindingRows(),
     ...providerKeyRows(),
+    // Before the optional 'not set up' integrations: this one stops a feature already in use.
+    ...creditRows(now),
     ...keySlotRows(),
     ...backupRows(now),
     ...upstreamRows(now),
