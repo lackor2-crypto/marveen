@@ -14,6 +14,7 @@ import {
   migrateAllWorkItemFolders, projectWorkItemsFolder, unlinkAsset, ensureWorkItemFolder, ensureAllAttachmentsFolders, listWorkFolders, migrateFinishedFolder,
 } from '../workbench-assets.js'
 import { lifeMoveCandidates, moveItemFilesToLife } from '../workbench-life-move.js'
+import { addAnnex } from '../workbench-docannex.js'
 import { markSentManually } from '../workbench-docsent.js'
 import { finishedFolderFor } from '../project-files.js'
 import { rootStrays, resolveRootStrays } from '../workbench-root-guard.js'
@@ -80,6 +81,20 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     if (!w.ok) throw new Error('munkadarab')
     return w.item
   }
+
+  it('#794: a plain annex (a file of the project folder) stands in the item Mellekletek folder as a link', () => {
+    const item = newItem('Berlini level')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    mkdirSync(join(projDir(), 'Iratok'), { recursive: true })
+    writeFileSync(join(projDir(), 'Iratok', 'bescheid.pdf'), '%PDF-1.4 B')
+    const r = addAnnex(item.id, { path: 'Iratok/bescheid.pdf', title: 'Bescheid' }, (p) => (p === 'Iratok/bescheid.pdf' ? { abs: join(projDir(), p), name: 'bescheid.pdf' } : null), 'owner')
+    expect(r.ok).toBe(true)
+    const att = listWorkFolders(project, { outside: false }).files[`${f.folder}/Mellékletek`] || []
+    expect(att.map((x) => x.name)).toEqual(['bescheid.pdf'])
+    expect(att[0]?.linked).toBe(true)
+    expect(att[0]?.rel).toBe('Projektek/Iroda/Iratok/bescheid.pdf')
+  })
 
   it('#618: a work item folder always has its Mellekletek subfolder, and the backfill makes it for older folders', () => {
     const item = newItem('Wohngeld valasz')

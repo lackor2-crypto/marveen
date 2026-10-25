@@ -476,6 +476,21 @@ export function appendItemContext(item: WorkItemRow, project: ProjectRow, sectio
   return { ok: true, rel: r.rel }
 }
 
+const TASK_PLACEHOLDER = /\((?:még nincs felismerve, az AI kitölti|not recognised yet, the AI fills this in)\)/
+
+/**
+ * #794 (Boss TG 10459): the first thing the owner asks in the chat IS the task, so it lands in the "Task" section by itself
+ * instead of waiting for the AI to remember the context tool. Only while the section still holds the template placeholder:
+ * once anything was written there (by the AI or by this), later messages never touch it. A file that does not exist is not made.
+ */
+export function recordTaskFromChat(item: WorkItemRow, project: ProjectRow, message: string): boolean {
+  const text = String(message ?? '').replace(/\s+$/, '').trim()
+  if (!text) return false
+  const cur = readItemContext(item)
+  if (!cur || !TASK_PLACEHOLDER.test(cur.text)) return false
+  return appendItemContext(item, project, 'task', text.length > 2000 ? text.slice(0, 2000) + '...' : text).ok
+}
+
 /** Replaces the whole human part of the file (the agent tidies it); the machine list is kept. */
 export function rewriteItemContext(item: WorkItemRow, project: ProjectRow, markdown: string): AppendOutcome {
   const md = markdown.trim()

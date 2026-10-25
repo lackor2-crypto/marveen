@@ -8,7 +8,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { getWorkItem, createWorkItemVersion, createWorkItem } from '../workbench.js'
 import { renameWorkItem, assignWorkItemFolder } from '../workbench-assets.js'
-import { sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext } from '../workbench-item-context.js'
+import { sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext, recordTaskFromChat } from '../workbench-item-context.js'
 import { readdirSync } from 'node:fs'
 import { todoFileName } from '../workbench-item-todos.js'
 import { addSection } from '../workbench-docmodel.js'
@@ -92,6 +92,23 @@ describe('appending to the Task section', () => {
     expect(t).not.toMatch(/még nincs felismerve|not recognised yet/)
     await sweepItemContexts()
     expect(where().text).toContain('Wohngeld Hiánypótlás')
+  })
+})
+
+describe('the first chat message is the task (#794)', () => {
+  it('fills the Task section once, while it is still the placeholder; later messages and a missing file change nothing', async () => {
+    // no context file yet: nothing is made
+    expect(recordTaskFromChat(item(), getProject(pid)!, 'Levelet akarok irni')).toBe(false)
+    await sweepItemContexts()
+    expect(recordTaskFromChat(item(), getProject(pid)!, '   ')).toBe(false)
+    expect(recordTaskFromChat(item(), getProject(pid)!, 'Levelet akarok irni a berlini rendorsegnek, cim: rendorseg@example.org')).toBe(true)
+    const t = where().text
+    expect(t).toContain('rendorseg@example.org')
+    expect(t).not.toMatch(/még nincs felismerve|not recognised yet/)
+    expect(t.indexOf('rendorseg@example.org')).toBeLessThan(t.indexOf('marveen:files:begin'))
+    // the section is no placeholder any more: the second message is not recorded
+    expect(recordTaskFromChat(item(), getProject(pid)!, 'Masodik uzenet')).toBe(false)
+    expect(where().text).not.toContain('Masodik uzenet')
   })
 })
 

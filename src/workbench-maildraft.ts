@@ -32,6 +32,7 @@ import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
 import type { DocLang } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
 import { saveDraft as saveMailboxDraft } from './mail-send.js'
+import { listAgentMessages, listAgentSessions } from './workbench-agent/sessions.js'
 
 // ---------------------------------------------------------------------------
 // The message: pure, no I/O
@@ -255,12 +256,30 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
  * default text, in the language of the current final PDF. Nothing is stored here: the row appears when the button is pressed.
  * Null when a draft exists already, or there is no current final (the form is not offered then).
  */
-export function mailPrefill(item: WorkItemRow): { subject: string; body: string; lang: DocLang } | null {
+/**
+ * #794 (Boss TG 10459): the recipient the owner typed into the assistant chat. Only the OWNER's own messages count (never the
+ * assistant's text or a tool result), the earliest one first: an address is never made up, it is taken from what was said.
+ */
+export function chatRecipient(item: WorkItemRow): string {
+  try {
+    const sessions = listAgentSessions(item.id).slice().reverse()
+    for (const se of sessions) {
+      for (const m of listAgentMessages(se.id, 400)) {
+        if (m.role !== 'user') continue
+        const hit = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/.exec(String(m.content ?? ''))
+        if (hit) return hit[0]
+      }
+    }
+  } catch { /* no chat tables yet: nothing to take */ }
+  return ''
+}
+
+export function mailPrefill(item: WorkItemRow): { to: string; subject: string; body: string; lang: DocLang } | null {
   if (!hasDocModel(item.id) || hasDocxFinalPanel(item) || getRow(item.id)) return null
   const fin = finalState(item)
   if (!fin || fin.stale) return null
   const lang = mailLanguage(item, 'hu', fin)
-  return { subject: item.title, body: defaultMailBody(item, lang, listAnnexes(item.id).length), lang }
+  return { to: chatRecipient(item), subject: item.title, body: defaultMailBody(item, lang, listAnnexes(item.id).length), lang }
 }
 
 /** What the attachments are made from: the document, its annexes (name, size, time) and the mode, plus the mail's own text. */

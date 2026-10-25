@@ -24,6 +24,7 @@
  * szolgaltato vagy betelt a keret, az agens NEM nemul el: ember-nyelvu (HU/EN)
  * `notice` esemenyt ad, es a beszelgetesbe is bekerul.
  */
+import { recordTaskFromChat } from '../workbench-item-context.js'
 import { randomUUID } from 'node:crypto'
 import { MAIN_AGENT_ID } from '../config.js'
 import { logger } from '../logger.js'
@@ -330,6 +331,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     yield { type: 'session', sessionId: session.id }
 
     addAgentMessage(session.id, 'user', input.message.trim())
+    if (workItem) { try { recordTaskFromChat(workItem, project, input.message) } catch { /* the notes never stop a chat turn */ } }
     auditWorkbench({ agent: input.actor, tool: 'workbench.chat', op: 'user-message', target: workItem?.id || project.id, cwd: project.id })
 
     const provider = providerOverride ?? pickAIProvider()
