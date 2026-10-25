@@ -205,6 +205,32 @@ describe('deploy-live.sh', () => {
     expect(readFileSync(join(store, '.deployed-sha'), 'utf8').trim()).toBe(target)
   })
 
+  // #804: an agent lands from a linked worktree and runs the worktree's own copy of the script. It used to take the
+  // worktree for the install (no .env there, .git is a FILE): build + restart ran there and the live tree stayed old.
+  it('#804: egy LINKELT worktree-bol futtatva a FO checkoutot deployolja, a worktree-be nem ir', () => {
+    advanceOrigin('src/w.ts', 'export const w = 7\n', 'add w')
+    const wt = join(base, 'wt-agent')
+    execFileSync('git', ['-C', root, 'worktree', 'add', '-q', '--detach', wt], { stdio: 'ignore', env: { ...process.env, ...GENV } })
+    installScript(wt)
+    const { MARVEEN_PROJECT_ROOT: _r, MARVEEN_STORE: _s, ...env } = process.env
+    execFileSync('bash', [join(wt, 'scripts', 'deploy-live.sh')], {
+      encoding: 'utf8', cwd: wt,
+      env: {
+        ...env, ...GENV,
+        MARVEEN_DEPLOY_BUILD_CMD: `touch '${markers}/build'`,
+        MARVEEN_DEPLOY_RESTART_CMD: `touch '${markers}/restart'`,
+        MARVEEN_DEPLOY_SKIP_HEALTH: '1',
+      },
+    })
+    expect(existsSync(join(root, 'src', 'w.ts'))).toBe(true)          // the main checkout moved to the new main
+    expect(built()).toBe(true)
+    expect(restarted()).toBe(true)
+    const log = readFileSync(join(root, 'store', 'deploy.log'), 'utf8')  // the main checkout's own store
+    expect(log).toMatch(/DEPLOYED [0-9a-f]+/)
+    expect(existsSync(join(wt, 'store', 'deploy.log'))).toBe(false)     // nothing written into the worktree
+    expect(existsSync(join(wt, 'src', 'w.ts'))).toBe(false)
+  })
+
   it('sikertelen fetch NEM naprakesz -- kulon mondja', () => {
     // toroljuk az origin remote-ot -> a fetch elbukik
     rmSync(origin, { recursive: true, force: true })
