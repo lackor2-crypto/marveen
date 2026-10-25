@@ -2,9 +2,11 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
 import { initDatabase, saveAgentMemory, saveMemory, hybridSearch, getDb, HYBRID_FTS_ENOUGH } from '../db.js'
 import {
-  guardStep, newGuardState,
+  guardStep, newGuardState, guardFalseAlarm, confirmOutOfProcess,
   OLLAMA_GUARD_DEAD_MS, OLLAMA_GUARD_COOLDOWN_MS, OLLAMA_GUARD_MAX_RESTARTS,
 } from '../ollama-guard.js'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { createServer } from 'node:net'
 
 beforeAll(() => {
   process.env.NODE_ENV = 'test'
@@ -81,4 +83,70 @@ describe('guardStep', () => {
     expect(guardStep(s, true, t + 1)).toBe('ok')
     expect(s.gaveUp).toBe(false)
   })
+})
+
+describe('guardStep: give-up is reported once', () => {
+  it('a second silent poll after giving up is a quiet cooldown, not another give-up', () => {
+    const s = newGuardState(0)
+    let t = OLLAMA_GUARD_DEAD_MS
+    for (let i = 0; i < OLLAMA_GUARD_MAX_RESTARTS; i++) {
+      guardStep(s, false, t)
+      t += OLLAMA_GUARD_COOLDOWN_MS
+    }
+    expect(guardStep(s, false, t)).toBe('give-up')
+    expect(guardStep(s, false, t + 10_000)).toBe('cooldown')
+    expect(guardStep(s, false, t + 20_000)).toBe('cooldown')
+  })
+})
+
+describe('guardFalseAlarm', () => {
+  it('takes the restart back: no cooldown, not counted, silence clock restarted', () => {
+    const s = newGuardState(0)
+    expect(guardStep(s, false, OLLAMA_GUARD_DEAD_MS)).toBe('restart')
+    guardFalseAlarm(s, OLLAMA_GUARD_DEAD_MS)
+    expect(s.restarts).toEqual([])
+    expect(s.quietUntil).toBe(0)
+    expect(guardStep(s, false, OLLAMA_GUARD_DEAD_MS + 1000)).toBe('wait')
+    expect(guardStep(s, false, 2 * OLLAMA_GUARD_DEAD_MS)).toBe('restart')
+  })
+})
+
+// 2026-10-25: the dashboard's own stalled event loop made a healthy Ollama look
+// silent. The confirmation probe runs in its own process and must see it answer.
+describe('confirmOutOfProcess', () => {
+  let server: ChildProcess | null = null
+  afterEach(() => { server?.kill(); server = null })
+
+  function startServer(code: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      server = spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'inherit'] })
+      server.stdout!.once('data', (b) => resolve(`http://127.0.0.1:${String(b).trim()}`))
+      server.once('error', reject)
+    })
+  }
+  const answering = 'const s=require("http").createServer((q,r)=>r.end("{}"));s.listen(0,"127.0.0.1",()=>console.log(s.address().port))'
+  const hanging = 'const s=require("http").createServer(()=>{});s.listen(0,"127.0.0.1",()=>console.log(s.address().port))'
+
+  it('answered, even while this process\'s event loop is blocked longer than the probe timeout', async () => {
+    const url = await startServer(answering)
+    const p = confirmOutOfProcess(url, 1000)
+    const until = Date.now() + 2500
+    while (Date.now() < until) { /* block the event loop, as the stalled dashboard did */ }
+    expect(await p).toBe('answered')
+  }, 15_000)
+
+  it('silent when the server accepts but never answers', async () => {
+    const url = await startServer(hanging)
+    expect(await confirmOutOfProcess(url, 500)).toBe('silent')
+  }, 15_000)
+
+  it('silent when nothing listens on the port', async () => {
+    const port = await new Promise<number>((resolve) => {
+      const s = createServer().listen(0, '127.0.0.1', () => {
+        const p = (s.address() as { port: number }).port
+        s.close(() => resolve(p))
+      })
+    })
+    expect(await confirmOutOfProcess(`http://127.0.0.1:${port}`, 500)).toBe('silent')
+  }, 15_000)
 })
