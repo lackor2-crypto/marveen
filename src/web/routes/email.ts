@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { atomicWriteFileSync } from '../atomic-write.js'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1122,7 +1123,8 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       if (existsSync(HIMALAYA_CONFIG)) {
         writeFileSync(`${HIMALAYA_CONFIG}.bak-${Date.now()}`, readFileSync(HIMALAYA_CONFIG))
       }
-      writeFileSync(HIMALAYA_CONFIG, toml, { mode: 0o600 })
+      // #798: atomic -- a torn config.toml left every mail account unreadable (the .bak above was the only way back).
+      atomicWriteFileSync(HIMALAYA_CONFIG, toml, { mode: 0o600 })
       json(res, { ok: true })
     } catch (err: any) {
       logger.warn(`[email] account-config save failed: ${err}`)

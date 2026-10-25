@@ -22,6 +22,7 @@
 // eset (letrehozzuk), es a naplo maga az elso mereskor keletkezik. Nincs
 // telepitoi lepes, nincs migracio.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { atomicWriteFileSync } from './web/atomic-write.js'
 import { join } from 'node:path'
 import { STORE_DIR } from './config.js'
 import { logger } from './logger.js'
@@ -100,7 +101,8 @@ export function rememberLifeCreated(root: string, rels: string[]): { added: numb
   }
   try {
     mkdirSync(STORE_DIR, { recursive: true })
-    writeFileSync(lifeLedgerPath(), JSON.stringify(next, null, 2), 'utf8')
+    // #798: atomic -- a torn ledger forgets which folders the owner deleted, and the tree would bring them back.
+    atomicWriteFileSync(lifeLedgerPath(), JSON.stringify(next, null, 2))
   } catch (err: any) {
     logger.warn({ err: String(err?.message || err) }, '[eletfa] a naplot nem sikerult kiirni')
   }
@@ -125,7 +127,7 @@ export function moveLifeLedgerPrefix(root: string, fromRel: string, toRel: strin
   if (!moved) return 0
   try {
     mkdirSync(STORE_DIR, { recursive: true })
-    writeFileSync(lifeLedgerPath(), JSON.stringify({ root: led.root, created: [...new Set(next)].sort(), updatedAt: new Date().toISOString() }, null, 2), 'utf8')
+    atomicWriteFileSync(lifeLedgerPath(), JSON.stringify({ root: led.root, created: [...new Set(next)].sort(), updatedAt: new Date().toISOString() }, null, 2))
   } catch (err: any) {
     logger.warn({ err: String(err?.message || err) }, '[eletfa] a naplot nem sikerult kiirni')
   }

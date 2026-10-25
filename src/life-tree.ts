@@ -42,6 +42,7 @@
 // mappa nem hibajelzes: a feluleten kulon listaban all, es egy kattintassal
 // visszakerheto.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { atomicWriteFileSync } from './web/atomic-write.js'
 import { join } from 'node:path'
 import { APP_LANG, STORE_DIR, currentOwnerName } from './config.js'
 import { lifeLedgerSeen, rememberLifeCreated } from './life-tree-ledger.js'
@@ -607,7 +608,8 @@ export function loadLifeConfig(): LifeConfig {
 
 export function saveLifeConfig(cfg: LifeConfig): void {
   mkdirSync(STORE_DIR, { recursive: true })
-  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8')
+  // #798: atomic -- a torn file reads back as the default tree, and the next save would have dropped the persons and companies.
+  atomicWriteFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2))
 }
 
 /**

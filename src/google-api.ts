@@ -1,5 +1,6 @@
 import https from 'node:https'
 import { readFileSync, writeFileSync, statSync } from 'node:fs'
+import { atomicWriteFileSync } from './web/atomic-write.js'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { logger } from './logger.js'
@@ -62,7 +63,8 @@ function loadTokens(): TokenData {
 }
 
 function saveTokens(tokens: TokenData): void {
-  writeFileSync(TOKENS_PATH, JSON.stringify({ normal: tokens }, null, 2))
+  // #798: atomic and 0600 -- written at every token refresh; a torn file lost the refresh token (a new login needed).
+  atomicWriteFileSync(TOKENS_PATH, JSON.stringify({ normal: tokens }, null, 2), { mode: 0o600 })
   // Re-stat AFTER write so the next loadTokens() sees the matching mtime
   // and uses the freshly-written content from cache rather than triggering
   // an extra re-read on the very next call.
