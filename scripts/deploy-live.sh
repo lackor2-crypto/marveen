@@ -44,6 +44,19 @@ set -uo pipefail
 
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# #804: run from a linked worktree (.worktrees/<name>, where agents land their work), BASE is that throwaway checkout: no
+# .env, a .git FILE -- so it used to "deploy" into the worktree itself (npm install + build there, a restart of a unit that
+# does not exist) while the live install kept the old code, and it exited 0. The install is the MAIN checkout the
+# worktree belongs to (the same resolution heavy-job.sh uses for its queue), so take that one.
+if [ -f "$BASE/.git" ]; then
+  common="$(git -C "$BASE" rev-parse --git-common-dir 2>/dev/null || true)"
+  if [ -n "$common" ]; then
+    case "$common" in /*) ;; *) common="$BASE/$common" ;; esac
+    main="$(cd "$common/.." 2>/dev/null && pwd)"
+    [ -n "$main" ] && [ -d "$main/.git" ] && [ -f "$main/scripts/deploy-live.sh" ] && BASE="$main"
+  fi
+fi
+
 # Read the install's own identity, never the author's (host-agnostic rule).
 env_val() { sed -n "s/^$1=//p" "$BASE/.env" 2>/dev/null | tail -1 | tr -d '"'"'"'\r'; }
 
