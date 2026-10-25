@@ -1,5 +1,5 @@
-import { readFileSync, existsSync, readdirSync, statSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, copyFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, MAIN_AGENT_ID, DEFAULT_AGENT_MODEL } from '../config.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
@@ -60,6 +60,34 @@ export function skillsRootFor(name: string): string {
 
 export function readFileOr(path: string, fallback: string): string {
   try { return readFileSync(path, 'utf-8') } catch { return fallback }
+}
+
+/** #801: a config file that is there but is not a JSON object. Nothing was written; a copy of the file is kept beside it. */
+export class CorruptConfigError extends Error {
+  constructor(public readonly path: string, public readonly copy: string | null) {
+    super(`${basename(path)} is not readable JSON, so it was not overwritten${copy ? `; a copy is at ${copy}` : ''}. Fix or remove the file, then try again.`)
+    this.name = 'CorruptConfigError'
+  }
+}
+
+/**
+ * #801: the config to UPDATE (read, change one field, write back). A missing or empty file is an empty config. A file
+ * that is there but is not a JSON object used to read as {} too -- and the write that followed replaced the model, the
+ * channel, the team, every MCP server with that one field, silently. Now such a file is copied aside
+ * (<file>.corrupt-<time>) and the update is refused with CorruptConfigError: nothing is lost, and the caller says why.
+ */
+export function readConfigForUpdate(path: string): Record<string, any> {
+  let raw: string
+  try { raw = readFileSync(path, 'utf-8') } catch { return {} }
+  if (!raw.trim()) return {}
+  try {
+    const v = JSON.parse(raw) as unknown
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, any>
+  } catch { /* not JSON: below */ }
+  let copy: string | null = `${path}.corrupt-${Date.now()}`
+  try { copyFileSync(path, copy) } catch { copy = null }
+  logger.warn({ path, copy }, 'agent config: unreadable file left untouched, the update is refused')
+  throw new CorruptConfigError(path, copy)
 }
 
 export function extractDescriptionFromClaudeMd(content: string): string {
@@ -154,8 +182,7 @@ export function readAgentModel(name: string): string {
 // saying the same thing in a config a human also edits by hand.
 export function writeAgentModelProfile(name: string, profile: string | null): void {
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch { /* start fresh */ }
+  const config = readConfigForUpdate(configPath)
   if (profile === null) delete config.modelProfile
   else config.modelProfile = profile
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
@@ -164,8 +191,7 @@ export function writeAgentModelProfile(name: string, profile: string | null): vo
 export function writeAgentModel(name: string, model: string): void {
   if (!isValidModelId(model)) throw new InvalidModelIdError(model)
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   config.model = model
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
 }
@@ -183,8 +209,7 @@ export function readAgentDisplayName(name: string): string {
 
 export function writeAgentDisplayName(name: string, displayName: string): void {
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   config.displayName = displayName
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
 }
@@ -465,8 +490,7 @@ export function writeAgentRemoteConfig(
   const h = host.trim()
   const w = workdir.trim()
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
 
   // Clearing: both empty -> remove the fields, agent becomes local.
   if (!h && !w) {
@@ -506,8 +530,7 @@ export function readAgentChannelProvider(name: string): string | null {
 
 export function writeAgentChannelProvider(name: string, provider: string): void {
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   config.channelProvider = provider
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
 }
@@ -545,8 +568,7 @@ export function readAgentMemoryIsolation(name: string): boolean {
 // config file stays minimal and the default-OFF semantics remain explicit.
 export function writeAgentMemoryIsolation(name: string, enabled: boolean): void {
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   if (enabled) config.memoryIsolation = true
   else delete config.memoryIsolation
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
@@ -555,16 +577,14 @@ export function writeAgentMemoryIsolation(name: string, enabled: boolean): void 
 export function writeAgentAuthMode(name: string, mode: AuthMode): void {
   if (!VALID_AUTH_MODES.has(mode)) return
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   config.authMode = mode
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
 }
 
 export function writeAgentSecurityProfile(name: string, profileId: string): void {
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   config.securityProfile = profileId
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
 }
@@ -591,8 +611,7 @@ export function readAgentClaudePlan(name: string): string | null {
 // resolution path.
 export function writeAgentClaudePlan(name: string, planId: string): void {
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   const trimmed = planId.trim()
   if (trimmed) config.claudePlan = trimmed
   else delete config.claudePlan
@@ -672,8 +691,7 @@ export function writeAgentVoiceConfig(name: string, patch: Partial<AgentVoiceCon
     throw new Error(`Unknown voiceModel: ${patch.voiceModel}`)
   }
   const configPath = join(agentConfigRoot(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   const current = readAgentVoiceConfig(name)
   config.voice = {
     responseMode: patch.responseMode ?? current.responseMode,
@@ -734,8 +752,7 @@ export function readAgentCapabilities(name: string): string[] {
 
 export function writeAgentCapabilities(name: string, capabilities: string[]): void {
   const configPath = join(agentDir(name), 'agent-config.json')
-  let config: Record<string, unknown> = {}
-  try { config = JSON.parse(readFileOr(configPath, '{}')) } catch {}
+  const config = readConfigForUpdate(configPath)
   config.capabilities = capabilities
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
 }
