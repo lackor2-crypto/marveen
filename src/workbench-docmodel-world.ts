@@ -13,6 +13,9 @@ import { ensureAgentTables } from './workbench-agent/sessions.js'
 import type { SourceWorld } from './workbench-docmodel.js'
 import { documentById } from './life-doc-ids.js'
 import { resolveLifePath } from './life-explorer.js'
+import { listWorkItemAssets } from './workbench-assets.js'
+import { listAnnexes } from './workbench-docannex.js'
+import { docKind } from './workbench-docread.js'
 
 /** A path of this shape is not a file of the project folder: it names a document of the Life tree by its stable id (#530). */
 export const LINKED_DOC_PREFIX = 'doc:'
@@ -63,9 +66,46 @@ export function ownerMessagesFor(itemId: string): { id: string; content: string;
     WHERE s.work_item_id = ? AND m.role = 'user' ORDER BY m.created_at DESC LIMIT 500`).all(itemId) as { id: string; content: string; created_at: number }[]
 }
 
+/** The documents attached to a work item: its materials and annexes, resolved to real files. */
+export function itemDocumentsFor(project: ProjectRow, itemId: string): { path: string; abs: string; name: string }[] {
+  const out: { path: string; abs: string; name: string }[] = []
+  const seen = new Set<string>()
+  const add = (path: string, abs: string | null, name: string): void => {
+    if (!abs || seen.has(abs)) return
+    seen.add(abs)
+    out.push({ path, abs, name })
+  }
+  try {
+    for (const a of listWorkItemAssets(itemId)) {
+      if (!a.present || !docKind(a.name)) continue
+      add(a.project_path || a.path, resolveLifePath(a.path), a.name)
+    }
+  } catch { /* the list is only a help */ }
+  try {
+    for (const a of listAnnexes(itemId, (p) => resolveProjectFile(project, p))) {
+      const f = resolveProjectFile(project, a.path)
+      if (f) add(a.path, f.abs, f.name)
+    }
+  } catch { /* the list is only a help */ }
+  return out
+}
+
+const baseOf = (p: string): string => String(p || '').replace(/\\/g, '/').split('/').filter(Boolean).pop()?.normalize('NFC').toLowerCase() || ''
+
 export function sourceWorldFor(project: ProjectRow, itemId: string): SourceWorld {
+  const docs = (): { path: string; abs: string; name: string }[] => itemDocumentsFor(project, itemId)
   return {
-    resolveFile: (p) => resolveProjectFile(project, p),
+    // #794 (Boss, TG 3375): a source path that points next to the project folder ("../../Bakos Éva/...", a path the agent
+    // counted by hand) is not "missing": the same file is one of the item's own documents, found by its name when it is the only one.
+    resolveFile: (p) => {
+      const direct = resolveProjectFile(project, p)
+      if (direct) return direct
+      const b = baseOf(p)
+      if (!b) return null
+      const same = docs().filter((d) => d.name.normalize('NFC').toLowerCase() === b)
+      return same.length === 1 ? { abs: same[0].abs, name: same[0].name } : null
+    },
     ownerMessages: () => ownerMessagesFor(itemId),
+    itemDocuments: docs,
   }
 }

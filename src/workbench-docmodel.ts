@@ -632,6 +632,8 @@ export interface SourceInput {
 export interface SourceWorld {
   resolveFile(path: string): { abs: string; name: string } | null
   ownerMessages(): { id: string; content: string; created_at: number }[]
+  /** #794 (Boss, TG 3378): the documents attached to this work item (materials, annexes), so a statement the owner "said" can be found in them. */
+  itemDocuments?(): { path: string; abs: string; name: string }[]
 }
 
 /** Egy irat-forras gepi ellenorzese (K-1.12). */
@@ -644,6 +646,31 @@ function checkDocumentSource(world: SourceWorld, path: string, page: number, quo
     return { verdict: r.code === 'bad_input' ? 'not_found' : 'pending', detail: r.detail }
   }
   return { verdict: String(r.data['verdict']), detail: String(r.data['result'] ?? '') }
+}
+
+/**
+ * #794 (Boss, TG 3378: "hat hiszen ott van a mellekletben mind"): a statement that is not in the chat may still be word for word in
+ * a document attached to the item. Then it is a document source (path, page, quote), not an unsupported "owner said". Null when
+ * no attached document carries it (the honest "not found" stays), or the documents cannot be read yet.
+ */
+function findInItemDocuments(world: SourceWorld, quote: string): { path: string; page: number; quote: string; verdict: string; detail: string } | null {
+  if (!world.itemDocuments || normalizeForMatch(quote).length < 4 || quote.length > 600) return null
+  let docs: { path: string; abs: string; name: string }[] = []
+  try { docs = world.itemDocuments().slice(0, 30) } catch { return null }
+  for (const d of docs) {
+    for (const page of [1]) {
+      const r = verifyQuote(d.abs, d.name, page, quote)
+      if (!r.ok) continue
+      const v = String(r.data['verdict'])
+      const found = Array.isArray(r.data['found_on']) ? (r.data['found_on'] as number[]) : []
+      if (v === 'verified' || v === 'low_page') return { path: d.path, page, quote, verdict: v, detail: String(r.data['result'] ?? '') }
+      if (v === 'other_page' && found.length) {
+        const r2 = verifyQuote(d.abs, d.name, found[0], quote)
+        if (r2.ok) return { path: d.path, page: found[0], quote, verdict: String(r2.data['verdict']), detail: String(r2.data['result'] ?? '') }
+      }
+    }
+  }
+  return null
 }
 
 /** A tulajdonos tenyleg mondta-e (a chatben, ennel a munkadarabnal): a legjobban egyezo uzenet. */
@@ -699,6 +726,11 @@ export function addClaim(itemId: string, blockId: string, rawText: unknown, sour
       const said = String(s.said ?? '').trim()
       if (said.length < 3) return { ok: false, code: 'bad_input', detail: 'an owner source needs the words the owner said (said)' }
       const m = findOwnerMessage(world, said)
+      const inDoc = m ? null : findInItemDocuments(world, said)
+      if (inDoc) {
+        prepared.push({ kind: 'document', f: { path: inDoc.path, page: inDoc.page, quote: inDoc.quote, verdict: inDoc.verdict, detail: inDoc.detail, checked_at: now() } })
+        continue
+      }
       prepared.push({
         kind,
         f: m
@@ -805,6 +837,16 @@ export function recheckPendingSources(itemId: string, world: SourceWorld): numbe
     WHERE c.work_item_id = ? AND s.kind = 'document'
       AND (s.verdict = 'pending' OR (s.verdict = 'not_found' AND s.detail = 'the file is not in the project folder'))`).all(itemId) as SourceRow[]
   let changed = 0
+  // #794: an "owner said" source nobody said in the chat, but whose words stand in an attached document, becomes that document's source.
+  const unsaid = getDb().prepare(`SELECT s.* FROM wb_doc_sources s JOIN wb_doc_claims c ON c.id = s.claim_id
+    WHERE c.work_item_id = ? AND s.kind = 'owner' AND s.verdict = 'not_in_chat'`).all(itemId) as SourceRow[]
+  for (const s of unsaid) {
+    const f = findInItemDocuments(world, s.said || '')
+    if (!f) continue
+    getDb().prepare("UPDATE wb_doc_sources SET kind = 'document', path = ?, page = ?, quote = ?, verdict = ?, detail = ?, checked_at = ? WHERE id = ?")
+      .run(f.path, f.page, f.quote, f.verdict, f.detail, now(), s.id)
+    changed++
+  }
   for (const s of rows) {
     const r = checkDocumentSource(world, s.path || '', s.page || 0, s.quote || '')
     if (r.verdict !== 'pending' && !(s.verdict === 'not_found' && r.verdict === 'not_found' && r.detail === s.detail)) {
