@@ -87,6 +87,15 @@ describe('video render over HTTP, as a job', () => {
     expect(r.body.error).toBe('render_empty')
   })
 
+  it('#789: a failed job carries the person-readable sentence, not only its code', async () => {
+    startRenderJob(itemId, async () => { throw { status: 503, code: 'render_no_ffprobe', detail: '/x/ffprobe' } })
+    await new Promise((r) => setTimeout(r, 10))
+    const r = await callWorkbench(url('/render-status'), 'GET')
+    expect(r.body.job.error).toMatchObject({ code: 'render_no_ffprobe', detail: '/x/ffprobe' })
+    expect(r.body.job.error.message).toMatch(/ffprobe/)
+    expect(r.body.job.error.message).not.toBe('render_no_ffprobe')
+  })
+
   it('status of an item that never rendered: no job', async () => {
     const r = await callWorkbench(url('/render-status'), 'GET')
     expect(r.status).toBe(200)

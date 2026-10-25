@@ -107,7 +107,8 @@ export const SYSTEM_DEPS: SystemDep[] = [
     commands: ['ffmpeg'], versionArgs: ['-version'],
     // Lusta import: a workbench-capabilities sok modult huz be, es az
     // onellenorzes (system-health) importalja ezt a fajlt -- korkoros import ne legyen.
-    probe: async (force) => (await import('./workbench-capabilities.js')).probeFfmpeg({ force }),
+    // #789: ffmpeg together with its ffprobe (the video render measures every clip with it).
+    probe: async (force) => (await import('./workbench-capabilities.js')).probeVideoTools({ force }),
   },
   {
     id: 'libreoffice', name: 'LibreOffice', tier: 'recommended',
