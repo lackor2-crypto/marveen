@@ -29,11 +29,13 @@ ALLOW_FORCE_PUSH=1 git push ...
 
 # Bash egress deny rules
 
-`scripts/hooks/egress-gate.mjs` compares a URL against the allowlist, but it is
+`scripts/hooks/egress-gate.mjs` checks the destination of a URL (since
+2026-10-24 any public http(s) site is open; internal and non-public addresses
+are refused), but it is
 wired as a `PreToolUse` hook with matcher `WebFetch` **only**. Bash was never
 ungated (`outgoing-copy-gate.py` and `email-approval-gate.py` on the main agent,
 `email-send-gate.mjs` and `self-pace-gate.mjs` on sub-agents) but none of those
-gates looks at the destination host, so a shell `curl` never met the allowlist.
+gates looks at the destination host, so a shell `curl` never met that check.
 The realistic threat is not a malicious agent: it is a fetched page telling an
 agent to run a `curl`, which is why the quarantine-reader exists in the first
 place.
@@ -58,8 +60,8 @@ deliberately untouched: denying it would break the release path without closing
 anything an agent could not do through it anyway.
 
 The sanctioned route for external content is unchanged: the quarantine-reader
-sub-agent, through `WebFetch`, where the domain check already runs. A host being
-on the egress allowlist does not open it to the shell.
+sub-agent, through `WebFetch`, where the destination check already runs. A host
+being reachable through `WebFetch` does not open it to the shell.
 
 ## Where the main agent's copy goes
 
