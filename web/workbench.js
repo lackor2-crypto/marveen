@@ -10516,7 +10516,7 @@
   function mailDraftBoxHtml(o, ro, finalCurrent) {
     if (ro && !o.mail_draft) return ''
     if (!o.sections || !o.sections.length) return ''
-    return mailBoxHtml(o.mail_draft, ro, { hint: t('workbench.mail.hint'), stale: !finalCurrent })
+    return mailBoxHtml(o.mail_draft, ro, { hint: t('workbench.mail.hint'), stale: !finalCurrent, prefill: o.mail_prefill || null })
   }
   /**
    * #723 (Boss TG 3935: "egy kodsort hasznaljunk csak"): the ONE e-mail draft box -- sender account, recipients, text, and
@@ -10524,7 +10524,9 @@
    */
   function mailBoxHtml(d, ro, opts) {
     var fm = WB.mailForm && WB.mailForm.id === WB.selectedId ? WB.mailForm : null
-    var v = function (k) { return fm && fm[k] !== undefined ? fm[k] : (d ? d[k] : '') }
+    // #794: before a draft is stored the form starts with the subject and text the server made in the final PDF's language.
+    var pre = !d && opts && opts.prefill ? opts.prefill : null
+    var v = function (k) { return fm && fm[k] !== undefined ? fm[k] : (d ? d[k] : (pre && pre[k] !== undefined ? pre[k] : '')) }
     var status = ''
     var list = ''
     if (d) {

@@ -250,6 +250,19 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   }
 }
 
+/**
+ * #794 (Boss TG 10451): what the mail form shows BEFORE a draft is stored -- the subject (the work item's title) and the
+ * default text, in the language of the current final PDF. Nothing is stored here: the row appears when the button is pressed.
+ * Null when a draft exists already, or there is no current final (the form is not offered then).
+ */
+export function mailPrefill(item: WorkItemRow): { subject: string; body: string; lang: DocLang } | null {
+  if (!hasDocModel(item.id) || hasDocxFinalPanel(item) || getRow(item.id)) return null
+  const fin = finalState(item)
+  if (!fin || fin.stale) return null
+  const lang = mailLanguage(item, 'hu', fin)
+  return { subject: item.title, body: defaultMailBody(item, lang, listAnnexes(item.id).length), lang }
+}
+
 /** What the attachments are made from: the document, its annexes (name, size, time) and the mode, plus the mail's own text. */
 /** The current final version (the PDFs of it are what the mail carries), '' when there is none or the text changed since. */
 function currentFinalId(item: WorkItemRow): string {
