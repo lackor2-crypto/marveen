@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
+import { ffprobeBeside } from './ffprobe-path.js'
 import type { ProjectRow } from './projects.js'
 import { resolveLifePath } from './life-explorer.js'
 import { getDb } from './db.js'
@@ -304,11 +305,7 @@ export interface MediaProbe { audio: boolean; duration: number | null }
 type Probe = (ffmpegPath: string, abs: string) => Promise<MediaProbe | null>
 type Filters = (ffmpegPath: string) => Promise<boolean | null>
 
-/** #789: where ffprobe is expected: beside the ffmpeg that was found (the same package ships both). One place for the render
- *  and the capability check. */
-export function ffprobeBeside(ffmpegPath: string): string {
-  return join(dirname(ffmpegPath), basename(ffmpegPath).replace(/ffmpeg/i, 'ffprobe'))
-}
+export { ffprobeBeside }
 const ffprobePath = ffprobeBeside
 
 const defaultProbe: Probe = (ffmpegPath, abs) => new Promise((resolve) => {
