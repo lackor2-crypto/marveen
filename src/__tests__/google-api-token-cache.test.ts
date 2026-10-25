@@ -48,7 +48,8 @@ describe('google-api token cache mtime invalidation', () => {
     const body = SRC.slice(start, closeIdx)
     // JSON.stringify of an object literal with `normal:` is fine; should
     // NOT serialise mtimeMs alongside.
-    expect(body).toMatch(/writeFileSync\([^)]*JSON\.stringify\(\s*\{\s*normal:\s*tokens\s*\}/)
+    // #798: the write is atomic now (atomicWriteFileSync); the payload's shape is what this pins.
+    expect(body).toMatch(/(?:atomicW|w)riteFileSync\([^)]*JSON\.stringify\(\s*\{\s*normal:\s*tokens\s*\}/)
   })
 
   it('handles a missing TOKENS_PATH at stat time without throwing', () => {

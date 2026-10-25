@@ -19,6 +19,7 @@
 // A fajl szandekosan tiszta fuggvenyekbol all (a betoltes/mentes kivetelevel),
 // hogy a dontesi logika halozat es IMAP nelkul is merheto legyen.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { atomicWriteFileSync } from './web/atomic-write.js'
 import { join, dirname } from 'node:path'
 import { PROJECT_ROOT } from './config.js'
 
@@ -88,7 +89,8 @@ function isRule(x: unknown): x is EmailRule {
 
 export function saveRules(rules: EmailRule[]): void {
   mkdirSync(dirname(RULES_PATH), { recursive: true })
-  writeFileSync(RULES_PATH, JSON.stringify({ rules }, null, 2))
+  // #798: atomic -- a torn file reads back as "no rules", and the next save would have overwritten the owner's rules.
+  atomicWriteFileSync(RULES_PATH, JSON.stringify({ rules }, null, 2))
 }
 
 /** Ugyanaz a szabaly ketszer nem kerul be (a Boss ketszer is rahuzhat). */

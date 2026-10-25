@@ -24,6 +24,7 @@
 
 import { execFile } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { atomicWriteFileSync } from './web/atomic-write.js'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { APP_LANG, PROJECT_ROOT } from './config.js'
@@ -66,7 +67,9 @@ function readTokens(): TokenStore {
 function writeTokens(store: TokenStore): void {
   const f = tokenFile()
   mkdirSync(join(PROJECT_ROOT, 'store'), { recursive: true })
-  writeFileSync(f, JSON.stringify(store, null, 2), 'utf8')
+  // #798: atomic and 0600 from the first byte -- a torn write left an unreadable store that read back as EMPTY (the next save
+  // then dropped every key), and a new file stood world-readable until the chmod below.
+  atomicWriteFileSync(f, JSON.stringify(store, null, 2), { mode: 0o600 })
   // A jogok BEALLITASA a lenyeg, nem a fajl letezese: egy vilag altal olvashato
   // tokenfajl ugyanolyan rossz, mintha sehol nem lenne.
   try { chmodSync(f, 0o600) } catch { /* Windows-os fajlrendszeren nincs ertelme */ }
@@ -669,7 +672,7 @@ export function setReadOnlyException(account: string, repo: string, kivetel: boo
   if (list.size) all[acc] = [...list]; else delete all[acc]
   const f = readonlyExceptionsFile()
   mkdirSync(join(PROJECT_ROOT, 'store'), { recursive: true })
-  writeFileSync(f, JSON.stringify(all, null, 2), 'utf8')
+  atomicWriteFileSync(f, JSON.stringify(all, null, 2))
 }
 
 /**

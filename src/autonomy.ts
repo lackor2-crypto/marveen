@@ -64,6 +64,7 @@
 // which is precisely the difference Boss was complaining about.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { atomicWriteFileSync } from './web/atomic-write.js'
 import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR, MAIN_AGENT_ID } from './config.js'
 import { isFreeOpenRouterModel } from './openrouter-dispatch-throttle.js'
@@ -102,7 +103,8 @@ export function loadAutonomyConfig(path = AUTONOMY_CONFIG_PATH): AutonomyConfig 
 
 export function saveAutonomyConfig(config: AutonomyConfig, path = AUTONOMY_CONFIG_PATH): void {
   config.updated_at = Math.floor(Date.now() / 1000)
-  writeFileSync(path, JSON.stringify(config, null, 2) + '\n', 'utf-8')
+  // #798: atomic -- a torn file made every later load throw.
+  atomicWriteFileSync(path, JSON.stringify(config, null, 2) + '\n')
 }
 
 /**
