@@ -16,7 +16,7 @@ import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { attachAsset, markPlainItem } from '../workbench-assets.js'
 import { finalizeWorkItem } from '../workbench-approval.js'
-import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
+import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
 import { registerMailboxEngine, _setGoogleEngine } from '../mail-send.js'
 
 /** A fake LibreOffice: the PDF it writes carries a checksum of the source, so any change of the text shows in the bytes. */
@@ -341,6 +341,20 @@ describe('the e-mail draft of a work item', () => {
     if (!r.ok) throw new Error('save ' + r.code)
     expect(r.draft.body).toMatch(/^(Sehr geehrte|Dear Sir)/)
     expect(r.draft.body).not.toMatch(/^Tisztelt/)
+  })
+
+  // #794 (Boss TG 10451): after the final PDF the form starts filled (subject, text in the final's language), with nothing stored.
+  it('after the final PDF the form is prefilled in the language of the document text, and no row is stored', async () => {
+    write('Sehr geehrte Damen und Herren, bezüglich der Verwarnung bitte ich Sie, das Verwarnungsgeld mit der Begründung zu erlassen, und ich danke für die Prüfung.')
+    expect(mailPrefill(item())).toBeNull()
+    await makeFinal('hu')
+    const pre = mailPrefill(item())
+    expect(pre).toMatchObject({ subject: item().title, lang: 'de' })
+    expect(pre!.body).toMatch(/^Sehr geehrte/)
+    expect(mailDraftView(item())).toBeNull()
+    const saved = await saveMailDraft(item(), { subject: pre!.subject, body: pre!.body }, 'hu')
+    if (!saved.ok) throw new Error('save ' + saved.code)
+    expect(mailPrefill(item())).toBeNull()
   })
 
   it('a bad address is refused with nothing written', async () => {

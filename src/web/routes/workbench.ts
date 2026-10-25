@@ -72,7 +72,7 @@ import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryT
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
-import { forgetMailDraft, mailDraftView, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
+import { forgetMailDraft, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
 // The mail routes register the shared sender's mailbox engine (src/mail-send.ts, #797) when they load.
 import './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
@@ -2325,6 +2325,8 @@ type OutlineOut = ReturnType<typeof documentOutline> & {
   sent_methods: typeof SENT_METHODS
   /** The e-mail draft (a stored row, no file; #725) for the document and its annexes as PDF attachments, or null when there is none yet. */
   mail_draft: ReturnType<typeof mailDraftView> | null
+  /** #794: the subject and text the form starts with when no draft is stored yet. */
+  mail_prefill: ReturnType<typeof mailPrefill>
   check: ReturnType<typeof documentCheck>
   /** #751: set when the check changed the to-do list, so the page reloads its to-dos. */
   check_todos_at?: number
@@ -2385,6 +2387,7 @@ function outlineOut(itemId: string): OutlineOut | null {
     sent: listSent(itemId),
     sent_methods: SENT_METHODS,
     mail_draft: item ? mailDraftView(item) : null,
+    mail_prefill: item ? mailPrefill(item) : null,
     ...checkWithTodos(itemId, resolve),
     consistency: consistencyIssues(itemId),
     annexes: listAnnexes(itemId, resolve),
