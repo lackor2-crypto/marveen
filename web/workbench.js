@@ -13427,7 +13427,7 @@
   function docxMailPanelHtml(it) {
     var close = '<p class="wb-note-final-btns"><button type="button" class="btn-secondary" data-wb-act="docx-mail-close"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t('workbench.docxfinal.mail_close')) + '</button></p>'
     return '<div class="wb-note-final wb-docx-mail" role="region" aria-label="' + escA(t('workbench.mail.title')) + '">'
-      + mailBoxHtml((WB.detail && (WB.detail.mail_draft || (WB.detail.outline && WB.detail.outline.mail_draft))) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: close, prefill: (WB.detail && WB.detail.mail_prefill) || null })
+      + mailBoxHtml((WB.detail && (WB.detail.mail_draft || (WB.detail.outline && WB.detail.outline.mail_draft))) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: close, prefill: (WB.detail && (WB.detail.mail_prefill || (WB.detail.outline && WB.detail.outline.mail_prefill))) || null })
       + '</div>'
   }
 
