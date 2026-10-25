@@ -9,28 +9,34 @@
  * KULDES (tulajdonos dontese, 2026-09-27): KET UT, a hivo fajtaja szerint.
  *   - A TULAJDONOS SAJAT KATTINTASA (bejelentkezett dashboard-munkamenet,
  *     `auth.kind === 'session'`): `sendNow()` AZONNAL elkuldi a levelet a
- *     bekotott Google-fiokrol (`scripts/gmail-send.py`), jegy nelkul. Az
- *     eredmeny igazolt: sikernel a Gmail uzenet-azonositoja, hibanal a
- *     tenyleges hibauzenet. Bekotott fiok nelkul emberi mondattal all meg.
+ *     kivalasztott fiokrol, jegy nelkul. Az eredmeny igazolt: hibanal a
+ *     tenyleges hibauzenet. Fiok nelkul emberi mondattal all meg.
  *   - MINDEN MAS HIVO (token, federacio, eszkoz, a Munkapad-agens eszkozei):
  *     `requestSendApproval()` a MEGLEVO jovahagyasi kapun at (`createApproval`
  *     + `[APPROVAL_REQUEST]` a fo agensnek) egy `email_send` jegyet nyit;
- *     kifele csak a tulajdonos igen-je utan megy barmi.
+ *     kifele csak a tulajdonos igen-je utan megy barmi, es azt a rendszer
+ *     kuldi el (`settleSendApprovals`), nem a fo agens.
  *   A ket ut kozti valasztast a SZERVER (az utvonal) teszi meg, nem a felulet.
+ *
+ * #797: mindket ut a KOZOS kuldon megy (src/mail-send.ts): ugyanazok a fiokok
+ * (az Iroda e-mail fiokjai, es a bekotott Google-fiok), mint a dokumentum
+ * levelpiszkozatanal es az Iroda levelezesnel; a sikeres kuldes a munkadarab
+ * "Elkuldve" naplojaba is bekerul.
  */
 import { randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
 import { readFileSync, statSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { PROJECT_ROOT, MAIN_AGENT_ID, STORE_DIR } from './config.js'
-import { createApproval, createAgentMessage } from './db.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID } from './config.js'
+import { createApproval, createAgentMessage, getDb, listApprovals } from './db.js'
+import { sendMail, sendingAccounts, type MailSendResult, type OutgoingMail, type SendingAccount } from './mail-send.js'
+import { markSentManually, recordSent } from './workbench-docsent.js'
 import { logger } from './logger.js'
 import { resolveLifePath } from './life-explorer.js'
 import { getProject } from './projects.js'
 import { fileKind } from './file-kind.js'
 import { buildPreview } from './workbench-preview.js'
 import { readCanvas, renderCanvasForItem } from './workbench-canvas-store.js'
-import { listWorkItemParts, type WorkItemRow } from './workbench.js'
+import { getWorkItem, listWorkItemParts, type WorkItemRow } from './workbench.js'
 
 type Lang = 'hu' | 'en'
 
@@ -177,13 +183,15 @@ const EMAIL_RE = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/
 type SendInputCode = 'send_bad_to' | 'send_subject_too_long' | 'send_message_too_long' | 'send_no_source' | 'send_write_failed'
 type Attachment = { name: string; path: string; kind: 'source' | 'html' }
 
+type AccountCode = 'send_no_mail_account' | 'send_bad_account'
+
 export type SendRequestResult =
   | { ok: true; approval_id: string; attachment: Attachment }
-  | { ok: false; code: SendInputCode; detail?: string }
+  | { ok: false; code: SendInputCode | AccountCode; detail?: string }
 
 export type SendNowResult =
-  | { ok: true; message_id: string; attachment: Attachment }
-  | { ok: false; code: SendInputCode | 'send_no_mail_account' | 'send_failed'; detail?: string }
+  | { ok: true; message_id: string; from: string; sent_logged: 'recorded' | 'marked'; attachment: Attachment }
+  | { ok: false; code: SendInputCode | AccountCode | 'send_failed'; detail?: string }
 
 /** Hova kerul a csatolando export: a `store/` alatti szarmaztatott adat, NEM
  *  a felhasznalo mappaja (azt nem szemeteljuk tele kuldesi masolatokkal). */
@@ -195,6 +203,8 @@ type SendInput = {
   to: unknown; subject: unknown; message: unknown; attachment: unknown; version: unknown; actor: string | null; lang: Lang
   /** #779: the item's own document HTML (the document page's render, or a Word file's), so the sent page is the same as the export. */
   docHtml?: string
+  /** #797: the sender account (an id from the shared list, /api/mail/sending-accounts); none = the first one. */
+  from_account?: unknown
 }
 type Prepared = { to: string; subject: string; message: string; attachment: Attachment; versionNo: number | null; versionId: string | null }
 
@@ -232,6 +242,9 @@ function prepareSend(item: WorkItemRow, input: SendInput): { ok: true; p: Prepar
 }
 
 export function requestSendApproval(item: WorkItemRow, input: SendInput): SendRequestResult {
+  const acc = pickAccount(input.from_account)
+  if (!acc.ok) return acc
+  const from = acc.account
   const prep = prepareSend(item, input)
   if (!prep.ok) return prep
   const { to, subject, message, attachment, versionNo, versionId } = prep.p
@@ -241,21 +254,23 @@ export function requestSendApproval(item: WorkItemRow, input: SendInput): SendRe
   const lines = hu
     ? [
       `Munkapad: küldés emailben — projekt „${project ? project.name : item.project_id}”, munkadarab „${item.title}”${versionNo ? ` (v${versionNo})` : ''}`,
+      `Feladó: ${from.address || from.id}`,
       `Címzett: ${to}`,
       `Tárgy: ${subject}`,
       message ? `Üzenet: „${message.replace(/\s+/g, ' ').slice(0, 300)}”` : 'Üzenet: (nincs)',
       `Melléklet: ${attachment.name} — ${attachment.path}`,
       input.actor ? `Kérte: ${input.actor}` : '',
-      'Jóváhagyás után a fő ágens küldi el pontosan ezt; elutasításnál semmi nem megy ki.',
+      'Jóváhagyás után a rendszer maga küldi el pontosan ezt (a fő ágensnek nincs teendője); elutasításnál semmi nem megy ki.',
     ]
     : [
       `Workbench: send by email — project "${project ? project.name : item.project_id}", work item "${item.title}"${versionNo ? ` (v${versionNo})` : ''}`,
+      `From: ${from.address || from.id}`,
       `To: ${to}`,
       `Subject: ${subject}`,
       message ? `Message: "${message.replace(/\s+/g, ' ').slice(0, 300)}"` : 'Message: (none)',
       `Attachment: ${attachment.name} — ${attachment.path}`,
       input.actor ? `Requested by: ${input.actor}` : '',
-      'After approval the main agent sends exactly this; on rejection nothing goes out.',
+      'After approval the system itself sends exactly this (nothing for the main agent to do); on rejection nothing goes out.',
     ]
   const description = lines.filter(Boolean).join(' · ')
   const id = randomUUID()
@@ -268,6 +283,9 @@ export function requestSendApproval(item: WorkItemRow, input: SendInput): SendRe
     action_description: description,
     action_payload: JSON.stringify({
       source: 'workbench', tool: 'workItem.send', project: item.project_id, workItem: item.id,
+      // #797: the server sends it on approval (settleSendApprovals), from this account; an older ticket without the flag
+      // is left to the main agent as before.
+      server_sends: true, from_account: from.id, actor: input.actor, lang: input.lang,
       version: versionId, input: { to, subject, message, attachment_path: attachment.path, attachment_name: attachment.name },
     }),
   })
@@ -282,61 +300,67 @@ export function requestSendApproval(item: WorkItemRow, input: SendInput): SendRe
   return { ok: true, approval_id: id, attachment }
 }
 
-// --- Azonnali kuldes (csak a tulajdonos munkamenetebol) ---------------------
+// --- A kozos kuldo (#797) ------------------------------------------------------
 
-export interface Mail { to: string; subject: string; body: string; attachmentPath: string }
-export type MailerResult = { ok: true; messageId: string } | { ok: false; error: string }
 export interface SendDeps {
-  /** Van-e bekotott fiok, amirol level mehet. `null` = igen; kulonben az ok. */
-  mailerReady: () => string | null
-  mailer: (m: Mail) => Promise<MailerResult>
+  /** The accounts a mail can go out from (the shared list). */
+  accounts: () => SendingAccount[]
+  send: (accountId: string, mail: OutgoingMail) => Promise<MailSendResult>
 }
+let deps: SendDeps = { accounts: sendingAccounts, send: sendMail }
+/** Tesztekhez: a kuldo es a fiok-lista cserelheto (valodi level nem megy ki). */
+export function _setSendDeps(d: Partial<SendDeps> = {}): void {
+  deps = { accounts: d.accounts || sendingAccounts, send: d.send || sendMail }
+}
+
+/** The sender: the one asked for, or (none asked) the first of the shared list. No account = an honest stop, not a Python error. */
+function pickAccount(wanted: unknown): { ok: true; account: SendingAccount } | { ok: false; code: AccountCode; detail?: string } {
+  const accounts = deps.accounts()
+  if (!accounts.length) return { ok: false, code: 'send_no_mail_account', detail: 'no_account' }
+  const id = typeof wanted === 'string' ? wanted.trim() : ''
+  if (!id) return { ok: true, account: accounts[0] }
+  const found = accounts.find((a) => a.id === id)
+  return found ? { ok: true, account: found } : { ok: false, code: 'send_bad_account', detail: id }
+}
+
+function pad2(n: number): string { return String(n).padStart(2, '0') }
 
 /**
- * Van-e hasznalhato Google-fiok. Ugyanazt a tarat nezi, amit a
- * `scripts/gmail-send.py` hasznal: `store/google-tokens.json` (fiok-kulcsolt,
- * `_default`) + `store/google-oauth-client.json`; regi telepitesen a
- * `store/google-token.json`. Friss telepitesen egyik sincs -- ezt ki kell
- * mondani, nem a Python-hibaig engedni.
+ * The sending goes on the work item's "Sent" log: with a current final, as a sending of that final (date, time, recipient,
+ * by e-mail); without one, the item is marked as sent (the same mark the owner can set by hand).
  */
-function defaultMailerReady(): string | null {
-  const store = process.env['MARVEEN_STORE'] || STORE_DIR
-  if (!existsSync(join(store, 'google-oauth-client.json'))) return 'no_oauth_client'
-  const tokens = join(store, 'google-tokens.json')
-  if (existsSync(tokens)) {
-    try {
-      const t = JSON.parse(readFileSync(tokens, 'utf-8')) as Record<string, unknown>
-      const acc = process.env['MARVEEN_GOOGLE_ACCOUNT'] || t['_default']
-      const rec = typeof acc === 'string' ? t[acc] as Record<string, unknown> | undefined : undefined
-      return rec && rec['refresh_token'] ? null : 'no_account'
-    } catch {
-      return 'tokens_unreadable'
-    }
+function logSending(item: WorkItemRow, s: { to: string; subject: string; attachment: Attachment; from: string; actor: string | null }): 'recorded' | 'marked' {
+  const now = new Date()
+  const note = `${s.attachment.name} (${s.from})`.slice(0, 300)
+  try {
+    const rec = recordSent(item, {
+      date: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`, time: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
+      recipient: s.to, method: 'email', reference: s.subject.slice(0, 300), note,
+    }, s.actor)
+    if (rec.ok) return 'recorded'
+  } catch (err) {
+    logger.warn({ err, workItem: item.id }, 'workbench-export: recording the sending failed')
   }
-  return existsSync(join(store, 'google-token.json')) ? null : 'no_account'
+  try { markSentManually(item.id, s.actor) } catch (err) { logger.warn({ err, workItem: item.id }, 'workbench-export: marking the item sent failed') }
+  return 'marked'
 }
 
-/** A kuldo: `scripts/gmail-send.py send` -- a torzs a `MAIL_BODY` valtozoban
- *  megy (a script ezt mar ismeri), az azonosito a `SENT OK id=` sorbol jon. */
-function defaultMailer(m: Mail): Promise<MailerResult> {
-  const script = join(PROJECT_ROOT, 'scripts', 'gmail-send.py')
-  return new Promise((resolve) => {
-    execFile('python3', [script, 'send', m.to, m.subject, m.attachmentPath], {
-      timeout: 120_000, maxBuffer: 1024 * 1024, env: { ...process.env, MAIL_BODY: m.body },
-    }, (err, stdout, stderr) => {
-      const id = /SENT OK id=(\S+)/.exec(String(stdout))?.[1]
-      if (!err && id && id !== '?') return resolve({ ok: true, messageId: id })
-      const why = String(stderr || '').trim().split('\n').filter(Boolean).pop()
-        || (err ? err.message : 'no message id in the sender output')
-      resolve({ ok: false, error: why.slice(0, 500) })
-    })
-  })
-}
-
-let deps: SendDeps = { mailerReady: defaultMailerReady, mailer: defaultMailer }
-/** Tesztekhez: a kuldo es a fiok-ellenorzes cserelheto (valodi level nem megy ki). */
-export function _setSendDeps(d: Partial<SendDeps> = {}): void {
-  deps = { mailerReady: d.mailerReady || defaultMailerReady, mailer: d.mailer || defaultMailer }
+async function deliver(item: WorkItemRow, acc: SendingAccount, p: { to: string; subject: string; message: string; attachment: Attachment }, lang: Lang, actor: string | null): Promise<SendNowResult> {
+  const body = p.message || (lang === 'en' ? `Attached: ${p.attachment.name}` : `Csatolva: ${p.attachment.name}`)
+  let r: MailSendResult
+  try {
+    r = await deps.send(acc.id, { to: p.to, subject: p.subject, body, attachments: [p.attachment.path] })
+  } catch (e) {
+    r = { ok: false, code: 'send_failed', detail: e instanceof Error ? e.message : String(e) }
+  }
+  if (!r.ok) {
+    logger.warn({ workItem: item.id, account: acc.id, error: r.detail }, 'workbench-export: send failed')
+    return { ok: false, code: r.code === 'unknown_account' ? 'send_bad_account' : 'send_failed', detail: r.detail }
+  }
+  const from = acc.address || acc.id
+  const sentLogged = logSending(item, { to: p.to, subject: p.subject, attachment: p.attachment, from, actor })
+  logger.info({ workItem: item.id, project: item.project_id, account: acc.id, messageId: r.messageId, actor }, 'workbench-export: sent')
+  return { ok: true, message_id: r.messageId || '', from, sent_logged: sentLogged, attachment: p.attachment }
 }
 
 /**
@@ -345,22 +369,63 @@ export function _setSendDeps(d: Partial<SendDeps> = {}): void {
  */
 export async function sendNow(item: WorkItemRow, input: SendInput): Promise<SendNowResult> {
   // Fiok nelkul mellekletet sem keszitunk: semmi ne maradjon a store-ban hiaba.
-  const why = deps.mailerReady()
-  if (why) return { ok: false, code: 'send_no_mail_account', detail: why }
+  const acc = pickAccount(input.from_account)
+  if (!acc.ok) return acc
   const prep = prepareSend(item, input)
   if (!prep.ok) return prep
-  const { to, subject, message, attachment } = prep.p
-  const body = message || (input.lang === 'en' ? `Attached: ${attachment.name}` : `Csatolva: ${attachment.name}`)
-  let r: MailerResult
+  return deliver(item, acc.account, prep.p, input.lang, input.actor)
+}
+
+// --- A jovahagyott kuldes: a rendszer kuldi el (#797) --------------------------
+
+function ensureSettledTable(): void {
+  getDb().exec(`CREATE TABLE IF NOT EXISTS wb_send_approval_done (
+    approval_id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT, at INTEGER NOT NULL)`)
+}
+
+/**
+ * After the owner approved a Workbench send ticket (`server_sends`), the mail goes out here, exactly as asked: from the
+ * account, to the recipient, with the attachment prepared at the request. One ticket, one send: the row is claimed before
+ * sending (a second call finds it taken). Called when an approval is decided (routes/approvals.ts).
+ */
+export async function settleSendApprovals(): Promise<number> {
+  ensureSettledTable()
+  let rows: { id: string; category: string; action_payload: string | null }[]
   try {
-    r = await deps.mailer({ to, subject, body, attachmentPath: attachment.path })
-  } catch (e) {
-    r = { ok: false, error: e instanceof Error ? e.message : String(e) }
+    rows = listApprovals({ status: 'approved', category: 'email_send', limit: 200 }) as { id: string; category: string; action_payload: string | null }[]
+  } catch {
+    return 0
   }
-  if (!r.ok) {
-    logger.warn({ workItem: item.id, error: r.error }, 'workbench-export: direct send failed')
-    return { ok: false, code: 'send_failed', detail: r.error }
+  let done = 0
+  for (const a of rows) {
+    if (a.category !== 'email_send') continue
+    let p: { source?: unknown; tool?: unknown; server_sends?: unknown; workItem?: unknown; from_account?: unknown; actor?: unknown; lang?: unknown; input?: { to?: unknown; subject?: unknown; message?: unknown; attachment_path?: unknown; attachment_name?: unknown } } = {}
+    try { p = JSON.parse(a.action_payload || '{}') } catch { continue }
+    if (p.source !== 'workbench' || p.tool !== 'workItem.send' || p.server_sends !== true || typeof p.workItem !== 'string') continue
+    const claimed = getDb().prepare('INSERT OR IGNORE INTO wb_send_approval_done (approval_id, work_item_id, outcome, at) VALUES (?, ?, ?, ?)')
+      .run(a.id, p.workItem, 'sending', Date.now()).changes === 1
+    if (!claimed) continue
+    done++
+    const finish = (outcome: string, detail: string | null): void => {
+      getDb().prepare('UPDATE wb_send_approval_done SET outcome = ?, detail = ?, at = ? WHERE approval_id = ?').run(outcome, detail, Date.now(), a.id)
+    }
+    const item = getWorkItem(p.workItem)
+    const inp = p.input || {}
+    const path = typeof inp.attachment_path === 'string' ? inp.attachment_path : ''
+    if (!item || !path || !existsSync(path)) { finish('failed', !item ? 'work item gone' : 'attachment gone'); logger.warn({ approvalId: a.id }, 'workbench-export: approved send not possible'); continue }
+    const accounts = deps.accounts()
+    const acc = accounts.find((x) => x.id === p.from_account)
+    if (!acc) { finish('failed', `sender account "${String(p.from_account)}" not connected`); logger.warn({ approvalId: a.id }, 'workbench-export: approved send, account gone'); continue }
+    const att: Attachment = { name: typeof inp.attachment_name === 'string' ? inp.attachment_name : basename(path), path, kind: 'html' }
+    const r = await deliver(item, acc, { to: String(inp.to ?? ''), subject: String(inp.subject ?? ''), message: String(inp.message ?? ''), attachment: att }, p.lang === 'en' ? 'en' : 'hu', typeof p.actor === 'string' ? p.actor : null)
+    finish(r.ok ? 'sent' : 'failed', r.ok ? r.message_id : (r.detail || r.code))
   }
-  logger.info({ workItem: item.id, project: item.project_id, messageId: r.messageId, actor: input.actor }, 'workbench-export: sent by owner click')
-  return { ok: true, message_id: r.messageId, attachment }
+  return done
+}
+
+/** What became of an approved send ticket (null = not settled here). */
+export function sendApprovalOutcome(approvalId: string): { outcome: string; detail: string | null } | null {
+  ensureSettledTable()
+  const r = getDb().prepare('SELECT outcome, detail FROM wb_send_approval_done WHERE approval_id = ?').get(approvalId) as { outcome: string; detail: string | null } | undefined
+  return r || null
 }

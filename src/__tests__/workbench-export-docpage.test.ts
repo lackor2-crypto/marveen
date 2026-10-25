@@ -7,7 +7,9 @@ import { join } from 'node:path'
 import { initDatabase, listPendingApprovals } from '../db.js'
 import { _setSendDeps } from '../workbench-export.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem } from '../workbench.js'
+import { contentHash, finalizeDocument, recordReview } from '../workbench-docfinal.js'
+import { listSent } from '../workbench-docsent.js'
 import { addBlock, addSection } from '../workbench-docmodel.js'
 import { probeLibreOffice } from '../office-convert.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -44,7 +46,7 @@ describe('#779 export of a document-page work item', () => {
     const s = addSection(itemId, 'Kérelem')
     if (!s.ok) throw new Error('section')
     addBlock(itemId, s.section.id, { text: 'Tisztelt Bíróság, a végzés ellen fellebbezést nyújtok be.', author: 'owner' })
-    _setSendDeps({ mailerReady: () => null, mailer: async () => ({ ok: true, messageId: 'x' }) })
+    _setSendDeps({ accounts: () => [{ id: 'iroda', address: 'en@pelda.hu', kind: 'mailbox' }], send: async (account) => ({ ok: true, account, kind: 'mailbox', address: 'en@pelda.hu', messageId: 'x' }) })
   })
   afterEach(() => {
     _setSendDeps()
@@ -79,4 +81,20 @@ describe('#779 export of a document-page work item', () => {
     const payload = JSON.parse(ap?.action_payload || '{}')
     expect(readFileSync(payload.input.attachment_path, 'utf-8')).toContain('fellebbezést nyújtok be')
   }, 120_000)
+  // #797: a finalized document sent from the Export panel is a sending of that final on the "Sent" log (date, recipient, by e-mail).
+  it('the owner\'s Send of a finalized document goes on the Sent log as a sending of the final', async () => {
+    if (!(await probeLibreOffice()).available) return
+    const it0 = getWorkItem(itemId)!
+    const hash = contentHash(it0)
+    recordReview(itemId, hash, 'owner')
+    const f = await finalizeDocument(it0, { accept: true, hash, by: 'owner', lang: 'hu' })
+    if (!f.ok) throw new Error('finalize ' + f.code + ' ' + f.detail)
+    const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'birosag@example.com', subject: 'Fellebbezés', attachment: 'html' })
+    expect(r.status).toBe(201)
+    expect(r.body.sent_logged).toBe('recorded')
+    const log = listSent(itemId)
+    expect(log).toHaveLength(1)
+    expect(log[0]).toMatchObject({ recipient: 'birosag@example.com', method: 'email', reference: 'Fellebbezés' })
+    expect(log[0].note).toContain('en@pelda.hu')
+  }, 180_000)
 })

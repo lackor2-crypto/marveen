@@ -2,12 +2,13 @@
 """Gmail draft/send with attachment, using the Marvin OAuth token (gmail.send scope).
 
 Usage:
-  python3 scripts/gmail-send.py draft  <to> <subject> <file> [file2 ...]
-  python3 scripts/gmail-send.py send   <to> <subject> <file> [file2 ...]
+  python3 scripts/gmail-send.py draft  <to> <subject> [file ...]
+  python3 scripts/gmail-send.py send   <to> <subject> [file ...]
 
 - 'draft' creates a Gmail draft (Boss reviews + sends from phone). SAFE default.
 - 'send'  sends immediately (level2 -- only on explicit Boss instruction).
-Body is auto-filled with a short line; each file becomes an attachment.
+Body is auto-filled with a short line (MAIL_BODY replaces it); each file becomes an attachment
+(none is fine: the app's shared sender, src/mail-send.ts, sends plain letters too). MAIL_CC adds a Cc line.
 Prints the created draft/message id on success.
 """
 import sys, os, json, base64, mimetypes, urllib.request, urllib.error
@@ -79,6 +80,8 @@ def _build(to, subject, files):
     msg = EmailMessage()
     msg["To"] = to
     msg["Subject"] = subject
+    if os.environ.get("MAIL_CC", "").strip():
+        msg["Cc"] = os.environ["MAIL_CC"].strip()
     msg.set_content(os.environ.get("MAIL_BODY", "Csatolva a kert dokumentum.\n\n--\nMarvin"))
     for f in files:
         if not os.path.isfile(f):
@@ -103,7 +106,7 @@ def _post(url, at, payload):
 
 
 def main():
-    if len(sys.argv) < 5:
+    if len(sys.argv) < 4:
         raise SystemExit(__doc__)
     mode, to, subject = sys.argv[1], sys.argv[2], sys.argv[3]
     files = sys.argv[4:]

@@ -17,7 +17,8 @@ import { resetLibreOfficeProbe } from '../office-convert.js'
 import { markPlainItem } from '../workbench-assets.js'
 import { finalizeDocxItem } from '../workbench-docxfinal.js'
 import { reopenWorkItem } from '../workbench-approval.js'
-import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, registerMailboxDraftPort, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
+import { annexFileStem, buildEml, cleanAddresses, encodeHeaderText, forgetMailDraft, mailDraftView, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
+import { registerMailboxEngine, _setGoogleEngine } from '../mail-send.js'
 
 /** A fake LibreOffice: the PDF it writes carries a checksum of the source, so any change of the text shows in the bytes. */
 const FAKE_SOFFICE = `#!/bin/sh
@@ -148,17 +149,24 @@ describe('the e-mail draft of a work item', () => {
   }
   const emlPath = (name: string): string => join(projDir(), ...getWorkItem(itemId)!.folder!.split('/'), name)
 
-  /** #725: the draft goes into the account's Drafts folder through the registered port; this one records what it got. */
+  /** #725/#797: the draft goes into the account's Drafts folder through the shared sender's mailbox engine; this one records what it got. */
   async function boxSave(it: ReturnType<typeof item>): Promise<{ account: string; to: string; subject: string; attachments: string[]; contents: string[] }> {
     const got = { account: '', to: '', subject: '', attachments: [] as string[], contents: [] as string[] }
-    registerMailboxDraftPort({
-      async save(account, msg) {
+    _setGoogleEngine(null, () => null)
+    registerMailboxEngine({
+      accounts: () => [{ id: 'work', address: 'me@example.com' }],
+      run: async () => ({ ok: false, detail: 'a draft test never sends' }),
+      sentFolder: async () => 'Sent',
+      changed: () => {},
+      async saveDraft(account, msg) {
         got.account = account; got.to = msg.to; got.subject = msg.subject
-        for (const f of msg.files) { got.attachments.push(f.split('/').pop()!); got.contents.push(readFileSync(f, 'utf-8')) }
+        for (const f of msg.attachments || []) { got.attachments.push(f.split('/').pop()!); got.contents.push(readFileSync(f, 'utf-8')) }
         return { ok: true, mailbox: '[Gmail]/Piszkozatok' }
       },
     })
     const r = await saveDraftToMailbox(it, 'hu')
+    registerMailboxEngine(null)
+    _setGoogleEngine(null)
     if (!r.ok) throw new Error('mailbox ' + r.code)
     return got
   }

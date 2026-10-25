@@ -30,6 +30,7 @@ import { hasDocModel } from './workbench-docmodel.js'
 import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
 import type { DocLang } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
+import { saveDraft as saveMailboxDraft } from './mail-send.js'
 
 // ---------------------------------------------------------------------------
 // The message: pure, no I/O
@@ -380,16 +381,9 @@ export function mailDraftFileBytes(item: WorkItemRow): number {
 // Into the Drafts folder of the chosen mail account (nothing is sent)
 // ---------------------------------------------------------------------------
 
-export interface MailboxDraftPort {
-  save(account: string, msg: { to: string; cc: string; subject: string; body: string; files: string[] }): Promise<{ ok: boolean; mailbox?: string; detail?: string }>
-}
-let mailboxPort: MailboxDraftPort | null = null
-/** The e-mail routes register how a message is saved into an account's Drafts folder (this module does not know the mail client). */
-export function registerMailboxDraftPort(p: MailboxDraftPort): void { mailboxPort = p }
-
 export type MailboxSaveOutcome =
   | { ok: true; mailbox: string; account: string }
-  | { ok: false; code: 'no_draft' | 'no_account' | 'no_port' | 'save_failed' | string; detail: string | null; label?: string }
+  | { ok: false; code: 'no_draft' | 'no_account' | 'save_failed' | string; detail: string | null; label?: string }
 
 /**
  * Puts the stored draft (with its PDFs, made now) into the Drafts folder of the account chosen as the sender. It is saved as a
@@ -399,7 +393,6 @@ export async function saveDraftToMailbox(item: WorkItemRow, ui: 'hu' | 'en'): Pr
   const row = getRow(item.id)
   if (!row) return { ok: false, code: 'no_draft', detail: null }
   if (!row.from_account) return { ok: false, code: 'no_account', detail: null }
-  if (!mailboxPort) return { ok: false, code: 'no_port', detail: null }
   const made = await collectAttachments(item, ui)
   if (!made.ok) return made
   const work = mkdtempSync(join(tmpdir(), 'marveen-maildraft-'))
@@ -411,8 +404,10 @@ export async function saveDraftToMailbox(item: WorkItemRow, ui: 'hu' | 'en'): Pr
       writeFileSync(abs, f.data)
       files.push(abs)
     }
-    const r = await mailboxPort.save(row.from_account, { to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: row.body, files })
-    return r.ok ? { ok: true, mailbox: r.mailbox || '', account: row.from_account } : { ok: false, code: 'save_failed', detail: r.detail || null }
+    // #797: the shared sender -- the same accounts as every other send (an Iroda account's Drafts folder, or a Gmail draft).
+    const r = await saveMailboxDraft(row.from_account, { to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: row.body, attachments: files })
+    if (!r.ok) return { ok: false, code: r.code === 'unknown_account' ? 'no_account' : 'save_failed', detail: r.detail || null }
+    return { ok: true, mailbox: r.mailbox || '', account: row.from_account }
   } finally {
     try { rmSync(work, { recursive: true, force: true }) } catch { /* temp files only */ }
   }

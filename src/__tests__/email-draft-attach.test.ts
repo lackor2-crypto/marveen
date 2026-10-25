@@ -9,6 +9,7 @@ const app = readFileSync(join(root, 'web', 'app.js'), 'utf8')
 const html = readFileSync(join(root, 'web', 'index.html'), 'utf8')
 const route = readFileSync(join(root, 'src', 'web', 'routes', 'email.ts'), 'utf8')
 const compose = route.slice(route.indexOf("path === '/api/email/compose'"), route.indexOf("path === '/api/email/read'"))
+const mailSend = readFileSync(join(root, 'src', 'mail-send.ts'), 'utf8')
 
 describe('email draft editing and attaching (#635)', () => {
   it('the Drafts mailbox gets an "edit and send" button that opens the compose window with the draft', () => {
@@ -34,7 +35,9 @@ describe('email draft editing and attaching (#635)', () => {
     expect(compose).toContain("'attachment', 'download'")
     expect(compose).toContain('EMAIL_ATTACH_LIMIT')
     expect(compose).toContain("'message', 'move', String(data.draft.id)")
-    expect(compose).toContain("for (const p of extraPaths) args.push('--attach', p)")
+    // #797: the files go to the shared sender, which attaches every one of them.
+    expect(compose).toContain('attachments: [...(prep ? prep.paths : []), ...extraPaths]')
+    expect(mailSend).toContain("for (const f of mail.attachments || []) args.push('--attach', f)")
   })
 
   it('ids that reach himalaya are validated, and the temp dir is always removed', () => {
@@ -45,9 +48,10 @@ describe('email draft editing and attaching (#635)', () => {
   it('a new draft can be saved from the compose window (#636): no send, Drafts mailbox, no recipient needed', () => {
     expect(html).toContain('id="emailComposeNewDraftSaveBtn"')
     expect(app).toContain('asDraft ? { save_draft: true } : {}')
-    expect(compose).toContain("asDraft ? 'drafts' : 'sent'")
-    expect(compose).toContain("if (!asDraft) args.push('--send')")
-    expect(compose).toContain("if (data.to?.trim()) args.push('-t', data.to.trim())")
+    // #797: a draft is saved by the shared sender (into Drafts, never sent), a letter is sent by it.
+    expect(compose).toContain('asDraft ? await saveDraft(data.account as string, mail) : await sendMail(data.account as string, mail)')
+    expect(mailSend).toContain("if (opts.send) args.push('--send')")
+    expect(mailSend).toContain("if (mail.to.trim()) args.push('-t', mail.to.trim())")
   })
 
   it('closing a changed, unsent letter keeps it as a draft, like Gmail (Boss TG 2995)', () => {
