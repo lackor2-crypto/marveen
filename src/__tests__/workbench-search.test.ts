@@ -12,6 +12,7 @@ vi.mock('../project-files.js', async (orig) => {
 import { initDatabase, createKanbanCard, createIdea, getDb } from '../db.js'
 import { createProject, getProject, linkObject } from '../projects.js'
 import { createWorkItem, addWorkItemPart } from '../workbench.js'
+import { addSection, addBlock } from '../workbench-docmodel.js'
 import { createAgentSession, addAgentMessage } from '../workbench-agent/sessions.js'
 import { searchProject, matchSnippet, SEARCH_MAX_PER_SOURCE } from '../workbench-search.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
@@ -107,6 +108,27 @@ describe('kereses: a szerver merese', () => {
     expect(by('ideas').map((h) => h.idea_id)).toEqual(['i1'])
     expect(JSON.stringify(r.hits)).not.toContain('Idegen')
     expect(r.sources.every((s) => s.state === 'ok' || (s.source === 'files' && s.state === 'none'))).toBe(true)
+  })
+
+  // #792: the search found nothing in a submission written on the document page while it said "searched".
+  it('a dokumentum-oldalon megirt szovegben es fejezetcimben is talal', async () => {
+    const d = createWorkItem({ project_id: pid, title: 'Kereset', type: 'document' })
+    if (!d.ok) throw new Error('munkadarab')
+    const sec = addSection(d.item.id, 'Kártérítési igény')
+    if (!sec.ok) throw new Error('fejezet')
+    addBlock(d.item.id, sec.section.id, { kind: 'paragraph', text: 'A felperes a gépjármű javítási költségét kéri.', author: 'owner' })
+    addBlock(d.item.id, sec.section.id, { kind: 'table', text: 'Tétel | Összeg\nFényezés | 800 EUR', author: 'owner' })
+    // An empty placeholder section ("Új fejezet") is no hit of its own.
+    addSection(d.item.id, 'Új fejezet')
+
+    const r = await search('javitasi koltseg')
+    const t = r.hits.filter((h) => h.source === 'texts')
+    expect(t).toHaveLength(1)
+    expect(t[0]).toMatchObject({ item_id: d.item.id, item_title: 'Kereset' })
+    expect(t[0].snippet.slice(t[0].mark_start, t[0].mark_end)).toBe('javítási költség')
+    expect((await search('kártérítési')).hits.filter((h) => h.source === 'texts')).toHaveLength(1)
+    expect((await search('fényezés')).hits.filter((h) => h.source === 'texts')).toHaveLength(1)
+    expect((await search('új fejezet')).hits.filter((h) => h.source === 'texts')).toHaveLength(0)
   })
 
   it('mappa nelkuli projekt: a fajlok forrasa "none", NEM nulla talalat', async () => {

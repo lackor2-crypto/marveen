@@ -47,7 +47,7 @@ import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.
 import { createVariant, variantInfo, variantsSummary, translateSection, setBackTranslation, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks } from '../workbench-doclang.js'
 import {
   documentOutline, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock, addClaim, removeClaim, proposeRewrite,
-  documentCheck, recheckPendingSources,
+  documentCheck, recheckPendingSources, hasDocModel, listSections, imageBlockPathOk, PLACEHOLDER_SECTION_TITLES,
 } from '../workbench-docmodel.js'
 import { finalizationState } from '../workbench-docfinal.js'
 import { addAnnex, annexCheck, docSettings, listAnnexes, removeAnnex, setDocSettings, updateAnnex } from '../workbench-docannex.js'
@@ -818,7 +818,9 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         data: {
           count: parts.length,
           // Ures lista != hiba: kimondjuk, hogy a munkadarab LATSZIK es ures.
-          note: parts.length ? '' : 'this work item exists and has no parts yet',
+          // #792: a document-page item's text is not in the parts: say where it is instead of "no parts yet".
+          note: hasDocModel(item.id) ? 'this work item is written on the document page: its text is in doc.outline, not in the parts'
+            : parts.length ? '' : 'this work item exists and has no parts yet',
           parts: parts.map((p) => ({
             id: p.id, position: p.position, kind: p.kind,
             text: p.text, path: p.asset_path, caption: p.caption,
@@ -845,6 +847,37 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         const st = mustBeFile(ref.abs)
         if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
         assetPath = ref.rel
+      }
+      // #792: a document on the document page keeps its text in the page (sections + blocks), not in the parts: a part was
+      // "added" yet never showed on the page nor in its PDF. The piece goes onto the page instead, at its end.
+      // A document with no file of its own opens on the (empty) document page too (web: docTabsHtml): a part is invisible there.
+      if (hasDocModel(item.id) || (item.type === 'document' && !item.source_path)) {
+        if (kind !== 'text' && kind !== 'image') return { ok: false, code: 'bad_input', detail: 'kind must be text or image' }
+        if (kind === 'image' && !imageBlockPathOk(assetPath)) {
+          return { ok: false, code: 'bad_input', detail: 'this picture format cannot stand on the document page (jpg, png, gif or webp)' }
+        }
+        let section = listSections(item.id).slice(-1)[0]
+        if (!section) {
+          const made = addSection(item.id, PLACEHOLDER_SECTION_TITLES[ctx.lang === 'en' ? 1 : 0])
+          if (!made.ok) return { ok: false, code: made.code, detail: made.detail }
+          section = made.section
+        }
+        const pieces: { kind: string; text: unknown }[] = kind === 'image' ? [{ kind: 'image', text: assetPath }] : [{ kind: 'paragraph', text: input.text }]
+        if (kind === 'image' && asString(input.caption)) pieces.push({ kind: 'paragraph', text: input.caption })
+        const blocks: unknown[] = []
+        for (const piece of pieces) {
+          const b = addBlock(item.id, section.id, { kind: piece.kind, text: piece.text, author: 'agent' })
+          if (!b.ok) return { ok: false, code: b.code, detail: `the ${piece.kind} was not added to the document page: ${b.detail}` }
+          blocks.push(b.block)
+        }
+        scheduleOutlineMirror(item.id)
+        return {
+          ok: true,
+          data: {
+            on_document_page: true, section: section.id, blocks,
+            note: 'This work item is written on the document page, so the piece was added there as a block at the end of the last section (it shows on the page and in its PDF). Next time use doc.outline / doc.addBlock to put it where it belongs.',
+          },
+        }
       }
       const r = addWorkItemPart({
         work_item_id: item.id,

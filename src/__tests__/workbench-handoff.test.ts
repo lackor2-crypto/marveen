@@ -7,7 +7,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem, addWorkItemPart, listWorkItems } from '../workbench.js'
+import { createWorkItem, addWorkItemPart, listWorkItems, createWorkItemVersion, getWorkItem } from '../workbench.js'
+import { addSection, addBlock } from '../workbench-docmodel.js'
+import { contentHash } from '../workbench-docfinal.js'
 import { getDb } from '../db.js'
 import { addDecision } from '../workbench-decisions.js'
 import { planHandoff, buildHandoffZip, safeName } from '../workbench-handoff.js'
@@ -119,6 +121,63 @@ describe('atadocsomag: a szerver', () => {
     expect(html).toContain('A logó kék marad.')
     expect(html).toContain('nincs-meg.docx (a fájl már nincs meg a helyén)')
     expect(html).not.toContain('Félkész')
+  })
+
+  // #792: a submission written on the document page was "empty" in the package, and its final PDF stayed out.
+  it('a dokumentum-oldalon megirt beadvany szovege, kepe es vegleges PDF-je bekerul', () => {
+    mkdirSync(join(depot, 'Projektek/kovacs/Elkészített anyagok'), { recursive: true })
+    writeFileSync(join(depot, 'Projektek/kovacs/Elkészített anyagok/Kereset - v1.pdf'), 'VEGLEGES-PDF')
+    writeFileSync(join(depot, 'Projektek/kovacs/kar.png'), 'PNG')
+    const id = item('Kereset', 'done')
+    const sec = addSection(id, 'Indoklás')
+    if (!sec.ok) throw new Error('fejezet')
+    expect(addBlock(id, sec.section.id, { kind: 'paragraph', text: 'A felperes <kéri> a kár megtérítését.', author: 'owner' }).ok).toBe(true)
+    expect(addBlock(id, sec.section.id, { kind: 'list', text: 'első pont\nmásodik pont', author: 'owner' }).ok).toBe(true)
+    expect(addBlock(id, sec.section.id, { kind: 'table', text: 'Tétel | Összeg\nJavítás | 1200 EUR', author: 'owner' }).ok).toBe(true)
+    expect(addBlock(id, sec.section.id, { kind: 'image', text: 'Projektek/kovacs/kar.png', author: 'owner' }).ok).toBe(true)
+    const meta = { final: true, label: 'Végleges -- 2026-09-25', content_hash: contentHash(getWorkItem(id)!), pdf_path: 'Projektek/kovacs/Elkészített anyagok/Kereset - v1.pdf', pdf_name: 'Kereset - v1.pdf' }
+    expect(createWorkItemVersion(id, { prompt: meta.label, created_by: 'teszt', metadata_json: JSON.stringify(meta) }).ok).toBe(true)
+
+    const plan = planHandoff(pid, 'done')!
+    expect(plan).toMatchObject({ files: 2, problems: 0 })
+    expect(plan.items[0]).toMatchObject({ page_blocks: 3, final_label: 'Végleges -- 2026-09-25', final_stale: false })
+    const r = buildHandoffZip(pid, 'done', 'hu', NOW)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const z = unzip(r.zip)
+    expect([...z.keys()].sort()).toEqual([
+      'Kovács weboldal/01-Kereset/Kereset - v1.pdf',
+      'Kovács weboldal/01-Kereset/kar.png',
+      'Kovács weboldal/Tartalom.html',
+    ])
+    expect(z.get('Kovács weboldal/01-Kereset/Kereset - v1.pdf')!.data.toString()).toBe('VEGLEGES-PDF')
+    const html = z.get('Kovács weboldal/Tartalom.html')!.data.toString('utf-8')
+    expect(html).not.toContain('még nincs tartalom')
+    expect(html).toContain('<h3>Indoklás</h3>')
+    expect(html).toContain('A felperes &lt;kéri&gt; a kár megtérítését.')
+    expect(html).toContain('<li>második pont</li>')
+    expect(html).toContain('<td>1200 EUR</td>')
+    expect(html).toContain('src="01-Kereset/kar.png"')
+    expect(html).toContain('Végleges PDF (Végleges -- 2026-09-25)')
+    expect(html).not.toContain('a véglegesítés óta változott')
+
+    // The text changes after the final: the package says the PDF shows an earlier text.
+    expect(addBlock(id, sec.section.id, { kind: 'paragraph', text: 'Utólagos mondat.', author: 'owner' }).ok).toBe(true)
+    const again = buildHandoffZip(pid, 'done', 'hu', NOW)
+    if (!again.ok) throw new Error(again.code)
+    expect(unzip(again.zip).get('Kovács weboldal/Tartalom.html')!.data.toString('utf-8')).toContain('a véglegesítés óta változott')
+  })
+
+  it('a vegleges PDF hianya KIMONDVA, nem csendben marad ki', () => {
+    const id = item('Kereset', 'done')
+    const sec = addSection(id, 'Indoklás')
+    if (!sec.ok) throw new Error('fejezet')
+    addBlock(id, sec.section.id, { kind: 'paragraph', text: 'Szöveg.', author: 'owner' })
+    const meta = { final: true, label: 'Végleges -- 2026-09-25', content_hash: contentHash(getWorkItem(id)!), pdf_path: 'Projektek/kovacs/eltunt.pdf', pdf_name: 'eltunt.pdf' }
+    createWorkItemVersion(id, { prompt: meta.label, created_by: 'teszt', metadata_json: JSON.stringify(meta) })
+    const plan = planHandoff(pid, 'done')!
+    expect(plan.problems).toBe(1)
+    expect(plan.items[0].finals[0]).toMatchObject({ name: 'eltunt.pdf', problem: 'missing' })
   })
 
   it('angolul: Contents.html, handoff fajlnev', () => {

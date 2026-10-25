@@ -14263,7 +14263,7 @@
   function hoProblemsHtml(plan) {
     var rows = []
     plan.items.forEach(function (e) {
-      [e.source].concat(e.images || []).forEach(function (f) {
+      [e.source].concat(e.finals || [], e.images || []).forEach(function (f) {
         if (f && f.problem) rows.push('<li>' + esc(e.title + ': ' + f.name) + ' -- ' + esc(t('workbench.ho.problem.' + f.problem)) + '</li>')
       })
     })

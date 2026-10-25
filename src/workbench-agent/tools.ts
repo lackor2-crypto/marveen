@@ -138,7 +138,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'workItem.addPart',
-    description: 'Add a part to a work item: a text block, or an image that already exists in the project folder. This is how one work item can hold text AND a picture at the same time.',
+    description: 'Add a part to a work item: a text block, or an image that already exists in the project folder. This is how one work item can hold text AND a picture at the same time. Not for a document on the document page: write that with doc.addBlock (a piece sent here lands at the end of its page).',
     input: 'id: the work item id (optional, defaults to the open one); kind: text or image; text: the text (for a text part); path: the image file inside the project folder (for an image part); caption (optional)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
