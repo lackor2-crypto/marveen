@@ -170,7 +170,6 @@
     noteFinal: null,    // #667: a szoveges fajlu munkadarab (.md/.txt) veglesites-panelje nyitva: a munkadarab azonositoja
     noteFinalBusy: false,
     docxMailFor: null,
-    noteFinalLang: '',  // #671: '' = the file's own language, else the code of the language the PDF is translated into
     liveTimer: null,
     // --- projekt-idovonal (#406, 7. pont) ---
     // `tl === null` = meg nem kerdeztuk meg; ures tomb = megkerdeztuk, es
@@ -1548,9 +1547,25 @@
     WB.textImportTried[id] = true
     WB.textImportError = null
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/text-import', {}).then(function (r) {
-      if (!r.ok) { WB.textImportError = r.message || ''; if (WB.selectedId === id) render(); return }
+      if (!r.ok) { WB.textImportError = r.message || ''; WB.textImportErrorFor = id; if (WB.selectedId === id) render(); return }
       if (WB.selectedId === id) { loadDetail(id); load(WB.projectId) }
     })
+  }
+
+  /** #803: reading the text onto the page failed (or the finalize found it not there yet): try once more, on the owner's click. */
+  function textImportRetry() {
+    var id = WB.selectedId
+    if (!id || !WB.detail || !WB.detail.item || WB.detail.item.id !== id) return
+    if (WB.textImportTried) WB.textImportTried[id] = false
+    WB.textImportError = null
+    render()
+    textProfileEnsure(id, WB.detail)
+  }
+  /** The import's error sentence with the retry button under it (the finalize message points to this button). */
+  function textImportErrorHtml() {
+    if (!WB.textImportError || WB.textImportErrorFor !== WB.selectedId) return ''
+    return '<div class="wb-note-final" role="alert"><p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>'
+      + '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="text-import-retry">' + esc(t('workbench.textdoc.import_retry')) + '</button></p></div>'
   }
 
   /** #673: the file was edited by hand since the page last wrote it: read it onto the page again (the page's text is kept as the previous version first). */
@@ -13314,8 +13329,9 @@
         + (isMailDoneItem(it) ? '<button type="button" class="' + cls + '" data-wb-act="docx-mail-open"' + busy + ' aria-expanded="' + (WB.docxMailFor === it.id) + '">\u2709 ' + esc(t('workbench.docxfinal.mail_button')) + '</button>' : '')
         + '<button type="button" class="' + cls + '" data-wb-act="item-reopen"' + busy + ' title="' + escA(t('workbench.finalize.reopen_tip')) + '">' + esc(t('workbench.finalize.reopen')) + '</button>'
     }
-    if ((it.type === 'document' && !it.source_path) || isTextProfile(it)) {
-      // #777: a note / Word file on the document page (text profile) is finalized by the court document's own panel too.
+    if (finalOnPage(it)) {
+      // #777 / #803: whatever stands on the document page (a drafted document, a note / Word file read onto it, a document
+      // with a page next to a file of its own) is finalized by the court document's own panel and code -- one fix, every document.
       // Boss TG 8765: the drafted document's own Finalize (checks + PDF) stands in the SAME place as every other kind's
       // -- the frame's top bar. It opens the finalize panel on the page. (The Manual view keeps it in the outline.)
       if (cls !== 'wb-fr-tbtn') return ''
@@ -13324,75 +13340,48 @@
         + ' aria-expanded="' + !!WB.shFinal + '">' + esc(t('workbench.sh.doc.finalize')) + '</button>'
     }
     return '<button type="button" class="' + cls + ' wb-fr-final" data-wb-act="item-finalize"' + busy
-      + (isTextFinalItem(it) || isTableFinalItem(it) || isDocxFinalItem(it) ? ' aria-expanded="' + (WB.noteFinal === it.id) + '"' : '')
+      + (isTableFinalItem(it) ? ' aria-expanded="' + (WB.noteFinal === it.id) + '"' : '')
       + ' title="' + escA(t('workbench.finalize.hint')) + '">' + esc(t('workbench.finalize.button')) + '</button>'
   }
 
-  /** #667 (Boss TG 9260): an item whose file is plain text / Markdown has no outline to check and no language variants; its
-   *  Finalize opens a panel above the content (like a court filing) that says what will happen, instead of a browser confirm.
-   *  A table has its own panel (#674); a presentation keeps the bare confirm. */
+  /** #671: an unfinished item whose file is plain text / Markdown (the Translation view can save a language version of it). */
   function isTextFinalItem(it) {
     return !!(it && it.source_path && /\.(md|markdown|txt)$/i.test(it.source_path) && it.status !== 'done')
   }
 
-  /** #719: an uploaded Word file: its Finalize opens a panel too (PDF next to the file, then an e-mail draft). */
-  function isDocxName(n) { return /\.docx$/i.test(n || '') }
-  function isDocxFinalItem(it) {
-    return !!(it && it.source_path && isDocxName(it.source_path) && it.status !== 'done')
+  /** #777 / #803 (Boss TG: "egy helyen javitunk, mindenhol javitva van"): the item whose text is on the document page is
+   *  finalized there, with the court document's own panel and code. A note / Word file has no other finalize any more. */
+  function finalOnPage(it) {
+    if (!it) return false
+    if (isTextProfile(it)) return true
+    if (it.type !== 'document') return false
+    if (!it.source_path) return true
+    var d = WB.detail
+    if (!d || !d.item || d.item.id !== it.id) return false
+    var o = d.outline
+    var tp = d.text_profile
+    return !!(o && o.sections && o.sections.length) && !(tp && tp.candidate && !tp.on)
   }
+  /** #803: a note / Word file whose text is not read onto the page yet (reading failed, or it is still being read). */
+  function needsPage(it) {
+    var d = WB.detail
+    var tp = d && d.item && it && d.item.id === it.id ? d.text_profile : null
+    return !!(tp && tp.candidate && !tp.on)
+  }
+
+  function isDocxName(n) { return /\.docx$/i.test(n || '') }
   function isDocxDoneItem(it) {
     return !!(it && it.source_path && isDocxName(it.source_path) && it.status === 'done')
   }
   /** #743 (Boss TG 4171): a finalized document can be mailed again (to anyone) -- a finalized Word item and a drafted
    *  document alike. The drafted document's own mail box is locked with the rest of its page, so the top bar opens this one. */
   function isMailDoneItem(it) {
-    return isDocxDoneItem(it) || !!(it && it.status === 'done' && ((it.type === 'document' && !it.source_path) || isTextProfile(it)))
+    return isDocxDoneItem(it) || !!(it && it.status === 'done' && finalOnPage(it))
   }
 
   /** #674: a spreadsheet (xlsx / csv) item: its Finalize opens the panel too (the workbook goes to Finished materials). */
   function isTableFinalItem(it) {
     return !!(it && it.source_path && isTableName(it.source_path) && it.status !== 'done')
-  }
-
-  /** #671: the saved language versions of the open text item (the server lists them with the item). */
-  function noteLangs() {
-    return (WB.detail && WB.detail.text_langs) || { variant_of: null, variants: [] }
-  }
-  function noteVariantFor(code) {
-    var found = null
-    noteLangs().variants.forEach(function (v) { if (v.lang === code) found = v })
-    return found
-  }
-
-  /** #671/#678: the PDF is made in the file's own language or in a language version already saved. The list is only what EXISTS; a new translation is made (and saved) in the Translation view. */
-  function noteFinalLangHtml() {
-    var langs = noteLangs()
-    if (langs.variant_of) return '<p class="wb-hint"><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> ' + esc(t('workbench.notefinal.lang_is_version', { lang: trLangName(langs.variant_of.lang) })) + '</p>'
-    var left = trLeftLang()
-    var saved = langs.variants.map(function (v) { return v.lang })
-    // The "left" language is a guess from the Translation view; when it equals a saved version's language the same name would stand twice, so the original is named without a language then.
-    var origLabel = saved.indexOf(left) >= 0 ? t('workbench.notefinal.lang_orig_plain') : t('workbench.notefinal.lang_orig', { lang: trLangName(left) })
-    var opts = '<option value="orig"' + (WB.noteFinalLang ? '' : ' selected') + '>' + esc(origLabel) + '</option>'
-    saved.forEach(function (c) {
-      opts += '<option value="' + escA(c) + '"' + (WB.noteFinalLang === c ? ' selected' : '') + '>' + esc(t('workbench.notefinal.lang_saved', { lang: trLangName(c) })) + '</option>'
-    })
-    var help = !WB.noteFinalLang ? 'workbench.notefinal.lang_help' : 'workbench.notefinal.lang_help_saved'
-    if (!saved.length) help = 'workbench.notefinal.lang_none'
-    return '<p class="wb-hint"><label><strong>' + esc(t('workbench.notefinal.lang_title')) + '</strong> '
-      + '<select class="btn-secondary btn-compact" id="wbNoteFinalLang" data-wb-act="note-final-lang"' + (WB.noteFinalBusy ? ' disabled' : '') + '>' + opts + '</select></label></p>'
-      + '<p class="wb-hint">' + esc(t(help)) + '</p>'
-  }
-
-  /** #678: the saved-version list comes from the server each time the panel opens, so a version saved elsewhere (another tab, the agent) is offered at once. */
-  function noteLangsRefresh() {
-    var id = WB.selectedId
-    if (!id || !isTextFinalItem(WB.detail && WB.detail.item)) return
-    api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
-      if (!r.ok || !r.data || !WB.detail || WB.selectedId !== id || WB.noteFinal !== id) return
-      WB.detail.text_langs = r.data.text_langs
-      if (WB.noteFinalLang && !noteVariantFor(WB.noteFinalLang)) WB.noteFinalLang = ''
-      render()
-    })
   }
 
   /** On a phone the panel stacks under the tool column, below the fold: bring it into view so the click visibly does something. */
@@ -13404,45 +13393,21 @@
   function noteFinalPanelHtml() {
     var it = WB.detail && WB.detail.item
     if (it && WB.docxMailFor === it.id && isMailDoneItem(it) && !archived()) return docxMailPanelHtml(it)
-    if (!it || WB.noteFinal !== it.id || !(isTextFinalItem(it) || isTableFinalItem(it) || isDocxFinalItem(it)) || isTextProfile(it) || archived()) return ''
+    // #803: a note / Word file that could not be read onto the page says why, with a retry (both views draw this panel).
+    if (it && needsPage(it) && !archived()) return textImportErrorHtml()
+    // #803: a note / Word file is finalized on the document page (finalOnPage); this panel is the spreadsheet's only (#674).
+    if (!it || WB.noteFinal !== it.id || !isTableFinalItem(it) || archived()) return ''
     var name = baseOf(it.source_path)
     var busy = WB.noteFinalBusy ? ' disabled' : ''
-    if (isDocxFinalItem(it)) {
-      return '<div class="wb-note-final wb-docx-final" role="region" aria-label="' + escA(t('workbench.docxfinal.title')) + '">'
-        + '<h4>' + esc(t('workbench.docxfinal.title')) + '</h4>'
-        + '<p class="wb-hint">' + esc(t('workbench.docxfinal.intro', { name: name })) + '</p>'
-        + '<ol class="wb-note-final-steps"><li>' + esc(t('workbench.docxfinal.step_pdf', { folder: docxFolderLabel(it) })) + '</li>'
-        + '<li>' + esc(t('workbench.docxfinal.step_status')) + '</li>'
-        + '<li>' + esc(t('workbench.docxfinal.step_mail')) + '</li></ol>'
-        + '<p class="wb-hint">' + esc(t('workbench.docxfinal.safe')) + '</p>'
-        + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="note-final-go"' + busy + '>'
-        + esc(t(WB.noteFinalBusy ? 'workbench.docxfinal.working' : 'workbench.docxfinal.go')) + '</button> '
-        + '<button type="button" class="btn-secondary" data-wb-act="note-final-close"' + busy + '>' + esc(t('workbench.notefinal.cancel')) + '</button></p>'
-        + '</div>'
-    }
-    if (isTableFinalItem(it)) {
-      return '<div class="wb-note-final wb-table-final" role="region" aria-label="' + escA(t('workbench.tablefinal.title')) + '">'
-        + '<h4>' + esc(t('workbench.tablefinal.title')) + '</h4>'
-        + '<p class="wb-hint">' + esc(t('workbench.tablefinal.intro', { name: name })) + '</p>'
-        + '<ol class="wb-note-final-steps"><li>' + esc(t('workbench.tablefinal.step_file', { name: name })) + '</li>'
-        + '<li>' + esc(t('workbench.tablefinal.step_pdf')) + '</li>'
-        + '<li>' + esc(t('workbench.tablefinal.step_status')) + '</li></ol>'
-        + '<p class="wb-hint">' + esc(t('workbench.tablefinal.safe')) + '</p>'
-        + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="note-final-go"' + busy + '>'
-        + esc(t(WB.noteFinalBusy ? 'workbench.tablefinal.working' : 'workbench.tablefinal.go')) + '</button> '
-        + '<button type="button" class="btn-secondary" data-wb-act="note-final-close"' + busy + '>' + esc(t('workbench.notefinal.cancel')) + '</button></p>'
-        + '</div>'
-    }
-    return '<div class="wb-note-final" role="region" aria-label="' + escA(t('workbench.notefinal.title')) + '">'
-      + '<h4>' + esc(t('workbench.notefinal.title')) + '</h4>'
-      + '<p class="wb-hint">' + esc(t('workbench.notefinal.intro', { name: name })) + '</p>'
-      + '<ol class="wb-note-final-steps"><li>' + esc(t('workbench.notefinal.step_pdf', { name: name })) + '</li>'
-      + '<li>' + esc(t('workbench.notefinal.step_folder')) + '</li>'
-      + '<li>' + esc(t('workbench.notefinal.step_status')) + '</li></ol>'
-      + noteFinalLangHtml()
-      + '<p class="wb-hint">' + esc(t('workbench.notefinal.safe')) + '</p>'
+    return '<div class="wb-note-final wb-table-final" role="region" aria-label="' + escA(t('workbench.tablefinal.title')) + '">'
+      + '<h4>' + esc(t('workbench.tablefinal.title')) + '</h4>'
+      + '<p class="wb-hint">' + esc(t('workbench.tablefinal.intro', { name: name })) + '</p>'
+      + '<ol class="wb-note-final-steps"><li>' + esc(t('workbench.tablefinal.step_file', { name: name })) + '</li>'
+      + '<li>' + esc(t('workbench.tablefinal.step_pdf')) + '</li>'
+      + '<li>' + esc(t('workbench.tablefinal.step_status')) + '</li></ol>'
+      + '<p class="wb-hint">' + esc(t('workbench.tablefinal.safe')) + '</p>'
       + '<p class="wb-note-final-btns"><button type="button" class="btn-primary" data-wb-act="note-final-go"' + busy + '>'
-      + esc(t(WB.noteFinalBusy ? 'workbench.notefinal.working' : 'workbench.notefinal.go')) + '</button> '
+      + esc(t(WB.noteFinalBusy ? 'workbench.tablefinal.working' : 'workbench.tablefinal.go')) + '</button> '
       + '<button type="button" class="btn-secondary" data-wb-act="note-final-close"' + busy + '>' + esc(t('workbench.notefinal.cancel')) + '</button></p>'
       + '</div>'
   }
@@ -13452,28 +13417,6 @@
     var p = String(it.source_path || '')
     var i = p.lastIndexOf('/')
     return i > 0 ? p.slice(0, i) : t('workbench.docxfinal.folder_root')
-  }
-
-  /** #719: finalize a Word item: the server makes the PDF next to the Word file. The e-mail draft panel opens after it. */
-  function docxFinalGo(it) {
-    if (WB.docEdit && WB.docEdit.itemId === it.id && WB.docEdit.dirty) { window.showToast(t('workbench.docxfinal.unsaved')); return }
-    var id = it.id
-    WB.noteFinalBusy = true
-    render()
-    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', { action: 'finalize', pdf: true }).then(function (r) {
-      WB.noteFinalBusy = false
-      if (!r.ok) { window.showToast(r.text || r.message); render(); return }
-      WB.noteFinal = null
-      if (WB.detail && WB.detail.item.id === id) {
-        if (r.data && r.data.item) WB.detail.item = r.data.item
-        WB.detail.approval = (r.data && r.data.approval) || null
-      }
-      var f = (r.data && r.data.final) || {}
-      window.showToast(t('workbench.docxfinal.done', { pdf: f.pdf_name || '', folder: docxFolderLabel(WB.detail ? WB.detail.item : it) }))
-      WB.docxMailFor = id
-      render()
-      load(WB.projectId)
-    })
   }
 
   /** #719 / #723: the e-mail draft of a finalized Word item -- the same box and code as a court document's, the final PDF attached. */
@@ -13509,33 +13452,7 @@
 
   function noteFinalGo() {
     if (!WB.detail || WB.noteFinalBusy) return
-    var it = WB.detail.item
-    if (isTableFinalItem(it)) { tableFinalGo(it); return }
-    if (isDocxFinalItem(it)) { docxFinalGo(it); return }
-    if (!isTextFinalItem(it)) return
-    var id = it.id
-    WB.noteFinalBusy = true
-    render()
-    var lang = WB.noteFinalLang
-    var step
-    function post(extra) {
-      var body = { action: 'finalize', pdf: true }
-      if (extra) body.lang = extra.lang
-      return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', body)
-    }
-    step = !lang ? post(null) : post({ lang: lang })
-    step.then(function (r) {
-      WB.noteFinalBusy = false
-      if (!r.ok) { window.showToast(r.text || r.message); render(); return }
-      WB.noteFinal = null
-      if (WB.detail && WB.detail.item.id === id) {
-        if (r.data && r.data.item) WB.detail.item = r.data.item
-        WB.detail.approval = (r.data && r.data.approval) || null
-      }
-      window.showToast(t('workbench.notefinal.done', { name: (r.data && r.data.final && r.data.final.name) || '' }))
-      render()
-      load(WB.projectId)
-    })
+    if (isTableFinalItem(WB.detail.item)) tableFinalGo(WB.detail.item)
   }
 
   function approvalBoxHtml() {
@@ -17246,10 +17163,10 @@
       var wtp = WB.detail.text_profile
       if (wtp && wtp.word && wtp.candidate && !wtp.on) {
         if (!WB.textImportError) return '<div class="wb-sh-doc-body"><p class="wb-muted wb-center">' + esc(t('workbench.worddoc.reading')) + '</p></div>'
-        return '<div class="wb-sh-doc-body"><p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' + previewHtml(true) + '</div>'
+        return '<div class="wb-sh-doc-body">' + previewHtml(true) + '</div>'
       }
       docAutoOpen()
-      return '<div class="wb-sh-doc-body">' + (WB.textImportError ? '<p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' : '') + previewHtml(true) + '</div>'
+      return '<div class="wb-sh-doc-body">' + (WB.textImportError && !needsPage(dit) ? '<p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' : '') + previewHtml(true) + '</div>'
     }
     // #536: the file of this document was deleted (it sits in the trash): say so, instead of an empty drafting editor.
     if (!o && WB.detail && WB.detail.item && !WB.detail.item.source_path) {
@@ -21053,8 +20970,6 @@
       render()
       return
     }
-    var nfLang = e.target.closest('[data-wb-act="note-final-lang"]')
-    if (nfLang) { WB.noteFinalLang = nfLang.value === 'orig' ? '' : nfLang.value; render(); return }
     var sideSel = e.target.closest('[data-wb-act="chat-side"]')
     if (sideSel) { WB.chatSide = sideSel.value; saveChatPrefs({ side: sideSel.value }); return }
     var sel = e.target.closest('[data-wb-act="chat-account"]')
@@ -21346,8 +21261,11 @@
     else if (a === 'tl-refresh') loadTimeline(false)
     else if (a === 'tl-more') loadTimeline(true)
     // #667: a text-file item opens its finalize panel (what happens, then one clear button) instead of the browser confirm.
-    else if (a === 'item-finalize' && WB.detail && isTextProfile(WB.detail.item)) { WB.shFinal = !WB.shFinal; if (WB.shFinal) { WB.dbOpen = false; WB.pdOpen = false } render() }
-    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && (isTextFinalItem(WB.detail.item) || isTableFinalItem(WB.detail.item) || isDocxFinalItem(WB.detail.item))) { WB.docxMailFor = null; WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; WB.noteFinalLang = WB.noteFinal && WB.tr.mode === 'translation' && trFresh() && noteVariantFor(WB.tr.dst) ? WB.tr.dst : ''; render(); if (WB.noteFinal) { noteFinalScrollIn(); noteLangsRefresh() } } else approvalAction('finalize') }
+    else if (a === 'item-finalize' && WB.detail && finalOnPage(WB.detail.item)) { WB.shFinal = !WB.shFinal; if (WB.shFinal) { WB.dbOpen = false; WB.pdOpen = false } render() }
+    // #803: a note / Word file not on the page yet has no other finalize: say what to do and read it onto the page again.
+    else if (a === 'item-finalize' && WB.detail && needsPage(WB.detail.item)) { WB.dbOpen = false; window.showToast(t('workbench.textdoc.final_needs_page')); textImportRetry() }
+    else if (a === 'item-finalize') { WB.dbOpen = false; if (WB.detail && isTableFinalItem(WB.detail.item)) { WB.docxMailFor = null; WB.noteFinal = WB.noteFinal === WB.detail.item.id ? null : WB.detail.item.id; render(); if (WB.noteFinal) noteFinalScrollIn() } else approvalAction('finalize') }
+    else if (a === 'text-import-retry') textImportRetry()
     else if (a === 'note-final-go') noteFinalGo()
     else if (a === 'tr-save-version') trSaveVersion()
     else if (a === 'note-final-close') { WB.noteFinal = null; render() }

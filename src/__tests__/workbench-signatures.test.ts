@@ -157,12 +157,12 @@ describe('#719 the Word editor moves a picture with its own mouse drag', () => {
   })
 })
 
-describe('#719 Word item finalize panel', () => {
-  it('only a .docx item gets the panel; the PDF goes to Finished materials, not next to the file', () => {
+describe('#719 Word item e-mail (its own finalize panel is gone, #803)', () => {
+  it('a Word item has no own finalize any more; a finalized one still mails with the court document\'s box', () => {
     const src = readFileSync(join(__dirname, '..', 'workbench-docxfinal.ts'), 'utf8')
-    expect(src).toContain("into: 'finished'")
+    expect(src).not.toContain('export async function finalizeDocxItem')
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
-    expect(js).toContain('function isDocxFinalItem(it)')
+    expect(js).not.toContain('function isDocxFinalItem(it)')
     // #723: its e-mail draft is the court document's own box and route (one code path, with the sender)
     expect(js).not.toContain("'/docx-mail'")
     expect(js).toMatch(/function docxMailPanelHtml\(it\) \{[\s\S]{0,600}mailBoxHtml\(/)

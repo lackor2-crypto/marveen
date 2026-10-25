@@ -44,7 +44,7 @@ describe('frame bars', () => {
     expect(fn('finalizeTopHtml')).toContain('isMailDoneItem(it) ? \'<button type="button" class="\' + cls + \'" data-wb-act="docx-mail-open"')
     const m = fn('isMailDoneItem')
     expect(m).toContain('isDocxDoneItem(it)')
-    expect(m).toContain("it.status === 'done' && ((it.type === 'document' && !it.source_path) || isTextProfile(it))")
+    expect(m).toContain("it.status === 'done' && finalOnPage(it)")
     expect(fn('noteFinalPanelHtml')).toContain('isMailDoneItem(it) && !archived()) return docxMailPanelHtml(it)')
     // the drafted document's draft travels in its outline
     expect(fn('docxMailPanelHtml')).toContain('WB.detail.outline.mail_draft')
