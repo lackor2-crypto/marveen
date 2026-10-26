@@ -246,7 +246,28 @@ export function mailLanguage(item: WorkItemRow, ui: 'hu' | 'en', final: { label:
 }
 
 /** #794: an untouched default text of another language than the current final PDF is shown in the final's language (old rows). */
+/**
+ * #794 (Boss TG 3441): before the title was taken out of the default text, a stored row carried "... das Schreiben „<title>“ ...".
+ * Such a body that is still exactly that default is rewritten into the title-free default of its own language (nothing the
+ * owner typed is touched: only an exact match counts).
+ */
+function legacyTitleDefaultLang(item: WorkItemRow, body: string): DocLang | null {
+  const who = currentOwnerName()
+  const w = who && who !== OWNER_NAME_PLACEHOLDER ? who : ''
+  const max = Math.max(20, listAnnexes(item.id).length)
+  for (const l of ['hu', 'en', 'de'] as DocLang[]) {
+    for (let n = 0; n <= max; n++) if (body === DEFAULT_BODY[l](item.title, n, w)) return l
+  }
+  return null
+}
+
 function shownBody(item: WorkItemRow, stored: string): string {
+  const legacy = legacyTitleDefaultLang(item, stored)
+  if (legacy) {
+    const body = defaultMailBody(item, currentFinalLang(item) ?? legacy, listAnnexes(item.id).length)
+    try { getDb().prepare('UPDATE wb_doc_maildraft SET body = ? WHERE work_item_id = ? AND body = ?').run(body, item.id, stored) } catch { /* shown only */ }
+    return body
+  }
   const fl = currentFinalLang(item)
   const was = fl ? untouchedDefaultLang(item, stored) : null
   return fl && was && was !== fl ? defaultMailBody(item, fl, listAnnexes(item.id).length) : stored

@@ -392,6 +392,18 @@ describe('the e-mail draft of a work item', () => {
     expect(view.attachments[0].name).toMatch(/– DE – v\d+\.pdf$/)
   })
 
+  it('an old stored default text that quotes the work item title is rewritten without the title', async () => {
+    write('Sehr geehrte Damen und Herren, bezüglich der Verwarnung bitte ich Sie, das Verwarnungsgeld mit der Begründung zu erlassen, und ich danke für die Prüfung.')
+    await makeFinal('hu')
+    const r = await saveMailDraft(item(), {}, 'hu')
+    if (!r.ok) throw new Error('save')
+    const old = `Sehr geehrte Damen und Herren,\n\nanbei übersende ich Ihnen das Schreiben „${item().title}“ als PDF-Datei im Anhang.\n\nMit freundlichen Grüßen`
+    getDb().prepare('UPDATE wb_doc_maildraft SET body = ? WHERE work_item_id = ?').run(old, itemId)
+    const v = mailDraftView(item())!
+    expect(v.body).not.toContain(item().title)
+    expect(v.body).toMatch(/^Sehr geehrte/)
+  })
+
   // #794 (Boss TG 10451): after the final PDF the form starts filled (subject, text in the final's language), with nothing stored.
   it('after the final PDF the form is prefilled in the language of the document text, and no row is stored', async () => {
     write('Sehr geehrte Damen und Herren, bezüglich der Verwarnung bitte ich Sie, das Verwarnungsgeld mit der Begründung zu erlassen, und ich danke für die Prüfung.')
