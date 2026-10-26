@@ -24,7 +24,7 @@
  * szolgaltato vagy betelt a keret, az agens NEM nemul el: ember-nyelvu (HU/EN)
  * `notice` esemenyt ad, es a beszelgetesbe is bekerul.
  */
-import { recordTaskFromChat } from '../workbench-item-context.js'
+import { readItemMaterials, recordTaskFromChat } from '../workbench-item-context.js'
 import { randomUUID } from 'node:crypto'
 import { MAIN_AGENT_ID } from '../config.js'
 import { logger } from '../logger.js'
@@ -332,6 +332,11 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
 
     addAgentMessage(session.id, 'user', input.message.trim())
     if (workItem) { try { recordTaskFromChat(workItem, project, input.message) } catch { /* the notes never stop a chat turn */ } }
+    // #794 (Boss TG 10480): what was uploaded since the last pass is read out NOW, so this very turn already sees it. Bounded:
+    // a slow OCR never holds the chat (it goes on in the background and the next turn / pass has it).
+    if (workItem) {
+      try { await Promise.race([readItemMaterials(workItem, project), new Promise<number>((r) => setTimeout(() => r(0), 25_000).unref?.())]) } catch { /* the sweep catches up */ }
+    }
     auditWorkbench({ agent: input.actor, tool: 'workbench.chat', op: 'user-message', target: workItem?.id || project.id, cwd: project.id })
 
     const provider = providerOverride ?? pickAIProvider()
