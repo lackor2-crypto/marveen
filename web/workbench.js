@@ -10707,11 +10707,14 @@
             + '</li>'
         }).join('') + '</ul>' : '')
         + '<p class="wb-hint">' + esc(t('workbench.court.disclaimer')) + '</p>'
+    } else if (p && c.final_stale) {
+      // #806: reopened and edited -- the last check was about the OLD final PDF, not about the text on the screen.
+      res = '<p class="wb-muted">' + esc(t('workbench.court.final_stale')) + '</p>'
     } else if (p) {
       res = '<p class="wb-muted">' + esc(t((WB.detail.outline && WB.detail.outline.final) ? 'workbench.court.not_checked_final' : 'workbench.court.not_checked')) + '</p>'
     }
     if (p && !c.available) res += '<p class="wb-doc-low">' + esc(t('workbench.court.not_installed')) + '</p>'
-    var btn = p && !ro && c.available && WB.detail.outline && WB.detail.outline.final
+    var btn = p && !ro && c.available && !c.final_stale && WB.detail.outline && WB.detail.outline.final
       ? '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="court-check"' + (WB.courtBusy ? ' disabled' : '') + '>' + esc(t(WB.courtBusy ? 'workbench.court.checking' : 'workbench.court.recheck')) + '</button></p>' : ''
     return '<div class="wb-court"><h4>' + esc(t('workbench.court.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.court.hint')) + '</p>'
       + fileWarn + sel + info + props + res + btn + courtSettingsHtml(c, ro) + '</div>'

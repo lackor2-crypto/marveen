@@ -1982,6 +1982,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Még nincs végleges változat. Az ellenőrzés a véglegesítéskor, a kész fájlokon fut.',
     en: 'There is no final version yet. The check runs on the finished files when you finalize.',
   },
+  court_final_stale: {
+    hu: 'A dokumentum a legutóbbi véglegesítés óta változott, ezért a régi végleges PDF-et nem ellenőrzöm újra. Amikor újra véglegesíted, az új fájlokat ellenőrzöm.',
+    en: 'The document changed since the last final, so I do not check the old final PDF again. When you finalize again, I check the new files.',
+  },
   court_file_missing: {
     hu: 'A végleges változat egyik fájlja már nincs meg a mappában, ezért nem tudom újra ellenőrizni. Véglegesítsd újra.',
     en: 'One file of the final version is no longer in the folder, so I cannot check it again. Finalize again.',
@@ -2340,11 +2344,15 @@ type OutlineOut = ReturnType<typeof documentOutline> & {
  * valtozat fajljain futott; `rules_current`: es a profil ma ervenyes szabalyverzioja
  * szerint (ha azota uj verziot fogadtal el, ujra kell ellenorizni).
  */
-function courtOut(itemId: string): ReturnType<typeof itemCourtState> & { check_current: boolean; rules_current: boolean } {
+function courtOut(itemId: string): ReturnType<typeof itemCourtState> & { check_current: boolean; rules_current: boolean; final_stale: boolean } {
   const st = itemCourtState(itemId)
   const f = listFinals(itemId)[0]
-  const check_current = !!st.check && !!f && st.check.version_id === f.version_id && st.check.result.profile_id === st.profile_id
-  return { ...st, check_current, rules_current: check_current && !!st.profile && st.check!.result.version === st.profile.version }
+  // #806 (Boss, Workbench chat 2026-10-26): after a reopen and an edit, the check of the OLD final PDF is not the check of the
+  // document on the screen -- shown as current it read as "an error right after reopening". It stays stored, it is not shown.
+  const item = f ? getWorkItem(itemId) : null
+  const final_stale = !!f && !!item && contentHash(item) !== f.content_hash
+  const check_current = !!st.check && !!f && !final_stale && st.check.version_id === f.version_id && st.check.result.profile_id === st.profile_id
+  return { ...st, check_current, final_stale, rules_current: check_current && !!st.profile && st.check!.result.version === st.profile.version }
 }
 
 /** The Documents panel in one answer: the documents by role, the related projects, and what is still open before closing. */

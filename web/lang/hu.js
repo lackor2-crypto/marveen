@@ -8704,6 +8704,7 @@ window._i18n.hu = {
   "workbench.court.result_errors": "✗ A {files} fájlt a(z) „{version}” szabályverzió szerint ellenőriztem: {e} hiba, {w} figyelmeztetés.",
   "workbench.court.disclaimer": "Ez gépi ellenőrzés: azt mondja meg, mit néztem meg és mit találtam. Az aláírást és a beadás módját nem tudom gépi úton ellenőrizni, és azt sem állítom, hogy a beadvány minden szabálynak megfelel.",
   "workbench.court.not_checked": "Az ellenőrzés a véglegesítéskor fut, a kész fájlokon.",
+  "workbench.court.final_stale": "A legutóbbi ellenőrzés a korábbi végleges PDF-ről szólt. A dokumentum azóta változott, ezért azt az eredményt nem mutatom: amikor újra véglegesíted, az új fájlokat ellenőrzöm.",
   "workbench.court.not_checked_final": "A mostani végleges változatot még nem ellenőriztem ezzel a profillal. Kattints az „Újraellenőrzés” gombra.",
   "workbench.court.not_installed": "Ezen a gépen nincs telepítve a Poppler, ezért a fájlokat nem tudom gépi úton ellenőrizni.",
   "workbench.court.recheck": "Újraellenőrzés",

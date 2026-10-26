@@ -12,7 +12,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { finalPackageFiles, listFinals } from '../workbench-docfinal.js'
-import { addSection, addBlock, addClaim } from '../workbench-docmodel.js'
+import { addSection, addBlock, addClaim, documentOutline, escapesProject } from '../workbench-docmodel.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
 import { addAnnex, listAnnexes, setAnnexPath, setDocSettings } from '../workbench-docannex.js'
 import { resolveProjectFile } from '../workbench-docmodel-world.js'
@@ -353,6 +353,21 @@ describe('veglegesites celbirosag-profillal', () => {
     const re2 = await callWorkbench(`${base}/court/check`, 'POST', {})
     expect(re2.body.court.rules_current).toBe(true)
     expect(re2.body.court.check.result.issues.find((i: { key: string }) => i.key === 'not_searchable').level).toBe('error')
+    // #806 (Boss: "visszaallitottam szerkeszthetore es maris hiba van benne"): reopened and edited, the check of the OLD final
+    // PDF is not shown as the check of the document now, and checking that old PDF again is refused with a human reason.
+    const sec = documentOutline(itemId).sections[0]!
+    if (!addBlock(itemId, sec.id, { text: 'Ein neuer Absatz nach dem Wiedereröffnen.', author: 'agent' }).ok) throw new Error('blokk')
+    const after = await callWorkbench(base, 'GET')
+    expect(after.body.court).toMatchObject({ check_current: false, rules_current: false, final_stale: true })
+    expect(after.body.court.check.version_id).toBe(listFinals(itemId)[0]!.version_id)
+    const re3 = await callWorkbench(`${base}/court/check`, 'POST', {})
+    expect(re3.status).toBe(409)
+    expect(re3.body.error).toBe('court_final_stale')
+    expect(JSON.stringify(re3.body)).toContain('a régi végleges PDF-et nem ellenőrzöm újra')
+    const tool = executeTool('doc.court', {}, { projectId: pid, workItemId: itemId, lang: 'hu' })
+    expect(tool.ok && (tool.data as { document_changed_since_final: boolean; last_check: { for_current_final: boolean } })).toMatchObject({
+      document_changed_since_final: true, last_check: { for_current_final: false },
+    })
   })
 
   it('profil nelkul nincs ujraellenorzes; ismeretlen profil 400; a "megneztem" csak a tulajdonos kattintasa', async () => {
@@ -400,6 +415,26 @@ describe('veglegesites celbirosag-profillal', () => {
     expect(list).toHaveLength(1)
     expect(list[0]).toMatchObject({ path: 'Level/Mietvertrag (kereshető).pdf', title: 'Mietvertrag', label: 'K1' })
     expect(existsSync(join(projDir(), 'Level', 'Mietvertrag.pdf'))).toBe(true)
+  })
+
+  it('#806: a projektmappabol kimutato irat-forrast (../.., meghajto, URL) azonnal visszautasitja, nem marad orokre "not_found"', () => {
+    const s0 = addSection(itemId, '1. Sachverhalt')
+    if (!s0.ok) throw new Error('fejezet')
+    const b = addBlock(itemId, s0.section.id, { text: 'Die Miete beträgt 900 Euro.', author: 'agent' })
+    if (!b.ok) throw new Error('blokk')
+    const world = { resolveFile: (p: string) => resolveProjectFile(getProject(pid)!, p), ownerMessages: () => [] }
+    for (const path of ['../../../../../Bakos Éva/Sozialamt/brief.pdf', 'Level/../../x.pdf', 'F:/Marveen/brief.pdf', 'C:\\Users\\x\\brief.pdf', 'https://example.org/brief.pdf']) {
+      const r = addClaim(itemId, b.block.id, 'Die Miete beträgt 900 Euro.', [{ kind: 'document', path, page: 1, quote: 'Die Miete beträgt 900 Euro.' }], world, 'workbench-agent')
+      expect(r.ok, path).toBe(false)
+      if (!r.ok) { expect(r.code).toBe('bad_input'); expect(r.detail).toContain('INSIDE the project folder') }
+    }
+    expect(documentOutline(itemId).sections[0]!.blocks[0]!.claims).toHaveLength(0)
+    // The project-relative path (also with a leading slash) still works and is verified.
+    for (const path of ['Level/brief.pdf', '/Level/brief.pdf']) {
+      expect(escapesProject(path)).toBe(false)
+      const ok = addClaim(itemId, b.block.id, 'Die Miete beträgt 900 Euro.', [{ kind: 'document', path, page: 1, quote: 'Die Miete beträgt 900 Euro.' }], world, 'workbench-agent')
+      expect(ok.ok && ok.claim.strength, path).toBe('verified')
+    }
   })
 
   it('az Agent latja a profilt es valaszthat; ellenorzott-nek nem jelolheti, veglegesiteni nem tud', () => {
@@ -651,6 +686,16 @@ describe('a felulet: celbirosag-doboz (a rajzolo kod tenyleg lefut)', () => {
     h.click({ 'data-wb-act': 'court-checked', 'data-wb-id': 'de-ervv' })
     await vi.waitFor(() => expect(h.fetchCalls.some((c) => bare(c.url).endsWith('/court/checked'))).toBe(true))
     expect(JSON.parse(String(h.fetchCalls.find((c) => bare(c.url).endsWith('/court/checked'))?.init?.body))).toEqual({ profile_id: 'de-ervv' })
+  })
+
+  it('#806: ujranyitas es szerkesztes utan a regi vegleges PDF ellenorzese nem latszik a mostani dokumentum hibajanak, es nincs ujraellenorzes-gomb', async () => {
+    const h = await open(court({ profile_id: 'de-ervv', profile: de(), check: { version_id: 'v2', result: RESULT }, check_current: false, rules_current: false, final_stale: true }), { ...FINAL, stale: true })
+    const b = box(h.html())
+    expect(b).toContain('⟦workbench.court.final_stale⟧')
+    expect(b).not.toContain('workbench.court.result_')
+    expect(b).not.toContain('02_Anlage_K1.pdf')
+    expect(b).not.toContain('data-wb-act="court-fix"')
+    expect(b).not.toContain('data-wb-act="court-check"')
   })
 
   it('az Agent javaslata: mi valtozna (regi -> uj), forrasok; elfogadas es elvetes a tulajdonos kattintasa', async () => {
