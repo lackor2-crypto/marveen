@@ -284,6 +284,18 @@ export function docLangFor(item: WorkItemRow, ui: 'hu' | 'en'): DocLang {
   return v.lang === 'hu' || v.lang === 'de' || v.lang === 'en' ? v.lang : 'en'
 }
 
+/**
+ * #794 (Boss TG 3503: "nem lehet benne sehol magyar"): the title written into the PDF / Word properties. The letter's
+ * own subject line; without one, the work item's title only when the document is in the dashboard's language (the
+ * title is the owner's note in HIS language), else the plain word for a letter in the document's language.
+ */
+export function docMetaTitle(item: WorkItemRow, ui: 'hu' | 'en'): string {
+  const subject = letterSubject(item.id)
+  if (subject) return subject
+  const lang = docLangFor(item, ui)
+  return lang === ui ? item.title : NAMELESS_LETTER[lang]
+}
+
 /** A szerkesztheto Word-fajl neve (K-1.26): a cim, datummal (a kiadott munkapeldanyok megkulonbozthetok). */
 export function docxFileName(item: WorkItemRow, d = new Date()): string {
   return `${fileStem(item.title)} (${localDate(d)}).docx`
@@ -296,12 +308,12 @@ export function docxFileName(item: WorkItemRow, d = new Date()): string {
  * szerepelnek (a fajlok nem kerulnek bele).
  */
 export async function renderDocx(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DocxResult> {
-  return renderOutlineDocx(renderInputFor(item, true), { title: item.title, author: documentAuthor(), lang: docLangFor(item, lang) })
+  return renderOutlineDocx(renderInputFor(item, true), { title: docMetaTitle(item, lang), author: documentAuthor(), lang: docLangFor(item, lang) })
 }
 
 /** The PDF twin of the Word copy (#636): the plain document, no watermark and no annex cover, for sending straight away. */
 export async function renderPlainPdf(item: WorkItemRow, lang: 'hu' | 'en'): Promise<RenderResult> {
-  return renderOutlinePdf(renderInputFor(item, true), { title: item.title, author: documentAuthor(), draft: false, lang: docLangFor(item, lang) })
+  return renderOutlinePdf(renderInputFor(item, true), { title: docMetaTitle(item, lang), author: documentAuthor(), draft: false, lang: docLangFor(item, lang) })
 }
 
 export type DraftResult =
@@ -319,7 +331,7 @@ function packageFail(e: PackageError & { ok: false }): { ok: false; code: string
 export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DraftResult> {
   const outline = renderInputFor(item, true)
   const hash = contentHash(item)
-  const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
+  const r = await renderOutlinePdf(outline, { title: docMetaTitle(item, lang), author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
   if (!outline.annexes || !outline.annexes.length) return { ok: true, pdf: r.pdf, hash }
   const resolve = resolverFor(item)
@@ -367,7 +379,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (reused) return finalizeFromExisting(item, reused, { hash, review, check, by: input.by, lang: input.lang })
 
   const outline = renderInputFor(item, true)
-  const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: false, lang: docLangFor(item, input.lang) })
+  const r = await renderOutlinePdf(outline, { title: docMetaTitle(item, input.lang), author: documentAuthor(), draft: false, lang: docLangFor(item, input.lang) })
   if (!r.ok) return { ok: false, code: 'docpdf_failed', detail: r.detail, convert: r.code }
   let annexes: { label: string; title: string; pdf: Buffer }[] = []
   if (outline.annexes && outline.annexes.length) {

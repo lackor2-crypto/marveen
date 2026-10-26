@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { documentOutline, isPlaceholderSectionTitle, tableBlockParts } from './workbench-docmodel.js'
-import { documentAuthor, docLangFor, renderInputFor } from './workbench-docfinal.js'
+import { documentAuthor, docLangFor, docMetaTitle, renderInputFor } from './workbench-docfinal.js'
 import { renderOutlinePdf } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
 
@@ -115,7 +115,7 @@ export async function pdfPageTexts(pdf: Buffer): Promise<{ ok: true; pages: stri
 /** Where the pages of the draft PDF begin, in terms of the document's own chapters and blocks. */
 export async function pageBreaksFor(item: WorkItemRow, lang: 'hu' | 'en'): Promise<PageBreaksResult> {
   const outline = renderInputFor(item, true)
-  const r = await renderOutlinePdf(outline, { title: item.title, author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
+  const r = await renderOutlinePdf(outline, { title: docMetaTitle(item, lang), author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
   const t = await pdfPageTexts(r.pdf)
   if (!t.ok) return { ok: false, code: 'pdftotext_failed', detail: t.detail }

@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
-import { createWorkItem, getWorkItem } from '../workbench.js'
+import { createWorkItem, createWorkItemVersion, getWorkItem } from '../workbench.js'
 import { ensureWorkItemFolder, assignWorkItemFolder, makeWorkFolder } from '../workbench-assets.js'
 import { sweepItemContexts, contextFileName } from '../workbench-item-context.js'
 import { todoFileName } from '../workbench-item-todos.js'
 import { appendFileSync, readFileSync } from 'node:fs'
 import { renameItemTogether, renameFolderTogether, anchorOfFolder } from '../workbench-rename-together.js'
+import { addSection, addBlock } from '../workbench-docmodel.js'
+import { contentHash, finalState, docMetaTitle } from '../workbench-docfinal.js'
 
 let dir = ''
 let pid = ''
@@ -77,6 +79,21 @@ describe('#709: the first item and its folder carry one name', () => {
     expect(names.filter((n) => /^Kontextus - |^Context - /.test(n))).toEqual([contextFileName('Billigkeitsantrag Berlin')])
     expect(names.filter((n) => /^Teendő - |^To do - /.test(n))).toEqual([todoFileName('Billigkeitsantrag Berlin')])
     expect(readFileSync(abs(`${dirRel}/${contextFileName('Billigkeitsantrag Berlin')}`), 'utf8')).toContain('amt@example.org')
+  })
+
+  it('#794: renaming a finalized letter keeps its final PDF current, and the PDF properties never carry the Hungarian item name', () => {
+    const sec = addSection(aId, 'Antrag')
+    if (!sec.ok) throw new Error('fejezet')
+    addBlock(aId, sec.section.id, { text: 'Sehr geehrte Damen und Herren, ich bitte Sie um die Prüfung, die mit dem Bescheid von der Behörde nicht erledigt ist.', author: 'owner' })
+    const v = createWorkItemVersion(aId, { metadata_json: JSON.stringify({ final: true, label: 'Végleges', content_hash: contentHash(getWorkItem(aId)!), pdf_path: '', pdf_name: '' }) })
+    if (!v.ok) throw new Error('verzio')
+    expect(finalState(getWorkItem(aId)!)!.stale).toBe(false)
+    expect(docMetaTitle(getWorkItem(aId)!, 'hu')).toBe('Schreiben')
+    expect(renameItemTogether(getWorkItem(aId)!, 'Billigkeitsantrag Berlin').ok).toBe(true)
+    expect(finalState(getWorkItem(aId)!)!.stale).toBe(false)
+    // A real change of the text still makes it stale.
+    addBlock(aId, sec.section.id, { text: 'Mit freundlichen Grüßen', author: 'owner' })
+    expect(finalState(getWorkItem(aId)!)!.stale).toBe(true)
   })
 
   it('an item that never had a context pass still renames its timeline JSON cleanly (no old name left inside the new one)', () => {
