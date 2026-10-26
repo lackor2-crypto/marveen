@@ -321,6 +321,23 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     expect(fin.body.error).not.toBe('outline_override_required')
   })
 
+  it('#807: a teendoknel kipipalt pont eltunik a veglegesites elotti ellenorzesbol, a pipa visszavetelevel visszajon', async () => {
+    const s = addSection(itemId, '1. Kérelem', { status: 'done' })
+    if (!s.ok) throw new Error('fejezet')
+    addBlock(itemId, s.section.id, { text: 'A kézbesítés napja: ⚠ Hiányzó adat: a kézbesítés dátuma', author: 'agent' })
+    const base = `/api/workbench/items/${itemId}/outline`
+    expect((await callWorkbench(base, 'GET')).body.outline.check.ready).toBe(false)
+    const row = listItemTodos(itemId).find((x) => x.text === 'Hiányzó adat: a kézbesítés dátuma')!
+    expect((await callWorkbench(`/api/workbench/todos/${row.id}`, 'PATCH', { done: true })).status).toBe(200)
+    const after = (await callWorkbench(base, 'GET')).body.outline.check
+    expect(after.ready).toBe(true)
+    expect(after.items.find((i: { key: string }) => i.key === 'missing_data')).toMatchObject({ ok: true, count: 0, detail: [], ticked: 1 })
+    // the ticked row stays the owner's: not removed, not made again
+    expect(listItemTodos(itemId).map((x) => [x.text, x.done_at != null])).toEqual([['Hiányzó adat: a kézbesítés dátuma', true]])
+    expect((await callWorkbench(`/api/workbench/todos/${row.id}`, 'PATCH', { done: false })).status).toBe(200)
+    expect((await callWorkbench(base, 'GET')).body.outline.check.ready).toBe(false)
+  })
+
   it('#751: kezi alairas nelkul csak az "ennek ellenere" pipaval (override) veglegesit, magyarul mondja meg', async () => {
     const s = addSection(itemId, '1. Kérelem', { status: 'done' })
     if (!s.ok) throw new Error('fejezet')

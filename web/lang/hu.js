@@ -8456,6 +8456,7 @@ window._i18n.hu = {
   "workbench.outline.check.unsupported_claims": "Igazolt forrás nélküli állítás: {n}",
   "workbench.outline.check.inference_as_fact": "Következtetés (érvelésként jelenhet meg, nem tényként): {n}",
   "workbench.outline.check.owner_written": "Általad átírt bekezdés: {n}",
+  "workbench.outline.check.ticked": "{n} pontot kipipáltál a teendőknél, ezek nem nyitottak.",
   "workbench.outline.draft_pdf": "📄 Piszkozat PDF",
   "workbench.outline.draft_pdf_hint": "PDF a mostani állapotról. Minden oldalán „PISZKOZAT” vízjel van, a hiányok ki vannak emelve. A mellékletek borítólappal a végére kerülnek. Bármikor elkészíthető, és átnézésre elküldhető, például ügyvédnek.",
   "workbench.outline.docx": "📝 Word (DOCX)",

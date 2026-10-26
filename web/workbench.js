@@ -1289,6 +1289,8 @@
       window.showToast(nx && nx.due_date
         ? t('workbench.td.toast.done_next', { date: tdDateText(nx.due_date, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) })
         : t('workbench.td.toast.' + toastKey))
+      // #807: a ticked (or un-ticked / deleted) check point changes the finalize check box of the open document.
+      if (toastKey !== 'add' && WB.detail && WB.detail.outline) refreshOutline()
       return loadTodos(pid)
     })
   }
@@ -10057,8 +10059,10 @@
         var detail = i.key === 'consistency' ? consistencyDetailHtml(o, ro)
           : i.key === 'sections_done' ? sectionsInProgressHtml(o, ro)
           : !i.ok && i.detail && i.detail.length ? '<ul>' + i.detail.slice(0, 8).map(function (d) { return '<li class="wb-muted">' + esc(d) + '</li>' }).join('') + '</ul>' : ''
+        // #807: the points the owner ticked off in the to-do list are settled; the row says how many.
+        var ticked = i.ticked ? ' <span class="wb-muted">' + esc(t('workbench.outline.check.ticked', { n: i.ticked })) + '</span>' : ''
         return '<li class="' + (i.ok && !warn ? 'wb-ok' : 'wb-doc-low') + '">' + (warn ? '⚠ ' : i.ok ? (info ? 'ℹ ' : '✓ ') : '⚠ ') + esc(txt)
-          + detail
+          + ticked + detail
           + '</li>'
       }).join('')
       + '</ul><p class="' + (check.ready ? 'wb-ok' : 'wb-muted') + '">' + esc(t(check.ready ? 'workbench.outline.ready' : 'workbench.outline.not_ready')) + '</p></div>'
@@ -20429,6 +20433,9 @@
   function render() {
     var el = root()
     if (!el || !WB.open) return
+    // #807: the check puts its open points into the to-do list on every surface (not only the classic outline view):
+    // whichever view is drawn, a changed list is reloaded so the to-dos the finalize box points to are really there.
+    syncCheckTodosSeen(WB.detail && WB.detail.outline)
     // #534 (b): a page that is typed but not saved yet is saved FIRST; the redraw then shows what the server has.
     if (dpPending() && !WB.dpFailed && !WB.dpRenderWait) {
       WB.dpRenderWait = true
