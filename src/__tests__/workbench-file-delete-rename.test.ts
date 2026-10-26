@@ -162,6 +162,23 @@ describe('renameLooseFile', () => {
     expect(JSON.parse(doc).src).toBe(newRel)
     expect(existsSync(join(abs(a), 'cim.png'))).toBe(true)
   })
+
+  it('#794: a finalised PDF renamed in the folder keeps its stored name in step (the mail attaches it under the new name)', () => {
+    const db = getDb()
+    const a = group('Levél')
+    const rel = loose(a, '01_2026-10-25_Egy_levelet_akarok_irni_HU_v1.pdf', '%PDF')
+    const it = createWorkItem({ project_id: pid, title: 'Egy levelet akarok irni', type: 'document', container_folder: a })
+    if (!it.ok) throw new Error('item')
+    const meta = { final: true, pdf_path: rel, pdf_name: '01_2026-10-25_Egy_levelet_akarok_irni_HU_v1.pdf', files: [{ path: rel, name: '01_2026-10-25_Egy_levelet_akarok_irni_HU_v1.pdf', role: 'main' }, { path: 'x/K1.pdf', name: 'K1.pdf', role: 'annex' }] }
+    db.prepare('UPDATE work_item_versions SET metadata_json = ? WHERE work_item_id = ?').run(JSON.stringify(meta), it.item.id)
+    const name = '01_2026-10-25_Billigkeitsantrag_Berlin_DE_v1.pdf'
+    expect(renameLooseFile(proj(), rel, name)).toEqual({ ok: true, name, renamed: true })
+    const m = JSON.parse((db.prepare('SELECT metadata_json FROM work_item_versions WHERE work_item_id = ?').get(it.item.id) as { metadata_json: string }).metadata_json)
+    expect(m.pdf_path.endsWith('/' + name)).toBe(true)
+    expect(m.pdf_name).toBe(name)
+    expect(m.files[0].name).toBe(name)
+    expect(m.files[1]).toEqual({ path: 'x/K1.pdf', name: 'K1.pdf', role: 'annex' })
+  })
 })
 
 describe('deleteLooseFiles: any plain file of the project folder (Boss 2723)', () => {

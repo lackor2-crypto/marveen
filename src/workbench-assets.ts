@@ -931,6 +931,20 @@ export type MoveFilesSkip = { name: string; reason: 'not_loose' | 'same_place' |
  * picture), covering the same places loosePathsInUse scans: the item/version/part/asset columns and the
  * deck/timeline JSON (working draft + undo steps), plus the saved version JSON files on disk (best effort).
  */
+/** #794: in a finalised version's metadata, the name stored next to `rel` becomes that path's own file name. */
+function renameFinalFileNames(db: ReturnType<typeof getDb>, itemId: string, rel: string): void {
+  const name = rel.slice(rel.lastIndexOf('/') + 1)
+  const rows = db.prepare('SELECT id, metadata_json FROM work_item_versions WHERE work_item_id = ? AND instr(metadata_json, ?) > 0').all(itemId, JSON.stringify(rel)) as { id: string; metadata_json: string }[]
+  for (const r of rows) {
+    let m: { pdf_path?: unknown; pdf_name?: unknown; files?: unknown }
+    try { m = JSON.parse(r.metadata_json) } catch { continue }
+    if (!m || typeof m !== 'object') continue
+    if (m.pdf_path === rel) m.pdf_name = name
+    if (Array.isArray(m.files)) for (const f of m.files) if (f && typeof f === 'object' && (f as { path?: unknown }).path === rel) (f as { name?: unknown }).name = name
+    db.prepare('UPDATE work_item_versions SET metadata_json = ? WHERE id = ?').run(JSON.stringify(m), r.id)
+  }
+}
+
 function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: string, oldProjRel?: string, newProjRel?: string): void {
   if (!oldRel || !newRel || oldRel === newRel) return
   const db = getDb()
@@ -951,6 +965,8 @@ function repointMovedFileRefs(project: ProjectRow, oldRel: string, newRel: strin
       db.prepare('UPDATE work_item_assets SET path = ? WHERE work_item_id = ? AND path = ?').run(newRel, id, oldRel)
       // A finalised version keeps its PDF and attachments in metadata_json (`pdf_path`, `files[].path`): same quoted swap.
       db.prepare('UPDATE work_item_versions SET metadata_json = replace(metadata_json, ?, ?) WHERE work_item_id = ? AND instr(metadata_json, ?) > 0').run(oldQ, newQ, id, oldQ)
+      // #794: the file's NAME there (`pdf_name`, `files[].name`) follows a rename too, or the mail attaches it under the old name.
+      if (oldRel.slice(oldRel.lastIndexOf('/') + 1) !== newRel.slice(newRel.lastIndexOf('/') + 1)) renameFinalFileNames(db, id, newRel)
       for (const { name } of draftTables) {
         db.prepare(`UPDATE ${name} SET doc = replace(doc, ?, ?) WHERE work_item_id = ? AND instr(doc, ?) > 0`).run(oldQ, newQ, id, oldQ)
         const steps = name.replace(/_drafts$/, '_steps')
