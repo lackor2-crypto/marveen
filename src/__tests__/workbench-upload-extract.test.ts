@@ -19,6 +19,9 @@ const py = (code: string, ...args: string[]): void => {
   if (r.status !== 0) throw new Error('python: ' + r.stderr)
 }
 
+// The OCR picture is drawn with Pillow; a machine without it (the CI runner) skips that one test.
+const havePillow = spawnSync('python3', ['-c', 'import PIL'], { cwd: tmpdir() }).status === 0
+
 describe('#794 uploads are read out into the context', () => {
   let depot = ''
   const saved: Record<string, string | undefined> = {}
@@ -55,7 +58,7 @@ describe('#794 uploads are read out into the context', () => {
     expect(await extractFile(join(depot, 'leer.txt'))).toMatchObject({ ok: false })
   })
 
-  it.runIf(tesseractAvailable())('reads a picture by OCR (the fine of the Berlin letter)', async () => {
+  it.runIf(tesseractAvailable() && havePillow)('reads a picture by OCR (the fine of the Berlin letter)', async () => {
     py('import sys\nfrom PIL import Image, ImageDraw, ImageFont\nim=Image.new("RGB",(1400,200),"white")\nd=ImageDraw.Draw(im)\nd.text((30,60),"Tatzeit 13:30 bis 13:50 Uhr",fill="black",font=ImageFont.load_default(size=64))\nim.save(sys.argv[1])', join(depot, 'bussgeld.png'))
     const r = await extractFile(join(depot, 'bussgeld.png'))
     expect(r, JSON.stringify(r)).toMatchObject({ ok: true, method: 'ocr' })
