@@ -211,7 +211,11 @@ export function ensureItemContext(item: WorkItemRow, project: ProjectRow): ItemC
   if (!dir) return { rel: null, created: false, renamed: false }
   const expected = contextFileName(item.title)
   const row = readRow(item.id)
-  let rel = row && existsSync(resolveLifePath(row.rel) || '/nonexistent') ? row.rel : findExisting(item, dir.abs, dir.rel)
+  let rel = row && existsSync(resolveLifePath(row.rel) || '/nonexistent') ? row.rel : null
+  // #794 (Boss TG 3512): the folder was renamed or moved under the file: the same file now sits in the item's current
+  // folder. Take it (it carries what was gathered) instead of making a second, empty one beside it.
+  if (!rel && row && row.rel && existsSync(join(dir.abs, basename(row.rel)))) rel = `${dir.rel}/${basename(row.rel)}`
+  if (!rel) rel = findExisting(item, dir.abs, dir.rel)
   let created = false
   let renamed = false
   if (rel && basename(rel) !== expected) {

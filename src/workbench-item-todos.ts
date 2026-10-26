@@ -80,6 +80,11 @@ export function ensureItemTodoFile(item: WorkItemRow, project: ProjectRow): stri
     const abs = resolveLifePath(row.rel)
     if (abs && existsSync(abs)) rel = row.rel
   }
+  // #794 (Boss TG 3512): after a folder rename / move the old file sits in the new folder under its old name: follow it.
+  if (!rel && row && row.rel) {
+    const abs = resolveLifePath(`${folder}/${basename(row.rel)}`)
+    if (abs && existsSync(abs)) rel = `${folder}/${basename(row.rel)}`
+  }
   if (!rel) {
     const abs = resolveLifePath(`${folder}/${expected}`)
     if (abs && existsSync(abs)) rel = `${folder}/${expected}`
