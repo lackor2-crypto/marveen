@@ -80,7 +80,7 @@ export function renderInputFor(item: WorkItemRow, withImages = false): RenderOut
   if (withImages) for (const sec of base.sections) for (const b of sec.blocks) if (b.kind === 'image') b.img = readDocImage(imageBlockParts(b.text).path)
   return {
     ...base,
-    ...(annexes.length ? { annexes: annexes.map((a) => ({ label: a.label, title: a.title })), annexTitle: annexListTitle(docSettings(item.id)) } : {}),
+    ...(annexes.length ? { annexes: annexes.map((a) => ({ label: a.label, title: a.title })), annexTitle: annexListTitle(docSettings(item.id), docLangFor(item, 'hu')) } : {}),
   }
 }
 
@@ -275,11 +275,12 @@ export function draftFileName(item: WorkItemRow, lang: 'hu' | 'en'): string {
 
 /**
  * A dokumentum nyelve a PDF/DOCX feliratainal (lablec, vizjel, nyelvi cimke):
- * nyelvi valtozatnal a valtozate (K-1.27), kulonben a felulete.
+ * nyelvi valtozatnal a valtozate (K-1.27), kulonben a szovege, es csak ha az nem ismerheto fel, a felulete.
+ * #794: a German letter written on a Hungarian install must not carry a Hungarian footer or annex list.
  */
 export function docLangFor(item: WorkItemRow, ui: 'hu' | 'en'): DocLang {
   const v = variantOf(item.id)
-  if (!v) return ui
+  if (!v) return letterLanguage(item.id) ?? ui
   return v.lang === 'hu' || v.lang === 'de' || v.lang === 'en' ? v.lang : 'en'
 }
 
@@ -323,7 +324,7 @@ export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise
   if (!outline.annexes || !outline.annexes.length) return { ok: true, pdf: r.pdf, hash }
   const resolve = resolverFor(item)
   if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
-  const ax = await annexPdfs(item.id, resolve, { lang })
+  const ax = await annexPdfs(item.id, resolve, { lang: docLangFor(item, lang) })
   if (!ax.ok) return packageFail(ax)
   const all = await mergePdfs([r.pdf, ...ax.annexes.map((a) => a.pdf)])
   if (!all.ok) return packageFail(all)
@@ -372,7 +373,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (outline.annexes && outline.annexes.length) {
     if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
     // With the owner's "finalize anyway" tick an annex whose file is gone (or cannot become a PDF) is left out, not an error.
-    const ax = await annexPdfs(item.id, resolve, { lang: input.lang, skipBroken: override })
+    const ax = await annexPdfs(item.id, resolve, { lang: docLangFor(item, input.lang), skipBroken: override })
     if (!ax.ok) {
       const f = packageFail(ax)
       return f.code === 'not_installed' || f.code === 'check_failed' ? { ok: false, code: 'docpdf_failed', detail: f.detail, convert: f.code } : f
@@ -593,7 +594,7 @@ export async function finalPackageFiles(item: WorkItemRow, f: FinalView, lang: '
   const resolve = resolverFor(item)
   if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
   // skipBroken + the label list: the annexes the owner finalized, an annex left out then ("finalize anyway") stays out.
-  const ax = await annexPdfs(item.id, resolve, { lang, skipBroken: true })
+  const ax = await annexPdfs(item.id, resolve, { lang: docLangFor(item, lang), skipBroken: true })
   if (!ax.ok) return { ok: false, code: ax.code, detail: ax.detail ?? null }
   for (const r of remake) {
     const a = ax.annexes.find((y) => y.label === r.label)

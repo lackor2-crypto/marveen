@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import { runVersion } from './capability-probe.js'
 import { convertOfficeToPdf, renderCacheDir } from './office-convert.js'
 import { annexPdfKind, docSettings, listAnnexes, type AnnexScheme, type FileResolver } from './workbench-docannex.js'
-import { buildCoverFodt, buildTextFodt, renderFodtPdf, PDF_FILTER_DRAFT } from './workbench-docrender.js'
+import { buildCoverFodt, buildTextFodt, renderFodtPdf, PDF_FILTER_DRAFT, type DocLang } from './workbench-docrender.js'
 
 export interface AnnexPdf { label: string; title: string; pdf: Buffer }
 
@@ -72,12 +72,14 @@ export async function mergePdfs(parts: Buffer[]): Promise<Out<{ pdf: Buffer }>> 
 }
 
 /** A boritolap szovege: "K1. melleklet" / "Anlage K1" / "Exhibit A". */
-export function coverText(scheme: AnnexScheme, label: string): string {
-  return scheme === 'k' ? `${label}. melléklet` : label
+export function coverText(scheme: AnnexScheme, label: string, lang: DocLang = 'hu'): string {
+  if (scheme !== 'k') return label
+  // #794: the cover speaks the document's language: "Anlage K1" in a German letter, never "K1. melléklet".
+  return lang === 'de' ? `Anlage ${label}` : lang === 'en' ? `Annex ${label}` : `${label}. melléklet`
 }
 
 /** Minden melleklet: boritolap + tartalom, egy PDF-ben mellekletenkent. */
-export async function annexPdfs(itemId: string, resolve: FileResolver, opts: { lang: 'hu' | 'en'; skipBroken?: boolean }): Promise<Out<{ annexes: AnnexPdf[] }>> {
+export async function annexPdfs(itemId: string, resolve: FileResolver, opts: { lang: DocLang; skipBroken?: boolean }): Promise<Out<{ annexes: AnnexPdf[] }>> {
   const s = docSettings(itemId)
   const out: AnnexPdf[] = []
   for (const a of listAnnexes(itemId, resolve)) {
@@ -86,7 +88,7 @@ export async function annexPdfs(itemId: string, resolve: FileResolver, opts: { l
     if (!f) { if (opts.skipBroken) continue; return { ok: false, code: 'annex_missing', label: a.label, detail: a.path } }
     const content = await annexContentPdf(f.abs, f.name)
     if (!content.ok) { if (opts.skipBroken && content.code === 'annex_unsupported') continue; return { ...content, label: a.label } }
-    const cover = await renderFodtPdf(buildCoverFodt(coverText(s.annex_scheme, a.label), a.title, opts.lang), PDF_FILTER_DRAFT)
+    const cover = await renderFodtPdf(buildCoverFodt(coverText(s.annex_scheme, a.label, opts.lang), a.title, opts.lang), PDF_FILTER_DRAFT)
     if (!cover.ok) return { ok: false, code: 'annex_convert_failed', label: a.label, detail: cover.detail, convert: cover.code }
     const merged = await mergePdfs([cover.pdf, content.pdf])
     if (!merged.ok) return merged

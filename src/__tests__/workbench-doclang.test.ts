@@ -11,14 +11,15 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem, purgeWorkItem, setWorkItemDeleted, type WorkItemRow } from '../workbench.js'
 import { addSection, addBlock, addClaim, documentOutline, documentCheck, updateBlock, removeSection, type SourceWorld } from '../workbench-docmodel.js'
-import { addAnnex, listAnnexes, removeAnnex, setDocSettings, docSettings } from '../workbench-docannex.js'
+import { addAnnex, annexListTitle, listAnnexes, removeAnnex, setDocSettings, docSettings } from '../workbench-docannex.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
 import {
   createVariant, variantInfo, variantsSummary, translateSection, addGlossaryTerm, removeGlossaryTerm, listGlossary,
   glossaryIssues, setBackTranslation, backchecks, variantCheckItems, variantTitle, retitleLegacyVariants,
 } from '../workbench-doclang.js'
 import { docLangFor } from '../workbench-docfinal.js'
-import { buildFodt } from '../workbench-docrender.js'
+import { buildCoverFodt, buildFodt } from '../workbench-docrender.js'
+import { coverText } from '../workbench-docpackage.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody } from './helpers/workbench-harness.js'
@@ -315,6 +316,25 @@ describe('nyelvi valtozatok a dokumentummodellben', () => {
     const fodt = buildFodt({ sections: [{ title: 'A', blocks: [{ kind: 'paragraph', text: 'x' }] }] } as never, { title: 'T', author: null, draft: true, lang: 'de' })
     expect(fodt).toContain('ENTWURF')
     expect(fodt).toContain('de-DE')
+  })
+
+  it('#794: a German original on a Hungarian dashboard: footer, annex list and cover in German, never Hungarian', () => {
+    const w = createWorkItem({ project_id: pid, title: 'Egy levelet akarok irni', type: 'document' })
+    if (!w.ok) throw new Error('munkadarab')
+    const sec = addSection(w.item.id, 'Antrag')
+    if (!sec.ok) throw new Error('fejezet')
+    addBlock(w.item.id, sec.section.id, { text: 'Sehr geehrte Damen und Herren, ich bitte Sie um die Prüfung, die mit dem Bescheid von der Behörde nicht erledigt ist.', author: 'owner' })
+    const item = getWorkItem(w.item.id)!
+    expect(docLangFor(item, 'hu')).toBe('de')
+    expect(annexListTitle({ annex_scheme: 'k' }, docLangFor(item, 'hu'))).toBe('Anlagen')
+    expect(coverText('k', 'K1', docLangFor(item, 'hu'))).toBe('Anlage K1')
+    expect(buildCoverFodt('Anlage K1', 'Termin', 'de')).toContain('fo:language="de"')
+    const fodt = buildFodt({ sections: [{ title: 'A', blocks: [{ kind: 'paragraph', text: 'x' }] }], annexes: [{ label: 'K1', title: 'Termin' }], annexTitle: 'Anlagen' } as never, { title: 'T', author: null, draft: false, lang: docLangFor(item, 'hu') })
+    expect(fodt).toContain('Seite')
+    expect(fodt).not.toMatch(/oldal|Mellékletek|melléklet/)
+    // A text that cannot be told falls back to the dashboard language, as before.
+    expect(annexListTitle({ annex_scheme: 'k' })).toBe('Mellékletek')
+    expect(coverText('k', 'K1', 'en')).toBe('Annex K1')
   })
 
   it('utvonalak: letrehozas, ujra ugyanaz, a vazlat mindket oldalon, szoszedet es visszaforditas torlese', async () => {
