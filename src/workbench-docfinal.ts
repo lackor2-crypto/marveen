@@ -584,7 +584,9 @@ export async function finalPackageFiles(item: WorkItemRow, f: FinalView, lang: '
       out.push({ name: x.name, pdf: Buffer.alloc(0), role: 'annex', label: x.label })
       continue
     }
-    out.push({ name: x.name, pdf: readFileSync(abs), role: x.role, ...(x.label ? { label: x.label } : {}), path: x.path })
+    // #794: the file on disk names it: a final renamed in the folder (before its stored name followed renames) goes out under the new name.
+    const onDisk = x.role === 'annex' ? x.name : x.path.slice(x.path.lastIndexOf('/') + 1) || x.name
+    out.push({ name: onDisk, pdf: readFileSync(abs), role: x.role, ...(x.label ? { label: x.label } : {}), path: x.path })
   }
   const labels = f.annex_labels ?? []
   if (!labels.length && !remake.length) return { ok: true, files: out }
