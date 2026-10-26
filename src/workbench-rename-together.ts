@@ -12,6 +12,34 @@ import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { folderNameFromTitle, renameWorkFolder, renameWorkItem, type RenameFolderResult, type RenameItemOutcome } from './workbench-assets.js'
 import { reconcileItemContext, rememberItemStem } from './workbench-item-context.js'
 import { logger } from './logger.js'
+import { contentHash, finalState } from './workbench-docfinal.js'
+
+/** The version id of the item's final PDF when it still matches the document; null when there is none or it is stale. */
+function freshFinalVersion(item: WorkItemRow): string | null {
+  try {
+    const f = finalState(item)
+    return f && !f.stale ? f.version_id : null
+  } catch { return null }
+}
+
+/**
+ * #794 (Boss TG 3533): the item's name is the owner's note, not the letter -- renaming it changes nothing in the PDF. A
+ * final that matched the document before the rename keeps matching it: its fingerprint is moved to the new name, so the
+ * e-mail does not ask for a new final PDF.
+ */
+function keepFinalFresh(item: WorkItemRow, versionId: string | null): void {
+  if (!versionId) return
+  try {
+    const db = getDb()
+    const row = db.prepare('SELECT metadata_json FROM work_item_versions WHERE id = ?').get(versionId) as { metadata_json: string | null } | undefined
+    if (!row || !row.metadata_json) return
+    const meta = JSON.parse(row.metadata_json) as Record<string, unknown>
+    meta['content_hash'] = contentHash(item)
+    db.prepare('UPDATE work_item_versions SET metadata_json = ? WHERE id = ?').run(JSON.stringify(meta), versionId)
+  } catch (err: any) {
+    logger.warn({ item: item.id, err: String(err?.message || err) }, '[rename-together] the final PDF could not keep its fingerprint')
+  }
+}
 
 /** The first (oldest) work item that has `folder` as its own folder; null when none does. */
 export function anchorOfFolder(projectId: string, folder: string): WorkItemRow | null {
@@ -36,6 +64,14 @@ function settle(itemId: string): void {
  * path follows), and the file names follow through the context pass. A later item of the folder only changes its title.
  */
 export function renameItemTogether(item: WorkItemRow, rawTitle: unknown): RenameItemOutcome {
+  const fresh = freshFinalVersion(getWorkItem(item.id) ?? item)
+  const r = renameAnchorAware(item, rawTitle)
+  // After the folder move too: a picture's path inside the folder is part of the fingerprint.
+  if (r.ok) keepFinalFresh(getWorkItem(item.id) ?? r.item, fresh)
+  return r
+}
+
+function renameAnchorAware(item: WorkItemRow, rawTitle: unknown): RenameItemOutcome {
   const before = getWorkItem(item.id) ?? item
   try { rememberItemStem(before) } catch { /* the sweep then falls back to the file's own name */ }
   const r = renameWorkItem(before, rawTitle)
