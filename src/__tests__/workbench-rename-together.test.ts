@@ -8,6 +8,8 @@ import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { ensureWorkItemFolder, assignWorkItemFolder, makeWorkFolder } from '../workbench-assets.js'
 import { sweepItemContexts, contextFileName } from '../workbench-item-context.js'
+import { todoFileName } from '../workbench-item-todos.js'
+import { appendFileSync, readFileSync } from 'node:fs'
 import { renameItemTogether, renameFolderTogether, anchorOfFolder } from '../workbench-rename-together.js'
 
 let dir = ''
@@ -61,6 +63,20 @@ describe('#709: the first item and its folder carry one name', () => {
     expect(names).toContain(contextFileName('Apu video PROBA'))
     expect(it.source_path).toBe(`${dirRel}/apu-video-proba.timeline.json`)
     expect(existsSync(abs(`Projektek/Video/${folder}`))).toBe(false)
+  })
+
+  it('#794: renaming the anchor renames its context and to-do files, it never makes a second pair beside the old one', () => {
+    const oldDir = `Projektek/Video/${folder}`
+    const oldCtx = contextFileName('Uj video')
+    expect(files(oldDir)).toContain(oldCtx)
+    expect(files(oldDir)).toContain(todoFileName('Uj video'))
+    appendFileSync(abs(`${oldDir}/${oldCtx}`), '\n- Empfänger: amt@example.org\n')
+    expect(renameItemTogether(getWorkItem(aId)!, 'Billigkeitsantrag Berlin').ok).toBe(true)
+    const dirRel = `Projektek/Video/${getWorkItem(aId)!.folder}`
+    const names = files(dirRel)
+    expect(names.filter((n) => /^Kontextus - |^Context - /.test(n))).toEqual([contextFileName('Billigkeitsantrag Berlin')])
+    expect(names.filter((n) => /^Teendő - |^To do - /.test(n))).toEqual([todoFileName('Billigkeitsantrag Berlin')])
+    expect(readFileSync(abs(`${dirRel}/${contextFileName('Billigkeitsantrag Berlin')}`), 'utf8')).toContain('amt@example.org')
   })
 
   it('an item that never had a context pass still renames its timeline JSON cleanly (no old name left inside the new one)', () => {
