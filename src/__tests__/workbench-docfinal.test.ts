@@ -257,6 +257,48 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     expect(t.reviews.length).toBeGreaterThanOrEqual(1)
   })
 
+  it('Boss TG 10494: finalizing a changed document again replaces its own earlier PDF; another item\'s PDF stays', async () => {
+    readyDocument()
+    const other = createWorkItem({ project_id: pid, title: 'Másik levél', type: 'document' })
+    if (!other.ok) throw new Error('masik munkadarab')
+    const base = `/api/workbench/items/${itemId}/outline`
+    const finalize = async (): Promise<string> => {
+      const hash = (await callWorkbench(base, 'GET')).body.outline.content_hash as string
+      await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')
+      const fin = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash, override: true })
+      expect(fin.status).toBe(200)
+      return fin.body.file as string
+    }
+    const first = await finalize()
+    expect(existsSync(join(depot, first))).toBe(true)
+    const blockId = (await callWorkbench(base, 'GET')).body.outline.sections[0].blocks[0].id
+    await callWorkbench(`${base}/blocks/${blockId}`, 'PATCH', { text: 'Tisztelt Bíróság!\nÚj szöveg a módosítás után.' })
+    const second = await finalize()
+    expect(second).not.toBe(first)
+    expect(existsSync(join(depot, second))).toBe(true)
+    // the earlier PDF of THIS item is gone: no "v1 + v2" pile in Finished materials
+    expect(existsSync(join(depot, first))).toBe(false)
+  })
+
+  it('Boss TG 10496: a finalised work item is locked for the assistant until the owner agrees to a reopen', () => {
+    readyDocument()
+    const ctx = { projectId: pid, workItemId: itemId, lang: 'hu' as const }
+    const sec = documentOutline(itemId).sections[0]!
+    getDb().prepare("UPDATE work_items SET status = 'done' WHERE id = ?").run(itemId)
+    const blocked = executeTool('doc.addBlock', { section: sec.id, text: 'Még egy bekezdés.' }, ctx)
+    expect(blocked.ok).toBe(false)
+    if (!blocked.ok) { expect(blocked.code).toBe('item_finalised'); expect(blocked.detail).toContain('Shall I reopen') }
+    expect(documentOutline(itemId).sections[0]!.blocks.length).toBe(sec.blocks.length)
+    // reading and the check stay open
+    expect(executeTool('doc.outline', {}, ctx).ok).toBe(true)
+    // after the reopen the same write goes through
+    expect(executeTool('doc.reopen', {}, ctx).ok).toBe(true)
+    expect(getWorkItem(itemId)!.status).toBe('in_progress')
+    expect(executeTool('doc.addBlock', { section: sec.id, text: 'Még egy bekezdés.' }, ctx).ok).toBe(true)
+    // an item that is not finalised has nothing to reopen
+    expect(executeTool('doc.reopen', {}, ctx).ok).toBe(false)
+  })
+
   it('#751: a hianyzo adat nem akadalyozza a veglegesitest, hanem teendo lesz belole', async () => {
     const s = addSection(itemId, '1. Kérelem', { status: 'done' })
     if (!s.ok) throw new Error('fejezet')
