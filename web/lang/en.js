@@ -8382,6 +8382,7 @@ window._i18n.en = {
   "workbench.outline.check.unsupported_claims": "Claims without a verified source: {n}",
   "workbench.outline.check.inference_as_fact": "Conclusions (may appear as reasoning, not as facts): {n}",
   "workbench.outline.check.owner_written": "Paragraphs you rewrote: {n}",
+  "workbench.outline.check.ticked": "You ticked off {n} point(s) in the to-dos, they are no longer open.",
   "workbench.outline.draft_pdf": "📄 Draft PDF",
   "workbench.outline.draft_pdf_hint": "A PDF of the current state. Every page carries a \"DRAFT\" watermark and the gaps are highlighted. The annexes follow at the end, each with a cover page. It can be made any time and sent for review, to a lawyer for example.",
   "workbench.outline.docx": "📝 Word (DOCX)",

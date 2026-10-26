@@ -35,20 +35,55 @@ const PREFIX: Record<string, { hu: string; en: string }> = {
 
 const SELF_LABELLED = /^(Hiányzó adat|Forrás nem található|Missing data|Source not found)(?=[\s:]|$)/
 
+function cleanDetail(d: unknown): string {
+  return String(d).replace(/^⚠\s*/, '').trim()
+}
+
+/** The to-do text of one detail line of a check row ('' = the row has no detail lines). */
+function todoText(key: string, d: string, lang: 'hu' | 'en'): string {
+  const p = PREFIX[key]
+  // A missing-data mark in the text already says what it is ("Hiányzó adat: a kézbesítés dátuma"): no second prefix.
+  const text = !d ? p[lang] : key === 'missing_data' && SELF_LABELLED.test(d) ? d : `${p[lang]}: ${d}`
+  return text.length > TODO_TEXT_MAX ? text.slice(0, TODO_TEXT_MAX - 1) + '…' : text
+}
+
 /** The to-do texts the current check asks for (one per detail line), in the install's language. */
 export function checkTodoTexts(items: CheckItem[], lang: 'hu' | 'en'): string[] {
   const out: string[] = []
   for (const i of items) {
-    const p = PREFIX[i.key]
-    if (!p || i.ok) continue
-    const details = (i.detail || []).map((d) => String(d).replace(/^⚠\s*/, '').trim()).filter(Boolean)
-    for (const d of details.length ? details : ['']) {
-      // A missing-data mark in the text already says what it is ("Hiányzó adat: a kézbesítés dátuma"): no second prefix.
-      const text = !d ? p[lang] : i.key === 'missing_data' && SELF_LABELLED.test(d) ? d : `${p[lang]}: ${d}`
-      out.push(text.length > TODO_TEXT_MAX ? text.slice(0, TODO_TEXT_MAX - 1) + '…' : text)
-    }
+    if (!PREFIX[i.key] || i.ok) continue
+    const details = (i.detail || []).map(cleanDetail).filter(Boolean)
+    for (const d of details.length ? details : ['']) out.push(todoText(i.key, d, lang))
   }
   return [...new Set(out)]
+}
+
+/**
+ * #807 (Boss, Munkapad chat 2026-10-26): "tűnjön el innen a figyelmeztetés, ha ki lettek pipálva a teendőknél!" -- a
+ * point the owner ticked off in the to-do list is settled: the check no longer shows it as open. The row keeps how
+ * many of its points were ticked (`ticked`), and a row whose every point is ticked is clear. Un-ticking the to-do
+ * brings the point back. The ticked row is matched in both languages (the install language may have changed since).
+ */
+export function applyTickedTodos(itemId: string, items: CheckItem[]): CheckItem[] {
+  let ticked: Set<string>
+  try {
+    ticked = new Set(listItemTodos(itemId).filter((t) => t.created_by === CHECK_TODO_BY && t.done_at != null).map((t) => t.text))
+  } catch {
+    return items
+  }
+  if (!ticked.size) return items
+  const isTicked = (key: string, d: string) => ticked.has(todoText(key, d, 'hu')) || ticked.has(todoText(key, d, 'en'))
+  return items.map((i) => {
+    if (!PREFIX[i.key] || i.ok) return i
+    const details = (i.detail || []).map(cleanDetail)
+    if (!details.some(Boolean)) return isTicked(i.key, '') ? { ...i, ok: true, ticked: i.count, count: i.key === 'quotes_verified' ? i.count : 0 } : i
+    const open = (i.detail || []).filter((_, n) => !details[n] || !isTicked(i.key, details[n]))
+    const done = details.length - open.length
+    if (!done) return i
+    // quotes_verified counts the VERIFIED quotes (the detail lines are the failed ones): its count stays.
+    const count = i.key === 'quotes_verified' ? i.count : Math.max(0, i.count - done)
+    return { ...i, ok: open.length === 0, count, detail: open, ticked: done }
+  })
 }
 
 /** Brings the work item's check to-dos in line with the check; returns how many rows changed. Never throws. */
