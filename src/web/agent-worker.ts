@@ -20,6 +20,7 @@ import { detectPaneState } from '../pane-state.js'
 import { notifyChannel } from '../notify.js'
 import { exactTmuxTarget } from './tmux-target.js'
 import { ol } from '../owner-lang.js'
+import { rotateLogFile } from './log-rotation.js'
 
 // =============================================================================
 // Interactive-tmux agent worker (jun.15 subscription migration).
@@ -585,12 +586,27 @@ function selfHealWorkerOnce(ctx: WorkerCtx): 'none' | 'escaped' | 'restarted' {
 // later.
 const lastStuckTail = new Map<string, string>()
 
+// worker-stuck.log is evidence, so it is not on the launcher-log sweep list
+// (log-rotation.ts); it caps itself instead. A worker that stays dead appends
+// two entries per consumer call (heartbeat, digest, ...) forever, so without a
+// cap the file grows without bound. 1 MB x (live + 3 gzipped generations)
+// keeps thousands of screens.
+export const WORKER_STUCK_LOG_MAX_BYTES = 1024 * 1024
+export const WORKER_STUCK_LOG_KEEP = 3
+
+/** Append one not-ready entry to the evidence log, rotating it first when it
+ *  is over the cap. Throws on I/O errors; the caller decides. */
+export function appendWorkerStuckEvidence(path: string, entry: string): void {
+  rotateLogFile(path, { maxBytes: WORKER_STUCK_LOG_MAX_BYTES, keep: WORKER_STUCK_LOG_KEEP })
+  appendFileSync(path, entry)
+}
+
 /** Durable evidence of a not-ready worker: the screen that was on it. Without
  *  this the next false/true alarm cannot be told apart (#778). Best effort. */
 function recordWorkerNotReady(ctx: WorkerCtx, cls: WorkerPaneClass, paneTail: string): void {
   lastStuckTail.set(ctx.session, paneTail)
   try {
-    appendFileSync(
+    appendWorkerStuckEvidence(
       join(STORE_DIR, 'worker-stuck.log'),
       `${new Date().toISOString()} session=${ctx.session} class=${cls}\n${paneTail}\n---\n`,
     )
@@ -601,6 +617,11 @@ function recordWorkerNotReady(ctx: WorkerCtx, cls: WorkerPaneClass, paneTail: st
 
 /** Loud, rate-limited operator signal: the worker never became ready. */
 function alertWorkerStuck(ctx: WorkerCtx, paneTail: string): void {
+  // WEB_ONLY staging: ensureWorkerReady fails fast there, so runViaWorker
+  // reaches this after its retry -- and would page the LIVE channel from a
+  // staging instance. The gate used to sit in front of the alert inside
+  // ensureWorkerReady; since #778 moved the alert here, it has to be here.
+  if (!workerStartAllowed()) return
   logger.error({ paneTail, session: ctx.session }, 'agent-worker: worker never became ready (agent-gen / capability-summary / heartbeat / digest consumers will fail)')
   if (Date.now() - ctx.lastStuckAlert < WORKER_STUCK_ALERT_COOLDOWN_MS) return
   ctx.lastStuckAlert = Date.now()
