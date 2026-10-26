@@ -314,7 +314,8 @@ describe('veglegesites celbirosag-profillal', () => {
     const fin = await callWorkbench(`${base}/outline/finalize`, 'POST', { accept: true, hash, override: true })
     expect(fin.status, JSON.stringify(fin.body)).toBe(200)
     const names = fin.body.final.files.map((f: { name: string }) => f.name)
-    expect(names[0]).toMatch(/^01_\d{4}-\d{2}-\d{2}_Klage_gegen_Muster_HU_v1\.pdf$/)
+    // #794: the name comes from the letter (no subject line here: a plain word), never from the work item title
+    expect(names[0]).toMatch(/^01_\d{4}-\d{2}-\d{2}_Level_HU_v1\.pdf$/)
     // #753: only the submission is saved; the annex is made again when sent, under the profile's numbered name.
     expect(names).toHaveLength(1)
     const item = getWorkItem(itemId)
