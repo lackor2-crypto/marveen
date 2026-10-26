@@ -176,6 +176,9 @@ export function parseWordHtml(html: string): ParsedWord {
   const lists: { ordered: boolean; items: ListLine[] }[] = []
   let table = null as { rows: string[][]; depth: number } | null
   let afterImg = false
+  // #777 follow-up: LibreOffice writes a run of "Preformatted Text" paragraphs (a .txt saved as Word) as ONE <pre> with a
+  // line end per paragraph. Inside it every line is its own paragraph again (null = not in a <pre>; true = before its first text).
+  let pre = null as boolean | null
 
   const open = (kind: 'p' | 'h' | 'li' | 'cell', attrs: string): void => {
     cap = { kind, buf: '', align: alignOf(attrs), pics: [], lineStart: true, space: false }
@@ -195,6 +198,16 @@ export function parseWordHtml(html: string): ParsedWord {
     c.buf += t.replace(/[<>]/g, (ch) => (ch === '<' ? '&lt;' : '&gt;'))
     c.lineStart = false
     c.space = t.endsWith(' ')
+  }
+  const preText = (raw: string): void => {
+    // HTML drops the one line end right after <pre>.
+    const lines = (pre ? raw.replace(/^\r?\n/, '') : raw).split(/\r?\n/)
+    pre = false
+    lines.forEach((line, i) => {
+      if (i > 0) { flush(); open('p', '') }
+      if (!cap) open('p', '')
+      text(line)
+    })
   }
   const picture = (attrs: string): void => {
     afterImg = true
@@ -259,7 +272,7 @@ export function parseWordHtml(html: string): ParsedWord {
     const attrs = m[3] || ''
     const closing = m[1] === '/'
     if (!tag) {
-      if (!skip.length) text(m[4] ?? '')
+      if (!skip.length) { if (pre !== null && !table) preText(m[4] ?? ''); else text(m[4] ?? '') }
       continue
     }
     if (skip.length) {
@@ -286,6 +299,13 @@ export function parseWordHtml(html: string): ParsedWord {
       if (table) continue
       flush()
       if (!closing) open('h', attrs)
+      continue
+    }
+    if (tag === 'pre') {
+      if (table) continue
+      flush()
+      pre = closing ? null : true
+      if (!closing) open('p', attrs)
       continue
     }
     if (tag === 'p') {
