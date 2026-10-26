@@ -8739,6 +8739,7 @@ window._i18n.en = {
   "workbench.tool.doc.createVariant": "Making a language version",
   "workbench.tool.doc.translateSection": "Translating a section",
   "workbench.tool.doc.backTranslate": "Back-translation check",
+  "workbench.tool.doc.reopen": "Reopening a finalised work item",
   "workbench.tool.doc.glossary": "Case glossary",
   "workbench.tool.doc.addTerm": "Fixing a term in the glossary",
   "workbench.tool.doc.removeTerm": "Removing a term from the glossary",
