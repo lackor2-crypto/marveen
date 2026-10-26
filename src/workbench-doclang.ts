@@ -178,6 +178,20 @@ export function listVariants(sourceItemId: string): VariantRow[] {
   return getDb().prepare('SELECT * FROM wb_doc_variants WHERE source_item_id = ? ORDER BY created_at').all(sourceItemId) as VariantRow[]
 }
 
+/**
+ * The LIVE language version of `lang` for an original, or null. #794 (Boss TG 10489): the lookup used to take the FIRST row of
+ * that language, which could be a version that was deleted long ago -- and then a second, third live version was made next
+ * to the live one ("two identical HU - Billigkeitsantrag"). A deleted version is skipped, the live one is found.
+ */
+export function liveVariantFor(sourceItemId: string, lang: string): { row: VariantRow; item: WorkItemRow } | null {
+  for (const row of listVariants(sourceItemId)) {
+    if (row.lang !== lang) continue
+    const item = getWorkItem(row.work_item_id)
+    if (item && !item.deleted_at) return { row, item }
+  }
+  return null
+}
+
 export type CreateVariantResult =
   | { ok: true; item: WorkItemRow; existing: boolean }
   | { ok: false; code: 'bad_input' | 'outline_empty' | 'variant_of_variant'; detail: string }
@@ -194,11 +208,8 @@ export function createVariant(source: WorkItemRow, rawLang: unknown, by: string 
   if (!LANG_RE.test(lang)) return { ok: false, code: 'bad_input', detail: 'lang must be a two-letter language code (hu, de, en, ...)' }
   if (variantOf(source.id)) return { ok: false, code: 'variant_of_variant', detail: 'this is already a language version; make the new one from the original' }
   if (!listSections(source.id).length) return { ok: false, code: 'outline_empty', detail: 'the original has no outline yet' }
-  const had = listVariants(source.id).find((v) => v.lang === lang)
-  if (had) {
-    const it = getWorkItem(had.work_item_id)
-    if (it && !it.deleted_at) { syncSections(it.id, source.id); return { ok: true, item: it, existing: true } }
-  }
+  const had = liveVariantFor(source.id, lang)
+  if (had) { syncSections(had.item.id, source.id); return { ok: true, item: had.item, existing: true } }
   const title = variantTitle(source.title, lang)
   // Boss TG 3049/3060: the language version lives in the SAME folder as the original (no new folder, not a
   // sub-folder): it takes over the original's folder; only an original without a usable folder falls back to

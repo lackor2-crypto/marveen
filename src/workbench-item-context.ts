@@ -32,6 +32,7 @@ import { listMounts } from './life-mounts.js'
 import { ensureItemTodoFile, isTodoFileName, todoFileText } from './workbench-item-todos.js'
 import { listItemTodos } from './workbench-todos.js'
 import { isDebateReportTitle } from './debate-report-title.js'
+import { extractionBlockLines, readNewMaterials, type MaterialFile } from './workbench-upload-extract.js'
 
 export const CONTEXT_PREFIX_HU = 'Kontextus'
 export const CONTEXT_PREFIX_EN = 'Context'
@@ -144,7 +145,7 @@ function itemDirRel(project: ProjectRow, item: WorkItemRow): { abs: string; rel:
 }
 
 /** Names of the materials around the item (two levels deep) and the folders attached to the project. */
-function inventoryLines(project: ProjectRow, dirAbs: string, ownName: string, ownFolder: boolean): string[] {
+function inventoryLines(project: ProjectRow, dirAbs: string, ownName: string, ownFolder: boolean, files?: MaterialFile[]): string[] {
   const lines: string[] = []
   const walk = (abs: string, prefix: string, depth: number): void => {
     let entries: import('node:fs').Dirent[]
@@ -154,7 +155,7 @@ function inventoryLines(project: ProjectRow, dirAbs: string, ownName: string, ow
       if (lines.length >= INVENTORY_MAX) return
       if (e.name.startsWith('.') || e.name === 'marveen-item.json' || e.name === ownName || isTodoFileName(e.name)) continue
       if (e.isDirectory()) { if (depth < 2) walk(join(abs, e.name), `${prefix}${e.name}/`, depth + 1); continue }
-      if (e.isFile()) lines.push(`- ${prefix}${e.name}`)
+      if (e.isFile()) { lines.push(`- ${prefix}${e.name}`); files?.push({ rel: `${prefix}${e.name}`, abs: join(abs, e.name) }) }
     }
   }
   // An item without its own folder shares it with others: listing the neighbours would be noise.
@@ -167,9 +168,9 @@ function inventoryLines(project: ProjectRow, dirAbs: string, ownName: string, ow
   return lines
 }
 
-function blockText(lines: string[]): string {
+function blockText(lines: string[], extra: string[] = []): string {
   const head = `## ${ol('Anyagok (automatikus lista, ne szerkeszd)', 'Materials (automatic list, do not edit)')}`
-  return [BLOCK_BEGIN, head, ...(lines.length ? lines : [ol('(még nincs fájl)', '(no file yet)')]), BLOCK_END].join('\n')
+  return [BLOCK_BEGIN, head, ...(lines.length ? lines : [ol('(még nincs fájl)', '(no file yet)')]), ...(extra.length ? ['', ...extra] : []), BLOCK_END].join('\n')
 }
 
 function withBlock(text: string, block: string): string {
@@ -256,7 +257,10 @@ function refreshInventory(item: WorkItemRow, project: ProjectRow, rel: string): 
   let text: string
   try { text = readFileSync(abs, 'utf8') } catch { return }
   const ownFolder = !!String(item.folder ?? '').trim()
-  const next = withBlock(text, blockText(inventoryLines(project, dir.abs, basename(abs), ownFolder)))
+  const files: MaterialFile[] = []
+  const lines = inventoryLines(project, dir.abs, basename(abs), ownFolder, files)
+  // #794 (Boss TG 10480): the content of every material, read out, sits in the same machine block.
+  const next = withBlock(text, blockText(lines, extractionBlockLines(item.id, files)))
   if (next === text) return
   try { writeFileSync(abs, next) } catch { /* locked or read-only: the next pass tries again */ }
 }
@@ -334,6 +338,27 @@ export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { 
 }
 
 /**
+ * #794 (Boss TG 10480): reads out the materials of one item that were not read yet and writes them into the context file.
+ * Returns how many files were read (the sweep keeps a budget: an OCR takes seconds).
+ */
+export async function readItemMaterials(item: WorkItemRow, project: ProjectRow, limit?: number): Promise<number> {
+  ensureTable()
+  if (isDebateReportTitle(item.title) || isPlainItem(item.id) || contextOwner(item).id !== item.id) return 0
+  const row = readRow(item.id)
+  const dir = itemDirRel(project, item)
+  const abs = row && row.rel ? resolveLifePath(row.rel) : null
+  if (!row || !row.rel || !abs || !dir || !existsSync(abs)) return 0
+  const files: MaterialFile[] = []
+  inventoryLines(project, dir.abs, basename(abs), !!String(item.folder ?? '').trim(), files)
+  const n = await readNewMaterials(item.id, files, limit)
+  if (n) refreshInventory(item, project, row.rel)
+  return n
+}
+
+/** The most files one sweep reads out over all items (the first sweep after the update meets every old upload). */
+const SWEEP_READS_MAX = 8
+
+/**
  * #656: a debate report made before the fix may carry a generated "Kontextus - ...md" and "Teendő - ...md". They go away
  * ONLY while they are still exactly what the app generated (an untouched template, an empty to-do list): anything the
  * owner or the chat wrote into them keeps the file. Idempotent; runs in every context pass and does nothing once clean.
@@ -378,6 +403,7 @@ export async function sweepItemContexts(): Promise<{ items: number; created: num
   const out = { items: 0, created: 0, renamed: 0, json: 0 }
   if (running) return out
   running = true
+  let reads = 0
   try {
     for (const p of listProjects({ includeArchived: false })) {
       if (p.status === 'closed') continue
@@ -390,6 +416,7 @@ export async function sweepItemContexts(): Promise<{ items: number; created: num
           if (r.created) out.created++
           if (r.renamed) out.renamed++
           out.json += r.json
+          if (reads < SWEEP_READS_MAX) reads += await readItemMaterials(item, project, Math.min(3, SWEEP_READS_MAX - reads))
         } catch (err: any) {
           logger.warn({ item: item.id, err: String(err?.message || err) }, '[item-context] item skipped')
         }

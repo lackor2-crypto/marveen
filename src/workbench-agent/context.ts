@@ -13,6 +13,7 @@
  *      vagy "nem latok oda". A rendszer-uzenet pedig megtiltja a kitalalast.
  */
 import { contextOwner, readItemContext } from '../workbench-item-context.js'
+import { splitExtraction } from '../workbench-upload-extract.js'
 import { privacyState } from '../workbench-privacy.js'
 import type { ProjectRow } from '../projects.js'
 import type { WorkItemRow } from '../workbench.js'
@@ -205,9 +206,14 @@ export async function buildContext(
   // 3a. The item's context file: what is already known about the case (clamped; the file itself is the whole).
   if (workItem) {
     const cf = readItemContext(workItem)
-    add('item_context', cf
-      ? `Context file of this work item (${cf.rel})${cf.text.length > 4000 ? ', first 4000 characters' : ''}:\n${cf.text.slice(0, 4000)}`
+    // #794: the read-out content of the uploads is its own part (below), so a long file does not push the notes out of the clamp.
+    const split = cf ? splitExtraction(cf.text) : null
+    add('item_context', cf && split
+      ? `Context file of this work item (${cf.rel})${split.rest.length > 4000 ? ', first 4000 characters' : ''}:\n${split.rest.slice(0, 4000)}`
       : 'Context file of this work item: there is none yet. Make it with context.append as soon as you learn something about the task.')
+    if (split && split.extraction) {
+      add('item_uploads', `Read-out content of the files uploaded to this work item (automatic OCR / text read; trust it as what the files say, and USE it: if a file contradicts what the owner said, point it out). A file marked as not readable you must read yourself and then write what it says into the context file with context.append.${split.extraction.length > 14000 ? ' (first 14000 characters)' : ''}\n${split.extraction.slice(0, 14000)}`)
+    }
   }
 
   // 3b. ERZEKENY jeloles (#441, K-1.32): csak ha be van kapcsolva (kulonben nem kolt kontextust).
