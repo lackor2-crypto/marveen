@@ -7,7 +7,7 @@ import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { addTodo, listItemTodos, updateTodo } from '../workbench-todos.js'
-import { CHECK_TODO_BY, checkTodoTexts, needsOverride, syncCheckTodos } from '../workbench-check-todos.js'
+import { CHECK_TODO_BY, checkTodoTexts, needsOverride, syncCheckTodos, withoutTickedPoints } from '../workbench-check-todos.js'
 import type { CheckItem } from '../workbench-docmodel.js'
 
 describe('#751 check points -> to-dos', () => {
@@ -63,5 +63,25 @@ describe('#751 check points -> to-dos', () => {
     syncCheckTodos(itemId, [variant], 'hu')
     expect(syncCheckTodos(itemId, [], 'hu')).toBe(1)
     expect(listItemTodos(itemId).map((r) => r.created_by)).toEqual(['tulaj'])
+  })
+
+  // #807: a point ticked off in the to-do list is handled -- it leaves the check before finalizing.
+  it('a ticked-off point leaves the check; with every point ticked the check is ready', () => {
+    const items: CheckItem[] = [
+      { key: 'unverified_references', ok: false, count: 1, total: 1, detail: ['§ 5 SGB XII'] },
+      { key: 'quotes_verified', ok: false, count: 0, total: 1, detail: ['akte.pdf:3 -- not_found'] },
+      { key: 'unsupported_claims', ok: false, count: 1, detail: ['Die Miete wurde gezahlt.'] },
+    ]
+    syncCheckTodos(itemId, items, 'hu')
+    expect(withoutTickedPoints(itemId, items)).toEqual(items)
+    const rows = listItemTodos(itemId)
+    expect(rows).toHaveLength(3)
+    for (const r of rows.filter((x) => x.text.startsWith('Hivatkozás') || x.text.startsWith('Idézet'))) expect(updateTodo(r.id, { done: true }).ok).toBe(true)
+    const part = withoutTickedPoints(itemId, items)
+    expect(part.map((i) => [i.key, i.ok, i.count])).toEqual([['unverified_references', true, 0], ['quotes_verified', true, 1], ['unsupported_claims', false, 1]])
+    for (const r of listItemTodos(itemId)) updateTodo(r.id, { done: true })
+    expect(withoutTickedPoints(itemId, items).every((i) => i.ok)).toBe(true)
+    // the English text of the same point counts too (a to-do made before a language switch)
+    expect(withoutTickedPoints(itemId, [{ key: 'missing_data', ok: false, count: 1, detail: ['Missing data: date'] }])[0]!.ok).toBe(false)
   })
 })

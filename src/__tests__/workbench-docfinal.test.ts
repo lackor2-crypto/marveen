@@ -15,7 +15,7 @@ import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench
 import { buildFodt, renderOutlineDocx, renderOutlinePdf, toRenderOutline, DOCX_FILTER, PDF_FILTER_FINAL } from '../workbench-docrender.js'
 import { contentHash, docxFileName, fileStem, finalFileName, shortTitle } from '../workbench-docfinal.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
-import { listItemTodos } from '../workbench-todos.js'
+import { listItemTodos, updateTodo } from '../workbench-todos.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { rmTempDir } from './helpers/rm-temp-dir.js'
@@ -311,8 +311,18 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     const todos = listItemTodos(itemId)
     expect(todos.map((x) => x.text)).toContain('Hiányzó adat: a kézbesítés dátuma')
     expect(todos[0]).toMatchObject({ source: 'agent', created_by: 'doc-check' })
-    // A second look does not make the same to-do again.
-    expect((await callWorkbench(base, 'GET')).body.outline.check_todos_at).toBeUndefined()
+    // A second look does not make the same to-do again, and says the same state stamp (#807: a state stamp, so a page
+    // that missed the first look still reloads its list).
+    expect(listItemTodos(itemId)).toHaveLength(1)
+    expect((await callWorkbench(base, 'GET')).body.outline.check_todos_at).toBe(got.check_todos_at)
+    // #807: the owner ticks the to-do off -> the point leaves the check, and with it the "open point" state.
+    expect(updateTodo(todos[0]!.id, { done: true }).ok).toBe(true)
+    const after = (await callWorkbench(base, 'GET')).body.outline
+    expect(after.check.ready).toBe(true)
+    expect(after.check.items.find((i: { key: string }) => i.key === 'missing_data')).toMatchObject({ ok: true, count: 0 })
+    expect(listItemTodos(itemId)).toHaveLength(1)
+    expect(updateTodo(todos[0]!.id, { done: false }).ok).toBe(true)
+    expect((await callWorkbench(base, 'GET')).body.outline.check.ready).toBe(false)
     const hash = got.content_hash
     const draft = await callWorkbench(`${base}/pdf?review=${hash}`, 'GET')
     expect(draft.status).toBe(200)

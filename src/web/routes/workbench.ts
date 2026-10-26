@@ -86,7 +86,7 @@ import { decideWorkmodeProposal, DEFAULT_WORKMODE, getWorkmode, listWorkmodeProp
 import { checkPlacementAfter, lifeMoveIssues } from '../../workbench-placement-check.js'
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
-import { syncCheckTodos } from '../../workbench-check-todos.js'
+import { CHECK_TODO_BY, syncCheckTodos } from '../../workbench-check-todos.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { fileOfficialCopy, listSent, markSentManually, recordSent, removeSent, sentStatus, SENT_METHODS, unmarkSentManually } from '../../workbench-docsent.js'
@@ -2411,8 +2411,16 @@ function outlineOut(itemId: string): OutlineOut | null {
  */
 function checkWithTodos(itemId: string, resolve: ReturnType<typeof resolverFor> | undefined): { check: ReturnType<typeof documentCheck>; check_todos_at?: number } {
   const check = documentCheck(itemId, resolve)
-  const changed = syncCheckTodos(itemId, check.items, APP_LANG === 'en' ? 'en' : 'hu')
-  return changed ? { check, check_todos_at: Date.now() } : { check }
+  syncCheckTodos(itemId, check.items, APP_LANG === 'en' ? 'en' : 'hu')
+  // #807: a STATE stamp, not a "changed just now" one. Two outline reads can race (the first one makes the to-dos, the
+  // second one finds nothing to change): the page reloads its to-do list whenever the stamp differs from the one it saw,
+  // so a read that did not itself change anything still brings the list in line. It also moves when a to-do is ticked.
+  let stamp = 0
+  try {
+    const rows = listItemTodos(itemId).filter((t) => t.created_by === CHECK_TODO_BY)
+    if (rows.length) stamp = Math.max(...rows.map((t) => t.updated_at ?? 0)) * 1000 + rows.length
+  } catch { /* the stamp is a convenience */ }
+  return stamp ? { check, check_todos_at: stamp } : { check }
 }
 
 /** NYELVI VALTOZATOK (K-1.27 ... K-1.31): az eredetinel a valtozatai, a valtozatnal a fejezetek allapota, a szoszedet, a visszaforditasok. */

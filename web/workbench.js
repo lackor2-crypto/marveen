@@ -1289,6 +1289,8 @@
       window.showToast(nx && nx.due_date
         ? t('workbench.td.toast.done_next', { date: tdDateText(nx.due_date, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) })
         : t('workbench.td.toast.' + toastKey))
+      // #807: a ticked / un-ticked / deleted to-do changes the check box before finalizing (a ticked point is handled).
+      if (toastKey === 'done' || toastKey === 'undone' || toastKey === 'deleted') refreshOutline()
       return loadTodos(pid)
     })
   }
@@ -10430,6 +10432,8 @@
   }
 
   function outlinePdfHtml(o, ro) {
+    // #807: the finalize box is drawn on its own in the simple view (outlineHtml is not), so the to-do list is kept in line here too.
+    syncCheckTodosSeen(o)
     var base = '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/outline'
     var q = '?lang=' + encodeURIComponent(window._lang || 'hu')
     var f = o.final
