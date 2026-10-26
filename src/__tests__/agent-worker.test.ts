@@ -130,6 +130,9 @@ describe('workerStartAllowed (WORKERHOME1: WEB_ONLY must suppress every worker s
     expect(gated('startWorkerSessionFor')).toBe(true)
     expect(gated('ensureWorkerReady')).toBe(true)
     expect(gated('restartWorkerSession')).toBe(true)
+    // #778 moved the owner page out of ensureWorkerReady into runViaWorker,
+    // past the ensureWorkerReady gate: the alert funnel must check it itself.
+    expect(gated('alertWorkerStuck')).toBe(true)
   })
 
   // The worker launch line must invoke claude by RESOLVED path, never by bare

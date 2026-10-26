@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdtempSync, existsSync, statSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { appendWorkerStuckEvidence, WORKER_STUCK_LOG_MAX_BYTES, WORKER_STUCK_LOG_KEEP } from '../web/agent-worker.js'
 
 // #778: the worker "never became ready" page went out after the FIRST 90s
 // window although the restart + retry brought the worker up a moment later,
@@ -38,5 +40,35 @@ describe('worker not-ready alert (#778)', () => {
 
   it('the not-ready evidence lands in store/worker-stuck.log', () => {
     expect(SRC).toContain("join(STORE_DIR, 'worker-stuck.log')")
+  })
+})
+
+describe('worker-stuck.log stays bounded (#778)', () => {
+  it('appends while under the cap', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worker-stuck-'))
+    try {
+      const p = join(dir, 'worker-stuck.log')
+      appendWorkerStuckEvidence(p, 'a\n')
+      appendWorkerStuckEvidence(p, 'b\n')
+      expect(readFileSync(p, 'utf8')).toBe('a\nb\n')
+      expect(existsSync(`${p}.1.gz`)).toBe(false)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  it('rotates into gzipped generations once over the cap and keeps only KEEP of them', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worker-stuck-'))
+    try {
+      const p = join(dir, 'worker-stuck.log')
+      const big = 'x'.repeat(WORKER_STUCK_LOG_MAX_BYTES + 1)
+      for (let i = 0; i < WORKER_STUCK_LOG_KEEP + 2; i++) {
+        writeFileSync(p, big)
+        appendWorkerStuckEvidence(p, `entry ${i}\n`)
+        // the new entry starts a fresh live file, the old screens are archived
+        expect(readFileSync(p, 'utf8')).toBe(`entry ${i}\n`)
+      }
+      expect(statSync(`${p}.1.gz`).size).toBeGreaterThan(0)
+      expect(existsSync(`${p}.${WORKER_STUCK_LOG_KEEP}.gz`)).toBe(true)
+      expect(existsSync(`${p}.${WORKER_STUCK_LOG_KEEP + 1}.gz`)).toBe(false)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })
