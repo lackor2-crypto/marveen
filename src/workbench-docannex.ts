@@ -92,8 +92,11 @@ export function annexLabel(s: Pick<DocSettings, 'annex_scheme' | 'annex_prefix'>
 }
 
 /** A mellekletjegyzek cime a dokumentum vegen (a sema nyelven, mert a dokumentum is az). */
-export function annexListTitle(s: Pick<DocSettings, 'annex_scheme'>): string {
-  return s.annex_scheme === 'exhibit' ? 'Exhibits' : s.annex_scheme === 'anlage' ? 'Anlagen' : 'Mellékletek'
+/** #794: the default "K" scheme names its list in the document's own language (a German letter: "Anlagen"). */
+const K_LIST_TITLE = { hu: 'Mellékletek', en: 'Annexes', de: 'Anlagen' } as const
+
+export function annexListTitle(s: Pick<DocSettings, 'annex_scheme'>, lang: 'hu' | 'en' | 'de' = 'hu'): string {
+  return s.annex_scheme === 'exhibit' ? 'Exhibits' : s.annex_scheme === 'anlage' ? 'Anlagen' : K_LIST_TITLE[lang] ?? K_LIST_TITLE.hu
 }
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

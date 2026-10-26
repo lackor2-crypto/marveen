@@ -424,7 +424,7 @@ export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Pr
   if (!annexes.length) return { ok: true, files: [{ name: `${stem}.pdf`, data: main.pdf, kind: 'document' }] }
   if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
   if (docSettings(item.id).annex_mode === 'combined') {
-    const ax = await annexPdfs(item.id, resolve, { lang: lang === 'hu' ? 'hu' : 'en' })
+    const ax = await annexPdfs(item.id, resolve, { lang })
     if (!ax.ok) return packageFail(ax)
     const all = await mergePdfs([main.pdf, ...ax.annexes.map((a) => a.pdf)])
     if (!all.ok) return packageFail(all)

@@ -642,8 +642,8 @@ export async function renderOutlineDocx(outline: RenderOutline, o: Omit<RenderOp
 }
 
 /** Egy egyszeru, egyoldalas ODF: a boritolap es a szoveges melleklet kozos kerete. */
-function simpleFodt(title: string, body: string, lang: 'hu' | 'en'): string {
-  const l = lang === 'en' ? { l: 'en', c: 'GB' } : { l: 'hu', c: 'HU' }
+function simpleFodt(title: string, body: string, lang: DocLang): string {
+  const l = lang === 'en' ? { l: 'en', c: 'GB' } : lang === 'de' ? { l: 'de', c: 'DE' } : { l: 'hu', c: 'HU' }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:dc="http://purl.org/dc/elements/1.1/" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
 <office:meta><dc:title>${xmlEscape(title)}</dc:title></office:meta>
@@ -663,7 +663,7 @@ ${body}
 }
 
 /** Boritolap egy melleklet ele (K-1.25): nagy betuvel a jel ("K1. melleklet"), alatta a leiras. */
-export function buildCoverFodt(heading: string, title: string, lang: 'hu' | 'en'): string {
+export function buildCoverFodt(heading: string, title: string, lang: DocLang): string {
   return simpleFodt(heading, `<text:p text:style-name="CoverLabel">${inline(heading)}</text:p><text:p text:style-name="CoverTitle">${inline(title)}</text:p>`, lang)
 }
 
