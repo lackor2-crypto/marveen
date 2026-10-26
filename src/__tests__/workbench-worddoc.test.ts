@@ -60,6 +60,15 @@ describe('#720 parseWordHtml', () => {
   it('an empty document gives no sections', () => {
     expect(parseWordHtml('<html><body></body></html>').sections).toEqual([])
   })
+  it('#777 follow-up: "Preformatted Text" paragraphs (one <pre>, a line per paragraph) stay separate paragraphs', () => {
+    // What LibreOffice makes of a .txt saved as Word: the four paragraphs and the empty ones between used to run into one line.
+    const p = parseWordHtml('<body lang="en-US"><pre class="western" style="text-align: left">Antwort an die Polizei\n\nSehr geehrte <b>Damen</b> und Herren,\n\nMit freundlichen Gruessen</pre><p>Danach.</p></body>')
+    const blocks = p.sections[0]?.blocks ?? []
+    expect(blocks.map((b) => b.text)).toEqual(['Antwort an die Polizei', '​', 'Sehr geehrte Damen und Herren,', '​', 'Mit freundlichen Gruessen', 'Danach.'])
+    expect(blocks[2]?.rich).toContain('<b>Damen</b>')
+    // The one line end right after <pre> is not an empty paragraph (HTML drops it).
+    expect(parseWordHtml('<body><pre>\nEgy\nKettő</pre></body>').sections[0]?.blocks.map((b) => b.text)).toEqual(['Egy', 'Kettő'])
+  })
 })
 
 describe('#720 import of a real Word file (LibreOffice)', () => {
