@@ -392,6 +392,27 @@ describe('the e-mail draft of a work item', () => {
     expect(view.attachments[0].name).toMatch(/– DE – v\d+\.pdf$/)
   })
 
+  // #794 (Boss TG 3465/3467): a final made before the naming fix still carries the old Hungarian name on disk; the mail renames it.
+  it('a final saved under the old title based name still goes out named from the letter', async () => {
+    getDb().prepare('UPDATE work_items SET title = ? WHERE id = ?').run('Egy levelet akarok irni a Berlini Rendorsegnek.', itemId)
+    const s = addSection(itemId, '1', { status: 'done' })
+    if (!s.ok) throw new Error('section')
+    for (const t of ['Polizei Berlin', 'Chemnitz, den 25.10.2026', 'Aktenzeichen 58286237256 – Bitte um Erlass des Verwarnungsgeldes aus sozialen Gründen', 'Sehr geehrte Damen und Herren,', 'bezüglich der Verwarnung bitte ich Sie, das Verwarnungsgeld zu erlassen, und ich danke für die Prüfung.']) addBlock(itemId, s.section.id, { text: t, author: 'agent' })
+    await makeFinal('hu')
+    const rows = getDb().prepare("SELECT id, metadata_json FROM work_item_versions WHERE work_item_id = ? AND metadata_json LIKE '%\"final\":true%'").all(itemId) as { id: string; metadata_json: string }[]
+    for (const r of rows) getDb().prepare('UPDATE work_item_versions SET metadata_json = ? WHERE id = ?').run(r.metadata_json.replace(/"name":"[^"]*\.pdf"/g, '"name":"2026-10-25 – Egy levelet akarok irni a Berlini Rendorsegnek – HU – v1.pdf"'), r.id)
+    const r0 = await saveMailDraft(item(), {}, 'hu')
+    if (!r0.ok) throw new Error('save ' + r0.code)
+    getDb().prepare('UPDATE wb_doc_maildraft SET attachments_json = ? WHERE work_item_id = ?').run(JSON.stringify([{ name: '01_2026-10-25_Egy_levelet_akarok_irni_a_Berlini_Rendorsegnek_HU_v1.pdf', bytes: 1, kind: 'document' }]), itemId)
+    expect(mailDraftView(item())!.state).toBe('outdated')
+    const r = await saveMailDraft(item(), {}, 'hu')
+    if (!r.ok) throw new Error('save ' + r.code)
+    expect(mailDraftView(item())!.state).toBe('current')
+    const names = mailDraftView(item())!.attachments.map((a) => a.name).join('\n')
+    expect(names).not.toMatch(/levelet|akarok|Rendorseg|Berlini|\bHU\b/i)
+    expect(names).toMatch(/– DE – v\d+\.pdf/)
+  })
+
   it('an old stored default text that quotes the work item title is rewritten without the title', async () => {
     write('Sehr geehrte Damen und Herren, bezüglich der Verwarnung bitte ich Sie, das Verwarnungsgeld mit der Begründung zu erlassen, und ich danke für die Prüfung.')
     await makeFinal('hu')
