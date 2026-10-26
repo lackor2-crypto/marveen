@@ -26,7 +26,8 @@ import { ol } from './owner-lang.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
 import { annexPdfs, annexContentPdf, mergePdfs, type PackageError } from './workbench-docpackage.js'
 import { docSettings, listAnnexes } from './workbench-docannex.js'
-import { contentHash, docLangFor, fileStem, letterFileStem, finalLang, finalPackageFiles, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
+import { getProfile, itemProfileId, profileFileName } from './workbench-courtprofile.js'
+import { contentHash, docLangFor, fileStem, finalFileName, letterFileStem, letterNameLang, finalLang, finalPackageFiles, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
 import { hasDocModel, listBlocks } from './workbench-docmodel.js'
 import { detectTextLanguage, letterSubject, subjectFromLines } from './workbench-letterinfo.js'
 import { variantOf } from './workbench-doclang.js'
@@ -279,7 +280,10 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   let attachments: MailDraftAttachment[] = []
   try { attachments = JSON.parse(row.attachments_json) as MailDraftAttachment[] } catch { /* a bad row shows no list */ }
   // #725: there is no .eml file any more; the draft lives in the account's Drafts folder, so only the document's change counts.
-  const state: MailDraftView['state'] = row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
+  // #794: an attachment named after the work item's title (made before the naming fix) is never current: pressing again renames it.
+  const title = fileStem(item.title)
+  const titled = !!title && attachments.some((a) => a.name.includes(title))
+  const state: MailDraftView['state'] = !titled && row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
   return {
     file: '', file_name: '',
     from_account: row.from_account, from_addr: row.from_addr, to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: shownBody(item, row.body),
@@ -379,7 +383,19 @@ async function collectFinalFiles(item: WorkItemRow, ui: 'hu' | 'en'): Promise<(M
   if (!f || f.stale) return null
   const pkg = await finalPackageFiles(item, f, finalLang(f, ui))
   if (!pkg.ok) return null
-  return pkg.files.map((x) => ({ name: x.name, data: x.pdf, kind: x.role === 'annex' ? 'annex' as const : x.role === 'bundle' ? 'package' as const : 'document' as const }))
+  // #794 (Boss TG 3465/3467): a final made before the naming fix keeps its old (title based, Hungarian) name on disk, but the
+  // mail names the submission from the letter itself, in the letter's language, the way a new final would be named.
+  const profile = getProfile(itemProfileId(item.id))
+  const total = pkg.files.length
+  const stamp = new Date(f.created_at)
+  // only a name that carries the work item's title is replaced: a PDF the owner already had in the folder keeps its own name
+  const title = fileStem(item.title)
+  const leaks = (n: string): boolean => !!title && n.includes(title)
+  return pkg.files.map((x, i) => ({
+    name: x.role === 'annex' || !leaks(x.name) ? x.name : profileFileName(finalFileName(item, letterNameLang(item, ui), f.final_no, stamp), profile, i, total),
+    data: x.pdf,
+    kind: x.role === 'annex' ? 'annex' as const : x.role === 'bundle' ? 'package' as const : 'document' as const,
+  }))
 }
 
 /** The PDFs that go with the mail, made now from the document as it is. */
