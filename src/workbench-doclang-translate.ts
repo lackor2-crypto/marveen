@@ -18,7 +18,7 @@ import { getDb } from './db.js'
 import { logger } from './logger.js'
 import { isBlankLine, isPlaceholderSectionTitle, listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
 import { parsePfmt, richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
-import { LANG_NAMES, carriedLook, sourceForTranslated, createVariant, listGlossary, listVariants, lostFormat, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
+import { LANG_NAMES, carriedLook, sourceForTranslated, createVariant, listGlossary, listVariants, liveVariantFor, lostFormat, translateSection, translationAlreadySaved, variantInfo, variantOf } from './workbench-doclang.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
@@ -331,9 +331,9 @@ export function savedTranslationFor(source: WorkItemRow, targetLang: string): Sa
   if (variantOf(source.id)) return { ok: false, code: 'is_variant', message: '' }
   const lang = String(targetLang || '').trim().toLowerCase()
   if (!/^[a-z]{2}$/.test(lang)) return { ok: false, code: 'bad_lang', message: '' }
-  const v = listVariants(source.id).find((x) => x.lang === lang)
-  const item = v ? getWorkItem(v.work_item_id) : null
-  if (!v || !item || item.deleted_at) return { ok: true, found: false }
+  const live = liveVariantFor(source.id, lang)
+  if (!live) return { ok: true, found: false }
+  const item = live.item
   const info = variantInfo(item.id)
   if (!info) return { ok: true, found: false }
   const db = getDb()

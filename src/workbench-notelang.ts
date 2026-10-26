@@ -14,7 +14,7 @@ import { getProject } from './projects.js'
 import { projectFileTarget, writeProjectFile } from './project-files.js'
 import { createWorkItem, createWorkItemVersion, getWorkItem, type WorkItemRow } from './workbench.js'
 import { assignWorkItemFolder } from './workbench-assets.js'
-import { ensureDocLangTables, listVariants, variantOf, variantTitle } from './workbench-doclang.js'
+import { ensureDocLangTables, listVariants, liveVariantFor, variantOf, variantTitle } from './workbench-doclang.js'
 import { baseNameForNextVersion, saveTextSourceAsNewVersion, subFolderOf, TEXT_SOURCE_MAX } from './workbench-edit.js'
 import { fileStem } from './workbench-docfinal.js'
 import { hasDocModel } from './workbench-docmodel.js'
@@ -57,9 +57,8 @@ export function saveTextVariant(source: WorkItemRow, rawLang: unknown, text: str
   const project = getProject(source.project_id)
   if (!project || project.archived_at != null) return { ok: false, code: 'project_gone', detail: null }
 
-  const had = listVariants(source.id).find((v) => v.lang === lang)
-  const hadItem = had ? getWorkItem(had.work_item_id) : null
-  if (hadItem && !hadItem.deleted_at && hadItem.source_path) {
+  const hadItem = liveVariantFor(source.id, lang)?.item ?? null
+  if (hadItem && hadItem.source_path) {
     const r = saveTextSourceAsNewVersion(hadItem, project, hadItem.source_path, text, { created_by: by })
     if (!r.ok) return { ok: false, code: 'save_failed', detail: r.code }
     // #673: the original is on the document page: the saved text goes into the version's chapters too (paired by position).
@@ -87,9 +86,8 @@ export function saveTextVariant(source: WorkItemRow, rawLang: unknown, text: str
 export function readTextVariant(source: Pick<WorkItemRow, 'id'>, rawLang: unknown): string | null {
   const lang = cleanLangCode(rawLang)
   if (!lang) return null
-  const had = listVariants(source.id).find((v) => v.lang === lang)
-  const w = had ? getWorkItem(had.work_item_id) : null
-  if (!w || w.deleted_at) return null
+  const w = liveVariantFor(source.id, lang)?.item ?? null
+  if (!w) return null
   // #673: a version that is on the document page is read from its outline (the file mirror can be a moment behind).
   const fromPage = outlineTextOf(w)
   if (fromPage != null) return fromPage

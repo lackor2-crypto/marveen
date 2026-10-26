@@ -132,6 +132,23 @@ describe('nyelvi valtozatok a dokumentummodellben', () => {
     expect(variantsSummary(src.id)).toEqual([{ item_id: v.id, title: v.title, lang: 'de', stale: 0, untranslated: 2 }])
   })
 
+  // #794 (Boss TG 10489): re-translating must overwrite the language version that exists, never make another one. The
+  // lookup took the FIRST row of that language, which can be a version deleted long ago: a live one then got a twin.
+  it('an old DELETED version of a language never hides the live one: no second / third version is made', () => {
+    const first = createVariant(src, 'de', 'teszt')
+    if (!first.ok) throw new Error('valtozat')
+    setWorkItemDeleted(first.item.id, true)
+    const live = createVariant(src, 'de', 'teszt')
+    expect(live.ok && live.existing).toBe(false)
+    if (!live.ok) throw new Error('valtozat')
+    expect(live.item.id).not.toBe(first.item.id)
+    for (let i = 0; i < 3; i++) {
+      const again = createVariant(src, 'de', 'teszt')
+      expect(again.ok && again.existing && again.item.id, `round ${i}`).toBe(live.item.id)
+    }
+    expect(variantsSummary(src.id).filter((x) => x.lang === 'de').map((x) => x.item_id)).toEqual([live.item.id])
+  })
+
   it('a nyelvi valtozat cime a nyelvkoddal KEZDODIK (minden nyelvre), es a regi "(DE)" vegu cim egyszer athelyezodik', () => {
     expect(variantTitle('Beadvány', 'en')).toBe('EN – Beadvány')
     expect(variantTitle('DE – Beadvány', 'de')).toBe('DE – Beadvány')
