@@ -274,6 +274,13 @@ function shownBody(item: WorkItemRow, stored: string): string {
   return fl && was && was !== fl ? defaultMailBody(item, fl, listAnnexes(item.id).length) : stored
 }
 
+/** Whether a file name carries the work item's title (as written, or as a court profile rewrites it with underscores). */
+function namesTitle(item: WorkItemRow, name: string): boolean {
+  const flat = (t: string): string => t.normalize('NFD').replace(/\p{M}/gu, '').replace(/[^A-Za-z0-9]+/g, '_').toLowerCase()
+  const t = flat(item.title).replace(/^_|_$/g, '')
+  return t.length >= 4 && flat(name).includes(t)
+}
+
 export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   const row = getRow(item.id)
   if (!row) return null
@@ -281,8 +288,7 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   try { attachments = JSON.parse(row.attachments_json) as MailDraftAttachment[] } catch { /* a bad row shows no list */ }
   // #725: there is no .eml file any more; the draft lives in the account's Drafts folder, so only the document's change counts.
   // #794: an attachment named after the work item's title (made before the naming fix) is never current: pressing again renames it.
-  const title = fileStem(item.title)
-  const titled = !!title && attachments.some((a) => a.name.includes(title))
+  const titled = !hasDocxFinalPanel(item) && attachments.some((a) => namesTitle(item, a.name))
   const state: MailDraftView['state'] = !titled && row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
   return {
     file: '', file_name: '',
@@ -389,8 +395,7 @@ async function collectFinalFiles(item: WorkItemRow, ui: 'hu' | 'en'): Promise<(M
   const total = pkg.files.length
   const stamp = new Date(f.created_at)
   // only a name that carries the work item's title is replaced: a PDF the owner already had in the folder keeps its own name
-  const title = fileStem(item.title)
-  const leaks = (n: string): boolean => !!title && n.includes(title)
+  const leaks = (n: string): boolean => namesTitle(item, n)
   return pkg.files.map((x, i) => ({
     name: x.role === 'annex' || !leaks(x.name) ? x.name : profileFileName(finalFileName(item, letterNameLang(item, ui), f.final_no, stamp), profile, i, total),
     data: x.pdf,
