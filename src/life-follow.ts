@@ -31,6 +31,19 @@ import { safeLifeName } from './life-tree.js'
 
 const norm = (rel: string): string => String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
 
+/**
+ * #749: the REAL (Depot) place of a tree path that lies INSIDE a linked folder (Drive, Photos ...). Link targets are
+ * Depot paths, a rename / move reports tree paths. Only a folder link strictly ABOVE the path counts: a link point
+ * itself that moves (relocateMountPoint) leaves its target alone.
+ */
+function realPlace(rel: string): string {
+  let best: { rel: string; target: string } | null = null
+  for (const m of listMounts()) {
+    if (!m.file && rel.startsWith(m.rel + '/') && (!best || m.rel.length > best.rel.length)) best = m
+  }
+  return best ? `${best.target}${rel.slice(best.rel.length)}` : rel
+}
+
 export interface FollowCounts { mounts: number; mountTargets: number; backupRules: number; projects: number; ledger: number; documents: number; workItems: number }
 
 /**
@@ -47,6 +60,9 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
       logger.warn({ from, to, registry: name, err: String(err?.message || err) }, '[intezo] a registry did not follow the rename')
     }
   }
+  // Before the link points move (step 'mounts'), while the registry still names the places as they were.
+  const realFrom = realPlace(from)
+  const realTo = realPlace(to)
   step('mounts', () => moveMountsPrefix(from, to))
   // The folder may also be what links POINT AT (a store under Rendszer/...).
   // A git link is a Windows junction holding the OLD absolute target: it must
@@ -55,9 +71,9 @@ export function followFolderMove(fromRel: string, toRel: string): FollowCounts {
   // is made again -- by the reconcile pass below.
   step('mountTargets', () => {
     for (const m of listMounts()) {
-      if (m.kind === 'git' && (m.target === from || m.target.startsWith(from + '/'))) removeMountLink(m)
+      if (m.kind === 'git' && (m.target === realFrom || m.target.startsWith(realFrom + '/'))) removeMountLink(m)
     }
-    return moveMountTargetsPrefix(from, to)
+    return moveMountTargetsPrefix(realFrom, realTo)
   })
   step('backupRules', () => moveBackupRulesPrefix(from, to))
   // The project's own folder, and (#530) the places of the tree the project points at.
