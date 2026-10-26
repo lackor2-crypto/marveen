@@ -8814,6 +8814,7 @@ window._i18n.hu = {
   "workbench.tool.doc.createVariant": "Nyelvi változat készítése",
   "workbench.tool.doc.translateSection": "Fejezet fordítása",
   "workbench.tool.doc.backTranslate": "Visszafordítás-ellenőrzés",
+  "workbench.tool.doc.reopen": "Véglegesített munkadarab újranyitása",
   "workbench.tool.doc.glossary": "Az ügy szószedete",
   "workbench.tool.doc.addTerm": "Kifejezés rögzítése a szószedetben",
   "workbench.tool.doc.removeTerm": "Kifejezés törlése a szószedetből",

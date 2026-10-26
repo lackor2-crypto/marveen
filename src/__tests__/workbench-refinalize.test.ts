@@ -81,7 +81,7 @@ describe('#737 ujra-veglegesites', () => {
     expect(f2.status, JSON.stringify(f2.body)).toBe(200)
   })
 
-  it('#738: finalizing an UNCHANGED document again puts no second PDF into the Finished materials; a changed one does', async () => {
+  it('#738: finalizing an UNCHANGED document again puts no second PDF into the Finished materials; a changed one REPLACES the earlier PDF (Boss TG 10494)', async () => {
     const base = `/api/workbench/items/${itemId}/outline`
     const pdfs = (): string[] => {
       const out: string[] = []
@@ -99,13 +99,15 @@ describe('#737 ujra-veglegesites', () => {
     expect(f2.body.reused).toBe(true)
     expect(f1.body.reused).toBe(false)
     expect(f2.body.file ?? f2.body.asset_path ?? '').toBe(f1.body.file ?? f1.body.asset_path ?? '')
-    // a real change makes a new PDF again
+    // a real change makes a new PDF, and the item's own earlier one is replaced, not piled up
     expect((await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })).status).toBe(200)
     const sec = (await callWorkbench(base, 'GET')).body.outline.sections[0]
     addBlock(itemId, sec.id, { text: 'Noch ein Satz.', author: 'owner' })
     const f3 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
     expect(f3.status, JSON.stringify(f3.body)).toBe(200)
-    expect(pdfs().length).toBe(2)
+    expect(pdfs().length).toBe(1)
+    expect(f3.body.file).not.toBe(f1.body.file)
+    expect(existsSync(join(depot, f1.body.file))).toBe(false)
   })
 
   /** The case of Boss TG 4102: a plain item (#717) made from a Word file whose file link is gone (the Word import clears it). */

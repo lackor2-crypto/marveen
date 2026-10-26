@@ -329,6 +329,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
+    name: 'doc.reopen',
+    description: 'Reopen a FINALISED work item (status done -> in progress) so it can be edited again. A finalised work item is LOCKED for you: every doc.* write is refused with item_finalised. When the owner asks for a change on a finalised item, FIRST ask: "This work item is finalised. Shall I reopen it?" and call this ONLY after the owner said yes in this conversation. Nothing is removed; the next finalisation is a new final.',
+    input: 'id (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
     name: 'doc.backTranslate',
     description: 'Back-translation check (K-1.30), when the owner asks for it: translate a section of this language version back into the language of the original, literally (do not smooth it out, do not look at the original while doing it), and save it here. The owner sees it next to the original section and can judge the translation without knowing the target language. Say plainly if you see a difference in meaning.',
     input: 'id (optional); section: the section id of THIS language version; text: the back-translation',

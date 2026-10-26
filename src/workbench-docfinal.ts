@@ -21,6 +21,7 @@ import { execFile, execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join as joinPath } from 'node:path'
 import { getDb } from './db.js'
+import { logger } from './logger.js'
 import { resolveLifePath } from './life-explorer.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
 import { documentCheck, documentOutline, hasDocModel, imageBlockParts, type CheckItem } from './workbench-docmodel.js'
@@ -28,7 +29,7 @@ import { consistencyIssues } from './workbench-doccheck.js'
 import { imageSize, outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderImage, type RenderResult } from './workbench-docrender.js'
 import { variantOf } from './workbench-doclang.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
-import { attachAsset, listWorkItemAssets, syncFolderAssets } from './workbench-assets.js'
+import { attachAsset, deleteAssetFile, listWorkItemAssets, syncFolderAssets } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
 import { annexPdfs, mergePdfs, type PackageError } from './workbench-docpackage.js'
 import { letterLanguage, letterSubject, NAMELESS_LETTER } from './workbench-letterinfo.js'
@@ -445,6 +446,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (!v.ok) return { ok: false, code: 'docpdf_failed', detail: v.code }
   const state = finalState(v.item, hash)
   if (!state) return { ok: false, code: 'docpdf_failed', detail: 'the final version was created but could not be read back' }
+  supersedeEarlierFinals(fresh.id, files.map((f) => f.path))
   // K-1.37: a KESZ fajlok gepi ellenorzese a profil mai szabalyverzioja szerint.
   // Nem akadalyozza a veglegesitest: a tulajdonos latja, mit talalt, es dont.
   let court: CourtCheckResult | null = null
@@ -453,6 +455,24 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
     saveCourtCheck(fresh.id, state.version_id, court)
   }
   return { ok: true, final: state, asset_path: main.path, court }
+}
+
+/**
+ * Boss TG 10494: finalizing a changed document again REPLACES this work item's own earlier final PDF in Finished materials
+ * (no "- v2" pile next to it). Only files the earlier finals of THIS item saved are touched; another item's PDF in the same
+ * folder is never one of them. A file the new final points at too (kept) or one something else still uses stays.
+ */
+function supersedeEarlierFinals(itemId: string, keep: string[]): void {
+  const keepSet = new Set(keep)
+  const finals = listFinals(itemId)
+  for (const f of finals.slice(1)) {
+    for (const file of f.files && f.files.length ? f.files : [{ path: f.pdf_path, role: 'main' as const }]) {
+      if (file.role === 'annex' || !file.path || keepSet.has(file.path)) continue
+      const row = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ? AND removed_at IS NULL').get(itemId, file.path) as { id: string } | undefined
+      if (!row) continue
+      try { deleteAssetFile(itemId, row.id) } catch (e) { logger.warn({ err: e, itemId, path: file.path }, 'docfinal: earlier final PDF could not be replaced') }
+    }
+  }
 }
 
 /** The latest final of this exact content and language whose submission file is still on disk, else null (#738). */

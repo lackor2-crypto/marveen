@@ -45,6 +45,10 @@ import { webSearch } from './web-search.js'
 import { searchBlock } from '../workbench-privacy.js'
 import { createFromTemplate, WORKBENCH_TEMPLATES } from '../workbench-templates.js'
 import { createVariant, variantInfo, variantsSummary, translateSection, setBackTranslation, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks } from '../workbench-doclang.js'
+import { reopenWorkItem } from '../workbench-approval.js'
+
+/** The doc.* tools that change a work item; refused while the item is finalised (Boss TG 10496). */
+const FINAL_LOCKED_DOC_TOOLS = new Set(['doc.addSection', 'doc.updateSection', 'doc.removeSection', 'doc.addBlock', 'doc.updateBlock', 'doc.removeBlock', 'doc.addClaim', 'doc.removeClaim', 'doc.proposeRewrite', 'doc.addAnnex', 'doc.updateAnnex', 'doc.removeAnnex', 'doc.annexSettings', 'doc.translateSection', 'doc.backTranslate'])
 import {
   documentOutline, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock, addClaim, removeClaim, proposeRewrite,
   documentCheck, recheckPendingSources, hasDocModel, listSections, imageBlockPathOk, PLACEHOLDER_SECTION_TITLES,
@@ -508,12 +512,20 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     case 'doc.addBlock': case 'doc.updateBlock': case 'doc.removeBlock': case 'doc.addClaim': case 'doc.removeClaim':
     case 'doc.proposeRewrite': case 'doc.check': case 'doc.annexes': case 'doc.addAnnex': case 'doc.updateAnnex': case 'doc.removeAnnex': case 'doc.annexSettings':
     case 'doc.deadlines': case 'doc.variants': case 'doc.createVariant': case 'doc.translateSection': case 'doc.backTranslate':
-    case 'doc.glossary': case 'doc.addTerm': case 'doc.removeTerm': case 'doc.court': case 'doc.setCourt': case 'doc.proposeCourtRule': {
+    case 'doc.glossary': case 'doc.addTerm': case 'doc.removeTerm': case 'doc.court': case 'doc.setCourt': case 'doc.proposeCourtRule': case 'doc.reopen': {
       const id = asString(input.id) || ctx.workItemId || ''
       if (!id) return { ok: false, code: 'bad_input', detail: 'id is required (open a work item first)' }
       const item = getWorkItem(id)
       if (!item || item.project_id !== project.id) {
         return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      // Boss TG 10496: a FINALISED work item (status done) is locked for the assistant too; the owner has to say yes to a reopen first.
+      if (name === 'doc.reopen') {
+        const r = reopenWorkItem(item.id, { by: 'workbench-agent' })
+        return r.ok ? { ok: true, data: { reopened: true, status: r.item.status } } : { ok: false, code: r.code, detail: 'this work item is not finalised, nothing to reopen' }
+      }
+      if (item.status === 'done' && FINAL_LOCKED_DOC_TOOLS.has(name)) {
+        return { ok: false, code: 'item_finalised', detail: 'This work item is finalised and locked: do not edit it. Ask the owner: "This work item is finalised. Shall I reopen it?" and only after a yes call doc.reopen, then make the change.' }
       }
       const world = sourceWorldFor(project, item.id)
       const num = (v: unknown): number | undefined => (v === undefined || v === null || v === '' ? undefined : Number(v))
