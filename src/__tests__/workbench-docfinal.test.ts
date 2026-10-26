@@ -216,7 +216,7 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     // A PDF a munkadarab mappajaba kerult, PDF/A beallitassal, es az anyagok kozott van.
     const abs = join(depot, fin.body.file)
     expect(existsSync(abs)).toBe(true)
-    expect(fin.body.file).toMatch(/ – Válaszbeadvány – HU – v1\.pdf$/)
+    expect(fin.body.file).toMatch(/ – Levél – HU – v1\.pdf$/)
     // #641: the finalized PDF sits in the item's Finished materials subfolder, not loose in the item folder
     expect(fin.body.file).toMatch(/\/(Elkészített anyagok|Finished materials)\/[^/]+\.pdf$/)
     expect(readFileSync(abs, 'utf-8')).toContain('"SelectPdfVersion":{"type":"long","value":"2"}')
@@ -590,7 +590,8 @@ describe('final file name (Boss, 2026-10-16)', () => {
   it('date first, short title, language and the number of the finalization', () => {
     const t = 'Válasz a Wohngeldbehörde 2026-09-24-i hiánypótlási felhívására - Wohngeldnummer 511000-25398636 - Korpás László'
     expect(shortTitle(t)).toBe('Válasz a Wohngeldbehörde 2026-09-24-i hiánypótlási')
-    const name = finalFileName({ title: t } as never, 'de', 5, new Date(2026, 9, 16))
-    expect(name).toBe('2026-10-16 – Válasz a Wohngeldbehörde 2026-09-24-i hiánypótlási – DE – v5.pdf')
+    const name = finalFileName({ id: 'no-such-item', title: t } as never, 'de', 5, new Date(2026, 9, 16))
+    // #794 (Boss TG 3445): the name comes from the letter, never from the title (here: no subject line, so a plain word)
+    expect(name).toBe('2026-10-16 – Schreiben – DE – v5.pdf')
   })
 })
