@@ -459,6 +459,23 @@ const LABELS = {
 } as const
 
 /** A modell -> ODF (flat XML). Csak a cimek es a blokkok szovege kerul bele (K-1.13). */
+/** The words a hand-written annex list starts with ("Anlagen:", "Mellékletek:", ...), in any of the document languages. */
+const ANNEX_LIST_HEADINGS = ['mellékletek', 'melléklet', 'mellékletjegyzék', 'anlagen', 'anlage', 'beilagen', 'annexes', 'annex', 'exhibits', 'attachments', 'enclosures', 'enclosure']
+
+/**
+ * #794 (found re-checking the Berlin letter): a letter imported from Word often carries its own annex list ("Anlagen:"
+ * and a line per annex). Appending the generated list after it printed the annexes twice. The document has its own
+ * list when a paragraph is just such a heading and a later paragraph names one of the annexes by its label ("K1").
+ */
+export function hasOwnAnnexList(outline: RenderOutline): boolean {
+  if (!outline.annexes || !outline.annexes.length) return false
+  const headings = new Set([...ANNEX_LIST_HEADINGS, (outline.annexTitle || '').trim().toLowerCase()].filter(Boolean))
+  const labels = outline.annexes.map((a) => new RegExp(`(?<![\\p{L}\\p{N}])${a.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u'))
+  const texts = outline.sections.flatMap((s) => s.blocks.filter((b) => b.kind !== 'image' && b.kind !== 'table').map((b) => b.text))
+  const at = texts.findIndex((t) => headings.has(t.trim().replace(/[:.]\s*$/, '').trim().toLowerCase()))
+  return at >= 0 && texts.slice(at + 1).some((t) => labels.some((re) => re.test(t)))
+}
+
 export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   const docx = opts.target === 'docx'
   // A Word-valtozatban a hiany-jelolesek kiemelve maradnak (a `draft` itt csak a kiemelest jelenti), vizjel nelkul.
@@ -493,7 +510,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
     }
     body.push(...anchorOverPictures(sec))
   }
-  if (outline.annexes && outline.annexes.length) {
+  if (outline.annexes && outline.annexes.length && !hasOwnAnnexList(outline)) {
     body.push(`<text:h text:style-name="Heading_20_1" text:outline-level="1">${inline(outline.annexTitle || 'Mellékletek')}</text:h>`)
     for (const a of outline.annexes) body.push(`<text:p text:style-name="AnnexLine">${inline(a.label)} – ${inlineMarked(a.title, o.draft)}</text:p>`)
   }
