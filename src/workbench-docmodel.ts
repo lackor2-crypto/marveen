@@ -636,6 +636,16 @@ export interface SourceWorld {
   itemDocuments?(): { path: string; abs: string; name: string }[]
 }
 
+const DOC_PATH_OUTSIDE = 'the path of a document source is the path of the file INSIDE the project folder, as the materials and annexes list it (e.g. "Iratok/x.pdf"); ".." steps, drive letters and URLs are never found. A document outside the project: attach or link it to the work item first, then cite it by the path it gets there.'
+
+/** #806: a path that steps out of the project folder or is not relative to it at all. */
+export function escapesProject(path: string): boolean {
+  const p = path.replace(/\\/g, '/')
+  // A leading "/" is not refused: the project resolver reads "/Iratok/x.pdf" as "Iratok/x.pdf".
+  if (/^[A-Za-z]:\//.test(p) || /^[a-z][a-z0-9+.-]*:\/\//i.test(p)) return true
+  return p.split('/').some((seg) => seg === '..')
+}
+
 /** Egy irat-forras gepi ellenorzese (K-1.12). */
 function checkDocumentSource(world: SourceWorld, path: string, page: number, quote: string): { verdict: string; detail: string } {
   const f = world.resolveFile(path)
@@ -720,6 +730,9 @@ export function addClaim(itemId: string, blockId: string, rawText: unknown, sour
       const page = Math.floor(Number(s.page))
       const quote = String(s.quote ?? '').trim()
       if (!path || !(page >= 1) || quote.length < 4) return { ok: false, code: 'bad_input', detail: 'a document source needs path, page and a verbatim quote' }
+      // #806: a path that leaves the project folder ("../..", a Windows drive, a URL) can never be found, so it would stay
+      // "not_found" in the check before finalizing forever. Refused now, while the agent can still give the right path.
+      if (escapesProject(path)) return { ok: false, code: 'bad_input', detail: DOC_PATH_OUTSIDE }
       const c = checkDocumentSource(world, path, page, quote)
       prepared.push({ kind, f: { path, page, quote, verdict: c.verdict, detail: c.detail, checked_at: now() } })
     } else if (kind === 'owner') {

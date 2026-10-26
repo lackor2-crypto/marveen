@@ -8630,6 +8630,7 @@ window._i18n.en = {
   "workbench.court.result_errors": "✗ I checked the {files} file(s) against rule version \"{version}\": {e} error(s), {w} warning(s).",
   "workbench.court.disclaimer": "This is a machine check: it says what I looked at and what I found. I cannot check the signature or the filing channel by machine, and I do not claim the filing meets every rule.",
   "workbench.court.not_checked": "The check runs on the finished files when you finalize.",
+  "workbench.court.final_stale": "The last check was about the earlier final PDF. The document changed since, so that result is not shown: when you finalize again, I check the new files.",
   "workbench.court.not_checked_final": "I have not checked the current final version with this profile yet. Click \"Check again\".",
   "workbench.court.not_installed": "Poppler is not installed on this machine, so the files cannot be checked by machine.",
   "workbench.court.recheck": "Check again",

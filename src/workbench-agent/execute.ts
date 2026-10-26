@@ -54,7 +54,7 @@ import { addAnnex, annexCheck, docSettings, listAnnexes, removeAnnex, setDocSett
 import { consistencyIssues } from '../workbench-doccheck.js'
 import { itemDeadlines } from '../workbench-deadlines.js'
 import { itemCourtState, proposeRule, setItemProfile } from '../workbench-courtprofile.js'
-import { listFinals } from '../workbench-docfinal.js'
+import { contentHash, listFinals } from '../workbench-docfinal.js'
 import { buildPreview } from '../workbench-preview.js'
 import { saveTextSourceAsNewVersion } from '../workbench-edit.js'
 import { scheduleOutlineMirror } from '../workbench-docmirror.js'
@@ -583,18 +583,21 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
           case 'doc.court': {
             const st = itemCourtState(item.id)
             const f = listFinals(item.id)[0]
-            const current = !!st.check && !!f && st.check.version_id === f.version_id && st.check.result.profile_id === st.profile_id
+            // #806: a check of a final the document has changed since is about the old PDF, not about the text now.
+            const finalStale = !!f && f.content_hash !== contentHash(item)
+            const current = !!st.check && !!f && !finalStale && st.check.version_id === f.version_id && st.check.result.profile_id === st.profile_id
             return {
               ok: true,
               data: {
                 profile: st.profile, choices: st.profiles.map((p) => ({ id: p.id, name: p.name.en, version: p.version, last_checked: p.last_checked, stale: p.stale })),
                 last_check: st.check ? { ...st.check.result, for_current_final: current, for_current_rules: current && !!st.profile && st.check.result.version === st.profile.version } : null,
+                document_changed_since_final: finalStale,
                 machine_check_available: st.available,
                 stale_after_days: st.max_age_days,
                 open_rule_proposals: st.proposals.map((p) => ({ id: p.id, profile_id: p.profile_id, kind: p.kind, diff: p.diff })),
                 profile_file_problem: st.file_error,
                 skipped_profiles: st.skipped,
-                note: 'The check runs on the finished files when the owner finalizes; the owner can re-run it with the "Újraellenőrzés" button. For a not searchable annex the owner can make a searchable copy with one click in the "Célbíróság" box (the annex list then points to it; finalize again). If the profile is stale, tell the owner when it was last checked and offer to look at the official source; after looking, record what you found with doc.proposeCourtRule. If profile_file_problem is set, tell the owner the profile file is broken and that the built-in profiles are used until it is fixed.',
+                note: 'The check runs on the finished files when the owner finalizes; the owner can re-run it with the "Újraellenőrzés" button. If document_changed_since_final is true, last_check is about the OLD final PDF: never present its findings as problems of the document now -- the next final is checked when the owner makes it. For a not searchable annex the owner can make a searchable copy with one click in the "Célbíróság" box (the annex list then points to it; finalize again). If the profile is stale, tell the owner when it was last checked and offer to look at the official source; after looking, record what you found with doc.proposeCourtRule. If profile_file_problem is set, tell the owner the profile file is broken and that the built-in profiles are used until it is fixed.',
               },
             }
           }

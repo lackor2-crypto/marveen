@@ -632,7 +632,7 @@ function annexIdOf(itemId: string, label: string): string | undefined {
 
 export type CourtRecheck =
   | { ok: true; court: CourtCheckResult }
-  | { ok: false; code: 'court_no_profile' | 'court_no_final' | 'court_file_missing'; detail: string | null }
+  | { ok: false; code: 'court_no_profile' | 'court_no_final' | 'court_final_stale' | 'court_file_missing'; detail: string | null }
 
 /**
  * Az ellenorzes ujrafuttatasa a legutobbi veglegesites fajljain (pl. mas
@@ -643,6 +643,9 @@ export async function recheckFinal(item: WorkItemRow): Promise<CourtRecheck> {
   if (!profile) return { ok: false, code: 'court_no_profile', detail: null }
   const f = listFinals(item.id)[0]
   if (!f) return { ok: false, code: 'court_no_final', detail: null }
+  // #806: the document changed since that final (reopened and edited): checking its old PDF again says nothing about the text
+  // on the screen. The next final is checked when it is made.
+  if (f.content_hash !== contentHash(item)) return { ok: false, code: 'court_final_stale', detail: null }
   // A vegleges fajlok utja a Raktarhoz kepest van (mint minden anyage), nem a projektmappahoz.
   const pkg = await finalPackageFiles(item, f, finalLang(f, 'hu'))
   if (!pkg.ok) return { ok: false, code: 'court_file_missing', detail: pkg.detail }
