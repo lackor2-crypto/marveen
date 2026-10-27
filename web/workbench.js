@@ -1984,14 +1984,20 @@
   function plainFileRowHtml(f, depth, grp) {
     WB.linkedFiles = WB.linkedFiles || {}
     if (f.linked) WB.linkedFiles[f.rel] = true; else delete WB.linkedFiles[f.rel]
+    // The attachment / upload links (f.annex) are ticked like any file, but a bulk delete takes only the LINK off.
+    WB.annexLinks = WB.annexLinks || {}
+    if (f.annex && f.link) WB.annexLinks[f.rel] = { kind: f.link.kind, item: f.link.item, id: f.link.id, name: f.name }; else delete WB.annexLinks[f.rel]
     var kb = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size / 1024)) + ' KB'
     // Boss TG 3025: a Life-tree document linked as an annex shows in the Attachments folder as a plain link: it is
-    // managed in the document's annex list, so no tick box, menu or drag here (a delete would hit the real file).
+    // managed in the document's annex list, so no menu or drag here (a delete would hit the real file).
+    // Boss TG 4476: it has a tick box like every other file; ticked, a delete takes only the link off, a move/copy skips it.
     if (f.annex) {
       // #697 (Boss TG 9674, 9670): the link has a right-click / "..." menu with one entry, Remove (it takes the link off,
       // never the original), and carries its group colour, paler than a real file's.
       var lk = f.link && !archived()
       return '<li class="wb-item-row wb-file-row wb-linked-row' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + (lk ? ' data-wb-ctx-link="' + escA(f.link.id) + '"' : '') + '>'
+        + (archived() ? '' : '<input type="checkbox" class="wb-file-sel" data-wb-act="file-sel" data-wb-rel="' + escA(f.rel) + '"' + (WB.fileSel && WB.fileSel[f.rel] ? ' checked' : '')
+          + ' aria-label="' + escA(t('workbench.sel.label', { name: f.name })) + '" title="' + escA(t('workbench.sel.label', { name: f.name })) + '">')
         + '<a class="wb-item wb-file-link" data-wb-open-rel="' + escA(f.rel) + '" href="/api/life/file?rel=' + escA(encodeURIComponent(f.rel)) + '" target="_blank" rel="noopener" title="' + escA(t('workbench.annexlink.hint', { path: f.rel })) + '">'
         + '<span class="wb-item-title">\ud83d\udcc4 <span class="wb-linked" title="' + escA(t('workbench.filelink.badge')) + '">\ud83d\udd17</span> ' + esc(f.name) + '</span>'
         + '<span class="wb-item-meta">' + esc(kb) + '</span>' + fileWhenHtml(f) + '</a>'
@@ -2093,6 +2099,36 @@
     if (!window.confirm(ask)) { WB.ctx = null; render(); return }
     keepSelName()
     var pid = WB.projectId
+    // Boss TG 4476: a ticked attachment / upload link comes off as a LINK (never the original file, which sits in the Life tree).
+    var annexes = rels.filter(function (r) { return WB.annexLinks && WB.annexLinks[r] })
+    if (annexes.length) {
+      rels = rels.filter(function (r) { return annexes.indexOf(r) < 0 })
+      WB.fileBusy = true
+      WB.ctx = null
+      render()
+      var failedMsg = ''
+      var chain = annexes.reduce(function (p, rel) {
+        return p.then(function () {
+          var a = WB.annexLinks[rel]
+          if (!a) return null
+          var u = '/api/workbench/items/' + encodeURIComponent(a.item) + (a.kind === 'annex' ? '/outline/annexes/' : '/assets/') + encodeURIComponent(a.id)
+          return api('DELETE', u).then(function (r) { if (r.ok) { if (WB.fileSel) delete WB.fileSel[rel] } else if (!failedMsg) failedMsg = r.message || '' })
+        })
+      }, Promise.resolve())
+      chain.then(function () {
+        WB.fileBusy = false
+        if (WB.projectId !== pid) return
+        window.showToast(failedMsg || t('workbench.filelink.removed_many', { n: annexes.length }))
+        if (rels.length) { deleteFilesNow(rels, pid); return }
+        refreshTree().then(function () { if (WB.selectedId) loadDetail(WB.selectedId) })
+      })
+      return
+    }
+    deleteFilesNow(rels, pid)
+  }
+
+  /** The loose-file half of deleteFiles: the files go to the Kuka, the answer has an Undo. */
+  function deleteFilesNow(rels, pid) {
     WB.fileBusy = true
     WB.ctx = null
     render()
@@ -2770,14 +2806,16 @@
     var imgs = []
     var other = 0
     var outside = 0
+    var annex = 0
     Object.keys(WB.fileSel || {}).forEach(function (rel) {
       var f = have[rel]
       if (!f) { delete WB.fileSel[rel]; return }
       if (!inBox[rel]) outside++
+      if (f.annex) { annex++; other++; return }
       if (isImageFile({ name: f.name })) imgs.push(f); else other++
     })
     imgs.sort(function (a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) || (a.rel < b.rel ? -1 : 1) })
-    return { imgs: imgs, other: other, outside: outside, total: imgs.length + other }
+    return { imgs: imgs, other: other, outside: outside, annex: annex, total: imgs.length + other }
   }
 
   /** The bar above the list while files are ticked (#529, Boss TG 8582): move them, delete them, or clear the ticks.
@@ -2802,7 +2840,7 @@
     return '<div class="wb-sel-bar" role="group" aria-label="' + escA(t('workbench.sel.count', { n: sel.total })) + '">'
       + '<span class="wb-sel-count">' + esc(t('workbench.sel.count', { n: sel.total })) + '</span>'
       // The server moves only files of the work-item box (the rest answers 'not_loose'): no list that cannot work.
-      + (sel.outside ? '' : moveFilesSelectHtml('*'))
+      + (sel.outside || sel.annex ? '' : moveFilesSelectHtml('*'))
       + deck
       + '<button type="button" class="btn-danger wb-sel-delete" data-wb-act="file-delete" data-wb-rel="*"' + busy + '>' + esc(t('workbench.sel.delete', { n: sel.total })) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="sel-clear">' + esc(t('workbench.sel.clear')) + '</button>'

@@ -22,7 +22,7 @@ describe('own file in the trash (#536)', () => {
 
   it('the open item is reloaded after a delete and after a restore', () => {
     expect(fnBody('reloadIfOwnFile')).toContain('loadDetail')
-    expect(fnBody('deleteFiles')).toContain('reloadIfOwnFile')
+    expect(fnBody('deleteFilesNow')).toContain('reloadIfOwnFile')
     expect(fnBody('restoreFiles')).toContain('reloadIfOwnFile')
   })
 
