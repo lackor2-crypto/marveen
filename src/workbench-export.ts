@@ -53,6 +53,7 @@ const W = {
     imageMissing: 'A kép nem olvasható', imageTooBig: 'A kép túl nagy a beágyazáshoz',
     fileOnly: 'Ez a munkadarab egy fájl, amit ez a lap nem tud megjeleníteni. Az eredeti fájlt töltsd le a Munkapadról.',
     generated: 'Készült',
+    docPageFailed: 'A dokumentum-oldalt nem sikerült kirenderelni, ezért nem tudom megmutatni (a tartalma megvan). Ha nincs LibreOffice a gépen, a Munkapad „Mi működik ezen a gépen?” paneljén látod.',
   },
   en: {
     version: 'version', project: 'Project', print: 'Print / save as PDF',
@@ -61,6 +62,7 @@ const W = {
     imageMissing: 'The image cannot be read', imageTooBig: 'The image is too large to embed',
     fileOnly: 'This work item is a file this page cannot show. Download the original from the Workbench.',
     generated: 'Generated',
+    docPageFailed: 'The document page could not be rendered, so it cannot be shown here (its content is intact). If LibreOffice is missing on this machine, the Workbench "What works on this machine?" panel shows it.',
   },
 } as const
 
@@ -96,7 +98,7 @@ export interface ExportPage {
  * A munkadarab nyomtathato lapja. `print`: a lap tetejen ott a "Nyomtatas /
  * PDF" gomb (a letoltott valtozatban nincs -- az mar a vegtermek).
  */
-export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang: Lang, opts: { toolbar?: boolean; autoPrint?: boolean; fileOnly?: string; docHtml?: string } = {}): ExportPage {
+export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang: Lang, opts: { toolbar?: boolean; autoPrint?: boolean; fileOnly?: string; docHtml?: string; docPageFailed?: string | null } = {}): ExportPage {
   const w = W[lang]
   const project = getProject(item.project_id)
   const p = buildPreview(item.id, wantedVersion)
@@ -110,7 +112,10 @@ export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang:
     return `<figure>${fig}${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>`
   }
 
-  if (opts.docHtml) {
+  if (opts.docPageFailed != null) {
+    // #779: the document page could not be rendered: say so (never "no content yet", the page has content).
+    blocks.push(`<p class="missing">${esc(w.docPageFailed)}${opts.docPageFailed ? `<br>${esc(opts.docPageFailed)}` : ''}</p>`)
+  } else if (opts.docHtml) {
     // #719 (Boss TG 3836): a Word item prints as its own text and pictures (LibreOffice's HTML of the document).
     const styles = (opts.docHtml.match(/<style\b[\s\S]*?<\/style\s*>/gi) || []).map((x) => x.replace(/@page\s*[^{]*\{[^}]*\}/gi, '')).join('\n')
     const body = (opts.docHtml.match(/<body\b[^>]*>([\s\S]*)<\/body\s*>/i) || [, opts.docHtml])[1] || ''

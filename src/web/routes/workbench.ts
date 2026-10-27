@@ -1662,6 +1662,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A Word/LibreOffice formátumokhoz a LibreOffice kell, és az ezen a gépen nincs telepítve. Linuxon: „sudo apt install libreoffice-writer”, Windowson/macOS-en a libreoffice.org oldaláról telepíthető. A PDF, a kép és a HTML export enélkül is működik.',
     en: 'The Word/LibreOffice formats need LibreOffice, and it is not installed on this machine. On Linux: "sudo apt install libreoffice-writer", on Windows/macOS from libreoffice.org. The PDF, image and HTML exports work without it.',
   },
+  docpage_render_failed: {
+    hu: 'A dokumentum-oldalt nem sikerült kirenderelni, ezért nem tudom exportálni vagy elküldeni (üres lapot nem adok helyette). A pontos hibaüzenet a részleteknél olvasható; ha nincs LibreOffice a gépen, a Munkapad „Mi működik ezen a gépen?” paneljén látod.',
+    en: 'The document page could not be rendered, so it cannot be exported or sent (no empty page is handed out instead). The exact error is in the details; if LibreOffice is missing on this machine, the Workbench "What works on this machine?" panel shows it.',
+  },
   docexport_bad_format: {
     hu: 'Ismeretlen exportformátum.',
     en: 'Unknown export format.',
@@ -2519,27 +2523,35 @@ function wordVersionFail(res: RouteContext['res'], w: WordVersionOutcome & { ok:
 /**
  * #779: an item on the document page (a drafted document, a note or a Word file read onto it) exports what the page
  * shows: the page's own .docx (the same render as its finalize), read back as HTML. Only the current version: an older
- * one is the file it had then. Undefined = not a document-page item, or LibreOffice could not render it.
+ * one is the file it had then. Undefined = not a document-page item (or an older version). `failed` = it IS one but the
+ * render did not work (e.g. no LibreOffice): the export must say so, not fall back to the old, empty "parts".
  */
-async function docPageExportHtml(itemId: string, version: unknown): Promise<string | undefined> {
+type DocPageExport = { html: string } | { failed: string | null } | undefined
+async function docPageExport(itemId: string, version: unknown): Promise<DocPageExport> {
   const item = getWorkItem(itemId)
   if (!item || !hasDocModel(item.id)) return undefined
   if (version != null && version !== '' && version !== item.current_version_id) return undefined
   try {
     const r = await renderDocx(item, APP_LANG === 'en' ? 'en' : 'hu')
-    if (!r.ok) return undefined
+    if (!r.ok) return { failed: r.detail || r.code }
     const dir = joinPath(renderCacheDir(), 'docexport')
     mkdirSync(dir, { recursive: true })
     const file = joinPath(dir, `${createHash('sha256').update(r.docx).digest('hex').slice(0, 24)}.docx`)
     if (!existsSync(file)) writeFileSync(file, r.docx)
     const h = await docToEditableHtml(file)
-    return h.ok ? h.html : undefined
-  } catch { return undefined }
+    return h.ok ? { html: h.html } : { failed: h.detail || h.code }
+  } catch (e) { return { failed: e instanceof Error ? e.message : String(e) } }
+}
+
+/** The html an export / send uses for the item (the document page's, or a Word file's), or why the page could not be rendered. */
+async function exportDocSource(itemId: string, version: unknown): Promise<{ docHtml?: string; docPageFailed?: string | null }> {
+  const page = await docPageExport(itemId, version)
+  if (page && 'failed' in page) return { docPageFailed: page.failed ?? '' }
+  if (page) return { docHtml: page.html }
+  return { docHtml: await officeExportHtml(itemId, version) }
 }
 
 async function officeExportHtml(itemId: string, version: unknown): Promise<string | undefined> {
-  const page = await docPageExportHtml(itemId, version)
-  if (page) return page
   try {
     const p = buildPreview(itemId, version)
     if (p.kind !== 'office' || !p.rel || !docEditExt(p.name || p.rel)) return undefined
@@ -5259,9 +5271,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   // archivalt projektben is megy.
   if (segs.length === 2 && segs[1] === 'export.html' && method === 'GET') {
     const download = url.searchParams.get('download') === '1'
+    const src = await exportDocSource(item.id, url.searchParams.get('version'))
     const page = buildExportPage(item, url.searchParams.get('version'), lang, {
-      toolbar: !download, autoPrint: !download && url.searchParams.get('print') === '1',
-      docHtml: await officeExportHtml(item.id, url.searchParams.get('version')),
+      toolbar: !download && src.docPageFailed == null, autoPrint: !download && src.docPageFailed == null && url.searchParams.get('print') === '1',
+      ...src,
     })
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -5279,7 +5292,9 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const fmt = (url.searchParams.get('fmt') || '').toLowerCase()
     const spec = Object.prototype.hasOwnProperty.call(DOC_EXPORT_FORMATS, fmt) ? DOC_EXPORT_FORMATS[fmt] : null
     if (!spec) return fail(res, 400, 'docexport_bad_format', lang)
-    const page = buildExportPage(item, url.searchParams.get('version'), lang, { toolbar: false, docHtml: await officeExportHtml(item.id, url.searchParams.get('version')) })
+    const src = await exportDocSource(item.id, url.searchParams.get('version'))
+    if (src.docPageFailed != null) return failDetail(res, 502, 'docpage_render_failed', lang, src.docPageFailed || null)
+    const page = buildExportPage(item, url.searchParams.get('version'), lang, { toolbar: false, docHtml: src.docHtml })
     const r = await htmlToExportBytes(page.html, fmt)
     if (!r.ok) {
       const status = r.code === 'not_installed' || r.code === 'check_failed' ? 501 : r.code === 'timeout' ? 504 : 500
@@ -5351,10 +5366,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 2 && segs[1] === 'send-request' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
+    const src = body['attachment'] === 'source' ? {} : await exportDocSource(item.id, body['version'])
+    // A page that could not be rendered is never sent as an "empty" one.
+    if (src.docPageFailed != null) return failDetail(res, 502, 'docpage_render_failed', lang, src.docPageFailed || null)
     const input = {
       to: body['to'], subject: body['subject'], message: body['message'],
       attachment: body['attachment'], version: body['version'], actor: actor(ctx), lang, from_account: body['from_account'],
-      docHtml: body['attachment'] === 'source' ? undefined : await officeExportHtml(item.id, body['version']),
+      docHtml: src.docHtml,
     }
     if (isOwnerClick(ctx)) {
       const s = await sendNow(item, input)
