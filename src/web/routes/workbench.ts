@@ -180,7 +180,7 @@ import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, TRANSLATION_FAILED_MARKER } from '../email-translate.js'
 import {
-  makeFreshFolder, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset, attachChatReference,
+  makeFreshFolder, itemSubfolderOf, linkLifeFileAsUpload, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset, attachChatReference,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, adviseUploadPlaces, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
@@ -223,6 +223,8 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   plink_folder_gone: { hu: 'Ez a mappa a projektben már nincs meg. Frissítsd az oldalt, és válassz másikat.', en: 'This folder is no longer in the project. Refresh the page and choose another one.' },
   plink_exists: { hu: 'Ebben a mappában már van ilyen nevű fájl vagy csatolás. Nevezd át azt, vagy válassz másik fájlt.', en: 'This folder already has a file or attachment with that name. Rename it, or choose another file.' },
   plink_box: { hu: 'A munkadarabok mappájába nem lehet fájlt belinkelni, mert ott a munkadarabok vannak. Válassz egy másik mappát.', en: 'A file cannot be linked into the work items folder, because the work items live there. Choose another folder.' },
+  plink_asset_unsupported: { hu: 'Ez a fájltípus nem tölthető fel a munkadarabhoz. Válassz másik fájlt.', en: 'This file type cannot be added to the work item. Choose another file.' },
+  plink_asset_limit: { hu: 'A munkadarabhoz már a legtöbb feltöltés hozzá van adva.', en: 'The work item already has the most uploads it can hold.' },
   plink_failed: { hu: 'A fájlt nem sikerült belinkelni.', en: 'The file could not be linked.' },
   pmount_failed: { hu: 'A mappát nem sikerült csatolni.', en: 'The folder could not be attached.' },
   pplace_not_found: { hu: 'Ez a mappa nincs meg az Életfában (vagy már nincs a projekt helyei között). Válassz másikat, vagy frissítsd az oldalt.', en: 'This folder is not in the Life tree (or is no longer among the project\'s places). Choose another one, or refresh the page.' },
@@ -2976,7 +2978,24 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const where = projectFileTarget(project, folder)
     if (!where.ok) return fail(res, 404, 'plink_folder_gone', lang)
     const box = findWorkItemsBox(project)
-    if (box && folder && (folder === box || folder.startsWith(box + '/'))) return fail(res, 400, 'plink_box', lang)
+    if (box && folder && (folder === box || folder.startsWith(box + '/'))) {
+      // Boss TG 4484: an item's Attachments / Uploads folder takes the file as a link OF THAT ITEM (annex / material);
+      // only the work items box itself and the other folders in it stay refused.
+      const sub = itemSubfolderOf(project, folder)
+      if (!sub) return fail(res, 400, 'plink_box', lang)
+      if (sub.kind === 'annex') {
+        const resolve = resolverFor(sub.item)
+        if (!resolve) return fail(res, 404, 'project_not_found', lang)
+        const linked = await linkLifeFileAsAnnex(sub.item.id, target, {}, resolve, actor(ctx))
+        if (!linked.ok) return failDetail(res, linked.code === 'file_missing' ? 404 : 400, 'plink_failed', lang, linked.detail)
+        scheduleOutlineMirror(sub.item.id)
+      } else {
+        const up = linkLifeFileAsUpload(sub.item, target, actor(ctx))
+        if (!up.ok) return fail(res, up.code === 'not_found' ? 404 : 400, up.code === 'not_found' ? 'plink_not_found' : 'plink_' + up.code, lang)
+      }
+      json(res, { ok: true, rel: target, name: target.slice(target.lastIndexOf('/') + 1), item: sub.item.id, work_folders: listWorkFolders(project) }, 201)
+      return true
+    }
     const name = safeLifeName(target.slice(target.lastIndexOf('/') + 1)) || 'Fajl'
     const rel = where.dirRel.replace(/\/+$/, '') + '/' + name
     const abs2 = resolveLifePath(rel)

@@ -16134,11 +16134,13 @@
         var nolink = res.filter(function (x) { return x.ok && !x.trashed && x.link_left === false })
         close()
         var afterMove = opts && opts.onMoved ? Promise.resolve(opts.onMoved(res)).catch(function () {}) : Promise.resolve()
-        afterMove.then(function () { if (WB.selectedId === id) loadDetail(id) })
+        afterMove.then(function () { if (WB.selectedId === id) loadDetail(id); refreshTree() })
         window.showToast((okN || !trashN ? t('workbench.lifemove.done', { n: okN }) : '') + (trashN ? ' ' + t('workbench.lifemove.trashed', { n: trashN }) : '') + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : '')
           + (r.data && r.data.relinked ? ' ' + t('workbench.lifemove.relinked', { n: r.data.relinked }) : '')
           + (nolink.length ? ' ' + t('workbench.lifemove.no_link', { n: nolink.length }) : ''))
         if (WB.selectedId === id) loadDetail(id); else render()
+        // Boss TG 4486: the left tree shows the moved file as a link at once, not after F5.
+        refreshTree()
       })
     })
   }
@@ -21149,6 +21151,8 @@
           if (WB.projectId === lkPid) {
             if (r.data && r.data.work_folders) WB.workFolders = r.data.work_folders
             load(lkPid)
+            // Linked into an item's Attachments / Uploads folder: that item's own lists follow.
+            if (r.data && r.data.item && WB.selectedId === r.data.item) loadDetail(r.data.item)
           }
         })
       }, { fileLink: true })
@@ -21386,6 +21390,7 @@
             if (!r.ok) { window.showToast(r.message); return }
             if (WB.selectedId === tgId && WB.detail && r.data && r.data.outline) WB.detail.outline = r.data.outline
             loadProjectDocs()
+            refreshTree()
           })
         })
         return
