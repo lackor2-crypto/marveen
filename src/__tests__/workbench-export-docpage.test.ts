@@ -97,4 +97,29 @@ describe('#779 export of a document-page work item', () => {
     expect(log[0]).toMatchObject({ recipient: 'birosag@example.com', method: 'email', reference: 'Fellebbezés' })
     expect(log[0].note).toContain('en@pelda.hu')
   }, 180_000)
+
+  // A page that cannot be rendered (no LibreOffice) must say so -- never "no content yet" (the page has content), and
+  // Send must not attach such an empty page.
+  describe('when the page cannot be rendered', () => {
+    let savedSoffice: string | undefined
+    beforeEach(() => { savedSoffice = process.env['MARVEEN_SOFFICE']; process.env['MARVEEN_SOFFICE'] = join(depot, 'no-such-soffice') })
+    afterEach(() => { if (savedSoffice === undefined) delete process.env['MARVEEN_SOFFICE']; else process.env['MARVEEN_SOFFICE'] = savedSoffice })
+
+    it('the printable page names the problem instead of "no content yet"', async () => {
+      const r = await callWorkbench(`/api/workbench/items/${itemId}/export.html`, 'GET')
+      expect(r.status).toBe(200)
+      const html = r.raw.toString('utf-8')
+      expect(html).toContain('nem sikerült kirenderelni')
+      expect(html).not.toContain('még nincs tartalom')
+    })
+
+    it('a word-processor export and Send are refused with the reason, nothing is attached', async () => {
+      const e = await callWorkbench(`/api/workbench/items/${itemId}/export-doc?fmt=txt`, 'GET')
+      expect(e.status).toBe(502)
+      expect(JSON.parse(e.raw.toString('utf-8')).error).toBe('docpage_render_failed')
+      const r = await callWorkbench(`/api/workbench/items/${itemId}/send-request`, 'POST', { to: 'ugyfel@example.com', subject: 'Fellebbezés', message: 'Csatolva.', attachment: 'html' }, undefined, { kind: 'token' })
+      expect(r.status).toBe(502)
+      expect(listPendingApprovals().find((a) => a.category === 'email_send')).toBeUndefined()
+    })
+  })
 })
