@@ -5582,6 +5582,8 @@ window._i18n.hu = {
   "projects.status.closed": "Lezárt",
   "projects.client_line": "Kinek készül: {client}",
   "projects.tile.open_cards": "{n} nyitott kártya",
+  "projects.tile.urgent": "{n} sürgős teendő, legközelebbi határidő: {due}",
+  "projects.tile.urgent_title": "Lejárt vagy 7 napon belül esedékes, nyitott teendők a munkadarabokon",
   "projects.tile.last_activity": "utoljára: {when}",
   "projects.empty.title": "Még nincs projekted",
   "projects.empty.lead": "Egy projekt egy helyre gyűjti egy munka kártyáit, jóváhagyásait és fájljait. Bármilyen munkához jó: saját ügyhöz, egy cégnek, egy ismerős kéréséhez.",

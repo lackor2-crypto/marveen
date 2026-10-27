@@ -5508,6 +5508,8 @@ window._i18n.en = {
   "projects.status.closed": "Closed",
   "projects.client_line": "For: {client}",
   "projects.tile.open_cards": "{n} open cards",
+  "projects.tile.urgent": "{n} urgent to-dos, nearest deadline: {due}",
+  "projects.tile.urgent_title": "Open work item to-dos that are overdue or due within 7 days",
   "projects.tile.last_activity": "last activity: {when}",
   "projects.empty.title": "You have no projects yet",
   "projects.empty.lead": "A project gathers the cards, approvals and files of one piece of work in one place. It works for anything: your own matter, a company, a favour for a friend.",
