@@ -3111,3 +3111,51 @@ export function adviseUploadPlaces(project: ProjectRow, folder: unknown, names: 
   for (const n of names) advice[n] = adviseUpload(box, rel, n, folders, items)
   return { ok: true, advice }
 }
+
+// ---------------------------------------------------------------------------
+// Boss TG 4484: the right-click "link a file" menu of an item's Attachments / Uploads folder
+// ---------------------------------------------------------------------------
+
+export type ItemSubfolder = { item: WorkItemRow; kind: 'annex' | 'uploads' }
+
+/**
+ * `folder` (project-relative, as the folder tree names it) is the Attachments or Uploads subfolder of a live work item
+ * of the project: which item and which of the two. Any other folder (the plain work items box, an item's own folder,
+ * the other standard subfolders) is null.
+ */
+export function itemSubfolderOf(project: ProjectRow, folder: string): ItemSubfolder | null {
+  const cut = folder.lastIndexOf('/')
+  if (cut <= 0) return null
+  const parent = folder.slice(0, cut)
+  const last = folder.slice(cut + 1)
+  const kind = ['Mellékletek', 'Attachments'].includes(last) ? 'annex' : ['Feltöltések', 'Uploads'].includes(last) ? 'uploads' : null
+  if (!kind) return null
+  const row = getDb().prepare('SELECT id FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND folder = ?').get(project.id, parent) as { id: string } | undefined
+  const item = row ? getWorkItem(row.id) : undefined
+  return item ? { item, kind } : null
+}
+
+export type LinkUploadOutcome =
+  | { ok: true; asset: WorkItemAssetView; already: boolean }
+  | { ok: false; code: 'not_found' | 'asset_unsupported' | 'asset_limit' }
+
+/** A Life-tree file as a material of the item, no copy: it shows in the item's Uploads folder as a link. */
+export function linkLifeFileAsUpload(item: WorkItemRow, lifeRel: string, createdBy: string | null = null): LinkUploadOutcome {
+  ensureAssetTables()
+  const rel = lifeRel.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const abs = rel && !rel.split('/').includes('..') ? resolveLifePath(rel) : null
+  if (!abs) return { ok: false, code: 'not_found' }
+  const name = rel.slice(rel.lastIndexOf('/') + 1)
+  try { if (!statSync(abs).isFile()) return { ok: false, code: 'not_found' } } catch { return { ok: false, code: 'not_found' } }
+  if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
+  const has = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ? AND removed_at IS NULL').get(item.id, rel) as { id: string } | undefined
+  if (has) {
+    const view = listWorkItemAssets(item.id).find((a) => a.id === has.id)
+    if (view) return { ok: true, asset: view, already: true }
+  }
+  const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').get(item.id) as { n: number }).n
+  if (count >= ASSETS_MAX_PER_ITEM) return { ok: false, code: 'asset_limit' }
+  let data: Buffer
+  try { data = readFileSync(abs) } catch { return { ok: false, code: 'not_found' } }
+  return { ok: true, asset: registerAsset(item.id, rel, name, sha256Of(data), data.length, createdBy), already: false }
+}
