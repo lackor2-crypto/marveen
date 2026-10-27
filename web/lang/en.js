@@ -6561,6 +6561,8 @@ window._i18n.en = {
   "workbench.db.ex.doc": "Save as a work item in the project",
   "workbench.db.ex.file": "Download as a file (.md)",
   "workbench.db.ex.after": "From the report saved as a work item you can make a PDF or a Word file the usual way, and it opens for editing too.",
+  "workbench.dblink.open": "Open the debate",
+  "workbench.dblink.hint": "Opens the project debate panel right here, it does not take you elsewhere.",
   "workbench.db.ex.no_download": "The browser did not allow the download. Try saving it as a work item.",
   "workbench.db.ex.downloaded": "Downloaded: {name}",
   "workbench.db.ex.saved_doc": "The report is saved as a work item: {title}",

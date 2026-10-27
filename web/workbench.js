@@ -2444,6 +2444,11 @@
       var mixed = (byPlace[path] || []).filter(function (it) { return !itHidden(it) }).map(function (it) { return { name: it.source_path ? baseOf(it.source_path) : String(it.title || ''), it: it } })
         .concat((looseShown(path) ? (plainFiles[path] || []) : []).map(function (f) { return { name: String(f.name || ''), f: f } }))
       mixed.sort(function (a, b) { return (a.it ? 0 : 1) - (b.it ? 0 : 1) || nameCmp(a, b) })
+      // Boss TG 4546: a work item's Debate folder holds only a LINK; the debate opens in the project panel, nowhere else.
+      if (!archived() && /^(Vitáztatás|Debate)$/.test(baseOf(path)) && ownFold[path.slice(0, Math.max(0, path.lastIndexOf('/')))]) {
+        rows.push('<li class="wb-item-row wb-file-row wb-linked-row wb-depth-' + Math.min(depth, 8) + '"><a class="wb-item wb-file-link" href="#" data-wb-act="db-open-link" title="' + escA(t('workbench.dblink.hint')) + '">'
+          + '<span class="wb-item-title">🔀 <span class="wb-linked">🔗</span> ' + esc(t('workbench.dblink.open')) + '</span></a></li>')
+      }
       mixed.forEach(function (m) { rows.push(m.it ? itemRowHtml(m.it, depth, grp) : plainFileRowHtml(m.f, depth, grp)) })
       ;(kids[path] || []).forEach(function (f) {
         if (folderGone(f)) return
@@ -19574,9 +19579,9 @@
     return '<section class="wb-db-export"><h3>' + esc(t('workbench.db.ex.title')) + '</h3>'
       + '<p class="wb-muted">' + esc(t('workbench.db.ex.help')) + '</p>'
       + '<label class="wb-db-check"><input type="checkbox" id="wbDbExFull"' + (s.ex.full ? ' checked' : '') + '> ' + esc(t('workbench.db.ex.full')) + '</label>'
-      + '<div class="wb-actions"><button type="button" class="btn-secondary" data-wb-act="db-export-doc"' + (s.ex.busy ? ' disabled' : '') + '>' + esc(t('workbench.db.ex.doc')) + '</button>'
+      + '<div class="wb-actions">'
       + '<button type="button" class="btn-secondary" data-wb-act="db-export-file"' + (s.ex.busy ? ' disabled' : '') + '>' + esc(t('workbench.db.ex.file')) + '</button></div>'
-      + '<p class="wb-muted">' + esc(t('workbench.db.ex.after')) + '</p></section>'
+      + '</section>'
   }
 
   function dbExportFile() {
@@ -19595,21 +19600,6 @@
       } catch (_e) { saved = false }
       window.showToast(saved ? t('workbench.db.ex.downloaded', { name: r.data.name }) : t('workbench.db.ex.no_download'))
       render()
-    })
-  }
-
-  function dbExportDocument() {
-    var s = dbState()
-    if (!s.session || s.ex.busy) return
-    s.ex.busy = 'doc'; s.error = ''
-    render()
-    api('POST', '/api/debate/sessions/' + encodeURIComponent(s.session) + '/document', { full: !!s.ex.full }).then(function (r) {
-      var st = dbState()
-      st.ex.busy = ''
-      if (!r.ok) { st.error = r.message; render(); return }
-      window.showToast(t('workbench.db.ex.saved_doc', { title: r.data.item.title }))
-      // The new document is in the project's list and open in the middle: the PDF and Word export are its own buttons.
-      refreshTree().then(function () { selectItem(r.data.item.id) })
     })
   }
 
@@ -19932,6 +19922,7 @@
   function dbAct(a, act) {
     var s = dbState()
     if (a === 'db-open') dbOpenPanel()
+    else if (a === 'db-open-link') { if (!WB.dbOpen) dbOpenPanel() }
     else if (a === 'db-past') { s.pastOpen = !s.pastOpen; if (s.past === null) dbLoadPast(); render() }
     else if (a === 'db-new') { dbReset(); render() }
     else if (a === 'db-start') dbStartChecked()
@@ -19948,7 +19939,6 @@
     else if (a === 'db-stats-back') { s.view = 'debate'; render() }
     else if (a === 'db-stats-scope') { if (s.stats) { s.stats.scope = act.getAttribute('data-wb-scope'); dbStatsLoad() } }
     else if (a === 'db-export-file') dbExportFile()
-    else if (a === 'db-export-doc') dbExportDocument()
     else if (a === 'db-ed-new' && s.ed) { s.ed.form = dbEdBlank(s.ed); s.ed.error = ''; render() }
     else if (a === 'db-ed-cancel' && s.ed) { s.ed.form = null; s.ed.error = ''; render() }
     else if (a === 'db-share-export') dbShareExport(act.getAttribute('data-wb-id') || '')

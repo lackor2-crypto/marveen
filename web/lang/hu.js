@@ -6635,6 +6635,8 @@ window._i18n.hu = {
   "workbench.db.ex.doc": "Mentés munkadarabként a projektbe",
   "workbench.db.ex.file": "Letöltés fájlként (.md)",
   "workbench.db.ex.after": "A munkadarabként mentett jelentésből a szokásos módon készíthetsz PDF-et vagy Word-fájlt, és megnyílik szerkesztésre is.",
+  "workbench.dblink.open": "Vitáztatás megnyitása",
+  "workbench.dblink.hint": "Megnyitja a projekt vitáztató paneljét ugyanitt, nem visz máshova.",
   "workbench.db.ex.no_download": "A letöltést a böngésző nem engedte. Próbáld a munkadarabként mentést.",
   "workbench.db.ex.downloaded": "Letöltve: {name}",
   "workbench.db.ex.saved_doc": "A jelentés elmentve munkadarabként: {title}",

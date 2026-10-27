@@ -3947,32 +3947,14 @@ describe('Vitaztatas: sablonok, jelentes, elemzes (#597, 6. fazis)', () => {
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="db-conclude"'))
   }
 
-  it('a jelentes gombjai a vitan allnak (nyitotton es lezarton is); a munkadarabkent mentes a szervert hivja, majd megnyitja az uj dokumentumot', async () => {
-    extra = (url, init) => {
-      if (url.includes('/sessions/s1/document') && init?.method === 'POST') return { status: 201, body: { item: { id: 'w1', title: 'Vitazas jelentes' } } }
-      return null
-    }
+  it('Boss TG 4546: a vitabol nem keszul munkadarab -- csak a fajl-letoltes gomb marad, a munkadarabkent mentes nincs', async () => {
     await closedDebate()
-    expect(h.rootEl.innerHTML).toContain('data-wb-act="db-export-doc"')
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="db-export-doc"')
     expect(h.rootEl.innerHTML).toContain('data-wb-act="db-export-file"')
     h.click({ 'data-wb-act': 'db-conclude' })
     await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('db-copy-result'))
-    expect(h.rootEl.innerHTML).toContain('data-wb-act="db-export-doc"')
-    h.changeEl({ id: 'wbDbExFull', checked: true })
-    h.click({ 'data-wb-act': 'db-export-doc' })
-    await vi.waitFor(() => expect(post('/sessions/s1/document')).toHaveLength(1))
-    expect(bodyOf('/sessions/s1/document')).toEqual({ full: true })
-    await vi.waitFor(() => expect(h.toasts.some(m => m.includes('workbench.db.ex.saved_doc'))).toBe(true))
-    // az uj munkadarab megnyilik (a vita panel felenek elmegy)
-    await vi.waitFor(() => expect(h.fetchCalls.some(c => c.url.includes('/api/workbench/items/w1'))).toBe(true))
-  })
-
-  it('a jelentes szerverhibaja kiirodik, a gomb ujra hasznalhato', async () => {
-    extra = (url, init) => url.includes('/document') && init?.method === 'POST' ? { status: 409, body: { error: 'no_project', message: 'Nem tartozik projekthez' } } : null
-    await closedDebate()
-    h.click({ 'data-wb-act': 'db-export-doc' })
-    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Nem tartozik projekthez'))
-    expect(h.rootEl.innerHTML).not.toMatch(/data-wb-act="db-export-doc" disabled/)
+    expect(h.rootEl.innerHTML).not.toContain('data-wb-act="db-export-doc"')
+    expect(h.fetchCalls.some(c => c.url.includes('/document') && c.init?.method === 'POST')).toBe(false)
   })
 
   it('a fajl-letoltes a szerver jelentesét kéri a teljes menet kapcsoloval', async () => {
