@@ -6843,6 +6843,7 @@ window._i18n.en = {
   "workbench.filelink.done": "Linked: {name}. The file stayed where it was.",
   "workbench.filelink.remove": "Remove (link only)",
   "workbench.filelink.removed": "Link removed: {name}. The original file stays where it was.",
+  "workbench.filelink.removed_many": "{n} links removed. The original files stay where they were.",
   "workbench.misplaced.attachment_in_finished": "This file is probably in the wrong place: it looks like an attachment but lies among the Finished materials. I did not move it, you decide. It belongs in the Attachments folder.",
   "workbench.misplaced.finished_in_attachments": "This file is probably in the wrong place: it looks like a finished, final material but lies among the Attachments. I did not move it, you decide. It belongs in the Finished materials folder.",
   "workbench.misplaced.loose_beside_item": "This file lies right beside the work items and belongs to none of them. I did not move it, you decide. Drag it into the folder of the work item it belongs to.",

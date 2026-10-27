@@ -6917,6 +6917,7 @@ window._i18n.hu = {
   "workbench.filelink.done": "Belinkelve: {name}. A fájl az eredeti helyén maradt.",
   "workbench.filelink.remove": "Eltávolítás (csak a link)",
   "workbench.filelink.removed": "Link eltávolítva: {name}. Az eredeti fájl a helyén maradt.",
+  "workbench.filelink.removed_many": "{n} link eltávolítva. Az eredeti fájlok a helyükön maradtak.",
   "workbench.misplaced.attachment_in_finished": "Ez a fájl valószínűleg rossz helyen van: úgy néz ki, mint egy melléklet, de az Elkészített anyagok között áll. Nem mozdítottam el, te döntesz. A Mellékletek mappába való.",
   "workbench.misplaced.finished_in_attachments": "Ez a fájl valószínűleg rossz helyen van: úgy néz ki, mint egy kész, végleges anyag, de a Mellékletek között áll. Nem mozdítottam el, te döntesz. Az Elkészített anyagok mappába való.",
   "workbench.misplaced.loose_beside_item": "Ez a fájl közvetlenül a munkadarabok mellett áll, egyik munkadarabhoz sem tartozik. Nem mozdítottam el, te döntesz. Húzd be annak a munkadarabnak a mappájába, amelyikhez tartozik.",
