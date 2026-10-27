@@ -946,7 +946,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const modeOf = (running: boolean, pane: string | null): string | null =>
       running && pane !== null ? detectPermissionMode(pane) : null
 
-    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null; kind?: string; codeSessionId?: string | null; codeLabel?: string | null; queued?: number; queuedOnly?: boolean; projects?: Record<string, { state: string; queuedOnly: boolean; codeSessionId: string | null }> }> = []
+    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null; kind?: string; codeSessionId?: string | null; codeLabel?: string | null; queued?: number; queuedOnly?: boolean; projects?: Record<string, { state: string; queuedOnly: boolean; codeSessionId: string | null; waitReason: unknown }> }> = []
 
     // A compaction the dashboard itself started (gate or card button). The pane
     // shows none of the usual busy signals while it runs, so without this the

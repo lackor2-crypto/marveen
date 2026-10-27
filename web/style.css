@@ -13255,3 +13255,6 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
   color: inherit;
   opacity: 0.85;
 }
+
+/* #812: why a queued VS Code task has not started */
+.cb-wait-why { font-size: 12px; line-height: 1.4; color: var(--text-muted, #6b7280); margin: 4px 0 8px; }

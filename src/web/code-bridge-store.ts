@@ -1216,6 +1216,48 @@ export function codeTaskQueueAhead(taskId: string, now = Date.now()): CodeTaskQu
   return { running: null, ahead, busyElsewhere: busy[0] ?? null }
 }
 
+/** Why the OLDEST queued task of a project has not started (#812, Boss TG 4492: "mire vár?"). The kinds follow the
+ *  order claimNextCodeTask() skips a task, so the answer is the first thing that really holds it back. */
+export type CodeTaskWaitKind =
+  | 'topic' // a Telegram message waits for the topic decision / the owner's answer
+  | 'no_session' // the project has no mapped VS Code session yet
+  | 'limit' // the executor's login is exhausted, the task keeps its place
+  | 'same_project' // another task of the SAME project runs
+  | 'busy_elsewhere' // the single main-lane worker runs another project's task
+  | 'no_worker' // no worker is online to take it
+  | 'starting' // nothing holds it: the next worker poll takes it
+
+export interface CodeTaskWaitReason {
+  kind: CodeTaskWaitKind
+  /** Queued tasks of the project in total. */
+  queued: number
+  /** Minutes the oldest one has been waiting. */
+  waitedMin: number
+  /** busy_elsewhere / same_project: the project whose task is running. */
+  project?: string
+}
+
+export function codeProjectWaitReason(project: string, now = Date.now()): CodeTaskWaitReason | null {
+  ensureTables()
+  const db = getDb()
+  const rows = db
+    .prepare(`SELECT * FROM code_tasks WHERE project = ? AND status = 'queued' ORDER BY created_at, rowid`)
+    .all(project) as Record<string, unknown>[]
+  const oldest = rows[0]
+  if (!oldest) return null
+  const task = rowToTask(oldest)
+  const base = { queued: rows.length, waitedMin: Math.max(0, Math.floor((now - task.createdAt) / 60000)) }
+  if (task.topicState === 'pending' || task.topicState === 'asking' || task.topicState === 'held') return { kind: 'topic', ...base }
+  const session = getCodeSession(project)
+  if (!session) return { kind: 'no_session', ...base }
+  if (task.origin !== 'workbench' && activeCodeBridgeLimit(sessionSide(session.workspacePath), now)) return { kind: 'limit', ...base }
+  const ahead = codeTaskQueueAhead(task.id, now)
+  if (ahead?.running) return { kind: 'same_project', project: ahead.running.project, ...base }
+  if (ahead?.busyElsewhere) return { kind: 'busy_elsewhere', project: ahead.busyElsewhere.project, ...base }
+  const alive = listCodeWorkers().some((w) => now - w.lastSeenAt <= WORKER_STALE_MS)
+  return { kind: alive ? 'starting' : 'no_worker', ...base }
+}
+
 /**
  * Hand the oldest RUNNABLE queued task to a worker.
  *
@@ -3313,14 +3355,14 @@ export function codeTaskCountsByProject(): Record<string, { queued: number; runn
 export function codeBridgeProjectDisplayStates(
   act: CodeBridgeActivity,
   bridgeEnabled: boolean,
-): Record<string, { state: 'limited' | 'stopped' | 'working' | 'unknown' | 'idle'; queuedOnly: boolean; codeSessionId: string | null }> {
+): Record<string, { state: 'limited' | 'stopped' | 'working' | 'unknown' | 'idle'; queuedOnly: boolean; codeSessionId: string | null; waitReason: CodeTaskWaitReason | null }> {
   const projects = new Set<string>([
     ...Object.keys(act.countsByProject),
     ...act.liveMarvinOwnedActiveProjects,
     ...act.running.map((r) => r.project),
   ])
   const owned = new Set(act.liveMarvinOwnedActiveProjects)
-  const out: Record<string, { state: 'limited' | 'stopped' | 'working' | 'unknown' | 'idle'; queuedOnly: boolean; codeSessionId: string | null }> = {}
+  const out: Record<string, { state: 'limited' | 'stopped' | 'working' | 'unknown' | 'idle'; queuedOnly: boolean; codeSessionId: string | null; waitReason: CodeTaskWaitReason | null }> = {}
   for (const project of projects) {
     const running = act.running.filter((r) => r.project === project)
     const counts = act.countsByProject[project] ?? { queued: 0, running: 0 }
@@ -3339,6 +3381,8 @@ export function codeBridgeProjectDisplayStates(
       state,
       queuedOnly,
       codeSessionId: running[0] ? running[0].sessionId : (live ? live.sessionId : null),
+      // #812: a card that only says "waiting to start" also says WHAT it waits for.
+      waitReason: queuedOnly ? codeProjectWaitReason(project) : null,
     }
   }
   return out
