@@ -6659,6 +6659,16 @@ function startGlobalActivityPoll() {
   globalActivityTimer = setInterval(() => { if (!document.hidden) refreshAgentTerminalBusy() }, 3000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAgentTerminalBusy() })
 }
+// #812: WHAT a queued VS Code task waits for (server: codeProjectWaitReason). `long` goes into the line under the
+// badge and into its tooltip. null when the server did not say (old backend) -- the badge then claims nothing more.
+function cbWaitReasonText(r) {
+  if (!r || typeof r.kind !== 'string') return null
+  const known = ['topic', 'no_session', 'limit', 'same_project', 'busy_elsewhere', 'no_worker', 'starting']
+  if (!known.includes(r.kind)) return null
+  const p = { project: r.project || '', n: r.queued || 1, min: r.waitedMin || 0 }
+  return { long: t('activity.wait.' + r.kind, p) + ' ' + t('activity.wait.count', p) }
+}
+
 async function refreshAgentTerminalBusy() {
   let entries
   try {
@@ -6711,12 +6721,17 @@ async function refreshAgentTerminalBusy() {
         : null
       const cbWorking = !!cbState && cbState.state === 'working'
       el.hidden = !cbWorking
+      const whyEl = cardEl ? cardEl.querySelector('[data-cb-wait-why]') : null
+      if (whyEl && !cbWorking) { whyEl.textContent = ''; whyEl.hidden = true }
       // A CIMKE is ugyanabbol a meresbol jon, mint a Tevekenyseg lapon: ha a
       // zoldet egyedul a SOR adja (kiadva, de meg nem indult el -- kartya
       // 5603b3d4), a jelzo ezt kimondja, nem "dolgozik"-ot allit.
       if (cbWorking) {
+        const why = cbState.queuedOnly ? cbWaitReasonText(cbState.waitReason) : null
         el.textContent = cbState.queuedOnly ? t('activity.state.working_queued') : t('activity.state.working')
-        el.title = cbState.queuedOnly ? t('activity.state_tip.working_queued') : t('cb.card.busy_help')
+        el.title = cbState.queuedOnly ? (why ? why.long : t('activity.state_tip.working_queued')) : t('cb.card.busy_help')
+        // The reason sits under the badge as its own line: in the narrow card a longer badge label wraps badly.
+        if (whyEl) { whyEl.textContent = why ? why.long : ''; whyEl.hidden = !why }
       }
       // A beszelgetes azonositoja a jelzon ul: enelkul a kattintas nem tudna,
       // MIT nyisson. Ha nincs (regi kiszolgalo, vagy nem tudjuk, hol fut), a
@@ -7549,6 +7564,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         <span class="process-indicator" title="${escapeAttr(cbRunTip())}"><span class="process-dot ${cbRunDotClass()}"></span>${escapeHtml(cbRunLabel())}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>
+      <div class="cb-wait-why" data-cb-wait-why hidden></div>
       <div class="agent-card-actions">
         <button class="btn-secondary btn-compact code-bridge-open-btn">${escapeHtml(t('cb.card.settings'))}</button>
         ${e.roleHolder ? `
