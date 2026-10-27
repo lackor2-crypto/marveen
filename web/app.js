@@ -49315,8 +49315,13 @@ function _prjTileHtml(p) {
   const badge = p.archived_at
     ? `<span class="prj-status prj-status-archived">${escapeHtml(t('projects.archived'))}</span>`
     : `<span class="prj-status prj-status-${escapeAttr(p.status)}">${escapeHtml(_prjT('projects.status.' + p.status, null, p.status))}</span>`
+  // Urgent work: open to-dos that are overdue or due within a week.
+  const urgent = p.urgent_todos > 0 && !p.archived_at
+    ? `<span class="prj-urgent" title="${escapeAttr(t('projects.tile.urgent_title'))}">${escapeHtml(t('projects.tile.urgent', { n: p.urgent_todos, due: p.urgent_next_due || '' }))}</span>`
+    : ''
   return `<button type="button" class="prj-tile" data-prj-open="${escapeAttr(p.id)}">
     <span class="prj-tile-head"><span class="prj-tile-name">${escapeHtml(p.name)}</span>${badge}</span>
+    ${urgent}
     ${p.description ? `<span class="prj-tile-desc">${escapeHtml(p.description)}</span>` : ''}
     ${p.client ? `<span class="prj-tile-client">${escapeHtml(t('projects.client_line', { client: p.client }))}</span>` : ''}
     <span class="prj-tile-meta">${escapeHtml(t('projects.tile.open_cards', { n: p.open_cards }))} · ${escapeHtml(t('projects.tile.last_activity', { when: _prjAgo((p.last_activity_at || 0) * 1000) }))}</span>

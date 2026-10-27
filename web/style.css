@@ -12518,6 +12518,7 @@ details.upstream-box > summary > h4 {
 .prj-tile-name { font-weight: 600; font-size: 15px; }
 .prj-tile-desc { font-size: 13px; color: var(--text-secondary); }
 .prj-tile-client, .prj-tile-meta { font-size: 12px; color: var(--text-muted); }
+.prj-urgent { align-self: flex-start; padding: 2px 9px; border-radius: 12px; font-size: 12px; font-weight: 600; color: #fff; background: #c62828; }
 .prj-status { display: inline-block; padding: 2px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .prj-status-active { background: var(--success-soft); color: var(--success); }
 .prj-status-paused { background: var(--warning-soft); color: var(--warning); }

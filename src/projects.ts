@@ -73,6 +73,19 @@ export interface ProjectWithStats extends ProjectRow {
   live_cards: number
   /** A legutobbi mert esemeny ideje (masodperc) -- projekt, kartya vagy komment. */
   last_activity_at: number
+  /** Open Workbench to-dos overdue or due within URGENT_DAYS days. */
+  urgent_todos: number
+  /** Earliest due day (YYYY-MM-DD) among those urgent to-dos, or null. */
+  urgent_next_due: string | null
+}
+
+/** A to-do counts as urgent when it is overdue or due within this many days. */
+export const URGENT_DAYS = 7
+
+function localDayString(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
 }
 
 export interface ProjectLinkRow {
@@ -268,15 +281,21 @@ export function listProjects(opts: { includeArchived?: boolean } = {}): ProjectW
   const db = getDb()
   const hasKanban = hasTable('kanban_cards')
   const hasComments = hasTable('kanban_comments')
+  const hasTodos = hasTable('work_item_todos')
+  const now = new Date()
+  const urgentLimit = localDayString(new Date(now.getFullYear(), now.getMonth(), now.getDate() + URGENT_DAYS))
+  const urgentWhere = `t.project_id = p.id AND t.done_at IS NULL AND t.due_date IS NOT NULL AND t.due_date <= ?`
   const rows = db.prepare(
     `SELECT p.*,
        ${hasKanban ? `(SELECT COUNT(*) FROM kanban_cards k WHERE k.project = p.id AND k.archived_at IS NULL AND k.status != 'done')` : '0'} AS open_cards,
        ${hasKanban ? `(SELECT COUNT(*) FROM kanban_cards k WHERE k.project = p.id AND k.archived_at IS NULL)` : '0'} AS live_cards,
        ${hasKanban ? `(SELECT MAX(k.updated_at) FROM kanban_cards k WHERE k.project = p.id)` : 'NULL'} AS last_card_at,
-       ${hasKanban && hasComments ? `(SELECT MAX(c.created_at) FROM kanban_comments c JOIN kanban_cards k ON k.id = c.card_id WHERE k.project = p.id)` : 'NULL'} AS last_comment_at
+       ${hasKanban && hasComments ? `(SELECT MAX(c.created_at) FROM kanban_comments c JOIN kanban_cards k ON k.id = c.card_id WHERE k.project = p.id)` : 'NULL'} AS last_comment_at,
+       ${hasTodos ? `(SELECT COUNT(*) FROM work_item_todos t WHERE ${urgentWhere})` : '0'} AS urgent_todos,
+       ${hasTodos ? `(SELECT MIN(t.due_date) FROM work_item_todos t WHERE ${urgentWhere})` : 'NULL'} AS urgent_next_due
      FROM projects p
      ${opts.includeArchived ? '' : 'WHERE p.archived_at IS NULL'}`,
-  ).all() as (ProjectRow & { open_cards: number; live_cards: number; last_card_at: number | null; last_comment_at: number | null })[]
+  ).all(...(hasTodos ? [urgentLimit, urgentLimit] : [])) as (ProjectRow & { open_cards: number; live_cards: number; last_card_at: number | null; last_comment_at: number | null; urgent_todos: number; urgent_next_due: string | null })[]
   return rows
     .map(({ last_card_at, last_comment_at, ...r }) => ({
       ...r,
