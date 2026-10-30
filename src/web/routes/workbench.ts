@@ -52,13 +52,13 @@ import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, setWorkItemTypePresentation, purgeWorkItem,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, setWorkItemNoTrigger, listDeletedWorkItems, setWorkItemDeleted, setWorkItemTypePresentation, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
   type WorkItemRow,
 } from '../../workbench.js'
-import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, ensureProjectHasFolder } from '../../project-files.js'
+import { writeProjectFile, writeProjectNote, projectFileTarget, makeProjectFolder, safeFileName, freeFileName, ensureProjectHasFolder, TRIGGER_FOLDER_NAMES } from '../../project-files.js'
 import { uploadExceeds, uploadLimitBytes, uploadLimitMbForMessage, streamBodyToStage, UploadDiskError, BUFFERED_UPLOAD_CAP_BYTES, type StagedUpload } from '../../upload-stream.js'
 import {
   hasDocModel, documentOutline, documentCheck, replacePage, addSection, updateSection, removeSection, addBlock, updateBlock, removeBlock,
@@ -2757,7 +2757,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   // #625: drawing / deck JSON files no work item uses (GET the list; POST {rels} trashes the approved ones).
   if (path === '/api/workbench/json-orphans' && (method === 'GET' || method === 'POST')) {
     if (method === 'GET') { json(res, { ok: true, ...(await findOrphanJsons()) }); return true }
-    if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+    if (!(isOwnerClick(ctx) || isBrowserPageClick(ctx))) return fail(res, 403, 'outline_owner_only', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const results = await trashOrphanJsons(body['rels'], lang)
@@ -2999,7 +2999,10 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const where = projectFileTarget(project, folder)
     if (!where.ok) return fail(res, 404, 'plink_folder_gone', lang)
     const box = findWorkItemsBox(project)
-    if (box && folder && (folder === box || folder.startsWith(box + '/'))) {
+    // #794: the "Kiváltó irat" folder of an item takes the file as a plain link (a file mount), like any other folder.
+    const lastSeg = folder.slice(folder.lastIndexOf('/') + 1)
+    const inTrigger = ([TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en] as string[]).includes(lastSeg)
+    if (box && folder && !inTrigger && (folder === box || folder.startsWith(box + '/'))) {
       // Boss TG 4484: an item's Attachments / Uploads folder takes the file as a link OF THAT ITEM (annex / material);
       // only the work items box itself and the other folders in it stay refused.
       const sub = itemSubfolderOf(project, folder)
@@ -4962,7 +4965,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (method === 'GET') { json(res, { ok: true, files: rootStrays(owner, item) }); return true }
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+    if (!(isOwnerClick(ctx) || isBrowserPageClick(ctx))) return fail(res, 403, 'outline_owner_only', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const r = resolveRootStrays(owner, item, body['decisions'], lang)
@@ -4985,7 +4988,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return true
     }
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+    if (!(isOwnerClick(ctx) || isBrowserPageClick(ctx))) return fail(res, 403, 'outline_owner_only', lang)
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     // #742 review: the move runs on the same list the owner saw -- right after an upload (`scope: 'uploads'`) that is the
@@ -5034,6 +5037,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
     if (typeof body['pinned'] !== 'boolean') return fail(res, 400, 'pin_bad_value', lang)
     const updated = setWorkItemPinned(item.id, body['pinned'])
+    if (!updated) return fail(res, 404, 'not_found', lang)
+    json(res, { item: updated, items: listWorkItems(item.project_id) })
+    return true
+  }
+
+  // #794 (Boss TG 3670): "no trigger document (own initiative)": the owner says the work needs none and may go on.
+  if (segs.length === 2 && segs[1] === 'no-trigger' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    if (typeof body['no_trigger'] !== 'boolean') return fail(res, 400, 'pin_bad_value', lang)
+    const updated = setWorkItemNoTrigger(item.id, body['no_trigger'])
     if (!updated) return fail(res, 404, 'not_found', lang)
     json(res, { item: updated, items: listWorkItems(item.project_id) })
     return true

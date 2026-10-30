@@ -89,6 +89,8 @@ export interface WorkItemRow {
    *  in. NULL = the project's default "Work items" folder. Used once, when the
    *  item's folder is created. */
   container_folder?: string | null
+  /** #794: 1 when the owner marked "no trigger document (own initiative)". */
+  no_trigger?: number | null
 }
 
 export interface WorkItemVersionRow {
@@ -177,6 +179,8 @@ export function ensureWorkbenchTables(): void {
   if (!iCols.has('parent_item_id')) db.exec('ALTER TABLE work_items ADD COLUMN parent_item_id TEXT')
   // #454: folder the item's own folder is made in.
   if (!iCols.has('container_folder')) db.exec('ALTER TABLE work_items ADD COLUMN container_folder TEXT')
+  // #794: 1 = the owner marked "no trigger document (own initiative)": the work may go on without one.
+  if (!iCols.has('no_trigger')) db.exec('ALTER TABLE work_items ADD COLUMN no_trigger INTEGER')
   const unnumbered = db.prepare('SELECT id FROM work_items WHERE seq IS NULL ORDER BY created_at, rowid').all() as { id: string }[]
   if (unnumbered.length) {
     db.transaction(() => {
@@ -401,6 +405,13 @@ export function purgeWorkItem(id: string): { ok: true; projectId: string } | { o
  * tetejere ugrana. Ismetelt kituzes nem modositja az eredeti idopontot, igy a
  * kituzottek sorrendje stabil marad.
  */
+export function setWorkItemNoTrigger(id: string, noTrigger: boolean): WorkItemRow | undefined {
+  const item = getWorkItem(id)
+  if (!item) return undefined
+  getDb().prepare('UPDATE work_items SET no_trigger = ? WHERE id = ?').run(noTrigger ? 1 : null, item.id)
+  return getWorkItem(item.id)
+}
+
 export function setWorkItemPinned(id: string, pinned: boolean, now: number = Date.now()): WorkItemRow | undefined {
   const item = getWorkItem(id)
   if (!item) return undefined
