@@ -50,7 +50,10 @@ function subDirs(abs: string): string[] {
  * The likeliest Life-tree folder for a document, or null when its folder / title name nobody and nothing
  * (then the caller falls back to the content-based guess). `pathText` = the item's folder path; `name` = a file name.
  */
-export function contextTarget(project: ProjectRow, item: Pick<WorkItemRow, 'title'> & Partial<Pick<WorkItemRow, 'folder' | 'container_folder'>>, name: string, lang: string): ContextTarget | null {
+/** The case folder that holds the owner's own replies (see the correspondence-case rule in the assistant prompt). */
+const OUTGOING_FOLDER = 'Kimenő levelek'
+
+export function contextTarget(project: ProjectRow, item: Pick<WorkItemRow, 'title'> & Partial<Pick<WorkItemRow, 'folder' | 'container_folder'>>, name: string, lang: string, outgoing = false): ContextTarget | null {
   let config
   try { config = loadLifeConfig() } catch { return null }
   if (!config.persons.length) return null
@@ -110,6 +113,17 @@ export function contextTarget(project: ProjectRow, item: Pick<WorkItemRow, 'titl
       rel = `${rel}/${scores[0].o}`
       if (scores.length > 1 && scores[1].s >= scores[0].s - 1) confident = false
       how += lang === 'en' ? `; the office "${scores[0].o}" fits best` + (scores.length > 1 ? ` (also: ${scores.slice(1, 3).map((x) => x.o).join(', ')})` : '') : `; a(z) „${scores[0].o}" illik legjobban` + (scores.length > 1 ? ` (még szóba jön: ${scores.slice(1, 3).map((x) => x.o).join(', ')})` : '')
+      // #794 (Boss TG 3594, 3612): an outgoing letter goes to the "Kimenő levelek" folder of the office's case, when exactly one
+      // case folder has one (a case holds Kérelem / Bejövő levelek / Kimenő levelek; never a new folder per letter).
+      if (outgoing) {
+        const officeRel = rel
+        const officeDir = resolveLifePath(officeRel)
+        const cases = (officeDir ? subDirs(officeDir) : []).filter((c) => { const a = resolveLifePath(`${officeRel}/${c}/${OUTGOING_FOLDER}`); return !!a && existsSync(a) })
+        if (cases.length === 1) {
+          rel = `${officeRel}/${cases[0]}/${OUTGOING_FOLDER}`
+          how += lang === 'en' ? '; it is an outgoing letter: the case\'s outgoing-letters folder' : '; kimenő levél: az ügy kimenő leveleinek mappája'
+        }
+      }
     } else confident = false
   } else confident = false
   return { target: rel, display: humanLocation(rel), confident, why: how }
