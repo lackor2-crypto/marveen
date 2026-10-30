@@ -381,9 +381,9 @@ export async function suggestForPlan(project: ProjectRow, item: PlanItem, files:
     const outgoing = !!f.sent_final
     // #794 (Boss TG 3638): the authority/case the work item belongs to decides first (everything of a Wohngeld request goes
     // under the Wohngeldbehörde), and the file's own words are part of that decision. The content-only guess ("Legal") is
-    // used only when the context finds nothing, or is unsure while the content guess is sure.
+    // used only when the context finds nothing, or is unsure and no deeper than the content guess.
     const ctx = contextTarget(project, { title: ownerTitle, folder: item.folder, container_folder: item.container_folder }, f.name, lang, { outgoing, text: texts.get(f.rel) || '' })
-    if (ctx && (ctx.confident || !(c && c.suggested_confident))) out.set(f.rel, { suggested_target: ctx.target, suggested_display: ctx.display, suggested_confident: ctx.confident, suggested_why: ctx.why })
+    if (ctx && (ctx.confident || !(c && c.suggested_confident) || (ctx.target.startsWith(c.suggested_target + '/')))) out.set(f.rel, { suggested_target: ctx.target, suggested_display: ctx.display, suggested_confident: ctx.confident, suggested_why: ctx.why })
     else if (c) out.set(f.rel, c)
   }
   return out
