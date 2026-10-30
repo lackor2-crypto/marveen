@@ -10614,6 +10614,68 @@
       if (WB.open) render()
     })
   }
+  /**
+   * "Was it really sent?" (Boss, 2026-10-30): a finalised document counts as sent only when the owner says so. This dialog
+   * stays open, and cannot be dismissed, until every document in it has an answer: "Yes" marks it sent (the owner's own
+   * click), "No" leaves it unsent (it is asked again at the next visit). `intro` tells why the dialog came up.
+   */
+  function sentAsk(items, intro) {
+    if (!items || !items.length || !document.body) return
+    var overlay = document.getElementById('wbSentAsk')
+    var rows
+    if (overlay) {
+      rows = overlay.querySelector('#wbSentAskRows')
+    } else {
+      overlay = document.createElement('div')
+      overlay.className = 'modal-overlay active'
+      overlay.id = 'wbSentAsk'
+      overlay.innerHTML = '<div class="modal-content" style="max-width:620px;padding:18px">'
+        + '<h3 style="margin:0 0 6px">' + esc(t('workbench.sentask.title')) + '</h3>'
+        + '<p class="subtitle" id="wbSentAskIntro" style="margin:0 0 10px"></p>'
+        + '<div id="wbSentAskRows"></div></div>'
+      document.body.appendChild(overlay)
+      rows = overlay.querySelector('#wbSentAskRows')
+    }
+    overlay.querySelector('#wbSentAskIntro').textContent = intro
+    var finish = function () { if (!rows.children.length && overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    items.forEach(function (it) {
+      if (rows.querySelector('[data-item-id="' + String(it.id).replace(/"/g, '') + '"]')) return
+      var row = document.createElement('div')
+      row.setAttribute('data-item-id', it.id)
+      row.style.cssText = 'padding:8px 0;border-top:1px solid var(--border,#ddd)'
+      var name = document.createElement('div')
+      name.style.cssText = 'font-weight:600;margin-bottom:6px'
+      name.textContent = it.title
+      var yes = document.createElement('button')
+      yes.type = 'button'; yes.className = 'btn-primary btn-compact'; yes.textContent = t('workbench.sentask.yes')
+      var no = document.createElement('button')
+      no.type = 'button'; no.className = 'btn-secondary btn-compact'; no.style.marginLeft = '8px'; no.textContent = t('workbench.sentask.no')
+      yes.addEventListener('click', function () {
+        yes.disabled = true; no.disabled = true
+        api('POST', '/api/workbench/items/' + encodeURIComponent(it.id) + '/sent-mark', { sent: true }).then(function (r) {
+          if (!r.ok) { yes.disabled = false; no.disabled = false; window.showToast(r.message || t('workbench.lifemove.failed')); return }
+          window.showToast(t('workbench.lifemove.gate_marked'))
+          if (row.parentNode) row.parentNode.removeChild(row)
+          finish()
+          if (WB.open && WB.selectedId === it.id) loadDetail(it.id)
+        })
+      })
+      no.addEventListener('click', function () {
+        window.showToast(t('workbench.sentask.no_done'))
+        if (row.parentNode) row.parentNode.removeChild(row)
+        finish()
+      })
+      row.appendChild(name); row.appendChild(yes); row.appendChild(no)
+      rows.appendChild(row)
+    })
+  }
+  /** On opening a project: every finalised document that is not confirmed as sent is asked about. */
+  function sentAskProject(pid) {
+    api('GET', '/api/workbench/unsent-finals?project=' + encodeURIComponent(pid)).then(function (r) {
+      if (!r.ok || !r.data || !Array.isArray(r.data.items) || WB.projectId !== pid) return
+      sentAsk(r.data.items, t('workbench.sentask.intro_project'))
+    })
+  }
   function mailToMailbox() {
     var id = WB.selectedId
     if (!id || archived() || WB.mailBusy) return
@@ -10625,6 +10687,7 @@
         if (WB.selectedId === id && WB.detail && r.data.outline) WB.detail.outline = r.data.outline
         if (WB.selectedId === id && WB.detail && r.data.mail_draft) WB.detail.mail_draft = r.data.mail_draft
         window.showToast(t('workbench.mail.drafts_done', { mailbox: r.data.mailbox || '' }))
+        sentAsk([{ id: id, title: (WB.detail && WB.detail.item && WB.detail.item.title) || (r.data.outline && r.data.outline.title) || id }], t('workbench.sentask.intro_mail'))
       } else window.showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
       render()
     })
@@ -20973,6 +21036,7 @@
     WB.chatForceBottom = true
     render()
     load(projectId)
+    sentAskProject(projectId)
     loadChatStatus()
     loadChatHistory()
   }

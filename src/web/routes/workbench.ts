@@ -2840,6 +2840,20 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // "Finalised, but not confirmed as sent" (Boss, 2026-10-30): the projects ask, until the owner has answered by hand,
+  // whether each finalised document really went out. The mark itself stays an owner click (POST .../sent-mark).
+  if (path === '/api/workbench/unsent-finals' && method === 'GET') {
+    const pid = (url.searchParams.get('project') || '').trim()
+    if (!pid) return fail(res, 400, 'project_required', lang)
+    const project = getProject(pid)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const items = listWorkItems(project.id)
+      .filter((w) => w.type === 'document' && listFinals(w.id).length > 0 && !sentStatus(w.id).sent)
+      .map((w) => ({ id: w.id, title: w.title, has_mail_draft: !!mailDraftView(w) }))
+    json(res, { ok: true, items })
+    return true
+  }
+
   // A PROJEKT IRATAI SZEREPPEL (#530, 2. fazis): forras / hivatkozas / kapcsolodo. Az irat az
   // Eletfaban marad, a projekt csak hivatkozik ra; az eltavolitas a kapcsolatot szunteti meg.
   if (path === '/api/workbench/project-docs' && method === 'GET') {
