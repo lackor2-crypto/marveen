@@ -4,7 +4,8 @@
 // #661: the list may carry a SUGGESTED target per file (the inbox sorter's rules: whose, which area, which case), but it
 // is only a suggestion: nothing moves until the owner approves the list, and a row without a target is not moved.
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { ProjectRow } from './projects.js'
 import { getDb } from './db.js'
@@ -421,6 +422,20 @@ function leaveLinkBehind(oldRel: string, newRel: string, name: string): boolean 
   } catch { return false }
 }
 
+/** A file of the same name in the target folder: 'same' (identical bytes), 'different', or null (no clash). */
+function sameNameInTarget(rel: string, target: string, name: string): 'same' | 'different' | null {
+  try {
+    const src = resolveLifePath(rel)
+    const dir = resolveLifePath(target)
+    if (!src || !dir) return null
+    const dst = join(dir, name)
+    if (!existsSync(dst) || !statSync(dst).isFile() || !statSync(src).isFile()) return null
+    if (statSync(dst).size !== statSync(src).size) return 'different'
+    const h = (f: string): string => createHash('sha256').update(readFileSync(f)).digest('hex')
+    return h(src) === h(dst) ? 'same' : 'different'
+  } catch { return null }
+}
+
 /**
  * Moves the approved rows. Only files that are CURRENT 'move' candidates of this plan move (a rel the owner's list did
  * not contain is refused), and moveLife never overwrites: a name clash comes back as a message, not a silent rename.
@@ -446,8 +461,25 @@ export function moveItemFilesToLife(project: ProjectRow, item: PlanItem, rows: u
       continue
     }
     ensureExtraFolderOnce(target)
-    const m = moveLife(rel, target, lang as any)
-    const out: LifeMoveOutcome = { rel, target, ok: m.ok, new_rel: m.ok ? m.rel : '', message: m.ok ? '' : m.message }
+    // Boss TG 3686: a file of the same name already stands there. The same bytes: the project copy is the duplicate, it
+    // goes to the Trash (restorable) and a link to the one in the Life tree stays. Other bytes: nothing is overwritten
+    // and nothing is lost, the file moves as "name (2)" and the owner decides which one is current. Either way the
+    // physical file leaves the project and a link stays.
+    const clash = sameNameInTarget(rel, target, cand.name)
+    if (clash === 'same') {
+      const dest = `${target}/${cand.name}`
+      const t = trashLife(rel, lang as any)
+      const o: LifeMoveOutcome = { rel, target, ok: t.ok, new_rel: t.ok ? dest : '', message: t.ok ? '' : t.message }
+      results.push(o)
+      if (t.ok) {
+        o.link_left = leaveLinkBehind(rel, dest, cand.name)
+        o.message = lang === 'en' ? 'The same file was already there: the project copy went to the Trash and a link stays.' : 'Ugyanez a fájl már ott volt: a projektben lévő másolat a Kukába ment, a helyén link maradt.'
+        if (cand.sent_final && cand.item_id) sentMoved.add(cand.item_id)
+      }
+      continue
+    }
+    const m = moveLife(rel, target, lang as any, clash === 'different' ? { keepBoth: true } : {})
+    const out: LifeMoveOutcome = { rel, target, ok: m.ok, new_rel: m.ok ? m.rel : '', message: m.ok ? (clash === 'different' ? (lang === 'en' ? 'A different file of this name was already there: this one was moved next to it with a number, nothing was overwritten.' : 'Ott már volt egy más tartalmú, ugyanilyen nevű fájl: ez mellé került, számmal, semmi nem íródott felül.') : '') : m.message }
     results.push(out)
     // #741 (Boss TG 4147): the file moved away, but its old place must not go empty: a linked file (#601) stays there.
     if (m.ok) out.link_left = leaveLinkBehind(rel, m.rel, cand.name)
