@@ -9041,6 +9041,7 @@ window._i18n.en = {
   "workbench.lifemove.suggested": "suggested",
   "workbench.lifemove.hint_prefix": "Suggestion:",
   "workbench.lifemove.accept": "Accept",
+  "workbench.file.open_failed": "The file could not be opened. Reload the page and try again.",
   "workbench.lifemove.cancel": "Cancel",
   "workbench.lifemove.go": "Approve and move",
   "workbench.lifemove.failed": "The move did not work. Refresh the page and try again.",

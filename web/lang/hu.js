@@ -9115,6 +9115,7 @@ window._i18n.hu = {
   "workbench.lifemove.suggested": "javaslat",
   "workbench.lifemove.hint_prefix": "Javaslat:",
   "workbench.lifemove.accept": "Elfogadom",
+  "workbench.file.open_failed": "A fájlt nem sikerült megnyitni. Frissítsd az oldalt, és próbáld újra.",
   "workbench.lifemove.cancel": "Mégse",
   "workbench.lifemove.go": "Jóváhagyom és áthelyezem",
   "workbench.lifemove.failed": "Nem sikerült a költöztetés. Frissítsd az oldalt, és próbáld újra.",

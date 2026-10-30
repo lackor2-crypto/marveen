@@ -24126,15 +24126,56 @@
     var a = e.target.closest('a[data-wb-open-rel]')
     if (!a) return
     var rel = a.getAttribute('data-wb-open-rel') || ''
-    if (!WB_OPEN_LOCAL.test(rel) || typeof window._openOnMachine !== 'function' || !window._openOnMachineHere()) return
+    if (a.hasAttribute('data-wb-no-local') || !WB_OPEN_LOCAL.test(rel) || typeof window._openOnMachine !== 'function' || !window._openOnMachineHere()) return
     e.preventDefault()
     window.showToast(t('intezo.open_local_opening', { name: baseOf(rel) }))
     window._openOnMachine(rel).then(function (r) {
       if (r.ok) { window.showToast(t('intezo.open_local_done', { name: baseOf(rel) })); return }
       // It could not be opened here: say why, and fall back to what the link did before.
       window.showToast(r.message || t('intezo.open_local_failed'))
-      window.open(a.getAttribute('href'), '_blank', 'noopener')
+      a.setAttribute('data-wb-no-local', '1')
+      a.click()
     })
+  })
+
+  // A plain link to /api/life/file carries no Authorization header: a browser without a sign-in session cookie got
+  // {"error":"Unauthorized"} in the new tab (Boss, 2026-10-30, a project file row). So the click fetches the bytes with the
+  // page's own auth (the fetch wrapper attaches the token) and hands the browser a blob, as the Drive download does.
+  document.addEventListener('click', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
+    var a = e.target.closest('a[href^="/api/life/file"]')
+    if (!a || a.hasAttribute('data-wb-raw-link')) return
+    var href = a.getAttribute('href') || ''
+    var m = /[?&]rel=([^&]*)/.exec(href)
+    var name = baseOf(m ? decodeURIComponent(m[1]) : 'file')
+    var download = /[?&]download=1/.test(href)
+    e.preventDefault()
+    var tab = null
+    if (!download) { try { tab = window.open('', '_blank') } catch (_e) { tab = null } }
+    var fail = function (msg) {
+      if (tab) { try { tab.close() } catch (_e) { /* already closed */ } }
+      window.showToast(msg || t('workbench.file.open_failed'))
+    }
+    fetch(href).then(function (res) {
+      if (!res.ok) {
+        return res.json().then(function (j) { fail((j && j.message) || t('workbench.file.open_failed')) }, function () { fail() })
+      }
+      return res.blob().then(function (blob) {
+        var url = URL.createObjectURL(blob)
+        if (download || !tab) {
+          var d = document.createElement('a')
+          d.href = url
+          d.download = name
+          document.body.appendChild(d)
+          d.click()
+          document.body.removeChild(d)
+        } else {
+          tab.location.href = url
+        }
+        setTimeout(function () { URL.revokeObjectURL(url) }, 120000)
+      })
+    }).catch(function () { fail(t('workbench.err.network')) })
   })
 
   // #530: the role of a project document is changed in place, with its select.
