@@ -281,10 +281,12 @@ export function listProjects(opts: { includeArchived?: boolean } = {}): ProjectW
   const db = getDb()
   const hasKanban = hasTable('kanban_cards')
   const hasComments = hasTable('kanban_comments')
-  const hasTodos = hasTable('work_item_todos')
+  const hasTodos = hasTable('work_item_todos') && hasTable('work_items')
   const now = new Date()
   const urgentLimit = localDayString(new Date(now.getFullYear(), now.getMonth(), now.getDate() + URGENT_DAYS))
-  const urgentWhere = `t.project_id = p.id AND t.done_at IS NULL AND t.due_date IS NOT NULL AND t.due_date <= ?`
+  // A to-do of a work item in the Trash (or of one that no longer exists) is not the owner's to-do any more.
+  const urgentWhere = `t.project_id = p.id AND t.done_at IS NULL AND t.due_date IS NOT NULL AND t.due_date <= ?
+     AND EXISTS (SELECT 1 FROM work_items w WHERE w.id = t.work_item_id AND w.deleted_at IS NULL)`
   const rows = db.prepare(
     `SELECT p.*,
        ${hasKanban ? `(SELECT COUNT(*) FROM kanban_cards k WHERE k.project = p.id AND k.archived_at IS NULL AND k.status != 'done')` : '0'} AS open_cards,

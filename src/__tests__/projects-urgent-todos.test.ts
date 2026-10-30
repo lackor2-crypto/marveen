@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, listProjects, URGENT_DAYS } from '../projects.js'
 import { addTodo } from '../workbench-todos.js'
-import { createWorkItem } from '../workbench.js'
+import { createWorkItem, setWorkItemDeleted } from '../workbench.js'
 
 function day(offset: number): string {
   const d = new Date()
@@ -46,6 +46,27 @@ describe('urgent to-dos per project', () => {
     const p = listProjects().find((x) => x.id === r.project.id)!
     expect(p.urgent_todos).toBe(3)
     expect(p.urgent_next_due).toBe(day(-9))
+  })
+})
+
+describe('urgent to-dos follow a deleted work item', () => {
+  it('stops counting the to-dos of a work item moved to the Trash, and counts them again on restore', () => {
+    const r = createProject({ name: 'Hivatal' })
+    if (!r.ok) throw new Error(r.code)
+    const mkItem = (folder: string) => {
+      const w = createWorkItem({ project_id: r.project.id, type: 'document', title: folder, folder } as never)
+      if (!w.ok) throw new Error(w.code)
+      return (w as { item: { id: string } }).item.id
+    }
+    const a = mkItem('Munkadarabok/a')
+    const b = mkItem('Munkadarabok/b')
+    for (const id of [a, a, b]) addTodo({ work_item_id: id, text: 'x', due_date: day(-1) })
+    const n = () => listProjects().find((x) => x.id === r.project.id)!.urgent_todos
+    expect(n()).toBe(3)
+    setWorkItemDeleted(a, true)
+    expect(n()).toBe(1)
+    setWorkItemDeleted(a, false)
+    expect(n()).toBe(3)
   })
 })
 
