@@ -193,6 +193,21 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
       for (const r of getDb().prepare('SELECT source_path AS p FROM work_item_versions WHERE work_item_id = ? AND source_path IS NOT NULL').all(id) as { p: string }[]) addOwn(r.p)
     } catch { /* no versions table yet: nothing else is the item's own file */ }
   }
+  // #794 (Boss TG 3612): the list covers the OPEN work item only. Another work item's own folder, even when it sits inside
+  // this item's folder, is that item's business: it is not swept into this move.
+  const baseNorm = base.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const otherItemFolders: string[] = []
+  for (const w of listWorkItems(project.id)) {
+    if (item.id && w.id === item.id) continue
+    for (const raw of [w.folder, w.container_folder]) {
+      const f = String(raw ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+      if (f && f !== baseNorm && f.startsWith(`${baseNorm}/`)) otherItemFolders.push(f)
+    }
+  }
+  const isOtherItemFolder = (sub: string): boolean => {
+    const full = `${baseNorm}/${sub}`
+    return otherItemFolders.some((f) => f === full || f.startsWith(`${full}/`))
+  }
   const take = (dirAbs: string, folder: string, upload = false): void => {
     let names: string[] = []
     try { names = readdirSync(dirAbs) } catch { return }
@@ -213,6 +228,7 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
   for (const sub of subs.sort((a, b) => a.localeCompare(b))) {
     const isUp = UPLOAD_FOLDERS.has(sub.toLowerCase())
     if (sub.startsWith('.') || SKIP_FOLDERS.has(sub.toLowerCase())) continue
+    if (isOtherItemFolder(sub)) continue
     if (container && !roleOfFolderName(sub)) continue
     if (container && (roleOfFolderName(sub) === 'agent' || roleOfFolderName(sub) === 'debate')) continue
     if (isUp ? uploads === 'exclude' : uploads === 'only') continue
@@ -362,7 +378,7 @@ export async function suggestForPlan(project: ProjectRow, item: PlanItem, files:
     const c = content.get(f.rel)
     const outgoing = !!f.sent_final
     if (c && c.suggested_confident && !outgoing) { out.set(f.rel, c); continue }
-    const ctx = contextTarget(project, { title: ownerTitle, folder: item.folder, container_folder: item.container_folder }, f.name, lang)
+    const ctx = contextTarget(project, { title: ownerTitle, folder: item.folder, container_folder: item.container_folder }, f.name, lang, outgoing)
     if (ctx) out.set(f.rel, { suggested_target: ctx.target, suggested_display: ctx.display, suggested_confident: ctx.confident, suggested_why: ctx.why })
     else if (c) out.set(f.rel, c)
   }
