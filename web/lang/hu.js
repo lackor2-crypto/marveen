@@ -9084,6 +9084,8 @@ window._i18n.hu = {
   "workbench.sentask.yes": "Igen, elküldtem",
   "workbench.sentask.no": "Nem, még nem",
   "workbench.sentask.no_done": "Rendben, nincs elküldve. Legközelebb újra rákérdezek.",
+  "workbench.sentask.login_needed": "Az elküldöttnek jelölés csak bejelentkezve megy: ebben a böngészőben nem vagy bejelentkezve. Jelentkezz be (vagy ki, majd újra be) a felületen, és nyomd meg újra az Igent. Ha most nem tudsz, bezárhatod az ablakot, legközelebb újra rákérdezek.",
+  "workbench.sentask.close": "Bezárás (később válaszolok)",
   "workbench.lifemove.blocked_unsent": "nincs elküldve, ezért nem költözik",
   "workbench.lifemove.gate_unsent_other": "Ez az irat (\"{title}\") még nincs elküldve, ezért nem költözik. Ha más úton már elment, jelöld meg itt.",
   "workbench.lifemove.blocked_owner": "nem tudom, melyik munkadarabé, marad",

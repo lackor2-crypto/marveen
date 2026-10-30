@@ -26,9 +26,16 @@ describe('Elküldve-kérdés ablak', () => {
   })
 
   it('mindkét nyelven megvan a szöveg', () => {
-    for (const k of ['title', 'intro_project', 'intro_mail', 'yes', 'no', 'no_done']) {
+    for (const k of ['title', 'intro_project', 'intro_mail', 'yes', 'no', 'no_done', 'login_needed', 'close']) {
       expect(hu).toContain(`"workbench.sentask.${k}"`)
       expect(en).toContain(`"workbench.sentask.${k}"`)
     }
+  })
+
+  it('ha a "Igen" 403-at kap (nincs bejelentkezés), az ablak megmondja az okot és bezárható marad', () => {
+    const fn = js.slice(js.indexOf('function sentAsk('), js.indexOf('function sentAskProject('))
+    expect(fn).toContain('r.status === 403')
+    expect(fn).toContain("t('workbench.sentask.login_needed')")
+    expect(fn).toContain('wb-sentask-close')
   })
 })
