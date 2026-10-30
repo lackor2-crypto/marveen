@@ -197,7 +197,7 @@ export function listProjectTodos(projectId: string): ProjectTodoRow[] {
   ensureWorkbenchTables()
   return getDb().prepare(`SELECT t.*, w.title AS item_title FROM work_item_todos t
     JOIN work_items w ON w.id = t.work_item_id
-    WHERE t.project_id = ?
+    WHERE t.project_id = ? AND w.deleted_at IS NULL
     ORDER BY (t.done_at IS NOT NULL), (t.due_date IS NULL), t.due_date, t.created_at, t.rowid`).all(projectId) as ProjectTodoRow[]
 }
 

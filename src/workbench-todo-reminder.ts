@@ -157,6 +157,7 @@ export function dueReminders(now = new Date(), settings = getReminderSettings())
       JOIN projects p ON p.id = t.project_id
       LEFT JOIN work_items w ON w.id = t.work_item_id
      WHERE t.done_at IS NULL
+       AND (w.id IS NULL OR w.deleted_at IS NULL)
        AND t.due_date IS NOT NULL
        AND t.due_date >= ?
        AND t.due_date <= ?
