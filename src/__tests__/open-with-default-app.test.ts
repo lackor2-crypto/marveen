@@ -67,7 +67,9 @@ describe('the page', () => {
 
   it('the download stays as the second way, and a failure falls back to it in the file list', () => {
     expect(app).toContain("dl.textContent = t('intezo.open_local_download')")
-    expect(wb).toContain("window.open(a.getAttribute('href'), '_blank', 'noopener')")
+    // The fallback re-clicks the link with the local way switched off: the click then goes through the authenticated fetch
+    // (a bare window.open carries no Authorization header and answered Unauthorized without a session cookie).
+    expect(wb).toContain("a.setAttribute('data-wb-no-local', '1')")
   })
 
   it('the endpoint goes through the Life-tree boundary and the allowlist, with a sentence for each refusal', () => {
