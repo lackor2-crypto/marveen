@@ -357,7 +357,9 @@ export function lifeMovePlan(project: ProjectRow, item: PlanItem, uploads: LifeM
   const gates: LifeMoveGate[] = []
   const wanted = new Set<string>([me, ...files.map((f) => f.item_id || '')])
   for (const [id, o] of infos) if (wanted.has(id) && id) gates.push({ item_id: id, title: o.title, sent: o.status.sent, how: o.status.how })
-  return { ok: true, folder_rel: base.folder_rel, files, gates }
+  // #794 (Boss TG 3623): the Trash is never part of this move. An older generated version stays where it is: it is neither
+  // listed nor sent to the Trash (the owner cleans up by hand if he wants to).
+  return { ok: true, folder_rel: base.folder_rel, files: files.filter((f) => f.action !== 'trash'), gates }
 }
 
 /**
