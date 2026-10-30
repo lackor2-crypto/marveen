@@ -96,7 +96,7 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
     const by = Object.fromEntries(plan.files.map((f) => [f.name, f]))
     expect(by['Antrag v2.pdf'].action).toBe('move')
     expect(by['Antrag v2.pdf'].sent_final).toBe(true)
-    expect(by['Antrag v1.pdf'].action).toBe('trash')
+    expect(by['Antrag v1.pdf']).toBeUndefined() // #794: an older version is neither listed nor trashed
     expect(by['AOK PLUS elutasito level.pdf'].action).toBe('move')
     expect(by['Sozialamt v1.pdf'].action).toBe('blocked')
     const r = moveItemFilesToLife(project, item, [{ rel: by['Antrag v2.pdf'].rel, target: 'Bakos Éva/Hatóságok/Németország/Sozialamt' }], 'hu', 'include')
@@ -104,8 +104,9 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
     expect(r.results.find((x) => !x.trashed)?.ok).toBe(true)
     expect(existsSync(join(root, 'Bakos Éva', 'Hatóságok', 'Németország', 'Sozialamt', 'Antrag v2.pdf'))).toBe(true)
     const fin = join(root, 'Projektek', 'Nemet', CONT, FIN)
-    expect(readdirSync(fin)).toEqual(['Sozialamt v1.pdf'])
-    expect(readdirSync(join(root, 'Kuka')).length).toBeGreaterThan(0)
+    // #794: the older version stays in place, nothing goes to the Trash
+    expect(readdirSync(fin).sort()).toEqual(['Antrag v1.pdf', 'Sozialamt v1.pdf'])
+    expect(existsSync(join(root, 'Kuka')) ? readdirSync(join(root, 'Kuka')).length : 0).toBe(0)
     expect(sentStatus(b).sent).toBe(false)
   })
 
@@ -144,7 +145,7 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
       .run('as2', b, `Projektek/Nemet/${CONT}/${FIN}/Sozialamt piszkozat.pdf`, 'Sozialamt piszkozat.pdf', 'final', '', 0, 1)
     const plan = lifeMovePlan(project, getWorkItem(b) as any, 'include')
     if (!plan.ok) throw new Error('terv')
-    expect(plan.files.find((x) => x.name === 'Sozialamt piszkozat.pdf')?.action).toBe('trash')
+    expect(plan.files.find((x) => x.name === 'Sozialamt piszkozat.pdf')).toBeUndefined() // #794: never the Trash
   })
 
   // #742: a link whose file is gone proves nothing -- the remaining final must not go to the Trash.
@@ -181,7 +182,7 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
     const plan = lifeMovePlan(project, getWorkItem(b) as any, 'include')
     if (!plan.ok) throw new Error('terv')
     expect(plan.files.find((x) => x.name === 'Sozialamt végleges.pdf')?.action).toBe('move')
-    expect(plan.files.find((x) => x.name === 'Sozialamt előnézet.pdf')?.action).toBe('trash')
+    expect(plan.files.find((x) => x.name === 'Sozialamt előnézet.pdf')).toBeUndefined() // #794: never the Trash
   })
 
   it('rögzített küldés: AZ megy, amelyik tényleg elment, még ha nem a legújabb', () => {
@@ -193,7 +194,7 @@ describe('Költöztetés: csak az elküldött irat, csak az elküldött verzió'
     if (!plan.ok) throw new Error('terv')
     const by = Object.fromEntries(plan.files.map((f) => [f.name, f]))
     expect(by['Antrag v1.pdf'].action).toBe('move')
-    expect(by['Antrag v2.pdf'].action).toBe('trash')
+    expect(by['Antrag v2.pdf']).toBeUndefined() // #794: never the Trash
   })
 
   // #747: a document sent more than once: EVERY version that went out is a sent version; only the never-sent ones go to the Trash.

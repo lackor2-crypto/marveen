@@ -62,7 +62,7 @@ describe('#748: a munkadarab saját fájlja nem költöztetési jelölt', () => 
     expect(names).not.toContain('Level.xlsx')
     expect(names).not.toContain('marveen-item.json')
     expect(names).not.toContain('Level.canvas.json')
-    expect(plan.files.filter((f) => f.action === 'trash').map((f) => f.name)).toEqual(['Level v1.pdf'])
+    expect(plan.files.filter((f) => f.action === 'trash')).toEqual([])
   })
 
   it('ugyanez, ha a source_path Eletfa-relativ (megnyitas utan ezt tarolja a munkadarab)', () => {
@@ -73,7 +73,7 @@ describe('#748: a munkadarab saját fájlja nem költöztetési jelölt', () => 
     const plan = lifeMovePlan(project, getWorkItem(id) as any, 'include')
     if (!plan.ok) throw new Error('terv')
     expect(plan.files.map((f) => f.name)).not.toContain('Level.xlsx')
-    expect(plan.files.filter((f) => f.action === 'trash').map((f) => f.name)).toEqual(['Level v1.pdf'])
+    expect(plan.files.filter((f) => f.action === 'trash')).toEqual([])
   })
 })
 
@@ -112,9 +112,7 @@ describe('#748: a közös mappa testvér-munkadarabjának saját fájlja sem kö
     const plan = lifeMovePlan(getProject(p.project.id) as any, getWorkItem(a) as any, 'include')
     if (!plan.ok) throw new Error('terv')
     expect(plan.files.map((f) => f.name)).not.toContain('Testver.xlsx')
-    // exactly one older generated PDF goes to the Trash (which one depends on the mtimes), never the content file
-    const trashed = plan.files.filter((f) => f.action === 'trash').map((f) => f.name)
-    expect(trashed).toHaveLength(1)
-    expect(trashed[0]).toMatch(/^Testver v\d\.pdf$/)
+    // #794: the Trash is never part of the move: an older generated PDF is neither listed nor trashed
+    expect(plan.files.filter((f) => f.action === 'trash')).toEqual([])
   })
 })
