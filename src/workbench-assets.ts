@@ -1559,6 +1559,16 @@ export function ensureAllAttachmentsFolders(): { items: number } {
       if (!folder) continue
       try { const it = getWorkItem(id); if (it) provisionStandardFolders(p, it, folder); noteItemStandardFoldersSeen(p, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
     }
+    // #794: an own-file item has no folder of its own (folder IS NULL), its files sit in a container folder that already
+    // got the other standard folders. The sixth ("Kiváltó irat") is topped up there too; a deleted one stays deleted.
+    const plain = getDb().prepare("SELECT DISTINCT container_folder AS cf FROM work_items WHERE project_id = ? AND (folder IS NULL OR folder = '') AND deleted_at IS NULL AND container_folder IS NOT NULL AND container_folder != ''").all(p.id) as { cf: string }[]
+    for (const { cf } of plain) {
+      if (cf === PROJECT_ROOT_PLACE) continue
+      try {
+        const hasStd = ['Mellékletek', 'Attachments'].some(n => projectFileTarget(p, `${cf}/${n}`).ok)
+        if (hasStd) { triggerFolderFor(p, cf); noteItemStandardFoldersSeen(p, cf); items++ }
+      } catch { /* best effort */ }
+    }
   }
   return { items }
 }
