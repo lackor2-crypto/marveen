@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { logger } from '../logger.js'
-import { MAIN_AGENT_ID, PROJECT_ROOT, RESPAWN_ENABLED, APP_TZ } from '../config.js'
+import { MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, RESPAWN_ENABLED, APP_TZ } from '../config.js'
 import { makeLazyBinResolver } from '../platform.js'
 import { listAgentNames } from './agent-config.js'
 import { isAgentRunning, capturePane, startAgentProcess } from './agent-process.js'
@@ -149,6 +150,38 @@ export function decideReauthAction(input: ReauthHealerInput, t: ReauthHealerThre
 function hostCanInteractiveLogin(): boolean {
   if (process.platform === 'darwin') return true
   return Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY)
+}
+
+
+// -- Alert-once memory (owner 2026-10-30: "elég egyszer, és soha többet amíg a
+// bejelentkezés meg nem történik") ---------------------------------------------
+// The in-memory cooldown above was reset by every dashboard restart (each deploy)
+// and by a single clean probe (pane scrolled / status flapping), so the same dead
+// token was re-announced every ~20-30 min. The "already told the owner" mark now
+// lives on disk and is cleared only after the agent has looked healthy for
+// ALERT_CLEAR_AFTER_MS without a single dead probe in between.
+export const ALERT_CLEAR_AFTER_MS = 30 * 60 * 1000
+export interface AlertedEntry { alertedAtMs: number; lastDeadAtMs: number }
+export type AlertedMap = Record<string, AlertedEntry>
+const ALERTED_FILE = join(STORE_DIR, 'reauth-alerted.json')
+
+export function readAlerted(): AlertedMap {
+  try { return existsSync(ALERTED_FILE) ? JSON.parse(readFileSync(ALERTED_FILE, 'utf8')) as AlertedMap : {} } catch { return {} }
+}
+function writeAlerted(m: AlertedMap): void {
+  try { writeFileSync(ALERTED_FILE, JSON.stringify(m)) } catch (err) { logger.debug({ err }, 'reauth-healer: alerted-file write failed') }
+}
+
+/** Pure: next alerted map after one probe. Dead keeps/extends the mark; clean drops it only after a long quiet spell. */
+export function nextAlerted(m: AlertedMap, session: string, isDead: boolean, nowMs: number): AlertedMap {
+  const e = m[session]
+  if (!e) return m
+  if (isDead) return { ...m, [session]: { ...e, lastDeadAtMs: nowMs } }
+  if (nowMs - e.lastDeadAtMs >= ALERT_CLEAR_AFTER_MS) {
+    const { [session]: _gone, ...rest } = m
+    return rest
+  }
+  return m
 }
 
 const watchState = new Map<string, ReauthHealerState>()
@@ -352,9 +385,17 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
   // The reasons produced by the two first-run-gate markers in reauth-detect.
   const isFirstRunGate = /onboarding picker|sign-in screen/i.test(reauth.reason ?? '')
 
+  const nowMs = Date.now()
+  const alertedBefore = readAlerted()
+  const isDeadNow = reauth.needsReauth && sessionAlive
+  const alertedNext = nextAlerted(alertedBefore, session, isDeadNow, nowMs)
+  if (alertedNext !== alertedBefore) writeAlerted(alertedNext)
+  // Owner was already told and the token never looked healthy since: stay silent.
+  const alreadyAlerted = !!alertedNext[session]
+
   const decision = decideReauthAction(
-    { isDeadToken: reauth.needsReauth, sessionAlive, isMain, canInteractiveLogin: hostCanInteractiveLogin(), isFirstRunGate, prev, nowMs: Date.now() },
-    { threshold: DEAD_PROBE_THRESHOLD, cooldownMs: ESCALATION_COOLDOWN_MS },
+    { isDeadToken: reauth.needsReauth, sessionAlive, isMain, canInteractiveLogin: hostCanInteractiveLogin(), isFirstRunGate, prev, nowMs },
+    { threshold: DEAD_PROBE_THRESHOLD, cooldownMs: alreadyAlerted ? Number.POSITIVE_INFINITY : ESCALATION_COOLDOWN_MS },
   )
 
   if (decision.next.consecutiveDead === 0) {
@@ -383,11 +424,16 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
     }
     if (hold === 'quota') {
       logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: dead-token escalation held back -- the agent is out of quota (cannot work until the window resets)')
-    } else routeEscalation(
-      { session, label, reason: reauth.reason ?? 'auth failure', consecutiveDead: decision.next.consecutiveDead },
-      quiet,
-      sendNotify,
-    )
+    } else {
+      routeEscalation(
+        { session, label, reason: reauth.reason ?? 'auth failure', consecutiveDead: decision.next.consecutiveDead },
+        quiet,
+        sendNotify,
+      )
+      // Mark as told (a quiet-hours suppression is told in the morning summary, so it counts too).
+      const m = readAlerted()
+      writeAlerted({ ...m, [session]: { alertedAtMs: nowMs, lastDeadAtMs: nowMs } })
+    }
     // A genuine 401 family failure while a fleet token exists: probe that token
     // once and quarantine it if the probe proves it dead (server-side
     // revocation). Without this there is NO recovery path -- every new launch
