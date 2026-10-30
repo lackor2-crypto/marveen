@@ -4981,7 +4981,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const c = lifeMovePlan(owner, item, url.searchParams.get('scope') === 'uploads' ? 'only' : 'include')
       if (!c.ok) return fail(res, 404, 'life_move_no_folder', lang)
       const sug = await suggestForPlan(owner, item, c.files, lang)
-      json(res, { ok: true, files: c.files.map((f) => ({ ...f, ...(sug.get(f.rel) || {}) })), folder_rel: c.folder_rel, gates: c.gates })
+      json(res, { ok: true, files: c.files.map((f) => ({ ...f, ...(sug.get(f.rel) || {}) })), folder_rel: c.folder_rel, gates: c.gates, item_title: String(item.title ?? ''), item_folder: String(item.folder || item.container_folder || '') })
       return true
     }
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)

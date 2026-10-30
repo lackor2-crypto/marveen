@@ -16079,6 +16079,7 @@
     overlay.innerHTML = '<div class="modal-content" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column;padding:18px">'
       + '<h3 style="margin:0 0 4px;flex:none">' + esc(t(upOnly ? 'workbench.lifemove.up_title' : 'workbench.lifemove.title')) + '</h3>'
       + '<p class="subtitle" style="margin:0 0 8px;flex:none">' + esc(t(opts && opts.annex ? 'workbench.lifemove.annex_help' : upOnly ? 'workbench.lifemove.up_help' : 'workbench.lifemove.help')) + '</p>'
+      + '<div id="wbLifeMoveScope" class="wb-lifemove-scope" style="flex:none;margin:0 0 8px;padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.12);font-size:13px" hidden></div>'
       + '<div id="wbLifeMoveList" class="wb-lifemove-list" style="flex:1 1 auto;min-height:0;overflow-y:auto"><p class="wb-muted">' + esc(t('workbench.lifemove.loading')) + '</p></div>'
       + '<div style="text-align:right;margin-top:10px;flex:none"><button type="button" class="btn-secondary" id="wbLifeMoveClose">' + esc(t(upOnly ? 'workbench.lifemove.later' : 'workbench.lifemove.cancel')) + '</button> '
       + '<button type="button" class="btn-primary" id="wbLifeMoveGo" disabled>' + esc(t('workbench.lifemove.go')) + '</button></div>'
@@ -16194,6 +16195,12 @@
         if (!r.ok) { list.innerHTML = ''; var p = document.createElement('p'); p.className = 'wb-error'; p.textContent = r.message || t('workbench.lifemove.failed'); list.appendChild(p); return }
         files = (r.data && r.data.files) || []
         gates = (r.data && r.data.gates) || []
+        // #794 (Boss TG 3633): say whose files these are, so nobody thinks the whole project was moved.
+        var scopeBox = overlay.querySelector('#wbLifeMoveScope')
+        if (scopeBox && r.data && r.data.item_title) {
+          scopeBox.textContent = t('workbench.lifemove.scope', { title: r.data.item_title, folder: r.data.item_folder || '-' })
+          scopeBox.hidden = false
+        }
         target = {}
         // Every place the sorter found is pre-filled (the owner still approves the whole list); an unsure one is shown in red.
         files.forEach(function (f) { if (f.action === 'move' && f.suggested_target) target[f.rel] = f.suggested_target })
