@@ -9098,6 +9098,7 @@ window._i18n.hu = {
   "workbench.lifemove.btn": "Költöztetés az Életfába",
   "workbench.lifemove.hint": "Megmutatja a munkadarab mappájának fájljait; te adod meg, melyik hova menjen az Életfában, jóváhagyod, és csak utána mozgatja át. A munkadarab az áthelyezett fájlt továbbra is eléri (link marad), másolat nem készül.",
   "workbench.lifemove.title": "Költöztetés az Életfába",
+  "workbench.lifemove.scope": "Csak ennek a munkadarabnak a fájljait költöztetjük: „{title}”, mappája: {folder}. Csak az e mappa alatti dolgok szerepelnek a listán. Ha másik munkadarab fájljait szeretnéd az Életfába költöztetni, zárd be ezt az ablakot, kattints arra a munkadarabra (így annak a mappájában vagy), és ott indítsd újra a költöztetést.",
   "workbench.lifemove.help": "Soronként javaslom, melyik fájl melyik Életfa-mappába kerüljön (ahol biztos vagyok benne, előre kitöltöm; ahol nem, csak javaslatot írok, amit egy gombbal elfogadhatsz). Át is állíthatod. Amelyik sornak nincs célmappája, az a helyén marad. A gomb megnyomása a jóváhagyás: semmit nem írok felül, névütközésnél nem mozgatom.",
   "workbench.lifemove.loading": "Betöltöm a fájlokat...",
   "workbench.lifemove.empty": "Nincs a mappában áthelyezhető fájl (a Verziók, a Kontextus és a Teendő fájl nem számít bele).",

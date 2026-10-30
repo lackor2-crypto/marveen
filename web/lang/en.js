@@ -9024,6 +9024,7 @@ window._i18n.en = {
   "workbench.lifemove.btn": "Move to the Life tree",
   "workbench.lifemove.hint": "Shows the files in the work item's folder; you choose where each goes in the Life tree, approve, and only then it moves them. The work item still reaches a moved file (a link stays), no copy is made.",
   "workbench.lifemove.title": "Move to the Life tree",
+  "workbench.lifemove.scope": "Only the files of this work item are being moved: \"{title}\", folder: {folder}. Only what is under this folder is listed. To move the files of another work item to the Life tree, close this window, click that work item (so you are in its folder) and start the move there.",
   "workbench.lifemove.help": "Row by row I suggest which Life tree folder each file goes to (pre-filled where I am sure; where I am not, it is only a hint you can accept with one button). You can change any of them. A row without a target folder stays where it is. Pressing the button is the approval: nothing is overwritten, and a name clash is not moved.",
   "workbench.lifemove.loading": "Loading the files...",
   "workbench.lifemove.empty": "There is no movable file in the folder (Versions, the Context and To do files do not count).",
