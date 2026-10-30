@@ -16,6 +16,7 @@ import { listFinals } from './workbench-docfinal.js'
 import { sentStatus, sentVersionIds, type SentStatus } from './workbench-docsent.js'
 import { roleOfFolderName } from './workbench-misplaced.js'
 import { contextTarget } from './workbench-life-context.js'
+import { ensureExtraFolderOnce } from './workbench-life-case.js'
 import { analyzeInboxItem, buildLearnedIndex, prefetchItem, sniffType } from './life-inbox-analyze.js'
 import { credentialRisk } from './life-inbox.js'
 import { lifeName, loadLifeConfig } from './life-tree.js'
@@ -372,17 +373,34 @@ export async function suggestForPlan(project: ProjectRow, item: PlanItem, files:
   // A blocked file (document not sent yet) gets its suggestion too, so the owner can see where it WOULD go.
   const movable = files.filter((f) => f.action !== 'trash')
   const content = await suggestLifeTargets(movable, lang)
+  const texts = await readFileTexts(movable)
   const out = new Map<string, LifeMoveSuggestion & { suggested_why?: string }>()
-  const titleOf = new Map<string, string>()
   for (const f of movable) {
     const ownerTitle = f.item_title || String(item.title ?? '')
-    titleOf.set(f.rel, ownerTitle)
     const c = content.get(f.rel)
     const outgoing = !!f.sent_final
-    if (c && c.suggested_confident && !outgoing) { out.set(f.rel, c); continue }
-    const ctx = contextTarget(project, { title: ownerTitle, folder: item.folder, container_folder: item.container_folder }, f.name, lang, outgoing)
-    if (ctx) out.set(f.rel, { suggested_target: ctx.target, suggested_display: ctx.display, suggested_confident: ctx.confident, suggested_why: ctx.why })
+    // #794 (Boss TG 3638): the authority/case the work item belongs to decides first (everything of a Wohngeld request goes
+    // under the Wohngeldbehörde), and the file's own words are part of that decision. The content-only guess ("Legal") is
+    // used only when the context finds nothing, or is unsure while the content guess is sure.
+    const ctx = contextTarget(project, { title: ownerTitle, folder: item.folder, container_folder: item.container_folder }, f.name, lang, { outgoing, text: texts.get(f.rel) || '' })
+    if (ctx && (ctx.confident || !(c && c.suggested_confident))) out.set(f.rel, { suggested_target: ctx.target, suggested_display: ctx.display, suggested_confident: ctx.confident, suggested_why: ctx.why })
     else if (c) out.set(f.rel, c)
+  }
+  return out
+}
+
+/** The words each file really contains (docx / pdf text, OCR when it is set up), cut short; '' when nothing could be read. */
+async function readFileTexts(files: LifeMoveCandidate[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const until = Date.now() + SUGGEST_BUDGET_MS
+  for (const f of files.slice(0, MAX_SUGGESTED)) {
+    if (Date.now() > until) break
+    try {
+      const abs = resolveLifePath(f.rel)
+      if (!abs || credentialRisk(f.name, 'hu')) continue
+      const pre = await prefetchItem(sniffType(abs), abs)
+      if (pre.content.text) out.set(f.rel, pre.content.text.slice(0, 6000))
+    } catch { /* no words from this file */ }
   }
   return out
 }
@@ -427,6 +445,7 @@ export function moveItemFilesToLife(project: ProjectRow, item: PlanItem, rows: u
         : (lang === 'en' ? 'This file is not on the list (any more) or has no target.' : 'Ez a fájl nincs (már) a listán, vagy nincs célmappája.') })
       continue
     }
+    ensureExtraFolderOnce(target)
     const m = moveLife(rel, target, lang as any)
     const out: LifeMoveOutcome = { rel, target, ok: m.ok, new_rel: m.ok ? m.rel : '', message: m.ok ? '' : m.message }
     results.push(out)
