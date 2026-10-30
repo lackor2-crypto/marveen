@@ -16258,12 +16258,16 @@
         var bad = res.filter(function (x) { return !x.ok })
         // #749: the file moved but no linked file could be left at its old place
         var nolink = res.filter(function (x) { return x.ok && !x.trashed && x.link_left === false })
+        // Boss TG 3697: say what really happened to a file that met a same-name file (copy to the Trash, link stays).
+        var notes = []
+        res.forEach(function (x) { if (x.ok && !x.trashed && x.message && notes.indexOf(x.message) < 0) notes.push(x.message) })
         close()
         var afterMove = opts && opts.onMoved ? Promise.resolve(opts.onMoved(res)).catch(function () {}) : Promise.resolve()
         afterMove.then(function () { if (WB.selectedId === id) loadDetail(id); refreshTree() })
         window.showToast((okN || !trashN ? t('workbench.lifemove.done', { n: okN }) : '') + (trashN ? ' ' + t('workbench.lifemove.trashed', { n: trashN }) : '') + (bad.length ? ' ' + t('workbench.lifemove.some_failed', { n: bad.length, why: bad[0].message || '' }) : '')
           + (r.data && r.data.relinked ? ' ' + t('workbench.lifemove.relinked', { n: r.data.relinked }) : '')
-          + (nolink.length ? ' ' + t('workbench.lifemove.no_link', { n: nolink.length }) : ''))
+          + (nolink.length ? ' ' + t('workbench.lifemove.no_link', { n: nolink.length }) : '')
+          + (notes.length ? ' ' + notes.join(' ') : ''))
         if (WB.selectedId === id) loadDetail(id); else render()
         // Boss TG 4486: the left tree shows the moved file as a link at once, not after F5.
         refreshTree()
