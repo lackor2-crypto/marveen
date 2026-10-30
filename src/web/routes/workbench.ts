@@ -2588,6 +2588,13 @@ function isOwnerClick(ctx: RouteContext): boolean {
   return ctx.auth?.kind === 'session'
 }
 
+/** A click made on the dashboard page itself, by a browser that holds only the dashboard token (no sign-in session): the
+ *  browser stamps `Sec-Fetch-Site: same-origin` on it and a script or an agent's curl does not. Used where the owner's own
+ *  answer is wanted ("Was it sent?") and the page may be open in token mode. */
+function isBrowserPageClick(ctx: RouteContext): boolean {
+  return ctx.auth?.kind === 'token' && String(ctx.req.headers['sec-fetch-site'] || '').toLowerCase() === 'same-origin'
+}
+
 function actor(ctx: RouteContext): string | null {
   const a = ctx.auth
   if (!a) return null
@@ -4995,7 +5002,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 2 && segs[1] === 'sent-mark' && method === 'POST') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+    if (!(isOwnerClick(ctx) || isBrowserPageClick(ctx))) return fail(res, 403, 'outline_owner_only', lang)
     const body = await readJson(req)
     if (body && body['sent'] === false) unmarkSentManually(item.id)
     else markSentManually(item.id, actor(ctx))

@@ -38,4 +38,11 @@ describe('Elküldve-kérdés ablak', () => {
     expect(fn).toContain("t('workbench.sentask.login_needed')")
     expect(fn).toContain('wb-sentask-close')
   })
+
+  it('a sent-mark a dashboard-oldalról jövő (same-origin böngészős) tokenes kattintást is elfogadja, curl-t nem', () => {
+    const i = routes.indexOf("segs[1] === 'sent-mark'")
+    const route = routes.slice(i, i + 900)
+    expect(route).toContain('isOwnerClick(ctx) || isBrowserPageClick(ctx)')
+    expect(routes).toContain("sec-fetch-site")
+  })
 })
