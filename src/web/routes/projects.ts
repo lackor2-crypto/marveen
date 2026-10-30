@@ -67,9 +67,10 @@ import { suggestPlacement } from '../../project-file-placement.js'
 import { projectContents, parseMoveItems, moveItemsBetweenProjects, mergeProjectInto, deleteProjectWithContents } from '../../project-move.js'
 import { isVFolderKind, listVFolders, createVFolder, renameVFolder, deleteVFolder, assignVFolder, suggestVFolders, applyVFolderPlan, forgetProjectVFolders } from '../../project-vfolders.js'
 import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
+import { currentAvailability } from '../agent-availability-watch.js'
 import { resolveCardRefs } from '../card-work-guard.js'
 import {
-  createStarterCard, isScopeType, projectScopeMap, isRequestKind, projectRequestMessage, researchObjectId,
+  createStarterCard, isScopeType, projectScopeMap, isRequestKind, projectRequestMessage, pickRequestAgent, researchObjectId,
   researchProject, debateProject,
 } from '../../project-scope.js'
 import { researchFilePath } from './research.js'
@@ -622,9 +623,12 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     if (!isRequestKind(body.kind)) return fail(res, 400, 'bad_request_kind', lang)
     const text = String(body.text ?? '').trim().slice(0, 8000)
     if (!text) return fail(res, 400, 'request_text_required', lang)
-    const msg = createAgentMessage(OWNER_DASHBOARD_SENDER, MAIN_AGENT_ID, projectRequestMessage(project, body.kind, text, lang))
-    logger.info({ id, kind: body.kind, messageId: msg.id }, '[projects] keres a fo agensnek a projektbol')
-    json(res, { ok: true, messageId: msg.id, agent: MAIN_AGENT_ID })
+    let avail: Array<{ agent: string; available: boolean }> = []
+    try { avail = currentAvailability() } catch { /* fail-open: fall back to the main agent */ }
+    const target = pickRequestAgent(avail, MAIN_AGENT_ID)
+    const msg = createAgentMessage(OWNER_DASHBOARD_SENDER, target, projectRequestMessage(project, body.kind, text, lang))
+    logger.info({ id, kind: body.kind, messageId: msg.id, agent: target }, '[projects] keres az elerheto agensnek a projektbol')
+    json(res, { ok: true, messageId: msg.id, agent: target })
     return true
   }
 

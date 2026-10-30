@@ -149,6 +149,21 @@ export function isRequestKind(v: unknown): v is ProjectRequestKind {
  * szolo szoveg (a valaszt a tulajdonos nyelven adja). A jeloles modjat PONTOSAN
  * megmondja -- ettol lesz az eredmeny magatol a projekte.
  */
+/**
+ * Who carries out a project request. The owner never addresses a particular
+ * agent: whoever is online right now does it. The main agent is preferred only
+ * when it is itself available; when nobody is, the main agent still gets the
+ * message (it is delivered the moment that agent wakes).
+ */
+export function pickRequestAgent(
+  agents: ReadonlyArray<{ agent: string; available: boolean }>,
+  mainAgentId: string,
+): string {
+  const up = agents.filter((a) => a.available)
+  if (up.some((a) => a.agent === mainAgentId)) return mainAgentId
+  return up.length ? up[0].agent : mainAgentId
+}
+
 export function projectRequestMessage(p: ProjectRow, kind: ProjectRequestKind, text: string, lang: 'hu' | 'en'): string {
   const head = `[PROJECT REQUEST from the dashboard] Project "${p.name}" (id ${p.id}).`
   const langLine = `Answer the owner in ${lang === 'en' ? 'English' : 'Hungarian'}.`
