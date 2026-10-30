@@ -96,7 +96,7 @@ const STORE_DEPOT_CONFIG = [
   // forget every 'deleted in the cloud' mark the owner has not dismissed yet.
   'cloud-seen.json',
   'life-tree.json', 'life-tree-created.json', 'life-mounts.json', 'life-labels.json',
-  'life-archived.json', 'life-physical.json', 'storages.json', 'drive-sync.json', 'git-sync.json',
+  'life-archived.json', 'life-case-extra.json', 'life-physical.json', 'storages.json', 'drive-sync.json', 'git-sync.json',
   'drive-skiplist.json', 'mirror-migrated.json',
   // #764: the public app pages the owner asked to watch (and the last number seen on each).
   'app-page-watch.json',

@@ -16131,6 +16131,16 @@
       if (unsentGate(id)) list.appendChild(gateBox(id, t('workbench.lifemove.gate_unsent')))
       if (!files.length) { var em = document.createElement('p'); em.className = 'wb-muted'; em.textContent = t('workbench.lifemove.empty'); list.appendChild(em); return }
       var lastGroup = ''
+      // One column header instead of a "(suggested)" tag on every row.
+      if (files.some(function (x) { return x.action !== 'trash' && x.action !== 'blocked' })) {
+        var hd = document.createElement('div')
+        hd.className = 'wb-lifemove-head wb-muted'
+        hd.style.cssText = 'display:flex;gap:8px;font-weight:600;padding:2px 0;border-bottom:2px solid var(--border,#ddd);flex-wrap:wrap'
+        var h1 = document.createElement('span'); h1.style.cssText = 'flex:1 1 220px;min-width:0'; h1.textContent = t('workbench.lifemove.col_file')
+        var h2 = document.createElement('span'); h2.style.cssText = 'flex:1 1 200px;min-width:0'; h2.textContent = t('workbench.lifemove.col_target')
+        hd.appendChild(h1); hd.appendChild(h2)
+        list.appendChild(hd)
+      }
       files.forEach(function (f, i) {
         if (f.group === 'other' && lastGroup !== 'other:' + f.item_id) {
           var h = document.createElement('div'); h.style.cssText = 'font-weight:600;margin:10px 0 2px'
@@ -16161,7 +16171,7 @@
         var unsure = !!(f.suggested_target && f.suggested_confident === false)
         var showTo = function () {
           var tg = target[f.rel]
-          to.textContent = tg ? '→ ' + (tg === f.suggested_target ? (f.suggested_display || tg) + ' (' + t('workbench.lifemove.suggested') + ')' : tg) : t('workbench.lifemove.no_target')
+          to.textContent = tg ? '→ ' + (tg === f.suggested_target ? (f.suggested_display || tg) : tg) : t('workbench.lifemove.no_target')
           // An unsure place is pre-filled but red until the owner has looked at it (picked it again or accepted it).
           var red = unsure && tg === f.suggested_target && !f._seen
           to.style.color = red ? '#b00020' : ''

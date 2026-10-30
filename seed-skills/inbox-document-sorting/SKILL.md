@@ -89,13 +89,20 @@ a fájl EGÉSZ tartalmát**, ne csak nagyítsd meg vagy nézd a bélyegképét:
 ## Levelezéses ügy (kérelem, hivatali levelezés): mindig HÁROM mappa
 
 {{OWNER_NAME}} szabálya (2026-10-30): ha egy ügyben kérelem és levelezés van (hatóság,
-bank, bíróság, bárki), az ügymappa alatt pontosan három mappa van, SZÁMOZÁS és DÁTUM
+bank, bíróság, bárki), az ügymappa alatt pontosan NÉGY mappa van, SZÁMOZÁS és DÁTUM
 nélkül: `Kérelem` (maga a kérelem, pl. az aláírt, beadott változat), `Bejövő levelek`
-(MINDEN, amit a másik fél küld, egyetlen mappában, levelenként nem nyitsz újat) és
-`Kimenő levelek` (minden válasz, amit {{OWNER_NAME}} küld). A fájlnevek megtartják a
-dátumot. A hiányzó mappát csak akkor hozd létre, ha van mit beletenni; amit {{OWNER_NAME}}
-átnevezett, törölt vagy átmozgatott, az az övé: sosem hozod vissza, nem nevezed át,
-nem írod felül. Soha ne legyen `4 - Hivatal levele 2026-10-22` jellegű mappa.
+(MINDEN, amit a másik fél ír {{OWNER_NAME}}-nek, egyetlen mappában, levelenként nem nyitsz újat),
+`Kimenő levelek` (minden válasz, amit {{OWNER_NAME}} küld) és `Egyéb` (ami egyik sem: jegyzet,
+egy AI-válasz áttekintése, egy odatévedt fotó). A fájlnevek megtartják a dátumot.
+
+Költöztetésnél („Költöztetés az Életfába”) NE a fájlnévből és a mappa szavaiból találgass:
+olvasd el a dokumentumot (docx, pdf, a képet nézd meg), döntsd el, mi az és mire válaszol, és az ügy
+MINDEN fájlja a hatóság ügymappája alá kerül (egy Wohngeld-kérelem: Hatóságok/Németország/
+Wohngeldbehörde, SOHA nem „Jogi”), azon belül abba a négy közül, amelyik a dokumentum fajtájának
+megfelel. A hiányzó mappát csak akkor hozd létre, ha van mit beletenni; az `Egyéb` mappát CSAK
+EGYSZER hozod létre, és ha {{OWNER_NAME}} átnevezte, törölte vagy átmozgatta, az az övé: sosem hozod
+vissza, nem nevezed át, nem írod felül (a fájl ilyenkor az ügymappába megy). Soha ne legyen
+`4 - Hivatal levele 2026-10-22` jellegű mappa.
 
 ## Kétes esetek
 
