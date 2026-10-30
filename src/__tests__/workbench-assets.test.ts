@@ -144,13 +144,14 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(existsSync(join(depot, 'Cel', 'kesz.pdf'))).toBe(true)
     expect(existsSync(join(dir, 'kesz.pdf'))).toBe(false)
     expect(existsSync(join(dir, 'Elkészített anyagok', 'level.pdf'))).toBe(true)
-    // a second file of the same name never overwrites
+    // a second file of the same name never overwrites: the project copy is trashed and a link stays (Boss TG 3686)
     writeFileSync(join(dir, 'kesz.pdf'), 'masik')
     const c2 = lifeMoveCandidates(cur, w)
     if (!c2.ok) throw new Error('jeloltek2')
     const r2 = moveItemFilesToLife(cur, w, [{ rel: c2.files.find((x) => x.name === 'kesz.pdf')!.rel, target: 'Cel' }], 'hu')
     if (!r2.ok) throw new Error('mozgatas2')
-    expect(r2.results[0].ok).toBe(false)
+    expect(r2.results[0].ok).toBe(true)
+    expect(existsSync(join(dir, 'kesz.pdf'))).toBe(false)
     expect(readFileSync(join(depot, 'Cel', 'kesz.pdf'), 'utf8')).toBe('k')
   })
 

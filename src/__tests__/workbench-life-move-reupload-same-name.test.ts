@@ -90,10 +90,9 @@ describe('#746: a same-name re-upload at the place of a left-behind link', () =>
     expect(resolveMount(rel)?.target).toBe('Cel2/antrag.pdf')
   })
 
-  // Boss TG 3686: a same-name clash no longer leaves the project file behind. Other bytes: it moves next to the older one
-  // under a numbered name (nothing overwritten, nothing lost) and a link stays; the same bytes: the project copy goes to
-  // the Trash and the link points at the file that is already there.
-  it('a second move into the SAME folder with OTHER content keeps both: the new file gets a number, the old one is untouched, a link stays', () => {
+  // Boss TG 3686/3697: a same-name clash never leaves the project file behind and never makes a "(2)" copy: whatever the
+  // bytes, the project copy goes to the Trash and the link points at the file that is already there.
+  it('a second move into the SAME folder with OTHER content: the project copy is trashed, the old one is untouched, a link stays, no numbered copy', () => {
     const { project, item, dir } = setup()
     const rel = firstMove(project, item)
     writeFileSync(join(dir, 'antrag.pdf'), 'v2')
@@ -101,9 +100,9 @@ describe('#746: a same-name re-upload at the place of a left-behind link', () =>
     if (!r.ok) throw new Error('move')
     expect(r.results[0].ok).toBe(true)
     expect(readFileSync(join(depot, 'Cel', 'antrag.pdf'), 'utf8')).toBe('v1')
-    expect(readFileSync(join(depot, 'Cel', 'antrag (2).pdf'), 'utf8')).toBe('v2')
+    expect(existsSync(join(depot, 'Cel', 'antrag (2).pdf'))).toBe(false)
     expect(existsSync(join(dir, 'antrag.pdf'))).toBe(false)
-    expect(resolveMount(rel)?.target).toBe('Cel/antrag (2).pdf')
+    expect(resolveMount(rel)?.target).toBe('Cel/antrag.pdf')
   })
 
   it('a second move into the SAME folder with the SAME content trashes the project copy and the link points at the existing file', () => {
