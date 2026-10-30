@@ -421,6 +421,17 @@ function leaveLinkBehind(oldRel: string, newRel: string, name: string): boolean 
   } catch { return false }
 }
 
+/** True when a file of the same name already stands in the target folder (the bytes do not matter). */
+function sameNameInTarget(rel: string, target: string, name: string): boolean {
+  try {
+    const src = resolveLifePath(rel)
+    const dir = resolveLifePath(target)
+    if (!src || !dir) return false
+    const dst = join(dir, name)
+    return existsSync(dst) && statSync(dst).isFile() && statSync(src).isFile()
+  } catch { return false }
+}
+
 /**
  * Moves the approved rows. Only files that are CURRENT 'move' candidates of this plan move (a rel the owner's list did
  * not contain is refused), and moveLife never overwrites: a name clash comes back as a message, not a silent rename.
@@ -446,6 +457,21 @@ export function moveItemFilesToLife(project: ProjectRow, item: PlanItem, rows: u
       continue
     }
     ensureExtraFolderOnce(target)
+    // Boss TG 3686/3697: a file of the same name already stands there (any bytes): the project copy is removed
+    // physically (to the Trash, restorable) and a link to the Life-tree file stays. Never a renamed "(2)" copy,
+    // never an overwrite. No clash: the file moves under its own name.
+    if (sameNameInTarget(rel, target, cand.name)) {
+      const dest = `${target}/${cand.name}`
+      const t = trashLife(rel, lang as any)
+      const o: LifeMoveOutcome = { rel, target, ok: t.ok, new_rel: t.ok ? dest : '', message: t.ok ? '' : t.message }
+      results.push(o)
+      if (t.ok) {
+        o.link_left = leaveLinkBehind(rel, dest, cand.name)
+        o.message = lang === 'en' ? 'A file of this name was already there: the project copy went to the Trash and a link to the one in the Life tree stays.' : 'Ott már volt ilyen nevű fájl: a projektben lévő másolat a Kukába ment, a helyén link maradt az Életfában lévőre.'
+        if (cand.sent_final && cand.item_id) sentMoved.add(cand.item_id)
+      }
+      continue
+    }
     const m = moveLife(rel, target, lang as any)
     const out: LifeMoveOutcome = { rel, target, ok: m.ok, new_rel: m.ok ? m.rel : '', message: m.ok ? '' : m.message }
     results.push(out)

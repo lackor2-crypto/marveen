@@ -90,15 +90,31 @@ describe('#746: a same-name re-upload at the place of a left-behind link', () =>
     expect(resolveMount(rel)?.target).toBe('Cel2/antrag.pdf')
   })
 
-  it('a second move into the SAME folder asks about the name clash and changes nothing', () => {
+  // Boss TG 3686/3697: a same-name clash never leaves the project file behind and never makes a "(2)" copy: whatever the
+  // bytes, the project copy goes to the Trash and the link points at the file that is already there.
+  it('a second move into the SAME folder with OTHER content: the project copy is trashed, the old one is untouched, a link stays, no numbered copy', () => {
     const { project, item, dir } = setup()
     const rel = firstMove(project, item)
     writeFileSync(join(dir, 'antrag.pdf'), 'v2')
     const r = moveItemFilesToLife(project, item, [{ rel, target: 'Cel' }], 'hu', 'include')
     if (!r.ok) throw new Error('move')
-    expect(r.results[0].ok).toBe(false)
+    expect(r.results[0].ok).toBe(true)
     expect(readFileSync(join(depot, 'Cel', 'antrag.pdf'), 'utf8')).toBe('v1')
-    expect(readFileSync(join(dir, 'antrag.pdf'), 'utf8')).toBe('v2')
+    expect(existsSync(join(depot, 'Cel', 'antrag (2).pdf'))).toBe(false)
+    expect(existsSync(join(dir, 'antrag.pdf'))).toBe(false)
+    expect(resolveMount(rel)?.target).toBe('Cel/antrag.pdf')
+  })
+
+  it('a second move into the SAME folder with the SAME content trashes the project copy and the link points at the existing file', () => {
+    const { project, item, dir } = setup()
+    const rel = firstMove(project, item)
+    writeFileSync(join(dir, 'antrag.pdf'), 'v1')
+    const r = moveItemFilesToLife(project, item, [{ rel, target: 'Cel' }], 'hu', 'include')
+    if (!r.ok) throw new Error('move')
+    expect(r.results[0].ok).toBe(true)
+    expect(existsSync(join(depot, 'Cel', 'antrag (2).pdf'))).toBe(false)
+    expect(existsSync(join(dir, 'antrag.pdf'))).toBe(false)
+    expect(readFileSync(join(depot, 'Cel', 'antrag.pdf'), 'utf8')).toBe('v1')
     expect(resolveMount(rel)?.target).toBe('Cel/antrag.pdf')
   })
 
