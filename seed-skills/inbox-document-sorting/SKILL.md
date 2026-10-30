@@ -86,6 +86,17 @@ a fájl EGÉSZ tartalmát**, ne csak nagyítsd meg vagy nézd a bélyegképét:
 - **Ne nyúlj a git repók saját dokumentációs rétegéhez.**
 - **Ne törölj.** A Beérkező kiürítése áthelyezéssel történik, sosem törléssel.
 
+## Levelezéses ügy (kérelem, hivatali levelezés): mindig HÁROM mappa
+
+{{OWNER_NAME}} szabálya (2026-10-30): ha egy ügyben kérelem és levelezés van (hatóság,
+bank, bíróság, bárki), az ügymappa alatt pontosan három mappa van, SZÁMOZÁS és DÁTUM
+nélkül: `Kérelem` (maga a kérelem, pl. az aláírt, beadott változat), `Bejövő levelek`
+(MINDEN, amit a másik fél küld, egyetlen mappában, levelenként nem nyitsz újat) és
+`Kimenő levelek` (minden válasz, amit {{OWNER_NAME}} küld). A fájlnevek megtartják a
+dátumot. A hiányzó mappát csak akkor hozd létre, ha van mit beletenni; amit {{OWNER_NAME}}
+átnevezett, törölt vagy átmozgatott, az az övé: sosem hozod vissza, nem nevezed át,
+nem írod felül. Soha ne legyen `4 - Hivatal levele 2026-10-22` jellegű mappa.
+
 ## Kétes esetek
 
 | Amit látsz | Hova |
