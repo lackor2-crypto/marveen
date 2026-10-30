@@ -17,9 +17,11 @@ export type TriggerState = {
   noTrigger: boolean
 }
 
-export function triggerStateOf(project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'no_trigger'>): TriggerState {
+export function triggerStateOf(project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'container_folder' | 'no_trigger'>): TriggerState {
   const noTrigger = item.no_trigger === 1
-  const base = String(item.folder ?? '').trim()
+  // An own-file item has no folder of its own: its container folder is the item folder.
+  const cf = String(item.container_folder ?? '').trim()
+  const base = String(item.folder ?? '').trim() || (cf && cf !== '@project' ? cf : '')
   if (!base) return { folder: null, files: [], noTrigger }
   for (const n of [TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en]) {
     const sub = `${base}/${n}`
@@ -40,4 +42,11 @@ export function triggerContextLine(st: TriggerState): string {
   if (st.noTrigger) return 'Trigger document: the owner marked "no trigger document (own initiative)": no document triggered this work item, work on without one.'
   if (st.files.length) return `Trigger document (linked in the "Kiváltó irat" folder): ${st.files.join('; ')}. Read it first: this is what the work answers.`
   return 'Trigger document: NONE is linked in the "Kiváltó irat" folder and the owner did not mark "no trigger document". BEFORE any work, in your FIRST reply, tell the owner that the trigger document is missing and offer to find it in the Life tree and link it (the document stays where it is, only a link goes into the folder), or to mark the item "no trigger document (own initiative)". Do not start the work until one of the two is done.'
+}
+
+/** #794 (Boss TG 3795): true when the assistant must not work on the item: it has a trigger folder, nothing is linked in it
+ *  and the owner did not mark "no trigger document". An item without a trigger folder (a sub-document, a language version)
+ *  is not held up. Decided by the server, not left to the model. */
+export function triggerBlocksWork(st: TriggerState): boolean {
+  return st.folder !== null && st.files.length === 0 && !st.noTrigger
 }

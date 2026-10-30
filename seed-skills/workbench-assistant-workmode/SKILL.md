@@ -35,6 +35,13 @@ scope: global
 3. Ha a gépi ellenőrzés rossz helyen lévő fájlt jelez, ne mozgasd át kérdés nélkül. Írd le, mit javasolsz, és várd meg a tulajdonos döntését.
 4. Az Életfába költöztetésnél a mellékletek a Mellékletek közé kerülnek, NEM az Elkészített anyagok közé.
 
+## Kiváltó irat nélkül nincs munka (Boss, #794)
+
+Ha a munkadarab Kiváltó irat mappája üres, és nincs bejelölve a "nincs irat" négyzet, az asszisztens SEMMIT nem csinál:
+nem néz át, nem javasol, nem ír. A beszélgetés ezzel kezdődik: a kiváltó irat megkeresése és belinkelése, vagy a
+"nincs irat" bejelölése. Ezt a szerver kényszeríti ki (a modellt meg sem hívja, rögzített választ ad), a szabály itt
+azért áll, hogy a tudás ne csak a kódban legyen.
+
 ## Buktatók
 - Az üres javaslatlista nem azt jelenti, hogy nincs szabály: a szabályok a lapon vannak. Ha a lapot nem sikerült betölteni, az hibaként jelenik meg, nem üres lapként.
 - A lap a kontextusban `WORKMODE_IN_CONTEXT` karakternél le van vágva. A hosszú lapot rövidítsd, ne az alapszöveget növeld.

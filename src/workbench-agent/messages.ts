@@ -227,6 +227,12 @@ export const MESSAGES = {
     en: 'An answer is already running for this work item. Wait until it finishes.',
   },
 
+  // #794 (Boss TG 3795): no trigger document linked and not marked "no document": the assistant does NOTHING else.
+  trigger_missing: {
+    hu: 'Bocsánat, de ennél a munkadarabnál a Kiváltó irat mappa üres, és nincs bejelölve a „nincs irat” sem, ezért addig nem csinálok semmit. Előbb ezt kell eldönteni: (1) keressük meg a kiváltó iratot, és tegyük a Kiváltó irat mappába hivatkozásként (a mappa ⋯ menüjében: „Fájl csatolása az Életfából”), vagy (2) pipáld be a Kiváltó irat sor mellett a „nincs irat” négyzetet. Utána jöhet bármi, amit kérsz.',
+    en: 'Sorry, but the Trigger document folder of this work item is empty and "no document" is not ticked, so I will not do anything until that is settled. First: (1) let us find the trigger document and link it into the Trigger document folder (in the folder\'s ⋯ menu: "Link a file from the Life tree"), or (2) tick the "no document" box next to the Trigger document row. After that, anything you ask can go ahead.',
+  },
+
   // --- toolok / jovahagyas -------------------------------------------------
   tool_unknown: {
     hu: 'Ilyen eszköz nincs: {tool}. Az ágens csak az engedélyezett eszközöket használhatja.',
