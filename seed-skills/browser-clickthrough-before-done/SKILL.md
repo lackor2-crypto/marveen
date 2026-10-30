@@ -12,6 +12,14 @@ a valódi böngészős végigkattintás, "mint egy user". A forrás-teszt és a 
 megy akkor is, ha a képernyőn a gomb nem csinál semmit, vagy a PDF rossz helyre
 kerül. A kártya csak akkor mehet `waiting`-be, ha a végigkattintás működik.
 
+## NEM ALKUKÉPES (2026-10-30, a tulajdonos, harmadszor)
+A "nem kattintottam végig" mondat NEM elfogadható kész-jelzés. A tulajdonos szó szerint:
+"kötelező ... úgy, mint egy user ... ezerszer elmondtam". A kész-üzenet addig NEM megy ki,
+amíg a végigkattintás meg nem történt és nincs róla mért eredmény. Ha a munka UI-t érint
+(akár csak közvetve: költöztetés, törlés, link, kijelzés), a végigkattintás a landolás
+ELŐTT és a deploy UTÁN is kell, a próba nem tesztből, hanem a képernyőről jön. A
+"csak tesztek futottak" nem mentség, hanem hiányzó munka: előbb csináld meg, aztán jelents.
+
 ## Eljárás
 1. Készítsd el külön, üres web-only példányon a próbakörnyezetet az
    `isolated-web-only-instance-browser-test` skill szerint (izolált worktree, saját
