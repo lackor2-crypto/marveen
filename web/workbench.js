@@ -504,6 +504,33 @@
     })
   }
 
+  // #794 (Boss TG 3670): the "Kiv\u00e1lt\u00f3 irat" folder of a work item has a tick "no trigger document (own initiative)".
+  // Ticked: a red X and a tooltip say that no document triggered the work, so it may go on without one.
+  function triggerMarkHtml(f) {
+    var last = String(f || '').split('/').pop()
+    if (last !== 'Kiv\u00e1lt\u00f3 irat' && last !== 'Trigger document') return ''
+    var parent = String(f).slice(0, String(f).lastIndexOf('/'))
+    var it = (WB.items || []).filter(function (x) { return x.folder === parent })[0]
+    if (!it) return ''
+    var on = it.no_trigger === 1
+    return '<label class="wb-trig-mark" title="' + escA(t('workbench.trigger.hint')) + '">'
+      + '<input type="checkbox" data-wb-act="item-no-trigger" data-wb-id="' + escA(it.id) + '"' + (on ? ' checked' : '') + (archived() ? ' disabled' : '') + '> '
+      + esc(t('workbench.trigger.none')) + '</label>'
+      + (on ? ' <span class="wb-trig-x" role="img" aria-label="' + escA(t('workbench.trigger.x_label')) + '" title="' + escA(t('workbench.trigger.x_hint')) + '" style="color:#d33;font-weight:700">\u2716</span>' : '')
+  }
+
+  function toggleNoTrigger(id, on) {
+    if (archived()) return
+    var pid = WB.projectId
+    return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/no-trigger', { no_trigger: !!on }).then(function (r) {
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (r.data && Array.isArray(r.data.items)) WB.items = r.data.items
+      window.showToast(t(on ? 'workbench.trigger.marked' : 'workbench.trigger.unmarked'))
+      render()
+    })
+  }
+
   // ---- lomtar (#443) ----------------------------------------------------------
   //
   // A Torles lomtarba tesz, ahonnan egy kattintassal visszahozhato, a verziok
@@ -2469,7 +2496,7 @@
           + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button>'
           + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="folder-ctx" data-wb-folder="' + escA(f) + '" aria-haspopup="menu"'
             + ' aria-label="' + escA(t('workbench.ctx.more_folder')) + '" title="' + escA(t('workbench.ctx.more_folder')) + '">&#8943;</button>')
-          + folderMenuHtml(f) + '</li>')
+          + triggerMarkHtml(f) + folderMenuHtml(f) + '</li>')
         if (!collapsed) walk(f, depth + 1, g)
       })
     }
@@ -21208,6 +21235,7 @@
     else if (a === 'fr-add-image') frAddImage(act.getAttribute('data-wb-src'), null, null)
     else if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
+    else if (a === 'item-no-trigger') toggleNoTrigger(act.getAttribute('data-wb-id'), !!act.checked)
     else if (a === 'item-trash') askTrashItem(act.getAttribute('data-wb-id'))
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
     else if (a === 'ov-kanban') openProjectKanban()

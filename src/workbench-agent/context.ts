@@ -17,6 +17,7 @@ import { splitExtraction } from '../workbench-upload-extract.js'
 import { privacyState } from '../workbench-privacy.js'
 import type { ProjectRow } from '../projects.js'
 import type { WorkItemRow } from '../workbench.js'
+import { triggerStateOf, triggerContextLine } from '../workbench-trigger.js'
 import { projectContext } from '../project-context.js'
 import { listWorkItems, listWorkItemVersions } from '../workbench.js'
 import { recentFiles } from '../project-overview.js'
@@ -71,6 +72,7 @@ WHAT GOES WHERE:
 - The work item's to-do list (workItem.addTodo) is ALSO written by the system as a checklist file beside the context file ("Teendő - <work item name>.md"); the owner can show the list as a panel next to the document (green tick = done, red X = not yet). So KEEP THE LIST CURRENT by yourself: whatever the letter or task still needs (an annex to attach, a fact to confirm, a deadline, the sending) is a to-do; never edit that file by hand, it is rebuilt from the list.
 - A file the owner marked "Csak az Agentnek" (shown in their message with its path in the "Agent" folder of the work item) is only a REFERENCE for you: what they mean, what to fix. Read it from that path (document.read / file.read); it is not a material, so never attach, copy or move it anywhere.
 - CORRESPONDENCE CASES in the Life tree (an application, request or any case with an authority or another party): a case folder holds exactly FOUR folders, named without numbers and without dates: "Kérelem" (the application itself, e.g. the signed submitted version), "Bejövő levelek" (EVERY letter the other party writes to the owner, all in this one folder, never one folder per letter), "Kimenő levelek" (EVERY reply the owner sends out, all in this one folder) and "Egyéb" (everything that is none of these: notes, an AI answer overview, a stray photo). The file names keep their dates ("2026-10-22 ..."). When you move or file documents of a case ("Move to the Life tree"), READ each document (docx, pdf, look at images): decide what it is and what it answers, and put EVERY file of the case under the authority's case folder (a Wohngeld request: all of it under Hatóságok/Németország/Wohngeldbehörde, never under "Jogi"), each into the one of the four folders that fits what the document is. Create a missing folder only when you have something to file there; "Egyéb" is made ONCE, and what the owner renamed, deleted or moved is theirs: never recreate, rename or overwrite it. Never open a numbered or dated folder per letter.
+- TRIGGER DOCUMENT: every work item has a "Kiváltó irat" folder (EN "Trigger document") holding a LINK (never a copy) to the document that triggered the work item: an authority's decision, a request for missing documents, a letter that must be answered. The document stays in the Life tree. The context says whether one is linked ("Trigger document: ..."). In EVERY first reply of a work item with no linked trigger document (and no "no trigger document" mark), warn the owner before anything else and offer to find the document and link it. Work starts only when a document is linked or the owner marked "no trigger document (own initiative)". Never mark that yourself.
 - When the owner describes what they want to make, pick the fitting work item type yourself and say which one you picked and why -- do not ask them to name a type.
 
 TOOLS: to use one, answer with ONLY a JSON object on its own line, nothing else:
@@ -198,6 +200,7 @@ export async function buildContext(
       `context file: ${ctxFile ? ctxFile.rel : '(not made yet; context.append makes it)'}${contextOwner(workItem).id !== workItem.id ? ' (the ONE context file of the original: a language version has none of its own; never make another)' : ''}`,
       `versions: ${versions.length ? versions.map((v) => `v${v.version_no}`).join(', ') : 'none'}`,
       assetsLine(workItem.id),
+      triggerContextLine(triggerStateOf(project, workItem)),
       ...familyLines(workItem),
     ].join('\n'))
   } else {

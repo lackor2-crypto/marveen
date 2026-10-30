@@ -538,6 +538,16 @@ export function debateFolderFor(p: ProjectRow, itemFolder: string | null | undef
   return onceFolderFor(p, base, [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES], lang === 'en' ? DEBATE_FOLDER_NAMES.en : ol(DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en))
 }
 
+/** #794 (Boss TG 3665/3670): the "Kiváltó irat" / "Trigger document" subfolder of an item's own folder: the document that
+ *  TRIGGERED the work item (an authority's decision, a request for missing documents, a letter to be answered). The
+ *  document itself stays in the Life tree; only a link to it lives here. Made once like the other standard folders. */
+export const TRIGGER_FOLDER_NAMES = { hu: 'Kiváltó irat', en: 'Trigger document' } as const
+export function triggerFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string): string | null {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return null
+  return onceFolderFor(p, base, [TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en], lang === 'en' ? TRIGGER_FOLDER_NAMES.en : ol(TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en))
+}
+
 /** Boss TG 3025, #676 (TG 9372): EVERY work item folder, of every type, has these five subfolders from the start
  *  (Finished materials, Attachments, Uploads, Agent, Debate), so each kind of file has its place before the first one
  *  arrives. Only EMPTY folders are made, existing ones (either name) are reused and never touched. Each one is best effort. */
@@ -546,7 +556,7 @@ export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | nu
   // inside "Debate") there would only be clutter.
   const last = String(itemFolder ?? '').split('/').pop() ?? ''
   if ([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, DEBATE_REPORT_SUB_NAMES.hu, DEBATE_REPORT_SUB_NAMES.en].some(n => n === last)) return
-  for (const f of [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor]) {
+  for (const f of [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor, triggerFolderFor]) {
     try { f(p, itemFolder) } catch { /* the folder is made on demand with its first file instead */ }
   }
 }
@@ -558,6 +568,6 @@ export function noteItemStandardFoldersSeen(p: ProjectRow, itemFolder: string | 
   const base = String(itemFolder ?? '').trim()
   if (!base) return
   const names = ['Verzi\u00f3k', 'Versions', 'Mell\u00e9kletek', 'Attachments', FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES,
-    'Feltöltések', 'Uploads', AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES, DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]
+    'Feltöltések', 'Uploads', AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES, DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en]
   for (const n of names) if (projectFileTarget(p, `${base}/${n}`).ok) noteFolderMade(p, `${base}/${n}`)
 }
