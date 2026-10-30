@@ -113,3 +113,33 @@ describe('the five standard folders of a work item', () => {
     expect(subs(f.folder)).not.toContain('Mellékletek')
   })
 })
+
+describe('the Kiváltó irat folder is topped up on items provisioned before it existed', () => {
+  it('an already provisioned item gets it once; a deleted one stays deleted', () => {
+    const depot = mkdtempSync(join(tmpdir(), 'marveen-wb-trig-'))
+    try {
+      initDatabase(':memory:')
+      mkdirSync(join(depot, 'Projektek', 'Iroda'), { recursive: true })
+      process.env['MARVEEN_DEPOT'] = depot
+      const p = createProject({ name: 'Iroda fejlesztese' })
+      if (!p.ok) throw new Error('project')
+      updateProject(p.project.id, { folder_path: 'Projektek/Iroda' })
+      const w = createWorkItem({ project_id: p.project.id, title: 'Regi', type: 'document' })
+      if (!w.ok) throw new Error('item')
+      const f = ensureWorkItemFolder(w.item)
+      if (!f.ok) throw new Error('folder')
+      const dir = join(depot, 'Projektek', 'Iroda', getWorkItem(w.item.id)!.folder!)
+      // simulate the pre-#794 state: provisioned, but no trigger folder and nothing remembered about it
+      rmSync(join(dir, 'Kiváltó irat'), { recursive: true, force: true })
+      getDb().prepare("DELETE FROM auto_folders_made WHERE rel LIKE '%Kiváltó irat%'").run()
+      ensureAllAttachmentsFolders()
+      expect(existsSync(join(dir, 'Kiváltó irat'))).toBe(true)
+      rmSync(join(dir, 'Kiváltó irat'), { recursive: true, force: true })
+      ensureAllAttachmentsFolders()
+      expect(existsSync(join(dir, 'Kiváltó irat'))).toBe(false)
+    } finally {
+      rmSync(depot, { recursive: true, force: true })
+      delete process.env['MARVEEN_DEPOT']
+    }
+  })
+})

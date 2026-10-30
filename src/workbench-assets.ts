@@ -44,7 +44,7 @@ import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
 import { annotateMisplaced, adviseUpload, type Misplaced, type UploadAdvice } from './workbench-misplaced.js'
-import { folderWasMade, noteFolderMade, noteItemStandardFoldersSeen, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { folderWasMade, noteFolderMade, noteItemStandardFoldersSeen, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -1535,6 +1535,9 @@ function provisionStandardFolders(project: ProjectRow, item: WorkItemRow, folder
   ensureAssetTables()
   const db = getDb()
   migrateFinishedFolder(item) // only renames an existing old-name folder, never makes one
+  // #794: the sixth folder ("Kiváltó irat") came after the others, so an item provisioned before it still lacks it. Top
+  // up that one folder here; a deleted one is remembered (onceFolderFor) and stays deleted.
+  if (!isSubDocumentItem(item, folder)) { try { triggerFolderFor(project, folder) } catch { /* made with its first link instead */ } }
   if (db.prepare('SELECT 1 FROM work_item_std_folders WHERE work_item_id = ?').get(item.id)) return
   if (!isSubDocumentItem(item, folder)) ensureItemStandardFolders(project, folder)
   db.prepare('INSERT OR IGNORE INTO work_item_std_folders (work_item_id, done_at) VALUES (?, ?)').run(item.id, Date.now())
