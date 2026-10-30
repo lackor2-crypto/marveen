@@ -10653,7 +10653,26 @@
       yes.addEventListener('click', function () {
         yes.disabled = true; no.disabled = true
         api('POST', '/api/workbench/items/' + encodeURIComponent(it.id) + '/sent-mark', { sent: true }).then(function (r) {
-          if (!r.ok) { yes.disabled = false; no.disabled = false; window.showToast(r.message || t('workbench.lifemove.failed')); return }
+          if (!r.ok) {
+            yes.disabled = false; no.disabled = false
+            // 403 = this browser has no login session (it calls with the dashboard token only), so the answer cannot be
+            // recorded. Say so, and offer the one way out: close the window (it is asked again at the next visit).
+            if (r.status === 403) {
+              window.showToast(t('workbench.sentask.login_needed'))
+              if (!overlay.querySelector('.wb-sentask-close')) {
+                var hint = document.createElement('p')
+                hint.className = 'wb-hint'; hint.style.cssText = 'color:var(--danger,#b00020);margin:10px 0 6px'
+                hint.textContent = t('workbench.sentask.login_needed')
+                var close = document.createElement('button')
+                close.type = 'button'; close.className = 'btn-secondary btn-compact wb-sentask-close'; close.textContent = t('workbench.sentask.close')
+                close.addEventListener('click', function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) })
+                var box = overlay.querySelector('.modal-content')
+                box.appendChild(hint); box.appendChild(close)
+              }
+              return
+            }
+            window.showToast(r.message || t('workbench.lifemove.failed')); return
+          }
           window.showToast(t('workbench.lifemove.gate_marked'))
           if (row.parentNode) row.parentNode.removeChild(row)
           finish()

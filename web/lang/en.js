@@ -9010,6 +9010,8 @@ window._i18n.en = {
   "workbench.sentask.yes": "Yes, I sent it",
   "workbench.sentask.no": "No, not yet",
   "workbench.sentask.no_done": "OK, it is not sent. I will ask again next time.",
+  "workbench.sentask.login_needed": "Marking a document as sent works only when you are logged in, and this browser is not logged in. Log in (or log out and in again) on the page, then press Yes again. If you cannot now, you can close this window; I will ask again next time.",
+  "workbench.sentask.close": "Close (I will answer later)",
   "workbench.lifemove.blocked_unsent": "not sent yet, so it does not move",
   "workbench.lifemove.gate_unsent_other": "This document (\"{title}\") has not been sent yet, so it does not move. If it already went out another way, mark it here.",
   "workbench.lifemove.blocked_owner": "cannot tell which document it belongs to, stays",
