@@ -510,13 +510,13 @@
     var last = String(f || '').split('/').pop()
     if (last !== 'Kiv\u00e1lt\u00f3 irat' && last !== 'Trigger document') return ''
     var parent = String(f).slice(0, String(f).lastIndexOf('/'))
-    var it = (WB.items || []).filter(function (x) { return x.folder === parent })[0]
+    var it = (WB.items || []).filter(function (x) { return x.folder === parent || (!x.folder && x.container_folder === parent) })[0]
     if (!it) return ''
     var on = it.no_trigger === 1
-    return '<label class="wb-trig-mark" title="' + escA(t('workbench.trigger.hint')) + '">'
+    return '<label class="wb-trig-mark" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap;font-size:11px;font-weight:400;margin-left:6px;vertical-align:middle" title="' + escA(t('workbench.trigger.hint')) + '">'
       + '<input type="checkbox" data-wb-act="item-no-trigger" data-wb-id="' + escA(it.id) + '"' + (on ? ' checked' : '') + (archived() ? ' disabled' : '') + '> '
       + esc(t('workbench.trigger.none')) + '</label>'
-      + (on ? ' <span class="wb-trig-x" role="img" aria-label="' + escA(t('workbench.trigger.x_label')) + '" title="' + escA(t('workbench.trigger.x_hint')) + '" style="color:#d33;font-weight:700">\u2716</span>' : '')
+      + (on ? ' <span class="wb-trig-x" role="img" aria-label="' + escA(t('workbench.trigger.x_label')) + '" title="' + escA(t('workbench.trigger.x_hint')) + '" style="color:#d33;font-weight:700;font-size:11px">\u2716</span>' : '')
   }
 
   function toggleNoTrigger(id, on) {

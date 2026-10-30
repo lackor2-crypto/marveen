@@ -6030,7 +6030,7 @@ window._i18n.en = {
   "workbench.pin.removed": "Star removed.",
   "workbench.ctx.more": "More actions (rename, delete, move)",
   "workbench.ctx.more_file": "File actions",
-  "workbench.trigger.none": "no trigger document (own initiative)",
+  "workbench.trigger.none": "no document",
   "workbench.trigger.hint": "The document that triggered this work item goes here (as a link, not a copy): an authority decision, a request for missing documents, a letter to be answered. Tick this if there is none because the work is your own initiative.",
   "workbench.trigger.x_label": "No trigger document",
   "workbench.trigger.x_hint": "This work item has no trigger document: it is your own initiative, so work can go on without one.",
