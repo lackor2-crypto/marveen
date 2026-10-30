@@ -2414,7 +2414,12 @@
     Object.keys(byPlace).forEach(function (k) {
       byPlace[k].sort(function (a, b) { return (b.updated_at || 0) - (a.updated_at || 0) || (b.created_at || 0) - (a.created_at || 0) || String(a.title || '').localeCompare(String(b.title || '')) })
     })
-    var plainFiles = wf.files || {}
+    // A work item made from a file in the project IS that file (the "own file" mark): the file is not listed a second time
+    // as a loose file next to its own row (Boss TG 3774: the same document showed up twice).
+    var ownRels = {}
+    items.forEach(function (it) { if (it.source_path) ownRels[it.source_path] = true })
+    var plainFiles = {}
+    Object.keys(wf.files || {}).forEach(function (k) { plainFiles[k] = (wf.files[k] || []).filter(function (f) { return !(f && f.rel && ownRels[f.rel]) }) })
     // #552: with the switch on, a finalized (done) work item and a folder that holds only finalized work items
     // (at any depth) leave the Work items box. Nothing is deleted or moved: the view filters. A folder with no work item, or only loose files, stays; the loose files of a folder whose items
     // are all hidden go with them.
