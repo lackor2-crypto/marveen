@@ -68,7 +68,7 @@ describe('Documents panel: "open" is the same in every list (#542)', () => {
     const src = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
     expect(src).toContain("var a = e.target.closest('a[data-wb-open-rel]')")
     expect(src).toContain("window.showToast(r.message || t('intezo.open_local_failed'))")
-    expect(src).toContain("window.open(a.getAttribute('href'), '_blank', 'noopener')")
+    expect(src).toContain("a.setAttribute('data-wb-no-local', '1')") // re-click: the authenticated fetch path, not a bare window.open
   })
 })
 
