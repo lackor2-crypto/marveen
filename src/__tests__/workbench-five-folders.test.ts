@@ -143,3 +143,35 @@ describe('the Kiváltó irat folder is topped up on items provisioned before it 
     }
   })
 })
+
+describe('an own-file item (no folder of its own) gets Kiváltó irat in its container folder too', () => {
+  it('topped up once in a container that already has the standard folders; a plain group folder is left alone', () => {
+    const depot = mkdtempSync(join(tmpdir(), 'marveen-wb-cont-'))
+    try {
+      initDatabase(':memory:')
+      const proj = join(depot, 'Projektek', 'Iroda')
+      mkdirSync(join(proj, 'Munkadarabok', 'AOK', 'Mellékletek'), { recursive: true })
+      mkdirSync(join(proj, 'Munkadarabok', 'Csoport'), { recursive: true })
+      process.env['MARVEEN_DEPOT'] = depot
+      const p = createProject({ name: 'Iroda fejlesztese' })
+      if (!p.ok) throw new Error('project')
+      updateProject(p.project.id, { folder_path: 'Projektek/Iroda' })
+      const a = createWorkItem({ project_id: p.project.id, title: 'AOK level', type: 'document' })
+      const b = createWorkItem({ project_id: p.project.id, title: 'Csoportos', type: 'document' })
+      if (!a.ok || !b.ok) throw new Error('item')
+      const db = getDb()
+      db.prepare("UPDATE work_items SET folder = NULL, container_folder = ? WHERE id = ?").run('Munkadarabok/AOK', a.item.id)
+      db.prepare("UPDATE work_items SET folder = NULL, container_folder = ? WHERE id = ?").run('Munkadarabok/Csoport', b.item.id)
+      ensureAllAttachmentsFolders()
+      expect(existsSync(join(proj, 'Munkadarabok', 'AOK', 'Kiváltó irat'))).toBe(true)
+      expect(existsSync(join(proj, 'Munkadarabok', 'Csoport', 'Kiváltó irat'))).toBe(false)
+      // deleted by the user: stays deleted
+      rmSync(join(proj, 'Munkadarabok', 'AOK', 'Kiváltó irat'), { recursive: true })
+      ensureAllAttachmentsFolders()
+      expect(existsSync(join(proj, 'Munkadarabok', 'AOK', 'Kiváltó irat'))).toBe(false)
+    } finally {
+      rmSync(depot, { recursive: true, force: true })
+      delete process.env['MARVEEN_DEPOT']
+    }
+  })
+})
