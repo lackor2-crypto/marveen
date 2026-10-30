@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, createLabel, createIdea, getDb, getLabelsForCard, getPendingMessages } from '../db.js'
 import { createProject, linkObject } from '../projects.js'
-import { debateProject, researchProject, researchProjectMark, ideaProjectMap, knownProjectId } from '../project-scope.js'
+import { pickRequestAgent, debateProject, researchProject, researchProjectMark, ideaProjectMap, knownProjectId } from '../project-scope.js'
 import { linkedDebates, setDebateLogPathForTests } from '../project-context.js'
 import { tryHandleProjects } from '../web/routes/projects.js'
 import { tryHandleIdeas } from '../web/routes/ideas.js'
@@ -293,6 +293,16 @@ describe('projektbol inditott keres a fo agensnek', () => {
     expect(researchProjectMark(`# Engedelyek\nproject: ${a.id}\n`)).toBe(a.id)
     expect((await call('POST', `/api/projects/${a.id}/requests`, { kind: 'research', text: '  ' })).status).toBe(400)
     expect((await call('POST', `/api/projects/${a.id}/requests`, { kind: 'mas', text: 'x' })).status).toBe(400)
+  })
+})
+
+describe('a keres azt kapja, aki elerheto (nem a fo agenset keresi)', () => {
+  it('pickRequestAgent: fo agens csak ha elerheto; masik elerhetot valaszt; senki -> fo agens', () => {
+    const A = (agent: string, available: boolean) => ({ agent, available })
+    expect(pickRequestAgent([A('x', true), A(MAIN_AGENT_ID, true)], MAIN_AGENT_ID)).toBe(MAIN_AGENT_ID)
+    expect(pickRequestAgent([A(MAIN_AGENT_ID, false), A('x', false), A('y', true)], MAIN_AGENT_ID)).toBe('y')
+    expect(pickRequestAgent([A(MAIN_AGENT_ID, false), A('x', false)], MAIN_AGENT_ID)).toBe(MAIN_AGENT_ID)
+    expect(pickRequestAgent([], MAIN_AGENT_ID)).toBe(MAIN_AGENT_ID)
   })
 })
 
