@@ -485,11 +485,6 @@ public static extern short GetAsyncKeyState(int vKey);
   if ($failed) { $txt = ($txt + ' ' + $failed).Trim() }
   if ([string]::IsNullOrWhiteSpace($txt)) { Log "ures atirat"; Beep2 220 400; throw "ures" }
 
-  # Telegram: egy kepes uzenet szovege (caption) legfeljebb 1024 karakter; ami
-  # hosszabb, azt a Telegram csendben levagja (Boss TG 2133). Naplozzuk.
-  if ($txt.Length -ge 1000) {
-    Log "FIGYELEM: $($txt.Length) karakter -- kepes Telegram-uzenetnel 1024 felett a Telegram levagja a veget; kulon uzenetben kuldd, kep nelkul"
-  }
   # #503: Telegramban MELYIK mezobe megy a szoveg? A kep-kuldo ablak kepalairasa
   # 1024 karakternel csendben levag, a sima uzenetmezo nem. A kepalairasba szant
   # diktalast a telegram-kepalairas.ps1 sima uzenetbe teszi (lasd ott). A
@@ -508,23 +503,7 @@ public static extern short GetAsyncKeyState(int vKey);
       }
     } catch { Log ("FIGYELEM: a Telegram-mezo felismerese nem indult: " + $_.Exception.Message); $tgIo = $null }
   }
-  # Tobb diktalas ugyanabba a kepalairasba: a HATART az egymas utan beillesztett szovegek OSSZEGE adja
-  # (Boss TG 2675: 1254 karakter, 3 diktalas). Az utolso 5 percben ugyanabba az alkalmazasba illesztett
-  # karaktereket szamoljuk; ha az osszeg eleri a 900-at, hallhato + lathato figyelmeztetes jon.
-  # A Telegram SIMA uzenetmezojeben (#503) nincs 1024-es hatar: oda nem szamolunk es nem sipolunk.
-  $capWarn = $false; $capTotal = $txt.Length
-  $capFile = Join-Path $Base 'caption-count.json'
-  if ($tgField -eq 'message') { Remove-Item $capFile -Force -ErrorAction SilentlyContinue } else {
-  try {
-    $capProc = ''
-    try { $cfg = [HuDikt.U32]::GetForegroundWindow(); $cpid = 0; [void][HuDikt.U32]::GetWindowThreadProcessId($cfg, [ref]$cpid); $capProc = (Get-Process -Id $cpid -ErrorAction SilentlyContinue).ProcessName } catch { }
-    $prev = $null
-    if (Test-Path $capFile) { try { $prev = Get-Content $capFile -Raw -Encoding UTF8 | ConvertFrom-Json } catch { } }
-    if ($prev -and $prev.proc -eq $capProc -and ((Get-Date) - [datetime]$prev.t).TotalMinutes -lt 5) { $capTotal += [int]$prev.n }
-    (@{ t = (Get-Date).ToString('o'); proc = $capProc; n = $capTotal } | ConvertTo-Json -Compress) | Set-Content $capFile -Encoding UTF8
-    if ($capTotal -ge 900) { $capWarn = $true; Log "FIGYELEM: az utolso 5 percben $capTotal karakter ment ugyanabba az alkalmazasba ($capProc) -- kepes Telegram-uzenetnel 1024 felett levagja" }
-  } catch { }
-  }
+  # Boss (TG 3870): no character limit is counted or warned about here -- a dictation goes in whole, wherever the focus is.
   Set-Clipboard -Value $txt
   if ($env:HU_DIKTALAS_DRYRUN -eq '1') {
     Log "DRY-RUN: NEM illesztek be. Szoveg lett volna: $txt"
@@ -550,13 +529,10 @@ public static extern short GetAsyncKeyState(int vKey);
     if ($tgMove -and $tgMove.Done) {
       Log "$TgMovedLogPrefix kesz -- a kep elment, $($tgMove.Text.Length) karakter az uzenetmezoben (ebbol $($tgMove.Moved) a korabbi kepalairasbol), Enterrel kuldheto"
       Log "kesz: $txt"
-      $capWarn = $false
-      Remove-Item $capFile -Force -ErrorAction SilentlyContinue
     } elseif ($tgMove -and $tgMove.Touched) {
       # Nem sikerult vegig: semmi nem vesz el, a szoveg a vagolapra kerul.
       Set-Clipboard -Value $tgMove.Clipboard
       $tgWarnText = Get-TgMoveWarning $tgMove.Reason
-      $capWarn = $false
       Log "FIGYELEM: kepalairas-atrakas nem sikerult ($($tgMove.Reason)) -- a szoveg a vagolapon: $($tgMove.Clipboard)"
     } else {
       if ($tgMove) { Log "kepalairas-atrakas kimaradt: $($tgMove.Reason)" }
@@ -575,19 +551,6 @@ public static extern short GetAsyncKeyState(int vKey);
       $ni.Icon = [System.Drawing.SystemIcons]::Warning
       $ni.Visible = $true
       $ni.ShowBalloonTip(8000, 'Telegram: a szoveg a vagolapon', $tgWarnText, [System.Windows.Forms.ToolTipIcon]::Warning)
-      Start-Sleep -Milliseconds 2500
-      $ni.Dispose()
-    } catch { }
-  }
-  if ($capWarn) {
-    # Harom mely sip + buborek-ertesites: a szoveg MAR bekerult, de a kepes uzenet vege levagodhat.
-    try {
-      Beep2 300 250; Beep2 300 250; Beep2 300 250
-      Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-      $ni = New-Object System.Windows.Forms.NotifyIcon
-      $ni.Icon = [System.Drawing.SystemIcons]::Warning
-      $ni.Visible = $true
-      $ni.ShowBalloonTip(5000, 'Telegram: 1024 karakter felett levagja', "Eddig $capTotal karakter. Kepes uzenetnel a veget levagja: kuldd a szoveget kulon uzenetben, kep nelkul.", [System.Windows.Forms.ToolTipIcon]::Warning)
       Start-Sleep -Milliseconds 2500
       $ni.Dispose()
     } catch { }
