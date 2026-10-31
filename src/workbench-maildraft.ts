@@ -24,7 +24,7 @@ import { finishedFolderFor, freeFileName, projectFileTarget } from './project-fi
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
-import { annexPdfs, annexContentPdf, mergePdfs, type PackageError } from './workbench-docpackage.js'
+import { annexPdfs, annexAttachmentName, annexContentPdf, mergePdfs, type PackageError } from './workbench-docpackage.js'
 import { docSettings, listAnnexes } from './workbench-docannex.js'
 import { getProfile, itemProfileId, profileFileName } from './workbench-courtprofile.js'
 import { contentHash, docLangFor, fileStem, finalFileName, letterFileStem, letterNameLang, finalLang, finalPackageFiles, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
@@ -362,22 +362,6 @@ function packageFail(e: PackageError & { ok: false }): { ok: false; code: string
   return { ok: false, code: e.code, detail: e.detail, label: 'label' in e ? e.label : undefined }
 }
 
-const NAME_MAX = 120
-
-/**
- * An annex attachment's file name stem: "<label> – <title>". When it is too long it is cut at a word, and an opened bracket
- * is dropped with it, so a name never ends in the middle of a word ("(Éva Bako") the recipient would see.
- */
-export function annexFileStem(label: string, title: string): string {
-  const all = fileStem(`${label} – ${title}`, 10_000)
-  if (all.length <= NAME_MAX) return all
-  let cut = all.slice(0, NAME_MAX)
-  if (all[NAME_MAX] !== ' ') cut = cut.slice(0, Math.max(cut.lastIndexOf(' '), label.length))
-  const open = cut.lastIndexOf('(')
-  if (open > cut.lastIndexOf(')') && open > label.length) cut = cut.slice(0, open)
-  return cut.replace(/[\s,;.–-]+$/u, '')
-}
-
 /**
  * Once the document is finalized (and unchanged since), the mail carries the FINAL package exactly as it was finalized: the
  * submission and its annexes (or the one combined file). #753: annexes not saved by the final are made now, cover + content,
@@ -436,7 +420,7 @@ export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Pr
     if (!f) return { ok: false, code: 'annex_missing', detail: a.path, label: a.label }
     const c = await annexContentPdf(f.abs, f.name)
     if (!c.ok) return { ok: false, code: c.code === 'annex_convert_failed' && c.convert ? c.convert : c.code, detail: c.detail, label: a.label }
-    files.push({ name: `${annexFileStem(a.label, a.title)}.pdf`, data: c.pdf, kind: 'annex' })
+    files.push({ name: annexAttachmentName(f.name), data: c.pdf, kind: 'annex' })
   }
   return { ok: true, files }
 }

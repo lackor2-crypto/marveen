@@ -9,9 +9,9 @@ import { initDatabase } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
 import { createWorkItem, createWorkItemVersion, getWorkItem } from '../workbench.js'
 import { addSection, addBlock } from '../workbench-docmodel.js'
-import { addAnnex, annexPdfKind, setDocSettings } from '../workbench-docannex.js'
+import { addAnnex, annexPdfKind, listAnnexes, setDocSettings } from '../workbench-docannex.js'
 import { contentHash, finalPackageFiles, listFinals } from '../workbench-docfinal.js'
-import { annexContentPdf, coverText, mergePdfs } from '../workbench-docpackage.js'
+import { annexAttachmentName, annexContentPdf, annexPdfs, coverText, mergePdfs } from '../workbench-docpackage.js'
 import { buildCoverFodt, buildTextFodt } from '../workbench-docrender.js'
 import { resolveProjectFile } from '../workbench-docmodel-world.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
@@ -98,6 +98,24 @@ describe('mellekletek a PDF-ben', () => {
     }
   }
 
+  // #794 (Boss TG 3865): GUARD -- an annex is attached to the letter / mail under the name of the file in the Life tree, never a
+  // name made up when it is sent (label, title, date). A rename belongs in the Life tree; the attachment follows it, unchanged.
+  it('SENTINEL: every annex is sent under its own file name (a .pdf name unchanged, another extension becomes .pdf)', async () => {
+    expect(annexAttachmentName('bescheid.pdf')).toBe('bescheid.pdf')
+    expect(annexAttachmentName('Bescheid vom 04.07.2026.PDF')).toBe('Bescheid vom 04.07.2026.PDF')
+    expect(annexAttachmentName('foto.jpg')).toBe('foto.pdf')
+    readyWithAnnexes()
+    const ax = await annexPdfs(itemId, resolve, { lang: 'hu' })
+    if (!ax.ok) throw new Error('mellekletek ' + ax.code)
+    const own = listAnnexes(itemId, resolve).map((a) => annexAttachmentName(a.name))
+    expect(own.length).toBeGreaterThan(0)
+    expect(ax.annexes.map((a) => a.fileName)).toEqual(own)
+    for (const a of ax.annexes) {
+      expect(a.fileName).not.toContain(a.label)
+      expect(a.fileName).not.toContain(a.title)
+    }
+  })
+
   it('melyik fajlbol lehet mellekleti PDF', () => {
     expect(['a.pdf', 'b.docx', 'c.JPG', 'd.png', 'e.txt', 'f.md', 'g.eml', 'h.heic', 'i.mp3'].map(annexPdfKind))
       .toEqual(['pdf', 'office', 'image', 'image', 'text', 'text', null, null, null])
@@ -156,7 +174,7 @@ describe('mellekletek a PDF-ben', () => {
     const pkg = await finalPackageFiles(item, listFinals(itemId)[0]!, 'hu')
     if (!pkg.ok) throw new Error('csomag ' + pkg.code)
     expect(pkg.files.map((f) => [f.role, f.label ?? null, f.path ? 'saved' : 'made'])).toEqual([['main', null, 'saved'], ['annex', 'K1', 'made'], ['annex', 'K2', 'made']])
-    expect(pkg.files[1]!.name).toBe('K1 – Bérleti szerződés.pdf')
+    expect(pkg.files[1]!.name).toBe('szerzodes.pdf')
     const k1 = pkg.files[1]!.pdf.toString('utf-8')
     expect(k1.indexOf('K1. melléklet')).toBeLessThan(k1.indexOf('SZERZODES-TARTALOM'))
 
@@ -239,7 +257,7 @@ describe('mellekletek a PDF-ben', () => {
     if (!item) throw new Error('munkadarab')
     const pkg = await finalPackageFiles(item, listFinals(itemId)[0]!, 'hu')
     if (!pkg.ok) throw new Error('csomag ' + pkg.code)
-    expect(pkg.files.map((f) => f.name)).toEqual(['Válaszbeadvány.pdf', 'K1 – Bérleti szerződés.pdf', 'K2 – Fénykép a lakásról.pdf'])
+    expect(pkg.files.map((f) => f.name)).toEqual(['Válaszbeadvány.pdf', 'szerzodes.pdf', 'foto.pdf'])
     // The "Final (vN)" line counts finalizations like the file name does, not the work item's version rows.
     expect(listFinals(itemId).map((f) => f.final_no)).toEqual([2, 1])
   })
