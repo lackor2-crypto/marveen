@@ -15725,6 +15725,93 @@
       twRefresh()
     })
   }
+
+  // The picture (signature) in the translation column is a unit the owner can select, move, resize and delete, the way the
+  // work item page lets them (Boss TG 3925). The island's `data-tw-text` is what twCollect reads back and the save writes.
+  function twPicSelect(isl) {
+    var host = document.getElementById('wbTwPage')
+    if (!host) return
+    Array.prototype.forEach.call(host.querySelectorAll('.wb-tw-island.wb-tw-sel'), function (x) {
+      x.classList.remove('wb-tw-sel')
+      var b0 = x.querySelector('.wb-tw-picbar'); if (b0) b0.remove()
+    })
+    if (!isl) return
+    isl.classList.add('wb-tw-sel')
+    var bar = document.createElement('span')
+    bar.className = 'wb-tw-picbar'
+    bar.setAttribute('contenteditable', 'false')
+    bar.title = t('workbench.tw.pic_hint')
+    bar.innerHTML = '<button type="button" data-tw-pic="smaller">' + esc(t('workbench.tw.pic_smaller')) + '</button>'
+      + '<button type="button" data-tw-pic="bigger">' + esc(t('workbench.tw.pic_bigger')) + '</button>'
+      + '<button type="button" data-tw-pic="del">' + esc(t('workbench.tw.pic_del')) + '</button>'
+    ;(isl.querySelector('.wb-dp-img-box') || isl).appendChild(bar)
+    isl.setAttribute('tabindex', '-1')
+    try { isl.focus({ preventScroll: true }) } catch (_e) { /* the click still selects */ }
+  }
+  function twPicPut(isl, pic) {
+    isl.setAttribute('data-tw-text', dpImageText(pic.path, pic.width || 100, pic.align, pic.x, pic.y, pic.over))
+    var sel = isl.classList.contains('wb-tw-sel')
+    isl.innerHTML = twBlockHtml({ kind: 'image', text: isl.getAttribute('data-tw-text') })
+    if (sel) twPicSelect(isl)
+  }
+  function twPicDelete(isl) {
+    var host = document.getElementById('wbTwPage')
+    if (isl.parentNode) isl.parentNode.removeChild(isl)
+    if (host) host.focus()
+  }
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('pointerdown', function (e) {
+      var tg = e.target && typeof e.target.closest === 'function' ? e.target : null
+      if (!tg || !WB.open) return
+      var btn = tg.closest('[data-tw-pic]')
+      var isl = tg.closest('#wbTwPage .wb-tw-island[data-tw-kind="image"]')
+      if (!isl) { if (!btn) twPicSelect(null); return }
+      if (btn) return
+      e.preventDefault()
+      if (!isl.classList.contains('wb-tw-sel')) twPicSelect(isl)
+      var pic = dpImageParts(isl.getAttribute('data-tw-text'))
+      if (!pic.over) return
+      var box = isl.querySelector('.wb-tw-over')
+      var full = box ? box.clientWidth : 0
+      if (!full) return
+      var sx = e.clientX, sy = e.clientY, ox = pic.x, oy = pic.y, moved = false
+      function mv(ev) {
+        if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) moved = true
+        if (!moved) return
+        pic.x = Math.max(0, Math.min(100 - (pic.width || 100), ox + (ev.clientX - sx) * 100 / full))
+        pic.y = Math.max(0, Math.min(300, oy + (ev.clientY - sy) * 100 / full))
+        box.style.setProperty('--wb-ox', pic.x); box.style.setProperty('--wb-oy', pic.y)
+      }
+      function up() {
+        document.removeEventListener('pointermove', mv)
+        document.removeEventListener('pointerup', up)
+        if (moved) twPicPut(isl, pic)
+      }
+      document.addEventListener('pointermove', mv)
+      document.addEventListener('pointerup', up)
+    })
+    document.addEventListener('click', function (e) {
+      var btn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-tw-pic]') : null
+      if (!btn) return
+      var isl = btn.closest('.wb-tw-island')
+      if (!isl) return
+      e.preventDefault()
+      var what = btn.getAttribute('data-tw-pic')
+      if (what === 'del') { twPicDelete(isl); return }
+      var pic = dpImageParts(isl.getAttribute('data-tw-text'))
+      var w = pic.width || 100
+      pic.width = Math.max(10, Math.min(100, w + (what === 'bigger' ? 5 : -5)))
+      if (pic.over) pic.x = Math.min(pic.x, 100 - pic.width)
+      twPicPut(isl, pic)
+    })
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      var isl = document.querySelector('#wbTwPage .wb-tw-island.wb-tw-sel')
+      if (!isl || document.activeElement !== isl) return
+      e.preventDefault()
+      twPicDelete(isl)
+    })
+  }
   /** What a saved translation section holds, as one comparable string (title + the text of every block). */
   function twBaseSig(s) {
     return JSON.stringify([s.title, (s.blocks || []).map(function (b) { return [b.kind, b.text] })])
@@ -15831,6 +15918,19 @@
     sel.addRange(rng)
     return true
   }
+  /** The classes + inner html of a translated text block, built the way the work item page builds its own blocks (dpEditHtml):
+   *  the same kind classes (list bullet, numbered, footnote), the same per-line list rows, so a list, a footnote, bold / italic /
+   *  colour (`rich`) and the paragraph format look the same in the translation column, on the page and in the preview. */
+  function twTextLook(b) {
+    var shown = b.kind === 'table' ? dpTableParts(b.text).text : b.text
+    var cls = 'wb-dp-block wb-outline-kind-' + escA(b.kind) + (b.kind === 'list' && dpIsNumbered(b.text) ? ' wb-dp-numbered' : '')
+    var inner = b.rich && b.kind !== 'table' ? b.rich : esc(shown)
+    if (b.kind === 'list' && (!/(^| )wb-dp-numbered( |$)/.test(cls) || /\n[ \t]{2}/.test(String(b.text || '')))) {
+      var lines = dpListLinesHtml(inner)
+      if (lines !== null) { inner = lines; cls += ' wb-dp-lines' }
+    }
+    return { cls: cls, inner: inner }
+  }
   function twBlockHtml(b) {
     if (b.kind === 'image') {
       var pic = dpImageParts(b.text)
@@ -15843,9 +15943,9 @@
       return '<figure class="wb-tw-img wb-dp-img wb-dp-img-' + pic.align + '"><span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%"' : '') + '>'
         + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '"></span></figure>'
     }
-    var shown = b.kind === 'table' ? dpTableParts(b.text).text : b.text
     var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
-    return '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + '>' + (b.rich && b.kind !== 'table' ? b.rich : esc(shown)) + '</div>'
+    var look = twTextLook(b)
+    return '<div class="wb-tw-block ' + look.cls + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + '>' + look.inner + '</div>'
   }
   /** #534 (Boss TG 8849): the translation is ONE continuous page, the way the original is -- a heading line per chapter
    *  (the chapter border is the heading), the paragraphs under it, all in one editing host: select across chapters, delete,
@@ -15876,9 +15976,10 @@
         var shown = b.kind === 'table' ? dpTableParts(b.text).text : b.text
         var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
         // A table keeps its size / alignment line (the text of the block after the lines) through an edit of the lines.
-        out += '<div class="wb-tw-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + (b.kind === 'table' ? '' : dpAlignAttrs(b.align).attr)
+        var look = twTextLook(b)
+        out += '<div class="wb-tw-block ' + look.cls + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + (b.kind === 'table' ? '' : dpAlignAttrs(b.align).attr)
           + ' data-tw="block" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="' + escA(b.kind) + '"' + (b.format_lost ? ' data-tw-fmtlost="1" title="' + escA(t('workbench.tw.format_lost_mark')) + '"' : '') + ed + '>'
-          + (b.kind === 'table' ? twTableHtml(b.text) : b.rich ? b.rich : esc(shown)) + '</div>'
+          + (b.kind === 'table' ? twTableHtml(b.text) : look.inner) + '</div>'
       })
       return out
     }).join('')
