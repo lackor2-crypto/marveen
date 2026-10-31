@@ -181,7 +181,7 @@ function avatarBust() { return _avatarEpoch ? `?t=${_avatarEpoch}` : '' }
     // navigate away on every language switch (Boss, 2026-08-06/07: "a
     // nyelvvalasztonak csak a nyelvet kellene modositania nem az oldalt").
     const pageId = location.hash.slice(1) || 'overview'
-    if (typeof switchPage === 'function') switchPage(pageId)
+    if (typeof switchPage === 'function') { _viewKeepNext = true; switchPage(pageId); _viewKeepNext = false }
   }
 })()
 
@@ -222,6 +222,8 @@ function viewStateRegister(page, collect) { _viewCollectors[page] = collect }
 // collector returns a degraded or empty state, and every save then overwrote or deleted the good one. So a taken
 // state stays "pending" and is what gets saved until the page confirms it has applied it.
 let _viewPending = null
+// Set by the callers that re-run the CURRENT page (reconnect, language switch): the page loader keeps the open view.
+let _viewKeepNext = false
 function viewStatePending(page, state) { _viewPending = page && state ? { page, state } : null }
 function viewStateApplied(page) { if (_viewPending && _viewPending.page === page) _viewPending = null }
 function _viewCollect(page) {
@@ -608,7 +610,9 @@ const _netStatus = (() => {
       pageFailed = false
       const active = document.querySelector('.sb-link.active[data-page]')?.dataset.page || location.hash.slice(1)
       if (active && active !== 'settings' && typeof switchPage === 'function') {
+        _viewKeepNext = true
         try { switchPage(active) } catch (e) { console.warn('[net] page reload after reconnect failed', e) }
+        _viewKeepNext = false
       }
     }
   }
@@ -49269,11 +49273,15 @@ async function loadProjectsPage() {
   // rajzolasa nemán megallt (a _prjRenderProject korai visszaterese miatt), es
   // a felhasznalo egy ures dobozban ragadt, amig ujra nem toltotte a lapot.
   // Az oldal betoltese ezert mindig alaphelyzetbe teszi.
+  // A reload of the SAME page (server came back after a restart, language switch) must not throw the user out of
+  // the open project: take its position before the reset wipes it. A click on the menu entry still opens the list.
+  const here = _viewKeepNext && _prj.current ? _viewCollect('projects') : null
+  _viewKeepNext = false
   window.MarvinWorkbench?.reset?.()
   document.getElementById('prjIntezoChip')?.remove()
   document.getElementById('prjIdeasChip')?.remove()
   // #435: after an F5 the same project, tab and Workbench come back.
-  const back = viewStateTake('projects')
+  const back = viewStateTake('projects') || here
   const openId = _prj.openOnLoad || (back && typeof back.current === 'string' ? back.current : null)
   const wbLoad = _prj.openWbOnLoad
   _prj.openOnLoad = null
