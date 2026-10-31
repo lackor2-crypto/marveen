@@ -1,5 +1,5 @@
 // Boss TG 4484: a Life-tree file can be linked from the right-click menu of an item's Attachments / Uploads folder
-// (as an annex / a material of THAT item). Only the plain work items box (and the item's other folders) stay refused.
+// (as an annex / a material of THAT item). Every other folder (also the box and the item folder) takes a plain file link.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -49,9 +49,9 @@ describe('project-file-link into an item folder', () => {
     expect(itemSubfolderOf(project, itemFolder)).toBeNull()
     expect(itemSubfolderOf(project, findWorkItemsBox(project)!)).toBeNull()
   })
-  it('the work items box itself and the item folder stay refused', async () => {
-    expect((await link(findWorkItemsBox(getProject(pid)!)!)).status).toBe(400)
-    expect((await link(itemFolder)).status).toBe(400)
+  it('no folder refuses a link: the work items box, the item folder and any other subfolder take a plain file link', async () => {
+    expect((await link(itemFolder)).status).toBe(201)
+    expect((await link(findWorkItemsBox(getProject(pid)!)!)).status).toBe(201)
   })
   it('Attachments: the file becomes an annex of the item and shows there as a link, the original stays', async () => {
     const att = sub(['Mellékletek', 'Attachments'])!

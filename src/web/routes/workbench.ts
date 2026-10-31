@@ -223,7 +223,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   plink_not_found: { hu: 'Ez a fájl nincs meg az Életfában. Válassz másikat, vagy frissítsd az oldalt.', en: 'This file is not in the Life tree. Choose another one, or refresh the page.' },
   plink_folder_gone: { hu: 'Ez a mappa a projektben már nincs meg. Frissítsd az oldalt, és válassz másikat.', en: 'This folder is no longer in the project. Refresh the page and choose another one.' },
   plink_exists: { hu: 'Ebben a mappában már van ilyen nevű fájl vagy csatolás. Nevezd át azt, vagy válassz másik fájlt.', en: 'This folder already has a file or attachment with that name. Rename it, or choose another file.' },
-  plink_box: { hu: 'A munkadarabok mappájába nem lehet fájlt belinkelni, mert ott a munkadarabok vannak. Válassz egy másik mappát.', en: 'A file cannot be linked into the work items folder, because the work items live there. Choose another folder.' },
   plink_asset_unsupported: { hu: 'Ez a fájltípus nem tölthető fel a munkadarabhoz. Válassz másik fájlt.', en: 'This file type cannot be added to the work item. Choose another file.' },
   plink_asset_limit: { hu: 'A munkadarabhoz már a legtöbb feltöltés hozzá van adva.', en: 'The work item already has the most uploads it can hold.' },
   plink_failed: { hu: 'A fájlt nem sikerült belinkelni.', en: 'The file could not be linked.' },
@@ -3023,14 +3022,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const where = projectFileTarget(project, folder)
     if (!where.ok) return fail(res, 404, 'plink_folder_gone', lang)
     const box = findWorkItemsBox(project)
-    // #794: the "Kiváltó irat" folder of an item takes the file as a plain link (a file mount), like any other folder.
-    const lastSeg = folder.slice(folder.lastIndexOf('/') + 1)
-    const inTrigger = ([TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en] as string[]).includes(lastSeg)
-    if (box && folder && !inTrigger && (folder === box || folder.startsWith(box + '/'))) {
-      // Boss TG 4484: an item's Attachments / Uploads folder takes the file as a link OF THAT ITEM (annex / material);
-      // only the work items box itself and the other folders in it stay refused.
-      const sub = itemSubfolderOf(project, folder)
-      if (!sub) return fail(res, 400, 'plink_box', lang)
+    // Boss TG 4484: an item's Attachments / Uploads folder takes the file as a link OF THAT ITEM (annex / material).
+    // Every other folder (Kiváltó irat, Vitáztatás, the item folder, the work items box itself, ...) takes it as a plain
+    // file link: there is no folder a file cannot be linked into.
+    const sub = box && folder && (folder === box || folder.startsWith(box + '/')) ? itemSubfolderOf(project, folder) : null
+    if (sub) {
       if (sub.kind === 'annex') {
         const resolve = resolverFor(sub.item)
         if (!resolve) return fail(res, 404, 'project_not_found', lang)
