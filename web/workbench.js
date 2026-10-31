@@ -16804,6 +16804,9 @@
         return null
       }
       if (WB.selectedId === id && WB.detail) WB.detail.outline = r.data.outline
+      // A picture (the signature) changed on the page is mirrored into the language version by the server before it answers:
+      // the translation column is read again at once, not at the next tab focus / 20 s tick (Boss TG 3988: it showed only after Ctrl-Shift-R).
+      if (/^\/blocks/.test(sub) && typeof setTimeout === 'function') setTimeout(function () { if (WB.selectedId === id) twResync() }, 250)
       return r.data.outline
     })
   }
