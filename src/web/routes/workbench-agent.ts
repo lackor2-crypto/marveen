@@ -22,6 +22,7 @@ import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, WEB_PORT } from '../../config.js'
 import { getProject, updateProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
+import { triggerStateOf, triggerBlocksWork } from '../../workbench-trigger.js'
 import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
 import { familyLines } from '../../workbench-agent/context.js'
 import { variantLanguageRule } from '../../workbench-agent/doc-language.js'
@@ -1024,7 +1025,20 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       const chatSession = openSessionForWorkItem(project.id, workItemId ?? projectSessionKey(project.id), lang)
       followUiLanguage(chatSession.id, lang)
       const injectText = input.message.trim()
-      if (livePool && injectText && !bridgeStillWorking(chatSession.id) && isTurnRunning(key)
+      // #794 (Boss TG 3795/3802): the trigger-document gate holds for EVERY backend (code bridge, live session, plain
+      // assistant): an empty Kiváltó irat folder without the "no document" tick ends the turn here, before any model.
+      let triggerHeld = false
+      if (workItemId) {
+        try { const wi = getWorkItem(workItemId); triggerHeld = !!wi && triggerBlocksWork(triggerStateOf(project, wi)) } catch { /* an unreadable state never blocks */ }
+      }
+      if (triggerHeld) {
+        const held = msg('trigger_missing', lang)
+        addAgentMessage(chatSession.id, 'user', injectText)
+        addAgentMessage(chatSession.id, 'assistant', held, { model: null, via: null })
+        send('session', { type: 'session', sessionId: chatSession.id })
+        send('text', { type: 'text', text: held })
+        send('done', { type: 'done', model: null })
+      } else if (livePool && injectText && !bridgeStillWorking(chatSession.id) && isTurnRunning(key)
         && livePool.inject(key, `${injectText}\n\n${completionInstruction()}`)) {
         // Boss, 2026-10-16: a message written while the agent works goes to the
         // model right away (the running turn takes it in); it is not queued.

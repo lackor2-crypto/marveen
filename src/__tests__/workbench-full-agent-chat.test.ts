@@ -48,7 +48,7 @@ import { setAuditWriterForTest } from '../workbench-agent/audit.js'
 import { tryHandleWorkbenchAgent, SSE_PING_MS, setWorkbenchLiveResolverForTest, setWorkbenchLivePoolForTest, resetWorkbenchBridgeLimitForTest, setWorkbenchInflightFileForTest, resumeInterruptedWorkbenchTurns } from '../web/routes/workbench-agent.js'
 import { LiveSessionPool, type SavedSession } from '../workbench-agent/live-session.js'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { RouteContext } from '../web/routes/types.js'
@@ -185,6 +185,29 @@ describe('Munkapad chat teljes erteku modban (kod-hid)', () => {
   // Boss, 2026-09-28: "abba a csetbe kell nekem visszakapnom az uzenetet,
   // ahonnan kerdeztem" -- a Munkapad-feladat SAJAT eredetet kap, hogy a
   // befejezes-ertesito ne kuldje Telegramra (code-bridge-notify.ts).
+  // Boss TG 3802: the trigger-document gate holds on the code-bridge path too: nothing is enqueued while the folder is empty.
+  it('#794: ures Kivalto irat mappa, nincs jelolo: a kod-hid nem kap feladatot, a rogzitett valasz jon', async () => {
+    const depot = mkdtempSync(join(tmpdir(), 'marveen-bridge-trig-'))
+    try {
+      mkdirSync(join(depot, 'Projektek', 'Iroda', 'Munkadarabok', 'Level', 'Kiváltó irat'), { recursive: true })
+      process.env['MARVEEN_DEPOT'] = depot
+      updateProject(projectId, { folder_path: 'Projektek/Iroda' })
+      const { getDb } = await import('../db.js')
+      getDb().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run('Munkadarabok/Level', workItemId)
+      const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'csinaljunk valamit' })
+      expect(r.status).toBe(200)
+      expect(enqueued).toHaveLength(0)
+      expect(r.raw).toContain('Kiváltó irat mappa üres')
+      // the owner ticks "no document": the work goes to the bridge again
+      getDb().prepare('UPDATE work_items SET no_trigger = 1 WHERE id = ?').run(workItemId)
+      await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'most mar mehet' })
+      expect(enqueued).toHaveLength(1)
+    } finally {
+      rmSync(depot, { recursive: true, force: true })
+      delete process.env['MARVEEN_DEPOT']
+    }
+  })
+
   it('a feladat "workbench" eredettel megy a kod-hidra (nem "dashboard")', async () => {
     await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'szia' })
     expect(enqueued).toHaveLength(1)
