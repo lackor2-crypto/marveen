@@ -755,6 +755,9 @@ describe("the saved translation comes back after a reload", () => {
     // the pick goes into tw.prev as an image block after that paragraph, then the column is redrawn
     expect(fn).toContain("dpSignPicker(at.sec, '', function (rel) {")
     expect(fn).toContain("{ kind: 'image', text: rel + '#w=30&a=l' }")
+    // twRefresh reads the page back first: the new block is protected by `fresh` until the page has drawn it
+    expect(fn.indexOf('pv.fresh = true')).toBeGreaterThan(fn.indexOf('blocks.splice('))
+    expect(fn.indexOf('pv.fresh = true')).toBeLessThan(fn.indexOf('twRefresh()'))
     expect(fn).toContain('twRefresh()')
     // the toolbar handler tries the translation page BEFORE saying "click into the text"
     const h = js.indexOf("if (f === 'sign') { var twAt = twCaretBlock()")

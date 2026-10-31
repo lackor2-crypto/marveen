@@ -15719,6 +15719,9 @@
       if (!pv) return
       var blocks = pv.blocks || (pv.blocks = [])
       blocks.splice(Math.min(at.idx, blocks.length), 0, { kind: 'image', text: rel + '#w=30&a=l' })
+      // twRefresh reads the page back first (twCollect); a block that is not on the page yet would be dropped by that.
+      // `fresh` makes twCollect leave this section alone until the page has drawn it.
+      pv.fresh = true
       twRefresh()
     })
   }
