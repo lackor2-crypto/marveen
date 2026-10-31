@@ -11018,8 +11018,7 @@
       var link = WB.detail && WB.detail.outline ? (document.querySelector('[data-wb-act="outline-review"]') || document.querySelector('.wb-outline-pdf-tools a')) : null
       var href = link && link.getAttribute('href')
       if (href && href.indexOf('/items/' + encodeURIComponent(id) + '/') >= 0) {
-        if (win && !win.closed) win.location.href = href
-        else window.open(href, '_blank', 'noopener')
+        openAuthed(href, 'draft.pdf', false, win && !win.closed ? win : null)
         watchReview()
         return
       }
@@ -11307,7 +11306,7 @@
       if (rvOpts.length > 1 && ev) {
         ev.preventDefault()
         var rvHref = act.getAttribute('href')
-        pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { window.open(rvHref, '_blank', 'noopener'); watchReview() })
+        pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { var rvTab = null; try { rvTab = window.open('', '_blank') } catch (_e) { rvTab = null } openAuthed(rvHref, 'draft.pdf', false, rvTab); watchReview() })
         return
       }
       watchReview()
@@ -24250,26 +24249,16 @@
     })
   })
 
-  // A plain link to /api/life/file carries no Authorization header: a browser without a sign-in session cookie got
-  // {"error":"Unauthorized"} in the new tab (Boss, 2026-10-30, a project file row). So the click fetches the bytes with the
-  // page's own auth (the fetch wrapper attaches the token) and hands the browser a blob, as the Drive download does.
-  document.addEventListener('click', function (e) {
-    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
-    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
-    var a = e.target.closest('a[href^="/api/life/file"]')
-    if (!a || a.hasAttribute('data-wb-raw-link')) return
-    var href = a.getAttribute('href') || ''
-    var m = /[?&]rel=([^&]*)/.exec(href)
-    var name = baseOf(m ? decodeURIComponent(m[1]) : 'file')
-    var download = /[?&]download=1/.test(href)
-    e.preventDefault()
-    var tab = null
-    if (!download) { try { tab = window.open('', '_blank') } catch (_e) { tab = null } }
+  // A plain link to /api/... carries no Authorization header: a browser without a sign-in session cookie got
+  // {"error":"Unauthorized"} in the new tab (Boss, 2026-10-30, a project file row; 2026-10-31, the "Piszkozat PDF" button). So the
+  // click fetches the bytes with the page's own auth (the fetch wrapper attaches the token) and hands the browser a blob, as the
+  // Drive download does. `tab` is a window opened inside the click (a later one would be blocked); null with `download`.
+  function openAuthed(href, name, download, tab) {
     var fail = function (msg) {
       if (tab) { try { tab.close() } catch (_e) { /* already closed */ } }
       window.showToast(msg || t('workbench.file.open_failed'))
     }
-    fetch(href).then(function (res) {
+    return fetch(href).then(function (res) {
       if (!res.ok) {
         return res.json().then(function (j) { fail((j && j.message) || t('workbench.file.open_failed')) }, function () { fail() })
       }
@@ -24288,6 +24277,23 @@
         setTimeout(function () { URL.revokeObjectURL(url) }, 120000)
       })
     }).catch(function () { fail(t('workbench.err.network')) })
+  }
+  document.addEventListener('click', function (e) {
+    if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return
+    var a = e.target.closest('a[href^="/api/"]')
+    if (!a || a.hasAttribute('data-wb-raw-link')) return
+    var href = a.getAttribute('href') || ''
+    // Only the links that open a file in a new tab / download one; the printable export page needs its own address.
+    if (a.getAttribute('target') !== '_blank' && !a.hasAttribute('download') && !/[?&]download=1/.test(href)) return
+    if (href.indexOf('/export.html') >= 0) return
+    var m = /[?&]rel=([^&]*)/.exec(href)
+    var name = baseOf(m ? decodeURIComponent(m[1]) : (href.split('?')[0].split('/').pop() || 'file'))
+    var download = /[?&]download=1/.test(href)
+    e.preventDefault()
+    var tab = null
+    if (!download) { try { tab = window.open('', '_blank') } catch (_e) { tab = null } }
+    openAuthed(href, name, download, tab)
   })
 
   // #530: the role of a project document is changed in place, with its select.
