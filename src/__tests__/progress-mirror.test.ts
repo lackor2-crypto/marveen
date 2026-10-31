@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  langOf, classifyPane, placeholderLiveText, backgroundText, shouldEdit,
+  langOf, classifyPane, elapsedMsFromStatus, ownerTurnContinues, placeholderLiveText, backgroundText, shouldEdit,
   extractThoughts, limitNoticesDue, limitNoticeText, thoughtMessage, parseProgressMode,
   thoughtFingerprint, rememberThought, MAX_SENT_THOUGHTS,
 } from '../progress-mirror.js'
@@ -310,5 +310,24 @@ describe('thought dedup across ticks (#665)', () => {
     expect(seen).toHaveLength(MAX_SENT_THOUGHTS)
     expect(pass(seen, 't' + (MAX_SENT_THOUGHTS + 49))).toBe(true)
     expect(pass(seen, 't0')).toBe(false)
+  })
+})
+
+describe('TG 3896: the owner turn goes on after a mid-turn reply cleared the placeholder', () => {
+  it('reads the elapsed time from the spinner', () => {
+    expect(elapsedMsFromStatus('dolgozom… (6m 15s · ↓ 12.3k token)')).toBe(375_000)
+    expect(elapsedMsFromStatus('x (1h 2m 3s)')).toBe(3_723_000)
+    expect(elapsedMsFromStatus('x (45s · y)')).toBe(45_000)
+    expect(elapsedMsFromStatus('no counter')).toBeNull()
+  })
+  it('only a turn that started while a placeholder was pending counts as the owner turn', () => {
+    const live = { kind: 'live' as const, text: 'dolgozom… (6m 15s · ↓ 1k token)' }
+    const now = 1_000_000_000
+    expect(ownerTurnContinues(live, now - 60_000, now)).toBe(true)   // placeholder seen minutes into the turn
+    expect(ownerTurnContinues(live, now - 380_000, now)).toBe(true)
+    expect(ownerTurnContinues(live, undefined, now)).toBe(false)     // never had one: heartbeat / agent message
+    expect(ownerTurnContinues(live, now - 500_000, now)).toBe(false) // placeholder of an EARLIER turn (turn started after it)
+    expect(ownerTurnContinues({ kind: 'background', text: 'x' }, now, now)).toBe(false)
+    expect(ownerTurnContinues(null, now, now)).toBe(false)
   })
 })

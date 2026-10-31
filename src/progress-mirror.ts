@@ -172,6 +172,28 @@ export function placeholderLiveText(base: string, activity: PaneActivity | null)
   return `${base}\n✻ ${activity.text}`
 }
 
+/**
+ * How long the running turn has been going, read from the spinner text
+ * ("dolgozom… (6m 15s · ↓ 12.3k token)", "1h 2m 3s", "45s"). Null = not readable.
+ */
+export function elapsedMsFromStatus(text: string): number | null {
+  const m = /\((?:(\d+)h\s*)?(?:(\d+)m\s*)?(\d+)s\b/.exec(text)
+  if (!m) return null
+  return ((Number(m[1] || 0) * 60 + Number(m[2] || 0)) * 60 + Number(m[3])) * 1000
+}
+
+/**
+ * The owner's turn goes on although its placeholder is gone (a mid-turn reply clears it, then the agent keeps
+ * working): the running turn started no later than the last moment a placeholder was seen. Heartbeats and
+ * agent-to-agent turns never had one, so they stay silent.
+ */
+export function ownerTurnContinues(activity: PaneActivity | null, lastPendingSeenMs: number | undefined, nowMs: number): boolean {
+  if (!activity || activity.kind !== 'live' || lastPendingSeenMs === undefined) return false
+  const elapsed = elapsedMsFromStatus(activity.text)
+  if (elapsed === null) return false
+  return nowMs - elapsed <= lastPendingSeenMs + 5_000
+}
+
 /** The separate, silent message shown when only background work is alive. */
 export function backgroundText(activity: PaneActivity | null): string | null {
   return activity && activity.kind === 'background' ? `⏳ ${activity.text}` : null
