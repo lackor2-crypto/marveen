@@ -15834,6 +15834,12 @@
   function twBlockHtml(b) {
     if (b.kind === 'image') {
       var pic = dpImageParts(b.text)
+      // A picture put "free, over the text" (the signature) is the same zero-height anchor as in the work item's own page
+      // (#566): the translation column, the language version's page and the preview then show it in the same place.
+      if (pic.over) {
+        return '<div class="wb-tw-over" style="--wb-ox:' + pic.x + ';--wb-oy:' + pic.y + ';--wb-ow:' + (pic.width || 100) + '"><figure class="wb-tw-img wb-dp-img wb-dp-img-l wb-dp-img-over"><span class="wb-dp-img-box" style="width:100%">'
+          + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '"></span></figure></div>'
+      }
       return '<figure class="wb-tw-img wb-dp-img wb-dp-img-' + pic.align + '"><span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%"' : '') + '>'
         + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '"></span></figure>'
     }
