@@ -49,8 +49,10 @@ describe('dictation scripts: the caption fix is wired and installable', () => {
     expect(auto).toMatch(/if \(\$tgField -eq 'caption' -and \$tgIo\) \{\n\s+try \{ \$tgMove = Move-TgCaptionToMessage /)
     // the old paste stays the path for everything else
     expect(auto).toMatch(/\} else \{\n[^\n]*kimaradt[^\n]*\n\s+Start-Sleep -Milliseconds 120\n[^\n]*\n\s+\[System\.Windows\.Forms\.SendKeys\]::SendWait\('\^v'\)/)
-    // the plain message field has no 1024 cap: no counting, no beeping there
-    expect(auto).toMatch(/if \(\$tgField -eq 'message'\) \{ Remove-Item \$capFile/)
+    // Boss (TG 3870): no character counting and no 1024 warning pop-up or beeps, in any app
+    expect(auto).not.toContain('capWarn')
+    expect(auto).not.toContain('caption-count')
+    expect(auto).not.toContain('ShowBalloonTip(5000')
   })
 
   it('the tool never presses Enter by itself outside the caption move', () => {
