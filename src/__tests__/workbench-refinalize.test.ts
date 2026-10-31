@@ -110,6 +110,31 @@ describe('#737 ujra-veglegesites', () => {
     expect(existsSync(join(depot, f1.body.file))).toBe(false)
   })
 
+  it('#794 (Boss TG 4072): moving a picture a little (over-text x / y) is a change: the next finalize makes a NEW PDF, never "unchanged"', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+    writeFileSync(join(depot, 'Projektek', 'Iroda', 'alairas.png'), png)
+    // A pdftotext that says the same words for every PDF: exactly the case where only the picture's place differs (#753 compares words).
+    const fakeTxt = join(depot, 'fake-pdftotext.sh')
+    writeFileSync(fakeTxt, '#!/bin/sh\necho "Sehr geehrte Frau Jaeckle same words"\n', 'utf-8')
+    chmodSync(fakeTxt, 0o755)
+    const prevTxt = process.env['MARVEEN_PDFTOTEXT']
+    process.env['MARVEEN_PDFTOTEXT'] = fakeTxt
+    try {
+    const base = `/api/workbench/items/${itemId}/outline`
+    const sec = (await callWorkbench(base, 'GET')).body.outline.sections[0]
+    const blk = addBlock(itemId, sec.id, { kind: 'image', text: 'Projektek/Iroda/alairas.png#w=30&a=l&x=60&y=10&o=1', author: 'owner' })
+    if (!blk.ok) throw new Error('kep')
+    const f1 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
+    expect(f1.status, JSON.stringify(f1.body)).toBe(200)
+    expect((await callWorkbench(`/api/workbench/items/${itemId}/approval`, 'POST', { action: 'reopen' })).status).toBe(200)
+    const mv = await callWorkbench(`/api/workbench/items/${itemId}/outline/blocks/${blk.block.id}`, 'PATCH', { text: 'Projektek/Iroda/alairas.png#w=30&a=l&x=60&y=4&o=1' })
+    expect(mv.status, JSON.stringify(mv.body)).toBe(200)
+    const f2 = await callWorkbench(`${base}/finalize`, 'POST', { accept: true, hash: await review(), override: true })
+    expect(f2.status, JSON.stringify(f2.body)).toBe(200)
+    expect(f2.body.reused).toBe(false)
+    } finally { if (prevTxt === undefined) delete process.env['MARVEEN_PDFTOTEXT']; else process.env['MARVEEN_PDFTOTEXT'] = prevTxt }
+  })
+
   /** The case of Boss TG 4102: a plain item (#717) made from a Word file whose file link is gone (the Word import clears it). */
   function makePlainWithoutFile(container: string): void {
     markPlainItem(itemId)

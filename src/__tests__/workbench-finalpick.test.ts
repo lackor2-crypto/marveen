@@ -18,9 +18,14 @@ describe('workbench language choice before review / mail (#794)', () => {
     expect(js).not.toMatch(/finalLangChosen/)
     expect(js).toMatch(/outlineAction\(a, act, e\)/)
   })
-  it('the chosen language opens at once: no second question, no second click, and every language stays in the list', () => {
-    expect(js).toMatch(/openReviewWhenLoaded\(x\.id, win\)/)
-    expect(js).toMatch(/window\.open\('', '_blank'\)/)
+  it('the chosen language opens at once and the owner STAYS on his item (no jump, no empty window) -- Boss TG 4105', () => {
+    const go = js.slice(js.indexOf("go.addEventListener('click'"), js.indexOf('function watchReview'))
+    expect(go).toMatch(/window\.open\('', '_blank'\)/)
+    expect(go).toMatch(/openAuthed\(href, /)
+    expect(go).not.toMatch(/selectItem\(/)
+    expect(go).toMatch(/final_path && !x\.final_stale/)
+    expect(js).not.toMatch(/openReviewWhenLoaded/)
+    expect(js).toMatch(/source_final/)
     expect(js).toMatch(/\(o\.siblings \|\| \[\]\)\.forEach/)
     const srv = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf8')
     expect(srv).toMatch(/siblings: variant \? variantsSummary\(variant\.source_item_id\)\.filter\(\(x\) => x\.item_id !== item\.id\)/)
@@ -32,7 +37,7 @@ describe('workbench language choice before review / mail (#794)', () => {
   it('every finalpick key exists in both languages', () => {
     for (const f of ['hu', 'en']) {
       const s = readFileSync(join(__dirname, '..', '..', 'web', 'lang', f + '.js'), 'utf8')
-      for (const k of ['title', 'purpose_open', 'original', 'here', 'cancel', 'go', 'switched', 'mail_confirm', 'mail_lang']) {
+      for (const k of ['title', 'purpose_open', 'original', 'here', 'cancel', 'go', 'opened_final', 'opened_stale', 'opened_draft', 'mail_confirm', 'mail_lang']) {
         expect(s).toContain('"workbench.finalpick.' + k + '"')
       }
     }

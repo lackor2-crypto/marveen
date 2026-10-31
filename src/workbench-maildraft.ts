@@ -29,7 +29,7 @@ import { docSettings, listAnnexes } from './workbench-docannex.js'
 import { getProfile, itemProfileId, profileFileName } from './workbench-courtprofile.js'
 import { contentHash, docLangFor, fileStem, finalFileName, letterFileStem, letterNameLang, finalLang, finalPackageFiles, finalState, renderPlainPdf, resolverFor } from './workbench-docfinal.js'
 import { hasDocModel, listBlocks } from './workbench-docmodel.js'
-import { detectTextLanguage, letterSubject, subjectFromLines } from './workbench-letterinfo.js'
+import { detectTextLanguage, letterSignatory, letterSubject, subjectFromLines } from './workbench-letterinfo.js'
 import { variantOf } from './workbench-doclang.js'
 import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
 import { resolveLifePath } from './life-explorer.js'
@@ -143,8 +143,14 @@ export function mailSubject(item: WorkItemRow): string {
 }
 
 export function defaultMailBody(item: WorkItemRow, lang: DocLang, annexCount: number): string {
+  // #794 (Boss TG 4081): the closing name is the one the LETTER carries (its signatory), never the dashboard owner's nickname.
+  return (DEFAULT_BODY[lang] || DEFAULT_BODY.en)(mailSubject(item), annexCount, hasDocModel(item.id) ? letterSignatory(item.id) : '')
+}
+
+/** The sign-offs older defaults used: the owner's nickname (or none). A stored body made of one of them is still an untouched default. */
+function oldSignOffs(): string[] {
   const who = currentOwnerName()
-  return (DEFAULT_BODY[lang] || DEFAULT_BODY.en)(mailSubject(item), annexCount, who && who !== OWNER_NAME_PLACEHOLDER ? who : '')
+  return ['', ...(who && who !== OWNER_NAME_PLACEHOLDER ? [who] : [])]
 }
 
 // ---------------------------------------------------------------------------
@@ -269,9 +275,12 @@ function shownBody(item: WorkItemRow, stored: string): string {
     try { getDb().prepare('UPDATE wb_doc_maildraft SET body = ? WHERE work_item_id = ? AND body = ?').run(body, item.id, stored) } catch { /* shown only */ }
     return body
   }
+  // An untouched default is always shown as TODAY's default (the letter's own signatory and subject, the final's language); what the
+  // owner typed is never touched: only an exact match with an old default counts.
+  const was = untouchedDefaultLang(item, stored)
+  if (!was) return stored
   const fl = currentFinalLang(item)
-  const was = fl ? untouchedDefaultLang(item, stored) : null
-  return fl && was && was !== fl ? defaultMailBody(item, fl, listAnnexes(item.id).length) : stored
+  return defaultMailBody(item, fl ?? was, listAnnexes(item.id).length)
 }
 
 /** Whether a file name carries the work item's title (as written, or as a court profile rewrites it with underscores). */
@@ -292,7 +301,7 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   const state: MailDraftView['state'] = !titled && row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
   return {
     file: '', file_name: '',
-    from_account: row.from_account, from_addr: row.from_addr, to: row.to_addr, cc: row.cc_addr, subject: row.subject, body: shownBody(item, row.body),
+    from_account: row.from_account, from_addr: row.from_addr, to: row.to_addr || knownRecipient(item), cc: row.cc_addr, subject: row.subject || mailSubject(item), body: shownBody(item, row.body),
     attachments, total_bytes: attachments.reduce((n, a) => n + a.bytes, 0), updated_at: row.updated_at, state,
   }
 }
@@ -320,18 +329,44 @@ export function chatRecipient(item: WorkItemRow): string {
   return ''
 }
 
+/**
+ * #794 (Boss TG 4081: "ezeket mar mind tudjuk"): the recipient a mail form starts with. What the owner typed into the chat comes
+ * first, then an address the letter itself carries (a line of its text), then the same for the original of a language version.
+ * Nothing is made up: an address is only ever taken from something that was written.
+ */
+export function knownRecipient(item: WorkItemRow): string {
+  const chat = chatRecipient(item)
+  if (chat) return chat
+  const inText = (id: string): string => {
+    try {
+      if (!hasDocModel(id)) return ''
+      const hit = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/.exec(listBlocks(id).map((b) => String(b.text ?? '')).join('\n'))
+      return hit ? hit[0] : ''
+    } catch { return '' }
+  }
+  const own = inText(item.id)
+  if (own) return own
+  const v = variantOf(item.id)
+  if (v && v.source_item_id) {
+    const src = getRow(v.source_item_id)
+    if (src && src.to_addr) return src.to_addr
+    try { return chatRecipient({ ...item, id: v.source_item_id } as WorkItemRow) || inText(v.source_item_id) } catch { return '' }
+  }
+  return ''
+}
+
 export function mailPrefill(item: WorkItemRow): { to: string; subject: string; body: string; lang: DocLang } | null {
   // A finalized Word item (#723): the final PDF it carries exists, the text language comes from the Word file itself.
   if (!hasDocModel(item.id) && hasDocxFinalPanel(item)) {
     if (getRow(item.id) || !docxFinalPdf(item)) return null
     const wl = textLanguageOf(item) ?? 'hu'
-    return { to: chatRecipient(item), subject: mailSubject(item), body: defaultMailBody(item, wl, 0), lang: wl }
+    return { to: knownRecipient(item), subject: mailSubject(item), body: defaultMailBody(item, wl, 0), lang: wl }
   }
   if (!hasDocModel(item.id) || hasDocxFinalPanel(item) || getRow(item.id)) return null
   const fin = finalState(item)
   if (!fin || fin.stale) return null
   const lang = mailLanguage(item, 'hu', fin)
-  return { to: chatRecipient(item), subject: mailSubject(item), body: defaultMailBody(item, lang, listAnnexes(item.id).length), lang }
+  return { to: knownRecipient(item), subject: mailSubject(item), body: defaultMailBody(item, lang, listAnnexes(item.id).length), lang }
 }
 
 /** What the attachments are made from: the document, its annexes (name, size, time) and the mode, plus the mail's own text. */
@@ -499,8 +534,12 @@ export function resetUntouchedMailText(item: WorkItemRow): boolean {
  */
 function untouchedDefaultLang(item: WorkItemRow, body: string): DocLang | null {
   const max = Math.max(20, listAnnexes(item.id).length)
+  // The title and the closing name a default carried changed over time (the title was once the work item's, the closing name the
+  // dashboard owner's nickname, and a subject the program could not find left the title out): every one of them still counts.
+  const titles = [...new Set(['', mailSubject(item), item.title])]
+  const whos = [...new Set([hasDocModel(item.id) ? letterSignatory(item.id) : '', ...oldSignOffs()])]
   for (const l of ['hu', 'en', 'de'] as DocLang[]) {
-    for (let n = 0; n <= max; n++) if (body === defaultMailBody(item, l, n)) return l
+    for (let n = 0; n <= max; n++) for (const t of titles) for (const w of whos) if (body === (DEFAULT_BODY[l] || DEFAULT_BODY.en)(t, n, w)) return l
   }
   return null
 }

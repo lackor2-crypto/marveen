@@ -10974,14 +10974,14 @@
     if (!o) return []
     if (o.variant) {
       var vs = [{ id: WB.selectedId, label: docLangName(o.variant.lang), here: true }]
-      if (o.variant.source_item_id) vs.push({ id: o.variant.source_item_id, label: t('workbench.finalpick.original'), here: false })
+      if (o.variant.source_item_id) vs.push({ id: o.variant.source_item_id, label: t('workbench.finalpick.original'), here: false, final_path: (o.source_final && o.source_final.final_path) || '', final_stale: !!(o.source_final && o.source_final.final_stale) })
       // The other language versions of the same original are choices too (the Hungarian one must not vanish from the list).
-      ;(o.siblings || []).forEach(function (x) { vs.push({ id: x.item_id, label: docLangName(x.lang), here: false, incomplete: !!(x.stale || x.untranslated) }) })
+      ;(o.siblings || []).forEach(function (x) { vs.push({ id: x.item_id, label: docLangName(x.lang), here: false, incomplete: !!(x.stale || x.untranslated), final_path: x.final_path || '', final_stale: !!x.final_stale }) })
       return vs.length > 1 ? vs : []
     }
     if (!(o.variants || []).length) return []
     return [{ id: WB.selectedId, label: t('workbench.finalpick.original'), here: true }].concat(o.variants.map(function (x) {
-      return { id: x.item_id, label: docLangName(x.lang), here: false, incomplete: !!(x.stale || x.untranslated) }
+      return { id: x.item_id, label: docLangName(x.lang), here: false, incomplete: !!(x.stale || x.untranslated), final_path: x.final_path || '', final_stale: !!x.final_stale }
     }))
   }
   function finalLangThisLabel(o) {
@@ -11016,32 +11016,18 @@
       var x = opts[parseInt(c.value, 10)]
       close()
       if (x.here) { onThis(); return }
-      // The chosen language is the one that is opened: switch to it and carry on, no second question and no second click.
-      // The window is opened inside this click (a popup opened later would be blocked) and pointed at the PDF when it is known.
+      // #794 (Boss TG 4105-4114): the chosen language is OPENED, the owner stays where he is -- no jump to the other work item
+      // (its finalize panel is not the one he was working in) and no empty window. The window is opened inside this click (a
+      // popup opened later would be blocked). A finished final opens as it is; otherwise the draft PDF of that version opens.
       var win = null
       try { win = window.open('', '_blank') } catch (_e) { win = null }
-      window.showToast(t('workbench.finalpick.switched', { lang: x.label }))
-      selectItem(x.id)
-      openReviewWhenLoaded(x.id, win)
+      var fin = x.final_path && !x.final_stale
+      var href = fin
+        ? '/api/life/file?rel=' + encodeURIComponent(x.final_path)
+        : '/api/workbench/items/' + encodeURIComponent(x.id) + '/outline/pdf?lang=' + encodeURIComponent(window._lang || 'hu')
+      window.showToast(t(fin ? 'workbench.finalpick.opened_final' : (x.final_path ? 'workbench.finalpick.opened_stale' : 'workbench.finalpick.opened_draft'), { lang: x.label }))
+      openAuthed(href, fin ? 'final.pdf' : 'draft.pdf', false, win)
     })
-  }
-  /** After switching to another language version: wait for its outline, then open its PDF in the window opened by the click. */
-  function openReviewWhenLoaded(id, win) {
-    var tries = 0
-    var poll = function () {
-      tries++
-      if (WB.selectedId !== id) { if (win && !win.closed) win.close(); return }
-      var link = WB.detail && WB.detail.outline ? (document.querySelector('[data-wb-act="outline-review"]') || document.querySelector('.wb-outline-pdf-tools a')) : null
-      var href = link && link.getAttribute('href')
-      if (href && href.indexOf('/items/' + encodeURIComponent(id) + '/') >= 0) {
-        openAuthed(href, 'draft.pdf', false, win && !win.closed ? win : null)
-        watchReview()
-        return
-      }
-      if (tries > 60) { if (win && !win.closed) win.close(); return }
-      setTimeout(poll, 150)
-    }
-    poll()
   }
 
   function watchReview() {
@@ -15924,9 +15910,9 @@
     })
   }
   /** What the left column holds of a section right now: if it changes after the preview, the preview is old. */
-  /** A signature picture is mirrored between the original and its language version by the server (workbench-sigmirror), so
-   *  it is not part of what the translation was made from: adding one must not mark the translation "old". Same rule as
-   *  the server's `isSignatureImage`. */
+  /** A signature picture is placed on each language version on its own (nothing is mirrored), and it is not part of what
+   *  the translation was made from: adding or moving one must not mark the translation "old". Same rule as the server's
+   *  `isSignatureImage`. */
   function isSignatureImg(b) {
     if (b.kind !== 'image') return false
     var nm = String(b.text || '').split('#')[0].replace(/\\/g, '/').split('/').pop().toLowerCase()

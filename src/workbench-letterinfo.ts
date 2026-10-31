@@ -38,7 +38,36 @@ export function subjectFromLines(linesIn: string[]): string {
 export function letterSubject(itemId: string): string {
   try {
     if (!hasDocModel(itemId)) return ''
-    return subjectFromLines(listBlocks(itemId).map((b) => String(b.text ?? '')))
+    // #794 (Boss TG 4081): the "Betreff:" line often stands INSIDE a multi-line paragraph (reference, clerk, subject), so
+    // every block is read line by line, not as one text that starts with the first line.
+    return subjectFromLines(listBlocks(itemId).flatMap((b) => String(b.text ?? '').split(/\r\n|\r|\n/)))
+  } catch { return '' }
+}
+
+/**
+ * #794 (Boss TG 4081: "Boss" stood under "Mit freundlichen Grüßen"): the name that signs a letter is the one the LETTER
+ * carries -- the last text block's first line when it is a person's name (2-4 words, letters only), a signature block's
+ * last line first. Never the dashboard owner's nickname: the letter may be written for somebody else.
+ */
+export function letterSignatory(itemId: string): string {
+  try {
+    if (!hasDocModel(itemId)) return ''
+    const blocks = listBlocks(itemId).filter((b) => String(b.text ?? '').replace(/[\u200b\s]+/g, '') !== '')
+    const nameOf = (line: string): string => {
+      const l = line.replace(/[\u200b]/g, '').trim()
+      return /^[\p{L}][\p{L}.'’-]*(?:\s+[\p{L}][\p{L}.'’-]*){1,3}$/u.test(l) && l.length <= 40 ? l : ''
+    }
+    for (const b of blocks.slice().reverse()) {
+      const lines = String(b.text ?? '').split(/\r\n|\r|\n/).map((x) => x.trim()).filter(Boolean)
+      if (b.kind === 'signature') {
+        for (const l of lines.slice().reverse()) { const n = nameOf(l); if (n) return n }
+        continue
+      }
+      const n = lines.length ? nameOf(lines[0] as string) : ''
+      if (n && lines.slice(1).every((l) => /\d/.test(l) || l.length <= 40)) return n
+      break
+    }
+    return ''
   } catch { return '' }
 }
 

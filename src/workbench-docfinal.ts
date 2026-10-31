@@ -530,7 +530,14 @@ async function samePdfInFolder(item: WorkItemRow, pdf: Buffer): Promise<{ path: 
   // A PDF the owner put into the folder by hand is listed too, not only what the app wrote there.
   try { syncFolderAssets(item.id) } catch { /* the known files are still compared */ }
   const annexPaths = new Set(listAnnexes(item.id).map((a) => a.path))
-  const candidates = listWorkItemAssets(item.id).filter((a) => a.present && !a.shared && /\.pdf$/i.test(a.name) && !annexPaths.has(a.path))
+  // #794 (Boss, TG 4072: moved the signature picture a little, "the document did not change", the old PDF stayed): the words of a
+  // PDF say nothing about WHERE a picture stands or how a line is formatted. (1) A PDF an earlier final of this item wrote was
+  // rendered from a document whose hash is NOT the current one (the same hash was reused before this point), so it is never "the
+  // same" -- only a PDF the owner put there by hand can be compared by its words. (2) A document with a picture in it is never
+  // compared by words at all: the picture's place is exactly what the words cannot show.
+  for (const b of documentOutline(item.id).sections.flatMap((sec) => sec.blocks)) if (b.kind === 'image') return null
+  const ownFinalPaths = new Set(listFinals(item.id).flatMap((f) => (f.files ?? []).map((x) => x.path).concat(f.pdf_path ? [f.pdf_path] : [])))
+  const candidates = listWorkItemAssets(item.id).filter((a) => a.present && !a.shared && /\.pdf$/i.test(a.name) && !annexPaths.has(a.path) && !ownFinalPaths.has(a.path))
   if (!candidates.length) return null
   const dir = mkdtempSync(joinPath(tmpdir(), 'wb-final-'))
   try {

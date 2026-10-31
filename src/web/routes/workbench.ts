@@ -70,7 +70,6 @@ import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitiv
 import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
-import { mirrorSignaturesFrom } from '../../workbench-sigmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
 import { forgetMailDraft, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
@@ -2422,13 +2421,26 @@ function checkWithTodos(itemId: string, resolve: ReturnType<typeof resolverFor> 
   return changed ? { check, check_todos_at: Date.now() } : { check }
 }
 
+/** #794 (Boss TG 4105): a language choice carries the state of its final, so the picker can open the finished PDF (or say plainly that
+ *  there is none) without leaving the item the owner is on. `final_path` is the main file of the newest final, '' when never finalized. */
+type LangChoice = ReturnType<typeof variantsSummary>[number] & { final_path: string; final_stale: boolean }
+function finalOf(itemId: string): { final_path: string; final_stale: boolean } {
+  const f = listFinals(itemId)[0]
+  const main = f ? (f.files ?? []).find((x) => x.role !== 'annex')?.path ?? f.pdf_path ?? '' : ''
+  const it = f ? getWorkItem(itemId) : null
+  return { final_path: main || '', final_stale: !!f && !!it && contentHash(it) !== f.content_hash }
+}
+function withFinal(v: ReturnType<typeof variantsSummary>[number]): LangChoice {
+  return { ...v, ...finalOf(v.item_id) }
+}
 /** NYELVI VALTOZATOK (K-1.27 ... K-1.31): az eredetinel a valtozatai, a valtozatnal a fejezetek allapota, a szoszedet, a visszaforditasok. */
-function langOut(item: { id: string; project_id: string }): { variant: ReturnType<typeof variantInfo>; variants: ReturnType<typeof variantsSummary>; siblings: ReturnType<typeof variantsSummary>; glossary: ReturnType<typeof listGlossary>; backchecks: ReturnType<typeof backchecks>; translate_job: ReturnType<typeof translateJobState> } {
+function langOut(item: { id: string; project_id: string }): { variant: ReturnType<typeof variantInfo>; variants: LangChoice[]; siblings: LangChoice[]; source_final: { final_path: string; final_stale: boolean } | null; glossary: ReturnType<typeof listGlossary>; backchecks: ReturnType<typeof backchecks>; translate_job: ReturnType<typeof translateJobState> } {
   const variant = variantInfo(item.id)
   return {
-    variant, variants: variant ? [] : variantsSummary(item.id),
+    variant, variants: variant ? [] : variantsSummary(item.id).map(withFinal),
+    source_final: variant ? finalOf(variant.source_item_id) : null,
     // #794: the OTHER language versions of the same original, so the language choice opened from a variant lists every language.
-    siblings: variant ? variantsSummary(variant.source_item_id).filter((x) => x.item_id !== item.id) : [],
+    siblings: variant ? variantsSummary(variant.source_item_id).filter((x) => x.item_id !== item.id).map(withFinal) : [],
     glossary: listGlossary(item.project_id), backchecks: variant ? backchecks(item.id) : [],
     // #501: the whole-document translation's progress / error, shown in the variant header.
     translate_job: variant ? translateJobState(item.id) : null,
@@ -4524,7 +4536,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const done = (r: { ok: true } | { ok: false; code: string; detail: string }, created = false): true => {
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'outline_' + r.code, lang, r.detail)
-      if (method !== 'GET') { mirrorSignaturesFrom(item.id); scheduleOutlineMirror(item.id) }
+      if (method !== 'GET') scheduleOutlineMirror(item.id)
       json(res, { ok: true, outline: outlineOrEmpty(item.id) }, created ? 201 : 200)
       return true
     }
@@ -4562,7 +4574,6 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'translation-save' && segs.length === 3 && method === 'POST') {
       const r = saveShownTranslation(item, body['lang'], body['sections'], actor(ctx))
       if (!r.ok) return failDetail(res, r.code === 'outline_empty' ? 409 : 400, 'variant_' + r.code, lang, r.detail)
-      mirrorSignaturesFrom(r.variant.id)
       json(res, { ok: true, variant: { id: r.variant.id, title: r.variant.title }, existing: r.existing, saved: r.saved, unchanged: r.unchanged, failed: r.failed, claims_not_carried: r.claims_not_carried, format_lost: r.format_lost, outline: outlineOrEmpty(item.id) })
       return true
     }
@@ -4577,7 +4588,6 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'page' && segs.length === 3 && method === 'POST') {
       const r = replacePage(item.id, body['sections'], body['known'], 'owner')
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'outline_' + r.code, lang, r.detail)
-      mirrorSignaturesFrom(item.id)
       scheduleOutlineMirror(item.id)
       json(res, { ok: true, ids: r.ids, outline: outlineOrEmpty(item.id) })
       return true
@@ -4623,7 +4633,6 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         added++
         if (typeof pos === 'number') pos++
       }
-      mirrorSignaturesFrom(item.id)
       scheduleOutlineMirror(item.id)
       json(res, { ok: true, added, truncated: conv.truncated, empty_table: conv.emptyTable === true, outline: outlineOrEmpty(item.id) }, 201)
       return true
