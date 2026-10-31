@@ -486,9 +486,10 @@ describe('kontextus-epites', () => {
   })
 
   it('egy tulsagosan hosszu uzenet sem viszi el a keretet', () => {
-    const rows: AgentMessageRow[] = [{ id: '1', session_id: 's', role: 'user', content: 'x'.repeat(50_000), created_at: 1 }]
+    const rows: AgentMessageRow[] = [{ id: '1', session_id: 's', role: 'user', content: 'x'.repeat(500_000), created_at: 1 }]
     const out = historyMessages(rows)
-    expect(out[0].content.length).toBeLessThan(5000)
+    // Boss TG 3838: a pasted novel stays usable in follow-ups (60k per earlier message), but still bounded.
+    expect(out[0].content.length).toBeLessThan(62_000)
   })
 })
 
