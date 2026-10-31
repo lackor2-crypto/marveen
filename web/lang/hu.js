@@ -9167,6 +9167,7 @@ window._i18n.hu = {
   "workbench.tw.failed": "{n} fejezetet nem sikerült elmenteni.",
   "workbench.tw.nothing_current": "Nincs mit menteni: előbb nyomd meg a Fordítást.",
   "workbench.dp.more": "Nyelvi változatok, szószedet",
+  "workbench.dp.pending": "Megerősítésre vár ({n})",
   "workbench.dp.annex": "Mellékletek ({n})",
   "workbench.sh.doc.draft": "Vázlat",
   "workbench.sh.doc.preview": "Előnézet",

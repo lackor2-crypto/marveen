@@ -40,7 +40,7 @@ import { triggerStateOf, triggerBlocksWork } from '../workbench-trigger.js'
 import { pickAIProvider, whyNoAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
 import {
   addAgentMessage, claimAwaitingCallsForApproval, finishToolCall, isApprovalRunInProgress, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
-  projectSessionKey, startToolCall,
+  projectSessionKey, startToolCall, chatFamilyKey,
   type AgentSessionRow,
 } from './sessions.js'
 import { decideTool, getTool } from './tools.js'
@@ -112,7 +112,7 @@ export function isTurnRunning(key: string): boolean { return running.has(key) }
  *  EGY helyen szamoljuk, hogy a teljes erteku mod, a felulet "fut-e meg"
  *  kerdese es a Leallitas ugyanazt a zarat lassa. */
 export function turnKey(projectId: string, workItemId: string | null | undefined): string {
-  return workItemId ? `item:${workItemId}` : `project:${projectId}`
+  return workItemId ? `item:${chatFamilyKey(workItemId)}` : `project:${projectId}`
 }
 /** A zar lefoglalasa a projekt-asszisztensen KIVULI forduloknak (teljes
  *  erteku mod). false = mar fut egy valasz. */

@@ -3382,6 +3382,81 @@ export function ensureGlobalNoHiddenLimitsRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+const ROOTFIX_BEGIN = '<!-- BEGIN GENERATED: root-cause-fix-rule (auto-generated, do not edit by hand) -->'
+const ROOTFIX_END = '<!-- END GENERATED: root-cause-fix-rule -->'
+const ROOTFIX_BLOCK_RE = new RegExp(
+  `${ROOTFIX_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${ROOTFIX_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildRootCauseFixBody(): string {
+  return [
+    '## A HIBAT A GYOKERENEL JAVITJUK, MINDEN ELOFORDULASANAL -- A TULAJDONOS TORVENYE',
+    '',
+    'Ha a tulajdonos hibat jelez, NE csak azt a gombot/sort javitsd, amit mutatott. ELOBB keresd',
+    'meg, hol hasznalodik MASHOL ugyanaz a fuggveny, szabaly, vegpont vagy renderer, es a KOZOS',
+    'okot javitsd, egyszerre minden elofordulasnal (egy kozos kapu, egy kozos renderer). Ha egy',
+    'hiba visszajon, az folyamathiba: a kozos szabaly maradt javitatlan. A jelentesben mondd meg,',
+    'mely tovabbi helyeket erintett a javitas. Reszletek: `marveen-learned-rules` R16,',
+    '`user-report-impact-analysis` skill.',
+  ].join('\n')
+}
+
+/** Beviszi a szabalyt: gyokerok-javitas egy agens sajat CLAUDE.md-jebe. */
+export function ensureRootCauseFixSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${ROOTFIX_BEGIN}\n${buildRootCauseFixBody()}\n${ROOTFIX_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = ROOTFIX_BLOCK_RE.test(existing)
+    ? existing.replace(ROOTFIX_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalRootCauseFixRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${ROOTFIX_BEGIN}\n${buildRootCauseFixBody()}\n${ROOTFIX_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = ROOTFIX_BLOCK_RE.test(existing)
+    ? existing.replace(ROOTFIX_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 // --- statusLine: the rate-limit snapshot producer ---------------------------
 //
 // scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;

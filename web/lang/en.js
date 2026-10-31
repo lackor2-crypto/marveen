@@ -9093,6 +9093,7 @@ window._i18n.en = {
   "workbench.tw.failed": "{n} section(s) could not be saved.",
   "workbench.tw.nothing_current": "Nothing to save: press Translate first.",
   "workbench.dp.more": "Language versions, glossary",
+  "workbench.dp.pending": "Waiting for your confirmation ({n})",
   "workbench.dp.annex": "Attachments ({n})",
   "workbench.sh.doc.draft": "Draft",
   "workbench.sh.doc.preview": "Preview",

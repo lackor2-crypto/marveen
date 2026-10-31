@@ -961,3 +961,13 @@ kimondja, mi a korlát és miért. Ha programozás közben rejtett korlátot tal
 Valós esetek: melléklet csak az Életfából (#716), a Munkapad chat 8000 karakternél vágott, mappába
 linkelési tilalom. Skill: `host-agnostic-development`, `marveen-learned-rules` R15; minden ágens
 megkapja (`ensureNoHiddenLimitsSection`, `ensureGlobalNoHiddenLimitsRule`).
+
+## ⛔ A HIBÁT A GYÖKERÉNÉL JAVÍTJUK, MINDEN ELŐFORDULÁSNÁL (Boss, TG 3948, törvény)
+
+Boss: „mindig csak egy-egy gombot javítunk ... a gyökérokkal együtt kell meggyógyítani ... nézd meg,
+hogy hova van kihatása, hol jelenik meg máshol még ez a funkció ... a közös szabályt kell mindig
+javítani." Hibajelzésnél ELŐBB keresd meg, hol használódik máshol ugyanaz a függvény, szabály,
+végpont vagy renderer, és a KÖZÖS okot javítsd egyszerre. A visszatérő hiba folyamathiba. A
+jelentésben mondd meg, mely további helyeket érintett. Skill: `marveen-learned-rules` R16,
+`user-report-impact-analysis`; minden ágens megkapja (`ensureRootCauseFixSection`,
+`ensureGlobalRootCauseFixRule`).
