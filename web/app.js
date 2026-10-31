@@ -217,7 +217,12 @@ try {
   }
 } catch { _viewUrlState = null }
 function viewStateRegister(page, collect) { _viewCollectors[page] = collect }
-function _viewStateSave() {
+// Boss, TG 3829: after the automatic "the UI was updated" reload he landed on the project list again. The position is
+// therefore ALSO written on purpose before that reload (not left to the page-close event) into localStorage, which
+// survives a lost tab store; it is used once, and only within a few minutes of that reload.
+const VIEW_AUTO_KEY = 'marveen.viewStateAuto'
+const VIEW_AUTO_MAX_AGE_MS = 5 * 60 * 1000
+function _viewStateSave(forAutoReload) {
   const page = decodeURIComponent((location.hash || '').replace(/^#/, '')) || 'overview'
   let state = null
   try { state = _viewCollectors[page] ? _viewCollectors[page]() : null } catch { state = null }
@@ -225,6 +230,9 @@ function _viewStateSave() {
     if (state) sessionStorage.setItem(VIEW_STATE_KEY, JSON.stringify({ page, state }))
     else sessionStorage.removeItem(VIEW_STATE_KEY)
   } catch { /* storage blocked: a reload starts at the page top, as before */ }
+  if (forAutoReload === true && state) {
+    try { localStorage.setItem(VIEW_AUTO_KEY, JSON.stringify({ ts: Date.now(), page, state })) } catch { /* storage blocked */ }
+  }
 }
 /** The saved inner position of `page`, or null. Only the page the reload
  *  landed on gets it, and only once per document. */
@@ -236,13 +244,20 @@ function viewStateTake(page) {
       const snap = JSON.parse(sessionStorage.getItem(VIEW_STATE_KEY) || 'null')
       if (snap && snap.page === _viewBootPage && snap.state && typeof snap.state === 'object') _viewSaved = snap
     } catch { _viewSaved = null }
+    // The copy written before the automatic update reload: used when the tab store has nothing for this page.
+    try {
+      const auto = JSON.parse(localStorage.getItem(VIEW_AUTO_KEY) || 'null')
+      localStorage.removeItem(VIEW_AUTO_KEY)
+      if (!_viewSaved && auto && auto.page === _viewBootPage && auto.state && typeof auto.state === 'object'
+        && Date.now() - Number(auto.ts) < VIEW_AUTO_MAX_AGE_MS) _viewSaved = { page: auto.page, state: auto.state }
+    } catch { /* storage blocked */ }
   }
   if (!_viewSaved || _viewSaved.page !== page) return null
   const state = _viewSaved.state
   _viewSaved = null
   return state
 }
-window.addEventListener('pagehide', _viewStateSave)
+window.addEventListener('pagehide', () => _viewStateSave())
 
 // === Ctrl+click / middle click opens a new browser tab (Boss, TG 1802) ===
 // "ha a kontrolt megnyomom ... akkor egy uj bongeszofulon nyissa meg. Ugy, hogy
@@ -1140,6 +1155,7 @@ const html = document.documentElement
 // worker, and the ordinary HTTP cache, by re-fetching the shell with
 // cache:'reload' (which forces a trip to the server) before reloading.
 async function hardRefresh() {
+  _viewStateSave(true)
   const btn = document.getElementById('hardRefreshBtn')
   if (btn) btn.disabled = true
   try {
@@ -49213,6 +49229,13 @@ async function loadProjectsPage() {
   _prj.openWbOnLoad = null
   if (openId) {
     await _prjOpenProject(openId)
+    // Right after the dashboard restarted the project may not answer yet: try again a few times before giving up,
+    // so the position taken from the saved state is not lost to a single failed call.
+    for (let i = 0; i < 3 && _prj.current === openId && !(_prj.overview && _prj.overview.project.id === openId); i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      if (_prj.current !== openId) break
+      await _prjOpenProject(openId)
+    }
     // A work item clicked on the Kanban board opens on its Workbench (TG 1836).
     if (wbLoad && wbLoad.projectId === openId && _prj.current === openId && window.MarvinWorkbench && window.MarvinWorkbench.restore) {
       window.MarvinWorkbench.restore(wbLoad)
