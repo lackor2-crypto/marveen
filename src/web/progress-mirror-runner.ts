@@ -30,6 +30,7 @@ import { atomicWriteFileSync } from './atomic-write.js'
 import { CHANNEL_PROVIDER } from '../config.js'
 import {
   backgroundText,
+  ownerTurnContinues,
   classifyPane,
   extractThoughts,
   langOf,
@@ -72,6 +73,8 @@ const edits = new Map<string, { text: string; at: number }>()
 const offsets = new Map<string, number>()
 let persisted: Persisted = { background: {}, limitNotice: {}, sentThoughts: {} }
 let running = false
+// Last time a placeholder was pending per agent: tells a still-running owner turn from a heartbeat.
+const lastPendingSeen = new Map<string, number>()
 
 function loadState(): void {
   try {
@@ -188,6 +191,7 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
   const activity = classifyPane(pane, lang)
 
   if (pending.length > 0) {
+    lastPendingSeen.set(t.agent, now)
     // A turn the owner waits on: the placeholder is the indicator.
     await dropBackground(t.agent, token)
     const live = placeholderLiveText(PLACEHOLDER_BASE[lang], activity)
@@ -236,7 +240,11 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
     return
   }
 
-  const bgText = backgroundText(activity)
+  // TG 3896: a reply sent mid-turn clears the placeholder while the agent keeps working, and the owner saw nothing.
+  // The same single silent message then carries the live status until the turn ends.
+  const turnText = ownerTurnContinues(activity, lastPendingSeen.get(t.agent), now)
+    ? placeholderLiveText(PLACEHOLDER_BASE[lang], activity) : null
+  const bgText = backgroundText(activity) ?? turnText
   const current = persisted.background[t.agent]
   if (!bgText) { await dropBackground(t.agent, token); return }
   if (!current) {
@@ -247,7 +255,8 @@ async function tickTarget(t: Target, mode: ProgressMode, lang: 'hu' | 'en', now:
       persisted.background[t.agent] = { chatId: chat, messageId: r.result.message_id, text: bgText }
       saveState()
     }
-  } else if (current.text !== bgText) {
+  } else if (current.text !== bgText && shouldEdit(current.text, bgText, edits.get(`bg:${t.agent}`)?.at ?? 0, now, PROGRESS_MIRROR_EDIT_THROTTLE_MS)) {
+    edits.set(`bg:${t.agent}`, { text: bgText, at: now })
     await tg(token, 'editMessageText', { chat_id: current.chatId, message_id: current.messageId, text: bgText })
     persisted.background[t.agent] = { ...current, text: bgText }
     saveState()
