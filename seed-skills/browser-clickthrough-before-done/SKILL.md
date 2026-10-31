@@ -48,3 +48,6 @@ NEM megy `waiting`-be, a munka megy tovább.
 ## Ellenőrzés
 - [ ] a kártyán van komment a végigkattintás eredményével (és a nem mért dolgokkal)
 - [ ] a próbapéldány portja leállítva, a worktree és az ideiglenes fájlok törölve
+
+## Kicsi javításnál is (a tulajdonos, 2026-10-31, negyedszer)
+Nincs "kicsi javítás" és "csak backend" kivétel. A kész-üzenetben a "nem kattintottam végig" mondat tilos: ha ez lenne benne, a munka nincs kész, vissza kell menni és megcsinálni.
