@@ -562,6 +562,16 @@ export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | nu
 }
 
 
+/** #794 (Boss TG 4045, option B): a LETTER folder is a folder of its own for ONE official letter inside a case folder
+ *  (the case keeps the shared Uploads / Agent / Attachments; the letter gets only what belongs to it): the trigger
+ *  document (that letter), the finished materials (the answer to it) and the attachments (only for it). Same rules as
+ *  the other standard folders: made once, existing ones (either name) reused, a deleted one stays deleted. */
+export function ensureLetterFolders(p: ProjectRow, letterFolder: string | null | undefined): void {
+  for (const f of [triggerFolderFor, finishedFolderFor, attachmentsFolderFor]) {
+    try { f(p, letterFolder) } catch { /* made on demand with its first file instead */ }
+  }
+}
+
 /** #681: write down the standard subfolders an item folder has RIGHT NOW (the ones made before the registry existed), so
  *  deleting one of them later is remembered too. Reads and notes only; makes nothing. */
 export function noteItemStandardFoldersSeen(p: ProjectRow, itemFolder: string | null | undefined): void {

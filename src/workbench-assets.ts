@@ -44,7 +44,7 @@ import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
 import { annotateMisplaced, adviseUpload, type Misplaced, type UploadAdvice } from './workbench-misplaced.js'
-import { folderWasMade, noteFolderMade, noteItemStandardFoldersSeen, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { folderWasMade, noteFolderMade, noteItemStandardFoldersSeen, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -1526,7 +1526,25 @@ export function isSubDocumentItem(item: { id: string; project_id: string }, fold
   const debateNames: string[] = [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]
   if (folder.split('/').some(seg => debateNames.includes(seg))) return true
   const rows = getDb().prepare("SELECT folder FROM work_items WHERE project_id = ? AND id != ? AND folder IS NOT NULL AND folder != '' AND deleted_at IS NULL").all(item.project_id, item.id) as { folder: string }[]
-  return rows.some(r => r.folder !== folder && folder.startsWith(r.folder + '/'))
+  return rows.some(r => r.folder !== folder && folder.startsWith(r.folder + '/') && !isLetterFolderUnder(r.folder, folder))
+}
+
+/** #794 (Boss TG 4045, option B): the folder of a work item that sits DIRECTLY inside a case folder (another item's folder),
+ *  not inside one of that item's standard folders, is a letter folder of its own: it gets its own three folders. */
+export function isLetterFolderUnder(parent: string, folder: string): boolean {
+  if (!folder.startsWith(parent + '/')) return false
+  const rest = folder.slice(parent.length + 1)
+  if (!rest || rest.includes('/')) return false
+  const std: string[] = [FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES, 'Mellékletek', 'Attachments', 'Feltöltések', 'Uploads',
+    AGENT_REFS_FOLDER_NAMES.hu, AGENT_REFS_FOLDER_NAMES.en, ...AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en, 'Verziók', 'Versions']
+  return !std.includes(rest)
+}
+
+/** True when the item's folder is a letter folder (see isLetterFolderUnder) of some other item's case folder. */
+export function isLetterFolderItem(item: { id: string; project_id: string }, folder: string): boolean {
+  ensureAssetTables()
+  const rows = getDb().prepare("SELECT folder FROM work_items WHERE project_id = ? AND id != ? AND folder IS NOT NULL AND folder != '' AND deleted_at IS NULL").all(item.project_id, item.id) as { folder: string }[]
+  return rows.some(r => isLetterFolderUnder(r.folder, folder))
 }
 
 /** #681: make the five standard folders of a TOP-LEVEL item once. A sub-document gets none; an item already provisioned
@@ -1537,9 +1555,11 @@ function provisionStandardFolders(project: ProjectRow, item: WorkItemRow, folder
   migrateFinishedFolder(item) // only renames an existing old-name folder, never makes one
   // #794: the sixth folder ("Kiváltó irat") came after the others, so an item provisioned before it still lacks it. Top
   // up that one folder here; a deleted one is remembered (onceFolderFor) and stays deleted.
+  const letter = isLetterFolderItem(item, folder) && !folder.split('/').some(seg => (([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]) as string[]).includes(seg))
   if (!isSubDocumentItem(item, folder)) { try { triggerFolderFor(project, folder) } catch { /* made with its first link instead */ } }
   if (db.prepare('SELECT 1 FROM work_item_std_folders WHERE work_item_id = ?').get(item.id)) return
-  if (!isSubDocumentItem(item, folder)) ensureItemStandardFolders(project, folder)
+  if (letter) ensureLetterFolders(project, folder) // #794: a letter folder gets only its own three
+  else if (!isSubDocumentItem(item, folder)) ensureItemStandardFolders(project, folder)
   db.prepare('INSERT OR IGNORE INTO work_item_std_folders (work_item_id, done_at) VALUES (?, ?)').run(item.id, Date.now())
 }
 
