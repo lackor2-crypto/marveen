@@ -50,3 +50,5 @@ azért áll, hogy a tudás ne csak a kódban legyen.
 ## Ellenőrzés
 - `npx vitest run src/__tests__/workbench-workmode.test.ts`
 - A felületen: Beállítások → AI Munkapad → Munkamód. Ott van a szerkesztés, a mentés, az alapszöveg visszaállítása, és a javaslatok elfogadása vagy elvetése az előnézettel.
+
+**Kivétel a tiltás alól (Boss TG 3807):** ha a kiváltó irat hiányzik, és az owner azt kéri, hogy keresd meg és linkeld be ("1", "keressük meg", "linkeld be"), EZ átmegy: a szerver szűk utasítást fűz az üzenethez. Csak keress az Életfában, és a `POST /api/workbench/project-file-link` hívással linkeld be a Kiváltó irat mappába. Mást ne csinálj, a "nincs irat" jelölést sosem te pipálod.

@@ -22,7 +22,7 @@ import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, WEB_PORT } from '../../config.js'
 import { getProject, updateProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
-import { triggerStateOf, triggerBlocksWork } from '../../workbench-trigger.js'
+import { triggerStateOf, triggerBlocksWork, wantsTriggerSearch, triggerSearchDirective } from '../../workbench-trigger.js'
 import { ensureWorkbenchAgent } from '../../workbench-agent/index.js'
 import { familyLines } from '../../workbench-agent/context.js'
 import { variantLanguageRule } from '../../workbench-agent/doc-language.js'
@@ -880,6 +880,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     // Az allo, helyi munkamenet egy fordulója (#434). `prior`: a kod-hid
     // fordulo elotti elozmeny -- a kerdest (es a limit-sort) a kod-hid mar
     // beirta, igy az nem kerul be masodszor sem a naploba, sem a promptba.
+    // #794 (Boss TG 3807): set when a held turn is the owner's "find and link it" request; the model then gets only that job.
+    let triggerDirective = ''
     const runLive = async (first: LiveStartSpec, prior?: ReturnType<typeof listAgentMessages>, note?: string): Promise<void> => {
       const item = workItemId ? getWorkItem(workItemId) : null
       const session = item
@@ -906,6 +908,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       // What the session is asked: the message, plus -- when the work moves to
       // another account mid-way -- where it stopped (Boss, 2026-09-29).
       let turnText = note ? `${text}\n\n${note}` : text
+      if (triggerDirective) turnText = `${turnText}\n\n${triggerDirective}`
       // Silence stops a turn, length does not (see LIVE_IDLE_MAX_MS).
       clearTimeout(turnCap)
       const hardCap = setTimeout(() => ac.abort(), LIVE_TURN_MAX_MS)
@@ -1029,7 +1032,16 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       // assistant): an empty Kiváltó irat folder without the "no document" tick ends the turn here, before any model.
       let triggerHeld = false
       if (workItemId) {
-        try { const wi = getWorkItem(workItemId); triggerHeld = !!wi && triggerBlocksWork(triggerStateOf(project, wi)) } catch { /* an unreadable state never blocks */ }
+        try {
+          const wi = getWorkItem(workItemId)
+          const st = wi ? triggerStateOf(project, wi) : null
+          triggerHeld = !!st && triggerBlocksWork(st)
+          // Only the "find and link it" request passes, and only where a model with shell access runs.
+          if (triggerHeld && st?.folder && wantsTriggerSearch(injectText) && (decision.backend === 'code-bridge' || (decision.backend === 'live-session' && liveSpec))) {
+            triggerHeld = false
+            triggerDirective = triggerSearchDirective(st.folder, project.id)
+          }
+        } catch { /* an unreadable state never blocks */ }
       }
       if (triggerHeld) {
         const held = msg('trigger_missing', lang)
@@ -1094,7 +1106,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               projectFolder: folder.ok ? folder.dirAbs : null,
               workItem: item ? codeBridgeWorkItem(item) : null,
               history,
-              message: input.message.trim(),
+              message: triggerDirective ? `${input.message.trim()}\n\n${triggerDirective}` : input.message.trim(),
               lang,
             })
             for await (const ev of runCodeBridgeTurn(

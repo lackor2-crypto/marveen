@@ -50,3 +50,23 @@ export function triggerContextLine(st: TriggerState): string {
 export function triggerBlocksWork(st: TriggerState): boolean {
   return st.folder !== null && st.files.length === 0 && !st.noTrigger
 }
+
+/** #794 (Boss TG 3807): while the work is held, the owner may still ask to FIND and LINK the trigger document ("1", "keressük
+ *  meg", "linkeld be", "find it"). Only that request goes through, with a directive that limits the model to that one job. */
+export function wantsTriggerSearch(text: string): boolean {
+  const t = text.trim().toLowerCase()
+  if (!t) return false
+  if (/^\(?1\)?[.!)]?(\s|$)/.test(t)) return true
+  return /(keres|megkeres|találd|talald|link|csatol|belink|tedd bele|find|search|attach)/.test(t)
+}
+
+/** The only job a held turn may do, appended to the owner's message for the model. Everything else stays forbidden. */
+export function triggerSearchDirective(folder: string, projectId: string): string {
+  return [
+    '[SERVER RULE: the trigger document of this work item is missing. In THIS turn do ONLY this one job and nothing else:',
+    `find the document that triggered the work item in the Life tree (search file names and folders by the item title, the authority, the person, the dates), then link it as a plain link (nothing is copied or moved) into the project folder "${folder}" with`,
+    `POST /api/workbench/project-file-link {"project":"${projectId}","rel":"<path of the file in the Life tree>","folder":"${folder}"} (Bearer dashboard token).`,
+    'If exactly one file clearly fits, link it and say which. If several fit, list them numbered and ask which one. If none fits, say so and ask the owner where it is.',
+    'Do NOT write, draft, edit, send or create anything, do NOT mark "no trigger document" yourself. After the link is made, ask what the owner wants next.]',
+  ].join(' ')
+}
