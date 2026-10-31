@@ -2595,6 +2595,14 @@ function isBrowserPageClick(ctx: RouteContext): boolean {
   return ctx.auth?.kind === 'token' && String(ctx.req.headers['sec-fetch-site'] || '').toLowerCase() === 'same-origin'
 }
 
+/** The owner's own click on a content button (confirm a claim, accept a rewrite, acknowledge a consistency flag, take a
+ *  deadline as a to-do, mark a source as seen): a sign-in session OR a click on the dashboard page itself in token mode.
+ *  One rule for all of them -- fixing these buttons one by one left the next one returning 403 for a page opened with the
+ *  token only (#1512, #1520, TG 3936). Finalising, the sensitive switch and the court rules keep the strict session rule. */
+function isOwnerOrPageClick(ctx: RouteContext): boolean {
+  return isOwnerClick(ctx) || isBrowserPageClick(ctx)
+}
+
 function actor(ctx: RouteContext): string | null {
   const a = ctx.auth
   if (!a) return null
@@ -4309,7 +4317,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!owner) return fail(res, 404, 'project_not_found', lang)
     if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
     // A teendo es a jovahagyott nap a tulajdonos dontese (az agentnek sajat teendo-eszkoze van).
-    if (!isOwnerClick(ctx)) return fail(res, 403, 'deadline_owner_only', lang)
+    if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'deadline_owner_only', lang)
     const body = method === 'DELETE' ? {} : await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const gone = (): true => {
@@ -4369,7 +4377,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const r = await renderDraft(item, lang)
       if (!r.ok) return docPdfFail(res, r.code, lang, r.detail, r.label)
       const review = url.searchParams.get('review')
-      if (review && review === r.hash && isOwnerClick(ctx)) recordReview(item.id, r.hash, actor(ctx))
+      if (review && review === r.hash && isOwnerOrPageClick(ctx)) recordReview(item.id, r.hash, actor(ctx))
       const download = url.searchParams.get('download') === '1'
       res.writeHead(200, {
         'Content-Type': 'application/pdf',
@@ -4700,13 +4708,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     if (sub === 'claims' && segs.length === 5 && segs[4] === 'confirm' && method === 'POST') {
       // Egy agent (tokennel) nem erosithet meg: a megerosites a tulajdonos szava.
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+      if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
       return done(confirmOwnerClaim(item.id, id, actor(ctx), lang))
     }
     // ATIRASI JAVASLAT (K-1.20): az agent javasol (doc.proposeRewrite), a tulajdonos
     // SAJAT kattintasa fogadja el vagy veti el -- az agent a sajat javaslatat nem fogadhatja el.
     if (sub === 'blocks' && segs.length >= 5 && segs[4] === 'rewrite') {
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+      if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
       if (segs.length === 6 && segs[5] === 'accept' && method === 'POST') {
         const r = acceptRewrite(item.id, id)
         if (!r.ok && r.code === 'rewrite_stale') {
@@ -4720,7 +4728,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // KOVETKEZETESSEG (K-1.19): egy jelzett elteres "szandekos" -- csak a tulajdonos
     // kattintasa (az agent a szoveget javithatja, a jelzest nem nemithatja el).
     if (sub === 'consistency' && segs.length === 5 && segs[4] === 'ack' && (method === 'POST' || method === 'DELETE')) {
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
+      if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'outline_owner_only', lang)
       if (method === 'DELETE') {
         unackConsistencyIssue(item.id, id)
         return done({ ok: true })
