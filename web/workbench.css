@@ -1470,6 +1470,10 @@
 .wb-tw-block { margin: 0 0 8px; white-space: pre-wrap; line-height: 1.55; }
 .wb-tw-img { margin: 6px 0; }
 .wb-tw-img img { max-width: 100%; }
+/* #566 in the translation: the free picture is a zero-height anchor, placed from it (x across, y below, percent of the text width). */
+.wb-tw-over { height: 0; position: relative; }
+.wb-tw-over > .wb-tw-img { position: absolute; left: 0; top: 0; z-index: 2; margin: calc(100% * var(--wb-oy) / 100) 0 0 calc(100% * var(--wb-ox) / 100); width: calc(100% * var(--wb-ow) / 100); }
+.wb-tw-page .wb-tw-island:has(> .wb-tw-over) { margin: 0; }
 /* To-do panel (Boss TG 3462): rows with alternating background, green tick = done, red X = not yet. */
 .wb-tw-cols.has-both { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr); }
 
