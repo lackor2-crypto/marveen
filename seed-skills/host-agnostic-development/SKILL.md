@@ -91,3 +91,11 @@ Nagyobb változtatás után futtasd a teljes sort is:
 ```bash
 git worktree add /tmp/mv-test && cd /tmp/mv-test && npm test
 ```
+
+## Rejtett korlátozás tilos (Boss TG 3856)
+
+Fejlesztés közben SOHA nem építesz be a kéréstől függetlenül korlátot, tiltást, méret- vagy hely-határt
+("csak az Életfából", "legfeljebb N karakter", "ebbe a mappába nem"). Ha szerinted egy korlát nagyon fontos,
+ELŐBB jelezd a tulajdonosnak, és csak az engedélyével told be; a felület mondja ki, mi a korlát. Lásd
+`marveen-learned-rules` R15.
+

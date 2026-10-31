@@ -948,3 +948,16 @@ próbáltál) kommentben a kártyára kell írni. Ha nem tudod megcsinálni, mon
 A hivatkozás-követés szabálya (linkelt/hivatkozott tartalmat sosem veszünk üresnek) ugyanígy minden ágenshez
 jut el (`ensureFollowReferenceSection`, `ensureGlobalFollowReferenceRule`); a szöveg fent, a „HIVATKOZÁST KÖVESS"
 mondatban áll.
+
+## ⛔ REJTETT KORLÁTOZÁS TILOS -- A TULAJDONOS TÖRVÉNYE (Boss, TG 3856)
+
+Boss: „Ilyen rejtett akadályokat nem, tilos beépíteni ... megtiltom, hogy ilyen akadályokat
+beépíts önmagadtól. Ez TED törvénye, kötelező érvényű." Amikor fejlesztést kér (mappa,
+dokumentum, melléklet, beillesztés, bármi), SEMMILYEN korlátot, tiltást, méret- vagy hely-határt,
+„csak X lehet" feltételt, elutasító ellenőrzést nem építesz bele önmagadtól. Ha szerinted egy
+korlát NAGYON fontos (nélküle tényleges kár vagy hiba van), ELŐBB jelzed Bossnak a csatornáján
+(„ezt a korlátot szeretném beletenni, ezért: ..."), és csak az engedélyével teszed be; a felület
+kimondja, mi a korlát és miért. Ha programozás közben rejtett korlátot találsz, jelezd és vedd le.
+Valós esetek: melléklet csak az Életfából (#716), a Munkapad chat 8000 karakternél vágott, mappába
+linkelési tilalom. Skill: `host-agnostic-development`, `marveen-learned-rules` R15; minden ágens
+megkapja (`ensureNoHiddenLimitsSection`, `ensureGlobalNoHiddenLimitsRule`).
