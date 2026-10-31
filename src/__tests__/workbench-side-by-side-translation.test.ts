@@ -739,4 +739,26 @@ describe("the saved translation comes back after a reload", () => {
       expect(dict).toContain('"workbench.tw.resynced"')
     }
   })
+
+  // Boss 2026-10-31 (kártya b431fa22): the "Insert signature" button said "click into the text you want to format" while the
+  // cursor stood in the translation column; it worked in the original only. It now puts the picture into the translation.
+  it('the signature button also works in the translation column: the cursor block is remembered, the picture becomes an image block of the translation', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const fn = js.slice(js.indexOf('function twCaretBlock()'), js.indexOf('function twBaseSig(s)'))
+    expect(fn.length).toBeGreaterThan(300)
+    // the place: the section of the block under the cursor and how many body paragraphs stand above it
+    expect(fn).toContain("el.getAttribute('data-tw-sec')")
+    expect(fn).toContain("host.querySelectorAll('[data-tw=\"block\"],[data-tw=\"island\"]')")
+    // the cursor survives the click on a toolbar button: it is remembered on every selection change in the page
+    expect(js).toContain("document.addEventListener('selectionchange'")
+    expect(js).toContain('twState().caret = ')
+    // the pick goes into tw.prev as an image block after that paragraph, then the column is redrawn
+    expect(fn).toContain("dpSignPicker(at.sec, '', function (rel) {")
+    expect(fn).toContain("{ kind: 'image', text: rel + '#w=30&a=l' }")
+    expect(fn).toContain('twRefresh()')
+    // the toolbar handler tries the translation page BEFORE saying "click into the text"
+    const h = js.indexOf("if (f === 'sign') { var twAt = twCaretBlock()")
+    expect(h).toBeGreaterThan(0)
+    expect(h).toBeLessThan(js.indexOf("window.showToast(t('workbench.dp.fmt_pick')); return }", h))
+  })
 })
