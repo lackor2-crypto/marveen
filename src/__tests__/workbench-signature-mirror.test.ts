@@ -1,13 +1,13 @@
-// Boss TG 3975: a signature put on the original appears on the language version too, and the other way round;
-// moving or deleting it follows; it never turns the translation "stale"; plain text edits leave the other side alone.
+// #794 (Boss TG 4119, reverses TG 3975): the signature picture of a language version is placed on its own. Moving, adding or
+// deleting it on the original must NOT touch the version and the other way round (the German page breaks lines elsewhere,
+// so one place cannot fit both). It still never turns the translation "stale".
 import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, type WorkItemRow } from '../workbench.js'
-import { addSection, addBlock, updateBlock, removeBlock, listBlocks, listSections } from '../workbench-docmodel.js'
+import { addSection, addBlock, updateBlock, listBlocks, listSections } from '../workbench-docmodel.js'
 import { createVariant, translateSection, variantInfo } from '../workbench-doclang.js'
-import { mirrorSignaturesFrom } from '../workbench-sigmirror.js'
 
 const SIG = 'Személyes/Aláírás.png#w=30&a=l&x=60&y=0&o=1'
 let src: WorkItemRow
@@ -35,62 +35,23 @@ beforeEach(() => {
   verSec = listSections(ver.id)[0]!.id
 })
 
-describe('signature mirror', () => {
-  it('a signature added to the original appears in the language version, and the version stays current', () => {
+describe('signature pictures are independent per language version', () => {
+  it('a signature added to the original does not appear in the version, and the version stays current', () => {
     addBlock(src.id, srcSec, { kind: 'image', text: SIG, author: 'owner' })
-    mirrorSignaturesFrom(src.id)
-    expect(sigs(ver.id, verSec)).toEqual([SIG])
-    expect(variantInfo(ver.id)!.sections[0]!.state).toBe('current')
-  })
-
-  it('a signature added to the language version appears in the original', () => {
-    addBlock(ver.id, verSec, { kind: 'image', text: SIG, author: 'owner' })
-    mirrorSignaturesFrom(ver.id)
-    expect(sigs(src.id, srcSec)).toEqual([SIG])
-    expect(variantInfo(ver.id)!.sections[0]!.state).toBe('current')
-  })
-
-  it('moving / resizing and deleting follow, both ways', () => {
-    const a = addBlock(src.id, srcSec, { kind: 'image', text: SIG, author: 'owner' })
-    if (!a.ok) throw new Error('add')
-    mirrorSignaturesFrom(src.id)
-    const moved = 'Személyes/Aláírás.png#w=50&a=c&x=10&y=0.5&o=1'
-    updateBlock(src.id, a.block.id, { text: moved, author: 'owner' })
-    mirrorSignaturesFrom(src.id)
-    expect(sigs(ver.id, verSec)).toEqual([moved])
-    const vb = listBlocks(ver.id).find((b) => b.kind === 'image')!
-    removeBlock(ver.id, vb.id)
-    mirrorSignaturesFrom(ver.id)
-    expect(sigs(src.id, srcSec)).toEqual([])
-  })
-
-  it('editing plain text does not touch the other side\'s signature', () => {
-    addBlock(ver.id, verSec, { kind: 'image', text: SIG, author: 'owner' }) // exists on the version only, never mirrored
-    const para = listBlocks(src.id).find((b) => b.kind === 'paragraph')!
-    updateBlock(src.id, para.id, { text: 'Sehr geehrt!', author: 'owner' })
-    mirrorSignaturesFrom(src.id)
-    expect(sigs(ver.id, verSec)).toEqual([SIG])
-  })
-
-  it('a picture that is not a signature is not mirrored', () => {
-    addBlock(src.id, srcSec, { kind: 'image', text: 'Fotok/kert.png#w=40&a=l', author: 'owner' })
-    mirrorSignaturesFrom(src.id)
     expect(sigs(ver.id, verSec)).toEqual([])
+    expect(variantInfo(ver.id)!.sections.map((x) => x.state)).toEqual(['current'])
   })
-})
-
-describe('the column does not call a mirrored signature a change of the original', () => {
-  it('twSig leaves signature pictures out, like the server hash', () => {
-    const js = readFileSync(new URL('../../web/workbench.js', import.meta.url), 'utf8')
-    const body = js.slice(js.indexOf('function twSig(sec)'), js.indexOf('function twKey('))
-    expect(body).toContain('isSignatureImg')
+  it('moving the picture on one side leaves the other side exactly where it was', () => {
+    const a = addBlock(src.id, srcSec, { kind: 'image', text: SIG, author: 'owner' })
+    const b = addBlock(ver.id, verSec, { kind: 'image', text: SIG, author: 'owner' })
+    if (!a.ok || !b.ok) throw new Error('add')
+    updateBlock(src.id, a.block.id, { text: 'Személyes/Aláírás.png#w=30&a=l&x=60&y=9&o=1' })
+    expect(sigs(ver.id, verSec)).toEqual([SIG])
+    updateBlock(ver.id, b.block.id, { text: 'Személyes/Aláírás.png#w=30&a=l&x=10&y=3&o=1' })
+    expect(sigs(src.id, srcSec)).toEqual(['Személyes/Aláírás.png#w=30&a=l&x=60&y=9&o=1'])
   })
-})
-
-describe('the translation column follows a page change at once', () => {
-  it('dpCall re-reads the saved translation after a block change', () => {
-    const js = readFileSync(new URL('../../web/workbench.js', import.meta.url), 'utf8')
-    const body = js.slice(js.indexOf('function dpCall('), js.indexOf('function dpText('))
-    expect(body).toContain('twResync()')
+  it('no code path mirrors a signature any more (source contract)', () => {
+    const route = readFileSync(new URL('../web/routes/workbench.ts', import.meta.url), 'utf8')
+    expect(route).not.toMatch(/mirrorSignaturesFrom|workbench-sigmirror/)
   })
 })

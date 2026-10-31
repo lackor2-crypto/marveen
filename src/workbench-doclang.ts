@@ -140,8 +140,9 @@ export function langName(code: string, ui: 'hu' | 'en'): string {
   return LANG_NAMES[code]?.[ui] ?? code.toUpperCase()
 }
 
-/** A signature picture is mirrored between a document and its language versions (workbench-sigmirror), so it is not
- *  part of what a translation is made from: adding one to either side must not turn the other side "stale". */
+/** #794 (Boss TG 4119): a signature picture is placed on each language version on its own (the German page has other
+ *  line breaks than the Hungarian one), nothing is mirrored. It is not part of what a translation is made from either:
+ *  adding or moving one on either side must not turn the other side "stale". */
 export function isSignatureImage(b: { kind: string; text: string }): boolean {
   if (b.kind !== 'image') return false
   const name = (b.text.split('#')[0] ?? '').replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? ''
