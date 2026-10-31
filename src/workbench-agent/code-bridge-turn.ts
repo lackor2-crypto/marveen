@@ -29,6 +29,7 @@ import { msg, type Lang } from './messages.js'
 import { documentLanguageRule } from './doc-language.js'
 import { PROMPT_MAX_CHARS } from '../web/code-bridge-store.js'
 import { detectsUsageLimit } from '../model-fallback.js'
+import { WEB_PORT } from '../config.js'
 
 export type CodeBridgeStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
@@ -169,6 +170,7 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
     ...workItemFileLines(input.workItem),
     `Answer in ${language}, in plain sentences for a non-programmer.${input.lang === 'en' ? '' : ' Address the owner informally (tegezés: "te"), never with "Ön" or "Maga".'}`,
     documentLanguageRule(input.lang === 'en' ? 'en' : 'hu'),
+    `READING SCANNED FILES: a scanned PDF or a photo of a letter CAN be read, never tell the owner it cannot. The Marveen server does the OCR (Hungarian, German, English): GET http://localhost:${WEB_PORT}/api/workbench/read-life-file?rel=<path of the file in the Life tree, relative to the depot root> (Bearer dashboard token) returns the page list; add &from=1&to=3 for the text of those pages. A 202 "processing" answer means the OCR is running: ask again in a few seconds. Pages marked low confidence are not a source of facts until the owner checks them. Use this BEFORE saying a file is unreadable.`,
     `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do. If you were cut off, ran out of steps, hit an error, or only finished a part, do NOT write the marker: the dashboard will then automatically have you continue the work. NEVER ask the owner which part to do first, whether to continue, or for permission to do what the request already covers: decide yourself and do ALL of it. Ask only when you are truly blocked on something only the owner can give (a secret, a payment, a choice that cannot be undone). The owner never sees the marker; it is removed from your answer.`,
   ]
   const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]
