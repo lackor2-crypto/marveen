@@ -15460,6 +15460,25 @@
   }
 
   /** #562: does this picture float (the text runs beside it)? Left or right, narrower than the page, not placed freely. */
+  /** ONE picture, drawn one way (Boss TG 3959): the work item page and the translation column both call this, so the handles
+   *  (corner size, free move, left / centre / right, wrap / over) and the code behind them are the same. `tw` = the column: the
+   *  picture's id is the column's own (`tw:N`), it never floats, and it has a delete button (the page deletes from the gutter). */
+  function dpImgFigureHtml(bid, secId, pic, ro, tw) {
+    var picOver = !!pic.over
+    var picFloat = !tw && dpPicFloats(pic)
+    var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.x == null && pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-img-align" data-wb-block="' + escA(bid) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '" aria-pressed="' + (pic.align === a) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
+    var src = '/api/life/file?rel=' + encodeURIComponent(pic.path)
+    return '<figure contenteditable="false" class="wb-dp-block wb-dp-img ' + (tw ? 'wb-tw-img ' : '') + (picOver ? 'wb-dp-img-l wb-dp-img-over' : pic.x != null ? 'wb-dp-img-l wb-dp-free' : 'wb-dp-img-' + pic.align) + '" data-wb-img-block="' + escA(bid) + '"' + (pic.x != null && !picOver ? ' style="margin-top:calc(6px + ' + pic.y + '%)"' : '') + '>'
+      + '<span class="wb-dp-img-box"' + (picFloat || picOver ? ' style="width:100%"' : pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
+      + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : picOver ? ' draggable="false" data-wb-over-img="' + escA(bid) + '" title="' + escA(t('workbench.dp.img_over_move')) + '"' : tw ? ' draggable="false"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(bid) + '" data-wb-sec="' + escA(secId) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA(src) + '">'
+      + (ro ? '' : '<span class="wb-dp-img-size" data-wb-img-resize="' + escA(bid) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.img_resize')) + '" aria-label="' + escA(t('workbench.dp.img_resize')) + '"></span>'
+        + dpFreeHandleHtml(bid, true)
+        + '<span class="wb-dp-img-tools">' + (picOver ? '' : al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right'))
+          + dpImgModeBtn(bid, 'wrap', !picOver) + dpImgModeBtn(bid, 'over', picOver)
+          + (tw ? '<button type="button" class="wb-dp-img-al" data-tw-pic="del" title="' + escA(t('workbench.tw.pic_del')) + '" aria-label="' + escA(t('workbench.tw.pic_del')) + '">&#10005;</button>' : '') + '</span>')
+      + '</span></figure>'
+  }
+
   function dpPicFloats(pic) {
     return !!(pic && pic.x == null && pic.width && pic.width < 100 && pic.align !== 'c')
   }
@@ -15524,23 +15543,15 @@
         // A picture block (TG 2901): the picture itself, moved/removed with the handle like any block.
         // #508 (TG 2920): resizable (corner handle) and movable (drag the picture; left / centre / right).
         var pic = dpImageParts(b.text)
-        var al = function (a, key) { return '<button type="button" class="wb-dp-img-al' + (pic.x == null && pic.align === a ? ' is-on' : '') + '" data-wb-act="dp-img-align" data-wb-block="' + escA(b.id) + '" data-wb-align="' + a + '" title="' + escA(t(key)) + '" aria-label="' + escA(t(key)) + '" aria-pressed="' + (pic.align === a) + '">' + (a === 'l' ? '&#8676;' : a === 'r' ? '&#8677;' : '&#8596;') + '</button>' }
-        // #562 (Boss TG 8919): a picture put left or right and narrower than the page takes only its own place -- the row
-        // floats and the text runs round it, as in Word (the table did this already). Centred / free-placed: its own line.
+        // #562 / #566: a picture put left or right and narrower than the page floats (the text runs round it); one put "free, over
+        // the text" takes no room (a zero-height anchor row). The picture itself is drawn by dpImgFigureHtml: the SAME markup the
+        // translation column uses, so both are handled by the same code (Boss TG 3959).
         var picFloat = dpPicFloats(pic)
-        // #566 (Boss TG 8982): a picture put "free, over the text" takes no room: its row is a zero-height anchor at its place in
-        // the text, the picture is placed from it (x across, y below, percent of the text width) and the text runs under it.
         var picOver = !!pic.over
         rows += dpTailBefore(sec.id, si, i, blocks, nw, ro)
           + '<div class="wb-dp-row' + (picFloat ? ' wb-dp-row-float wb-dp-row-float-' + pic.align : '') + (picOver ? ' wb-dp-row-over' : '') + '"' + (picFloat ? ' style="width:' + (pic.align === 'r' ? pic.width + '%' : 'calc(' + pic.width + '% + 48px)') + '"' : picOver ? ' style="--wb-ox:' + pic.x + ';--wb-oy:' + pic.y + ';--wb-ow:' + (pic.width || 100) + '"' : '') + ' data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
-          + '<figure contenteditable="false" class="wb-dp-block wb-dp-img ' + (picOver ? 'wb-dp-img-l wb-dp-img-over' : pic.x != null ? 'wb-dp-img-l wb-dp-free' : 'wb-dp-img-' + pic.align) + '" data-wb-img-block="' + escA(b.id) + '"' + (pic.x != null && !picOver ? ' style="margin-top:calc(6px + ' + pic.y + '%)"' : '') + '>'
-          + '<span class="wb-dp-img-box"' + (picFloat || picOver ? ' style="width:100%"' : pic.width ? ' style="width:' + pic.width + '%' + (pic.x != null ? ';margin-left:' + pic.x + '%' : '') + '"' : '') + '>'
-          + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy"' + (ro ? ' draggable="false"' : picOver ? ' draggable="false" data-wb-over-img="' + escA(b.id) + '" title="' + escA(t('workbench.dp.img_over_move')) + '"' : ' draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '" title="' + escA(t('workbench.dp.img_move')) + '"') + ' src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '">'
-          + (ro ? '' : '<span class="wb-dp-img-size" data-wb-img-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.img_resize')) + '" aria-label="' + escA(t('workbench.dp.img_resize')) + '"></span>'
-            + dpFreeHandleHtml(b.id, true)
-            + '<span class="wb-dp-img-tools">' + (picOver ? '' : al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right'))
-              + dpImgModeBtn(b.id, 'wrap', !picOver) + dpImgModeBtn(b.id, 'over', picOver) + '</span>')
-          + '</span></figure></div>'
+          + dpImgFigureHtml(b.id, sec.id, pic, ro, false)
+          + '</div>'
           + dpTailAfter(sec.id, i, blocks, nw, ro)
         return
       }
@@ -15734,31 +15745,24 @@
 
   // The picture (signature) in the translation column is a unit the owner can select, move, resize and delete, the way the
   // work item page lets them (Boss TG 3925). The island's `data-tw-text` is what twCollect reads back and the save writes.
+  var TW_PIC_SEQ = 0
   function twPicSelect(isl) {
     var host = document.getElementById('wbTwPage')
     if (!host) return
     Array.prototype.forEach.call(host.querySelectorAll('.wb-tw-island.wb-tw-sel'), function (x) {
       x.classList.remove('wb-tw-sel')
-      var b0 = x.querySelector('.wb-tw-picbar'); if (b0) b0.remove()
     })
     if (!isl) return
     isl.classList.add('wb-tw-sel')
-    var bar = document.createElement('span')
-    bar.className = 'wb-tw-picbar'
-    bar.setAttribute('contenteditable', 'false')
-    bar.title = t('workbench.tw.pic_hint')
-    bar.innerHTML = '<button type="button" data-tw-pic="smaller">' + esc(t('workbench.tw.pic_smaller')) + '</button>'
-      + '<button type="button" data-tw-pic="bigger">' + esc(t('workbench.tw.pic_bigger')) + '</button>'
-      + '<button type="button" data-tw-pic="del">' + esc(t('workbench.tw.pic_del')) + '</button>'
-    ;(isl.querySelector('.wb-dp-img-box') || isl).appendChild(bar)
     isl.setAttribute('tabindex', '-1')
     try { isl.focus({ preventScroll: true }) } catch (_e) { /* the click still selects */ }
   }
-  function twPicPut(isl, pic) {
-    isl.setAttribute('data-tw-text', dpImageText(pic.path, pic.width || 100, pic.align, pic.x, pic.y, pic.over))
-    var sel = isl.classList.contains('wb-tw-sel')
-    isl.innerHTML = twBlockHtml({ kind: 'image', text: isl.getAttribute('data-tw-text') })
-    if (sel) twPicSelect(isl)
+  /** A change of the picture (from the page's own handles): the island takes the new text and is drawn again. */
+  function twPicApply(bid, text) {
+    var isl = document.querySelector('#wbTwPage .wb-tw-island[data-tw-bid="' + bid + '"]')
+    if (!isl) return
+    isl.setAttribute('data-tw-text', text)
+    isl.innerHTML = twBlockHtml({ kind: 'image', text: text }, bid, false)
   }
   function twPicDelete(isl) {
     var host = document.getElementById('wbTwPage')
@@ -15773,28 +15777,7 @@
       var isl = tg.closest('#wbTwPage .wb-tw-island[data-tw-kind="image"]')
       if (!isl) { if (!btn) twPicSelect(null); return }
       if (btn) return
-      e.preventDefault()
       if (!isl.classList.contains('wb-tw-sel')) twPicSelect(isl)
-      var pic = dpImageParts(isl.getAttribute('data-tw-text'))
-      if (!pic.over) return
-      var box = isl.querySelector('.wb-tw-over')
-      var full = box ? box.clientWidth : 0
-      if (!full) return
-      var sx = e.clientX, sy = e.clientY, ox = pic.x, oy = pic.y, moved = false
-      function mv(ev) {
-        if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) moved = true
-        if (!moved) return
-        pic.x = Math.max(0, Math.min(100 - (pic.width || 100), ox + (ev.clientX - sx) * 100 / full))
-        pic.y = Math.max(0, Math.min(300, oy + (ev.clientY - sy) * 100 / full))
-        box.style.setProperty('--wb-ox', pic.x); box.style.setProperty('--wb-oy', pic.y)
-      }
-      function up() {
-        document.removeEventListener('pointermove', mv)
-        document.removeEventListener('pointerup', up)
-        if (moved) twPicPut(isl, pic)
-      }
-      document.addEventListener('pointermove', mv)
-      document.addEventListener('pointerup', up)
     })
     document.addEventListener('click', function (e) {
       var btn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-tw-pic]') : null
@@ -15803,12 +15786,7 @@
       if (!isl) return
       e.preventDefault()
       var what = btn.getAttribute('data-tw-pic')
-      if (what === 'del') { twPicDelete(isl); return }
-      var pic = dpImageParts(isl.getAttribute('data-tw-text'))
-      var w = pic.width || 100
-      pic.width = Math.max(10, Math.min(100, w + (what === 'bigger' ? 5 : -5)))
-      if (pic.over) pic.x = Math.min(pic.x, 100 - pic.width)
-      twPicPut(isl, pic)
+      if (what === 'del') twPicDelete(isl)
     })
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
@@ -15937,17 +15915,15 @@
     }
     return { cls: cls, inner: inner }
   }
-  function twBlockHtml(b) {
+  function twBlockHtml(b, bid, ro) {
     if (b.kind === 'image') {
       var pic = dpImageParts(b.text)
-      // A picture put "free, over the text" (the signature) is the same zero-height anchor as in the work item's own page
-      // (#566): the translation column, the language version's page and the preview then show it in the same place.
-      if (pic.over) {
-        return '<div class="wb-tw-over" style="--wb-ox:' + pic.x + ';--wb-oy:' + pic.y + ';--wb-ow:' + (pic.width || 100) + '"><figure class="wb-tw-img wb-dp-img wb-dp-img-l wb-dp-img-over"><span class="wb-dp-img-box" style="width:100%">'
-          + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '"></span></figure></div>'
-      }
-      return '<figure class="wb-tw-img wb-dp-img wb-dp-img-' + pic.align + '"><span class="wb-dp-img-box"' + (pic.width ? ' style="width:' + pic.width + '%"' : '') + '>'
-        + '<img alt="' + escA(baseOf(pic.path)) + '" loading="lazy" draggable="false" src="' + escA('/api/life/file?rel=' + encodeURIComponent(pic.path)) + '"></span></figure>'
+      // The picture is drawn by the same function as on the work item page (dpImgFigureHtml); a picture put "free, over the
+      // text" (the signature) sits in the same zero-height anchor (#566), so the column, the language version's page and the
+      // preview show it in one place.
+      var fig = dpImgFigureHtml(bid || 'tw:0', '', pic, !!ro, true)
+      if (pic.over) return '<div class="wb-tw-over" style="--wb-ox:' + pic.x + ';--wb-oy:' + pic.y + ';--wb-ow:' + (pic.width || 100) + '">' + fig + '</div>'
+      return fig
     }
     var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
     var look = twTextLook(b)
@@ -15976,7 +15952,8 @@
         : '<div class="wb-tw-h wb-dp-h1" data-tw="title" data-tw-sec="' + escA(sec.id) + '"' + ed + '>' + esc(pv.title) + '</div>'
       pv.blocks.forEach(function (b) {
         if (b.kind === 'image') {
-          out += '<div class="wb-tw-island" contenteditable="false" data-tw="island" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="image" data-tw-text="' + escA(b.text) + '">' + twBlockHtml(b) + '</div>'
+          var pbid = 'tw:' + (++TW_PIC_SEQ)
+          out += '<div class="wb-tw-island" contenteditable="false" data-tw="island" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="image" data-tw-bid="' + pbid + '" data-tw-text="' + escA(b.text) + '">' + twBlockHtml(b, pbid, ro) + '</div>'
           return
         }
         var shown = b.kind === 'table' ? dpTableParts(b.text).text : b.text
@@ -16775,6 +16752,11 @@
   function dpImageText(path, width, align, x, y, over) { return path + '#w=' + Math.round(width) + '&a=' + (align || 'c') + (over && x != null && y != null ? '&x=' + Math.round(x * 10) / 10 + '&y=' + Math.round(y * 10) / 10 + '&o=1' : dpFreeSuffix(x, y)) }
 
   function dpImageBlock(bid) {
+    // A picture of the translation column has the column's own id (`tw:N`); its text lives on the island.
+    if (String(bid).indexOf('tw:') === 0) {
+      var tisl = document.querySelector('#wbTwPage .wb-tw-island[data-tw-bid="' + bid + '"]')
+      return tisl ? { id: bid, kind: 'image', text: tisl.getAttribute('data-tw-text') || '' } : null
+    }
     var secs = (WB.detail && WB.detail.outline && WB.detail.outline.sections) || []
     for (var i = 0; i < secs.length; i++) for (var j = 0; j < (secs[i].blocks || []).length; j++) if (secs[i].blocks[j].id === bid) return secs[i].blocks[j]
     return null
@@ -16800,6 +16782,9 @@
   }
 
   function dpCall(method, sub, body) {
+    // The column's picture is changed with the page's own handles; what changes is the island, saved with the translation.
+    var twm = /^\/blocks\/(tw%3A\d+)$/.exec(sub)
+    if (twm) { if (body && body.text != null) twPicApply(decodeURIComponent(twm[1]), body.text); return Promise.resolve(null) }
     var id = WB.selectedId
     if (!id || archived()) return Promise.resolve(null)
     // What is typed on the page is saved before another change goes out (the order is the owner's order).
@@ -23883,6 +23868,15 @@
    * is moved right before it) and the offset from that paragraph, in percent of the text width.
    */
   function dpOverPlace(bid, box, wPct) {
+    if (String(bid).indexOf('tw:') === 0) {
+      // The column: the picture is placed from its own anchor (the zero-height line, or the island), in percent of its width.
+      var anc = box.closest('.wb-tw-over') || box.closest('.wb-tw-island')
+      if (!anc) return null
+      var fullT = Math.max(1, anc.clientWidth || 1)
+      var ar = anc.getBoundingClientRect()
+      var tbr = box.getBoundingClientRect()
+      return { sid: null, pos: -1, x: Math.max(0, Math.min(100 - wPct, Math.round((tbr.left - ar.left) / fullT * 1000) / 10)), y: Math.max(0, Math.min(300, Math.round((tbr.top - ar.top) / fullT * 1000) / 10)), full: fullT }
+    }
     var page = box.closest('.wb-dp-page') || dpRoot()
     if (!page) return null
     var pr = page.getBoundingClientRect()
@@ -24038,7 +24032,7 @@
     if (dpPlaceIs(b)) {
       var ofig = dpPlaceParts(b).over ? hd.closest('.wb-dp-img, .wb-dp-tbl') : null
       if (ofig) dpOverDragStart(e, hd, bid, b, ofig)
-      else dpPicDragStart(e, hd, bid, b, tg)
+      else if (String(bid).indexOf('tw:') !== 0) dpPicDragStart(e, hd, bid, b, tg)
       return
     }
     var start = dpFreeNow(b)
@@ -24112,11 +24106,11 @@
     e.preventDefault()
     var bid = hd.getAttribute('data-wb-img-resize')
     // #562: a floating picture's row is as wide as the picture, so the share is measured against the sheet's text width.
-    var frow = hd.closest('.wb-dp-row')
+    var frow = hd.closest('.wb-dp-row, .wb-tw-over')
     var floated = !!(frow && frow.classList.contains('wb-dp-row-float'))
     // #566: a picture over the text has the text width as its measure too (its figure is as wide as the picture).
-    var over = !!(frow && frow.classList.contains('wb-dp-row-over'))
-    var sheet = hd.closest('.wb-dp-page')
+    var over = !!(frow && (frow.classList.contains('wb-dp-row-over') || frow.classList.contains('wb-tw-over')))
+    var sheet = hd.closest('.wb-dp-page, .wb-tw-page')
     var full = fig.clientWidth || 1
     if ((floated || over) && sheet && typeof window.getComputedStyle === 'function') {
       var scs = window.getComputedStyle(sheet)

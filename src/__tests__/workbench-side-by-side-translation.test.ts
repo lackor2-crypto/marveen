@@ -92,13 +92,13 @@ describe('side-by-side translation of a draft', () => {
     expect(r.preview.blocks[1]).toMatchObject({ text: 'Die Klage ist eingereicht.', align: 'c', pfmt: { h: 2 }, rich: '<b>Die Klage ist eingereicht.</b>' })
     // the page draws it with the page's own classes, and no longer drops a picture
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
-    const fn = js.slice(js.indexOf('function twBlockHtml(b)'), js.indexOf('function twPanelInnerHtml(o, ro)'))
+    const fn = js.slice(js.indexOf('function twBlockHtml(b, bid, ro)'), js.indexOf('function twPanelInnerHtml(o, ro)'))
     expect(fn).toContain("if (b.kind === 'image')")
     expect(fn).toContain('dpImageParts(b.text)')
     expect(fn).toContain('dpAlignAttrs(b.align).cls')
     // #534: the column is ONE continuous page now; a picture is an island inside it, drawn by twBlockHtml
     const page = js.slice(js.indexOf('function twPageHtml(o, ro)'), js.indexOf('function twCollect()'))
-    expect(page).toContain('twBlockHtml(b)')
+    expect(page).toContain('twBlockHtml(b, pbid, ro)')
     expect(page).toContain('data-tw="island"')
     expect(js).not.toContain("return b.kind === 'image' ? '' :")
   })

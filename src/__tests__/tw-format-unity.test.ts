@@ -21,7 +21,7 @@ describe('one look in the translation column, the page and the preview (TG 3922)
 describe('the picture in the translation column is selectable, movable, resizable, deletable (TG 3925)', () => {
   it('has select, drag, size and delete handlers writing data-tw-text', () => {
     expect(JS).toContain('function twPicSelect')
-    expect(JS).toContain('function twPicPut')
+    expect(JS).toContain('function twPicApply')
     expect(JS).toContain('function twPicDelete')
     expect(JS).toContain("data-tw-pic=\"del\"")
     expect(JS).toContain("isl.setAttribute('data-tw-text'")
