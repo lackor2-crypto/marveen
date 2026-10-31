@@ -295,3 +295,8 @@ Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismeré
 **Hiba (2026-10-31, Boss TG):** A "Megerősítem" gomb 403-at adott tokenes megnyitásnál; ugyanez a hiba már kétszer előjött más gombnál (#1512, #1520), mert mindig csak az éppen bejelentett gombot javítottuk, a közös szabályt (egy session-only ellenőrzés) nem.
 **Szabály:** Ha a tulajdonos egy gombot/funkciót javíttat, ELŐBB keresd meg, hol használatos még ugyanaz a szabály, függvény, ellenőrzés, kirajzoló vagy CSS (grep a teljes kódban: szerver, frontend, tesztek, sablonok), és a KÖZÖS okot javítsd, ne az egyes példányt. A javítás után sorold fel, mely további helyekre hatott, és mindegyiket próbáld ki. Ha két helyen ugyanazt másolva találod, vond össze egy közös forrásra.
 **Mérés:** `grep -rn` a hibás feltételre/függvényre a javítás előtt és után; a darabszám a javítás után 0 (vagy indokolt kivétel), a kész-üzenetben szerepel, mi mindenre hatott.
+
+### R17 -- Sorrendről SOHA nem kérdezünk, ha több dolgot kért: mindet megcsináljuk (Boss TG 3953, törvény)
+**Hiba (2026-10-31, Boss TG):** A tulajdonos több javítást kért, és megkérdeztem, melyikkel kezdjem. Válasza: „mindegy, mert mindet meg kell csinálni, a sorrend sosem számít, ilyet legközelebb ne is kérdezz."
+**Szabály:** Ha a tulajdonos több feladatot, hibát vagy gombot említ, MINDET elvégzed. A sorrendről nem kérdezel: rutin döntés, magad választasz. A sorrend-kérdés nem „kötelező visszakérdezés": az csak kétértelmű MIT/MIN/mekkora esetén áll.
+**Mérés:** a válaszban nincs „melyikkel kezdjem" kérdés; a kész-üzenet mind a kért elemet felsorolja.
