@@ -15685,6 +15685,44 @@
       if (tw.lang === lang) twRefresh()
     })
   }
+  /** The block of the translation page the cursor is in (the last one when the focus has moved to a toolbar button): the
+   *  section it belongs to and how many body paragraphs stand above it, or null when the cursor was never in the page. */
+  function twCaretBlock() {
+    var host = document.getElementById('wbTwPage')
+    if (!host) return null
+    var node = null
+    var sel = window.getSelection && window.getSelection()
+    if (sel && sel.rangeCount && sel.anchorNode && host.contains(sel.anchorNode)) node = sel.anchorNode
+    else if (WB.tw && WB.tw.caret && WB.tw.caret.isConnected && host.contains(WB.tw.caret)) node = WB.tw.caret
+    if (!node) return null
+    var el = node.nodeType === 1 ? node : node.parentNode
+    while (el && el !== host && !(el.getAttribute && el.getAttribute('data-tw') && el.getAttribute('data-tw-sec'))) el = el.parentNode
+    if (!el || el === host) return null
+    var sec = el.getAttribute('data-tw-sec')
+    var role = el.getAttribute('data-tw')
+    var idx = 0
+    if (role !== 'title') {
+      var kids = host.querySelectorAll('[data-tw="block"],[data-tw="island"]')
+      for (var i = 0; i < kids.length; i++) {
+        if (kids[i].getAttribute('data-tw-sec') === sec) idx++
+        if (kids[i] === el) break
+      }
+    }
+    return { sec: sec, idx: idx }
+  }
+  /** "Insert signature" in the translation: the picked picture becomes a picture block of the translation, right after the
+   *  paragraph the cursor stood in (or at the top of the chapter when it stood in the heading). Saved with the translation. */
+  function twInsertSignature(at) {
+    dpSignPicker(at.sec, '', function (rel) {
+      var tw = twState()
+      twCollect() // what was typed on the page is read first
+      var pv = tw.prev[twKey(at.sec)]
+      if (!pv) return
+      var blocks = pv.blocks || (pv.blocks = [])
+      blocks.splice(Math.min(at.idx, blocks.length), 0, { kind: 'image', text: rel + '#w=30&a=l' })
+      twRefresh()
+    })
+  }
   /** What a saved translation section holds, as one comparable string (title + the text of every block). */
   function twBaseSig(s) {
     return JSON.stringify([s.title, (s.blocks || []).map(function (b) { return [b.kind, b.text] })])
@@ -22190,6 +22228,14 @@
     frFormatChange(el)
   })
 
+  // The cursor's place in the translation page is remembered: a click on a toolbar button (the signature) moves the focus away.
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('selectionchange', function () {
+      var host = document.getElementById('wbTwPage')
+      var sel = window.getSelection && window.getSelection()
+      if (host && sel && sel.rangeCount && sel.anchorNode && host.contains(sel.anchorNode)) twState().caret = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentNode
+    })
+  }
   // The right column follows the saved translation (twResync): when the tab comes back to the front and every 20 seconds
   // while the column is open, so a correction made behind its back (the assistant, another tab) shows without F5.
   if (typeof document !== 'undefined' && document.addEventListener) {
@@ -23544,6 +23590,8 @@
       return
     }
     var el = dpFmtTarget()
+    // The translation (German, English ...) is a page of its own: the signature goes into it wherever the cursor stood.
+    if (f === 'sign') { var twAt = twCaretBlock(); if (twAt && (!el || (window.getSelection && window.getSelection().anchorNode && document.getElementById('wbTwPage').contains(window.getSelection().anchorNode)))) { twInsertSignature(twAt); return } }
     if (!el) { window.showToast(t('workbench.dp.fmt_pick')); return }
     // #604: a chapter title has no list / indent / signature (it is one line).
     if (el.getAttribute('data-wb-dp') === 'sec' && /^(list|numlist|indent-more|indent-less|sign)$/.test(f)) { window.showToast(t('workbench.dp.fmt_title')); return }
