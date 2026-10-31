@@ -20,7 +20,7 @@ import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames, CorruptConfigError } from './web/agent-config.js'
 import { startDashboardBackup } from './backup/dashboard.js'
-import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureAvailabilitySection, ensureGlobalAvailabilityRule, ensureShortReplySection, ensureGlobalShortReplyRule, ensureBrowserClickthroughSection, ensureGlobalBrowserClickthroughRule, ensureFollowReferenceSection, ensureGlobalFollowReferenceRule, ensureStatusLine } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureAvailabilitySection, ensureGlobalAvailabilityRule, ensureShortReplySection, ensureGlobalShortReplyRule, ensureBrowserClickthroughSection, ensureGlobalBrowserClickthroughRule, ensureFollowReferenceSection, ensureGlobalFollowReferenceRule, ensureNoHiddenLimitsSection, ensureGlobalNoHiddenLimitsRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -1086,6 +1086,10 @@ export function startWebServer(port = 3420): http.Server {
         const followRef = ensureFollowReferenceSection(agentName)
         if (followRef === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (followRef === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
+        // ...es a "rejtett korlatozas tilos" torveny (kanban #794 alfeladat, TG 3856).
+        const noLimits = ensureNoHiddenLimitsSection(agentName)
+        if (noLimits === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (noLimits === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
@@ -1107,6 +1111,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalShortReplyRule()
       ensureGlobalBrowserClickthroughRule()
       ensureGlobalFollowReferenceRule()
+      ensureGlobalNoHiddenLimitsRule()
       // A szallitott autonomy-katalogus uj kategoriai (kanban #336, 6. fazis).
       // Amit a telepites configja nem ismer, azt a rendszer "nincs jog"-nak
       // veszi -- helyesen --, DE akkor a tulajdonos a Beallitasok / Onallosag

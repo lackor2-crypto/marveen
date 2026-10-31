@@ -3298,6 +3298,86 @@ export function ensureGlobalFollowReferenceRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+
+const NOLIMIT_BEGIN = '<!-- BEGIN GENERATED: no-hidden-limits-rule (auto-generated, do not edit by hand) -->'
+const NOLIMIT_END = '<!-- END GENERATED: no-hidden-limits-rule -->'
+const NOLIMIT_BLOCK_RE = new RegExp(
+  `${NOLIMIT_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${NOLIMIT_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildNoHiddenLimitsBody(): string {
+  return [
+    '## REJTETT KORLATOZAST SOHA NEM EPITUNK BE -- A TULAJDONOS TORVENYE',
+    '',
+    'Amikor a tulajdonos fejlesztest ker (mappa, dokumentum, melleklet, beillesztes,',
+    'bevitel, barmi), TILOS onmagadtol korlatot, tiltast, meret- vagy hely-hatart, "csak X',
+    'lehet" feltetelt, elutasito ellenorzest beleepiteni. Rejtett korlat soha, semmilyen',
+    'okbol. Ha szerinted egy korlat NAGYON fontos (nelkule tenyleges kar vagy hiba van),',
+    'NE told be csendben: ELOBB jelezd a tulajdonosnak a sajat csatornajan ("ezt a korlatot',
+    'szeretnem beletenni, ezert: ..."), es csak az engedelyevel tedd be, a felulet pedig',
+    'mondja ki, mi a korlat es miert. Programozas kozben a meglevo rejtett korlatot, ha',
+    'szembejon, jelezd es vedd le a kerese szerint. Valos eset: melleklet csak az Eletfabol',
+    '(#716), a chat 8000 karakternel vagas, mappaba linkelesi tilalom -- mindhez a tulajdonos',
+    'azt kerdezte: "miert?". Reszletek: `host-agnostic-development` skill, `marveen-learned-rules` R15.',
+  ].join('\n')
+}
+
+/** Beviszi a tilalmat: nincs rejtett korlatozas egy agens sajat CLAUDE.md-jebe. */
+export function ensureNoHiddenLimitsSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${NOLIMIT_BEGIN}\n${buildNoHiddenLimitsBody()}\n${NOLIMIT_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = NOLIMIT_BLOCK_RE.test(existing)
+    ? existing.replace(NOLIMIT_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalNoHiddenLimitsRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${NOLIMIT_BEGIN}\n${buildNoHiddenLimitsBody()}\n${NOLIMIT_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = NOLIMIT_BLOCK_RE.test(existing)
+    ? existing.replace(NOLIMIT_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 // --- statusLine: the rate-limit snapshot producer ---------------------------
 //
 // scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;

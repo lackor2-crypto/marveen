@@ -285,3 +285,9 @@ Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismeré
 **Hiba (2026-10-18, Boss TG):** Az ütemező egy kvótás (halott) ügynökre (lackor3) osztott ki 4 feladatot, és végtelenül retry-zett rá (1160/824/711/261 próbálkozás), Telegram-spammel. A kvóta-blokkolt session pane-je sosem lett "busy" (parked), ezért a retry nem állt le magától.
 **Szabály:** Munka kiosztása ELŐTT -- manuális delegálás ÉS ütemezett/automatikus kiosztás egyaránt -- élő forrásból ellenőrizd, él-e a címzett (`GET /api/agents/availability`: `reason` != `quota`/`stopped`, `resetsAt` nem a jövőben). Halottnak NE ossz, ne retry-zz rá a végtelenségig. Ha menet közben hal meg (token elfogy) és ott ragad a munka, utólag is: vedd el tőle és add élő ügynöknek (vagy a fő ágens végezze). Beragadt ütemezett retry visszavonható: `DELETE /api/schedules/pending/<id>`.
 **Mérés:** `GET /api/schedules/pending` megmutatja a beragadt retry-ket (`attemptCount`, `lastReason`, `agentName`).
+
+### R15 -- Rejtett korlátozást SOHA nem építünk be (Boss TG 3856, törvény)
+**Hiba (2026-10-31, Boss TG):** Három kérésnél is magamtól épített korlát állta Boss útját: a melléklet csak az Életfából csatolható (#716), a Munkapad chat 8000 karakternél vágta a beillesztést, és a projekt-mappákba nem lehetett fájlt linkelni. Boss mindháromnál ugyanazt kérdezte: „Miért? Mi bajt okoz?"
+**Szabály:** Fejlesztésnél (mappa, dokumentum, melléklet, bevitel, bármi) önmagadtól NE építs be korlátot, tiltást, méret- vagy hely-határt. Ha szerinted egy korlát NAGYON fontos (nélküle tényleges hiba/kár van), ELŐBB jelezd a tulajdonosnak a csatornáján („ezt a korlátot szeretném beletenni, ezért: ..."), és csak az engedélyével told be; a felület kimondja, mi a korlát és miért. Szembejövő rejtett korlátot jelezz és vedd le.
+**Mérés:** kódoláskor keress `refuse` / 409 / `max` / `limit` / `only` / „csak" jellegű új ágat a saját diffedben: mindegyikre kell tulajdonosi engedély.
+

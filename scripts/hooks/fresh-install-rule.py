@@ -27,6 +27,9 @@ kovesd a linket, nezd meg MIRE mutat es tenyleg megvan-e, es ugy vedd, mintha
 ott lenne a mappaban. Nem-nulla mappa / van bejegyzes -> tilos azt mondani,
 hogy ott nincs semmi. Es SOSE talalgasd a hiba okat -- a tenyleges
 hibauzenetbol olvasd ki, vagy mondd meg, hogy nem tudod.
+REJTETT KORLATOT SOHA: ha fejlesztest kernek, onmagadtol ne epits bele korlatot,
+tiltast, meret- vagy hely-hatart. Ha szerinted nagyon fontos egy korlat, ELOBB jelezd
+a tulajdonosnak, es csak az engedelyevel told be (a felulet mondja ki, mi a korlat).
 A zaro 5+1 pontos onellenorzest ird is le a valaszodban (`fresh-install-usable` skill).""")
 
 sys.exit(0)

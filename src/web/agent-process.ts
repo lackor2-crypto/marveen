@@ -48,7 +48,7 @@ import { readEnvFile } from '../env.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { loadProfileTemplate } from './profiles.js'
 import { resolveAgentSecurityProfile } from './agent-team.js'
-import { writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureAutonomySection, ensureAskBackSection, ensureRecheckSection, ensureWakeGreetingSection, ensureDelegateCheckSection, ensureOneCardOneFixSection, ensureAgentIdentitySection, ensureNoLiveTreeSection, ensureCompletionReportSection, ensureKanbanWaitingMoveSection, ensureCardReferenceSection, ensureOwnerLanguageSection, ensureAvailabilitySection, ensureShortReplySection, ensureBrowserClickthroughSection, ensureFollowReferenceSection } from './agent-scaffold.js'
+import { writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureAutonomySection, ensureAskBackSection, ensureRecheckSection, ensureWakeGreetingSection, ensureDelegateCheckSection, ensureOneCardOneFixSection, ensureAgentIdentitySection, ensureNoLiveTreeSection, ensureCompletionReportSection, ensureKanbanWaitingMoveSection, ensureCardReferenceSection, ensureOwnerLanguageSection, ensureAvailabilitySection, ensureShortReplySection, ensureBrowserClickthroughSection, ensureFollowReferenceSection, ensureNoHiddenLimitsSection } from './agent-scaffold.js'
 import { schedulePluginUnlockAfterRespawn } from './channel-plugin-unlock.js'
 import { getSecret } from './vault.js'
 import { resolveOpenRouterModel } from './openrouter-models.js'
@@ -1462,6 +1462,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     ensureShortReplySection(name)
     ensureBrowserClickthroughSection(name)
     ensureFollowReferenceSection(name)
+    ensureNoHiddenLimitsSection(name)
     // #506: patch the Telegram plugin copy this agent is about to load (its own
     // account plan's plugins dir included) so the reply_to_* meta reaches it.
     if (hasChannel && agentProvider === 'telegram') ensureTelegramReplyMeta()
