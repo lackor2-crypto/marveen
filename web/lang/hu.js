@@ -9146,6 +9146,7 @@ window._i18n.hu = {
   "workbench.tw.working_sec": "Fordítom ezt a fejezetet…",
   "workbench.tw.not_yet": "Még nincs lefordítva. Nyomd meg a Fordítás gombot.",
   "workbench.tw.loaded_saved": "Betöltve a mentett fordítás: {n} fejezet a(z) „{title}” változatból.",
+  "workbench.tw.resynced": "A mentett fordítás közben megváltozott, a jobb oldali oszlop frissült: {n} fejezet.",
   "workbench.tw.load_failed": "A mentett fordítást nem sikerült betölteni: {why} Frissítsd az oldalt, vagy nyomd meg a Fordítás gombot, és újat készít.",
   "workbench.tw.load_failed_unknown": "A mentett fordítást nem sikerült betölteni, és a szerver nem adott okot.",
   "workbench.tw.stale": "Az eredeti azóta megváltozott, ez a fordítás régi. Nyomd meg a Fordítást.",

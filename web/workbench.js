@@ -15644,7 +15644,8 @@
   // Bal oldalon a szerkeszthető eredeti lap, jobb oldalon az ÉLŐ fordítás fejezetenként; a Mentés pontosan
   // azt teszi a nyelvi változatba (fejezetenként, a forrásokkal együtt), amit a tulajdonos lát.
   function twState() {
-    if (!WB.tw) WB.tw = { on: readPref('wb.tw.on', '') === '1', lang: readPref('wb.tw.lang', 'de'), prev: {}, busy: false, note: '', failed: [], loaded: {} }
+    if (!WB.tw) WB.tw = { on: readPref('wb.tw.on', '') === '1', lang: readPref('wb.tw.lang', 'de'), prev: {}, busy: false, note: '', failed: [], loaded: {}, base: {} }
+    if (!WB.tw.base) WB.tw.base = {}
     return WB.tw
   }
   /** The preview (tw.prev) lives only in this browser tab: F5 emptied the right column although the translation was SAVED
@@ -15677,10 +15678,65 @@
         if (!sec || tw.prev[key]) return // a preview made meanwhile is newer than the saved one
         // `stale`: the original changed after it was translated; an empty signature makes the page say so (twPageHtml) and a new run redo it.
         tw.prev[key] = { source_section: s.source_section, title: s.title, blocks: s.blocks || [], sig: s.state === 'current' ? twSig(sec) : '', fresh: true }
+        tw.base[key] = twBaseSig(s)
         n++
       })
       if (n && tw.lang === lang && !tw.busy && !tw.note) tw.note = t('workbench.tw.loaded_saved', { n: n, title: (d.variant && d.variant.title) || '' })
       if (tw.lang === lang) twRefresh()
+    })
+  }
+  /** What a saved translation section holds, as one comparable string (title + the text of every block). */
+  function twBaseSig(s) {
+    return JSON.stringify([s.title, (s.blocks || []).map(function (b) { return [b.kind, b.text] })])
+  }
+  /** The saved translation can change behind the page's back (the assistant corrects the language version, another tab
+   *  saves): the right column was read from the server only ONCE, so it kept showing the old text and a save from it
+   *  would have written the old text back. Here the saved translation is read again and put into the page wherever the
+   *  owner has NOT typed anything since the page last took it over (tw.base = what the server held then). An edited
+   *  section is left alone; a section the page does not hold yet is added. Quiet: no note unless something changed. */
+  function twResync() {
+    var tw = twState()
+    var id = WB.selectedId
+    var o = WB.detail && WB.detail.outline
+    if (!tw.on || tw.busy || !id || !o || !twAvailable(o)) return
+    var lang = tw.lang
+    var lk = id + ':' + lang
+    if (tw.loaded[lk] !== 'done' && tw.loaded[lk] !== 'none') return // the first read is twEnsureLoaded's job
+    if (tw.syncing === lk) return
+    var host = document.getElementById('wbTwPage')
+    // Not while the owner is typing in the page: a redraw would move the caret.
+    if (host && document.activeElement && host.contains(document.activeElement)) return
+    tw.syncing = lk
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translation?to=' + encodeURIComponent(lang)).then(function (r) {
+      tw.syncing = ''
+      if (!r || !r.ok || WB.selectedId !== id || tw.lang !== lang || tw.busy) return
+      var d = r.data || {}
+      if (!d.found) return
+      if (tw.loaded[lk] === 'none') tw.loaded[lk] = 'done'
+      var cur = WB.detail && WB.detail.outline
+      twCollect() // what was typed on the page is read first: it decides below what may be replaced
+      var n = 0
+      ;(d.sections || []).forEach(function (s) {
+        var sec = ((cur && cur.sections) || []).filter(function (x) { return x.id === s.source_section })[0]
+        var key = id + ':' + lang + ':' + s.source_section
+        if (!sec) return
+        var pv = tw.prev[key]
+        var server = twBaseSig(s)
+        if (pv) {
+          var base = tw.base[key]
+          if (base === undefined) return // a preview made in this tab and never saved: it is newer than the saved one
+          if (server === base) { // the text did not change; only the "current / old" mark may have
+            var sig0 = s.state === 'current' ? twSig(sec) : ''
+            if (pv.sig !== sig0 && twBaseSig(pv) === base) { pv.sig = sig0; n++ }
+            return
+          }
+          if (twBaseSig(pv) !== base) return // typed on the page since: the owner's text wins until it is saved
+        }
+        tw.prev[key] = { source_section: s.source_section, title: s.title, blocks: s.blocks || [], sig: s.state === 'current' ? twSig(sec) : '', fresh: true }
+        tw.base[key] = server
+        n++
+      })
+      if (n && tw.lang === lang) { tw.note = t('workbench.tw.resynced', { n: n }); twRefresh() }
     })
   }
   /** What the left column holds of a section right now: if it changes after the preview, the preview is old. */
@@ -16391,6 +16447,7 @@
       tw.busy = false
       if (!r.ok) { tw.note = r.message || ''; twRefresh(); return }
       tw.failed = r.data.failed || []
+      list.forEach(function (it) { tw.base[id + ':' + lang + ':' + it.source_section] = twBaseSig(it) }) // the server now holds exactly what the page held
       // #527 (Boss TG 2849): saving the same translation again says it is already there, under which name.
       tw.note = r.data.saved > 0
         ? t(auto === true ? 'workbench.tw.autosaved' : 'workbench.tw.saved', { n: r.data.saved, title: r.data.variant.title })
@@ -22132,6 +22189,14 @@
     if (!el || typeof el.getAttribute !== 'function' || el.getAttribute('data-wb-act') !== 'fr-fmt') return
     frFormatChange(el)
   })
+
+  // The right column follows the saved translation (twResync): when the tab comes back to the front and every 20 seconds
+  // while the column is open, so a correction made behind its back (the assistant, another tab) shows without F5.
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') twResync() })
+    if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('focus', function () { twResync() })
+  }
+  if (typeof setInterval === 'function') setInterval(function () { if (typeof document === 'undefined' || document.visibilityState !== 'hidden') twResync() }, 20000)
 
   // Side-by-side translation: remember the picked language (the panel is redrawn without the page).
   document.addEventListener('change', function (e) {

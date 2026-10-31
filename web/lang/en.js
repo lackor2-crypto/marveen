@@ -9072,6 +9072,7 @@ window._i18n.en = {
   "workbench.tw.working_sec": "Translating this section…",
   "workbench.tw.not_yet": "Not translated yet. Press Translate.",
   "workbench.tw.loaded_saved": "Saved translation loaded: {n} sections from the \"{title}\" version.",
+  "workbench.tw.resynced": "The saved translation changed meanwhile; the right column was refreshed: {n} sections.",
   "workbench.tw.load_failed": "The saved translation could not be loaded: {why} Reload the page, or press Translate and a new one is made.",
   "workbench.tw.load_failed_unknown": "The saved translation could not be loaded, and the server gave no reason.",
   "workbench.tw.stale": "The original has changed since, so this translation is old. Press Translate.",

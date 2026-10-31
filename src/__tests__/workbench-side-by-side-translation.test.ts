@@ -711,4 +711,32 @@ describe("the saved translation comes back after a reload", () => {
       for (const k of ['workbench.tw.loaded_saved', 'workbench.tw.load_failed', 'workbench.tw.load_failed_unknown']) expect(dict).toContain('"' + k + '"')
     }
   })
+
+  // Boss 2026-10-31 (kártya b431fa22): the assistant corrected the German language version, but the open right column kept
+  // the text it read once; a save from it would have written the old text back. The column now follows the saved translation.
+  it('the right column follows the saved translation: re-read on focus and every 20 s, an edited section is never replaced, a save updates the baseline', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const fn = js.slice(js.indexOf('function twResync()'), js.indexOf('/** What the left column holds of a section right now'))
+    expect(fn.length).toBeGreaterThan(200)
+    // only after the first read, never while a run / save is busy, never while the owner types in the page
+    expect(fn).toContain("tw.loaded[lk] !== 'done' && tw.loaded[lk] !== 'none'")
+    expect(fn).toContain('tw.busy')
+    expect(fn).toContain('host.contains(document.activeElement)')
+    // the server text replaces the page's one only where the page still holds what it took over (tw.base)
+    expect(fn).toContain('if (twBaseSig(pv) !== base) return')
+    expect(fn).toContain('if (base === undefined) return')
+    expect(fn).toContain('tw.base[key] = server')
+    expect(fn).toContain("'/outline/translation?to='")
+    // the first read and a save both set the baseline
+    expect(js).toContain('tw.base[key] = twBaseSig(s)')
+    expect(js).toContain("list.forEach(function (it) { tw.base[id + ':' + lang + ':' + it.source_section] = twBaseSig(it) })")
+    // triggers: tab back in front, window focus, a 20 second timer
+    expect(js).toContain("document.visibilityState === 'visible') twResync()")
+    expect(js).toContain("window.addEventListener('focus', function () { twResync() })")
+    expect(js).toMatch(/setInterval\(function \(\) \{[^}]*twResync\(\)[^}]*\}, 20000\)/)
+    for (const lang of ['hu', 'en']) {
+      const dict = readFileSync(join(__dirname, '..', '..', 'web', 'lang', lang + '.js'), 'utf8')
+      expect(dict).toContain('"workbench.tw.resynced"')
+    }
+  })
 })
