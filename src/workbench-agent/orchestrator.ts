@@ -36,6 +36,7 @@ import { buildContext, historyMessages } from './context.js'
 import { auditWorkbench } from './audit.js'
 import { runTool, toolResultForModel } from './execute.js'
 import { msg, type Lang } from './messages.js'
+import { triggerStateOf, triggerBlocksWork } from '../workbench-trigger.js'
 import { pickAIProvider, whyNoAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
 import {
   addAgentMessage, claimAwaitingCallsForApproval, finishToolCall, isApprovalRunInProgress, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
@@ -331,6 +332,19 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     yield { type: 'session', sessionId: session.id }
 
     addAgentMessage(session.id, 'user', input.message.trim())
+    // #794 (Boss TG 3795): an empty Kiváltó irat folder (and no "no document" tick) stops the turn BEFORE any model call:
+    // the assistant says only that the trigger document must be found or ticked off first. Nothing is recorded or run.
+    if (workItem) {
+      let blocked = false
+      try { blocked = triggerBlocksWork(triggerStateOf(project, workItem)) } catch { /* an unreadable state never blocks */ }
+      if (blocked) {
+        const m = msg('trigger_missing', lang)
+        addAgentMessage(session.id, 'assistant', m, { model: null, via: null })
+        yield { type: 'text', text: m }
+        yield { type: 'done', model: null }
+        return
+      }
+    }
     if (workItem) { try { recordTaskFromChat(workItem, project, input.message) } catch { /* the notes never stop a chat turn */ } }
     // #794 (Boss TG 10480): what was uploaded since the last pass is read out NOW, so this very turn already sees it. Bounded:
     // a slow OCR never holds the chat (it goes on in the background and the next turn / pass has it).

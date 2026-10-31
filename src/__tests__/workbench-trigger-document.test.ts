@@ -9,6 +9,9 @@ import { createProject, updateProject, getProject } from '../projects.js'
 import { getWorkItem } from '../workbench.js'
 import { triggerStateOf, triggerContextLine } from '../workbench-trigger.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
+import { runTurn, resetRunningForTest } from '../workbench-agent/orchestrator.js'
+import { resetUsageManagerForTest, setUsageSnapshotReader } from '../workbench-agent/usage-manager.js'
+import type { AIProvider, AICallRequest, AIChunk } from '../workbench-agent/provider.js'
 
 describe('trigger document folder', () => {
   let depot = ''
@@ -89,5 +92,67 @@ describe('life-move approval in token mode', () => {
     expect(bare.status).toBe(403)
     const click = await callWorkbench(`/api/workbench/items/${id}/life-move`, 'POST', body, { 'sec-fetch-site': 'same-origin' }, { kind: 'token' })
     expect(click.status).not.toBe(403)
+  })
+})
+
+// Boss TG 3795: an empty Kiváltó irat folder without the "no document" tick stops the assistant BEFORE any model call.
+describe('the assistant does nothing without a trigger document', () => {
+  let depot = ''
+  let pid = ''
+  beforeEach(() => {
+    initDatabase(':memory:')
+    resetRunningForTest()
+    resetUsageManagerForTest()
+    setUsageSnapshotReader(() => ({ fiveHour: { usedPct: 10, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now() }))
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-trigger-gate-'))
+    mkdirSync(join(depot, 'Projektek', 'Iroda'), { recursive: true })
+    process.env['MARVEEN_DEPOT'] = depot
+    const p = createProject({ name: 'Iroda fejlesztese' })
+    if (!p.ok) throw new Error('project')
+    pid = p.project.id
+    updateProject(pid, { folder_path: 'Projektek/Iroda' })
+  })
+  afterEach(() => {
+    setUsageSnapshotReader(null)
+    resetUsageManagerForTest()
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+  function provider(): AIProvider & { calls: number } {
+    const o = {
+      id: 'teszt', calls: 0, model: () => 'm', availability: () => ({ available: true }),
+      async *stream(_r: AICallRequest): AsyncIterable<AIChunk> { o.calls++; yield { kind: 'text', text: 'dolgozom' }; yield { kind: 'done', model: 'm' } },
+    }
+    return o as unknown as AIProvider & { calls: number }
+  }
+  async function say(itemId: string, pr: AIProvider) {
+    const out: string[] = []
+    for await (const e of runTurn({ projectId: pid, workItemId: itemId, message: 'csináljunk valamit', lang: 'hu', actor: 'teszt' }, pr)) if (e.type === 'text') out.push(e.text)
+    return out.join('')
+  }
+  async function newItem() {
+    const r = await callWorkbench('/api/workbench/items', 'POST', JSON.stringify({ project_id: pid, type: 'document', title: 'Válasz' }), { 'content-type': 'application/json' })
+    return getWorkItem(r.body.item.id)!
+  }
+
+  it('empty folder, no tick: only the fixed answer, the model is never called', async () => {
+    const it = await newItem()
+    const pr = provider()
+    const text = await say(it.id, pr)
+    expect(text).toMatch(/Kiváltó irat mappa üres/)
+    expect(pr.calls).toBe(0)
+  })
+
+  it('a ticked "no document" or a linked file lets the work go on', async () => {
+    const it = await newItem()
+    await callWorkbench(`/api/workbench/items/${it.id}/no-trigger`, 'POST', JSON.stringify({ no_trigger: true }), { 'content-type': 'application/json' })
+    const pr = provider()
+    expect(await say(it.id, pr)).toBe('dolgozom')
+    expect(pr.calls).toBe(1)
+    await callWorkbench(`/api/workbench/items/${it.id}/no-trigger`, 'POST', JSON.stringify({ no_trigger: false }), { 'content-type': 'application/json' })
+    writeFileSync(join(depot, 'Projektek', 'Iroda', it.folder!, 'Kiváltó irat', 'Hiánypótlás.pdf'), 'x')
+    const pr2 = provider()
+    expect(await say(it.id, pr2)).toBe('dolgozom')
+    expect(pr2.calls).toBe(1)
   })
 })
