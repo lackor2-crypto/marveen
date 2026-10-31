@@ -126,6 +126,9 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   // The backup's own key: a backup that carries its own key protects nothing
   // (§6.1). The new machine gets it from the emergency kit.
   '.backup-key',
+  // Long chat messages saved as files for the code bridge: the same text is in the chat history (database), and the
+  // files are pruned after two weeks.
+  'chat-pastes',
   // Live DB sidecars: never copied raw (torn-copy risk); the snapshot replaces them.
   'claudeclaw.db-wal', 'claudeclaw.db-shm', 'claudeclaw.db-journal', /^\*ledger\*\.db$/,
   // Claude CLI login state: device-bound, rotating refresh tokens (§3.2).

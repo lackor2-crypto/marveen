@@ -12794,7 +12794,7 @@
 
   function chatInnerHtml() {
     var streaming = WB.chatStreaming
-    var max = (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000
+    var max = (WB.chatStatus && WB.chatStatus.maxMessageChars) || 2000000
     var shut = chatHeadShut()
     return '<div class="wb-chat-head">'
       // Settings sits right next to the title as a small button, the status
@@ -13082,7 +13082,7 @@
     // The owner's own new message must be visible, wherever he had scrolled.
     WB.chatForceBottom = true
     if (attached.length) {
-      text = withAttachedLine(text, attached, (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000)
+      text = withAttachedLine(text, attached, (WB.chatStatus && WB.chatStatus.maxMessageChars) || 2000000)
       WB.chatAttached[WB.selectedId] = []
     }
     var st = chatState()

@@ -59,7 +59,7 @@ import { OFF_BUDGET, getRemaining, record, reserve } from './usage-manager.js'
  */
 export const MAX_TOOL_ROUNDS = 10
 /** Egy felhasznaloi uzenet felso hatara. */
-export const MESSAGE_MAX_CHARS = 8000
+export const MESSAGE_MAX_CHARS = 2_000_000
 
 export type OrchestratorEvent =
   | { type: 'session'; sessionId: string }
