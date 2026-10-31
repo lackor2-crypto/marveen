@@ -252,12 +252,46 @@ function viewStateTake(page) {
         && Date.now() - Number(auto.ts) < VIEW_AUTO_MAX_AGE_MS) _viewSaved = { page: auto.page, state: auto.state }
     } catch { /* storage blocked */ }
   }
+  if (!_viewSaved && !_viewTakeSeen && _viewIsReloadLoad()) {
+    try {
+      const live = JSON.parse(localStorage.getItem(VIEW_LIVE_KEY) || 'null')
+      if (live && live.page === _viewBootPage && live.state && typeof live.state === 'object'
+        && Date.now() - Number(live.ts) < VIEW_LIVE_MAX_AGE_MS) _viewSaved = { page: live.page, state: live.state }
+    } catch { /* storage blocked */ }
+  }
+  _viewTakeSeen = true
   if (!_viewSaved || _viewSaved.page !== page) return null
   const state = _viewSaved.state
   _viewSaved = null
   return state
 }
 window.addEventListener('pagehide', () => _viewStateSave())
+// Boss, TG 3843: kicked to the project list AGAIN after an update. Saving only on pagehide leaves nothing when the
+// browser drops a background tab (Memory Saver) or the page dies without that event. So the position is also kept
+// CONTINUOUSLY in localStorage; it is read back only when this load is a reload / restore of the same tab (never for a
+// fresh tab or a plain link), and only within VIEW_LIVE_MAX_AGE_MS.
+const VIEW_LIVE_KEY = 'marveen.viewStateLive'
+const VIEW_LIVE_MAX_AGE_MS = 12 * 60 * 60 * 1000
+let _viewTakeSeen = false
+function _viewLiveSave() {
+  if (document.hidden && !_viewTakeSeen) return
+  const page = decodeURIComponent((location.hash || '').replace(/^#/, '')) || 'overview'
+  let state = null
+  try { state = _viewCollectors[page] ? _viewCollectors[page]() : null } catch { state = null }
+  try {
+    if (state) localStorage.setItem(VIEW_LIVE_KEY, JSON.stringify({ ts: Date.now(), page, state }))
+    else if (_viewTakeSeen && _viewCollectors[page]) localStorage.removeItem(VIEW_LIVE_KEY)
+  } catch { /* storage blocked */ }
+}
+function _viewIsReloadLoad() {
+  try {
+    if (document.wasDiscarded) return true
+    const nav = performance.getEntriesByType('navigation')[0]
+    return !!nav && (nav.type === 'reload' || nav.type === 'back_forward')
+  } catch { return false }
+}
+setInterval(_viewLiveSave, 3000)
+document.addEventListener('visibilitychange', () => { if (document.hidden) _viewLiveSave() })
 
 // === Ctrl+click / middle click opens a new browser tab (Boss, TG 1802) ===
 // "ha a kontrolt megnyomom ... akkor egy uj bongeszofulon nyissa meg. Ugy, hogy

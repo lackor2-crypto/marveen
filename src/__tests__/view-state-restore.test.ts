@@ -118,4 +118,13 @@ describe('#435: F5 utan ugyanaz az oldal-belso nezet jon vissza', () => {
     expect(APP).toContain("localStorage.removeItem(VIEW_AUTO_KEY)")
     expect(APP).toContain('VIEW_AUTO_MAX_AGE_MS')
   })
+
+  // Boss, TG 3843: saving only on page close leaves nothing when the browser drops a background tab. The position is
+  // also kept continuously, and read back only on a reload / restored load.
+  it('keeps the position continuously and takes it back only on a reload or discarded-tab load', () => {
+    expect(APP).toContain("const VIEW_LIVE_KEY = 'marveen.viewStateLive'")
+    expect(APP).toContain('setInterval(_viewLiveSave, 3000)')
+    expect(APP).toContain('document.wasDiscarded')
+    expect(APP).toMatch(/_viewIsReloadLoad\(\)\) \{\s*try \{\s*const live/)
+  })
 })
