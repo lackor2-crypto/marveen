@@ -2382,8 +2382,6 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-tw-page .wb-tw-island.wb-tw-sel { outline: none; }
 .wb-tw-page .wb-tw-island.wb-tw-sel .wb-dp-img-box { outline: 2px solid #4f6bed; outline-offset: 2px; position: relative; }
 .wb-tw-page .wb-tw-island.wb-tw-sel .wb-tw-over > .wb-tw-img { cursor: move; }
-.wb-tw-page .wb-tw-picbar { position: absolute; left: 0; top: -30px; white-space: nowrap; z-index: 5; display: flex; gap: 4px; background: #fff; border: 1px solid #c9c9d3; border-radius: 6px; padding: 2px; }
-.wb-tw-page .wb-tw-picbar button { font: inherit; font-size: 12px; padding: 2px 6px; cursor: pointer; }
 /* The column block's own padding must not undo the page's list indent and footnote rule: same look as the page. */
 .wb-tw-page .wb-tw-block.wb-outline-kind-list { padding-left: 22px; }
 .wb-tw-page .wb-tw-block.wb-dp-numbered.wb-dp-lines { padding-left: 0; }
