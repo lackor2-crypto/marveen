@@ -217,6 +217,17 @@ try {
   }
 } catch { _viewUrlState = null }
 function viewStateRegister(page, collect) { _viewCollectors[page] = collect }
+// TG 3883: the position was still lost after updates. While a restored view is NOT yet drawn again (project call slow
+// or failing right after a restart, or a second update reload coming before the first restore finished) the live
+// collector returns a degraded or empty state, and every save then overwrote or deleted the good one. So a taken
+// state stays "pending" and is what gets saved until the page confirms it has applied it.
+let _viewPending = null
+function viewStatePending(page, state) { _viewPending = page && state ? { page, state } : null }
+function viewStateApplied(page) { if (_viewPending && _viewPending.page === page) _viewPending = null }
+function _viewCollect(page) {
+  if (_viewPending && _viewPending.page === page) return _viewPending.state
+  try { return _viewCollectors[page] ? _viewCollectors[page]() : null } catch { return null }
+}
 // Boss, TG 3829: after the automatic "the UI was updated" reload he landed on the project list again. The position is
 // therefore ALSO written on purpose before that reload (not left to the page-close event) into localStorage, which
 // survives a lost tab store; it is used once, and only within a few minutes of that reload.
@@ -224,8 +235,9 @@ const VIEW_AUTO_KEY = 'marveen.viewStateAuto'
 const VIEW_AUTO_MAX_AGE_MS = 5 * 60 * 1000
 function _viewStateSave(forAutoReload) {
   const page = decodeURIComponent((location.hash || '').replace(/^#/, '')) || 'overview'
-  let state = null
-  try { state = _viewCollectors[page] ? _viewCollectors[page]() : null } catch { state = null }
+  const state = _viewCollect(page)
+  // Nothing taken over from the stored copy yet (the page was left before it finished loading): keep that copy.
+  if (!state && _viewSaved === undefined && page === _viewBootPage) return
   try {
     if (state) sessionStorage.setItem(VIEW_STATE_KEY, JSON.stringify({ page, state }))
     else sessionStorage.removeItem(VIEW_STATE_KEY)
@@ -276,8 +288,7 @@ let _viewTakeSeen = false
 function _viewLiveSave() {
   if (document.hidden && !_viewTakeSeen) return
   const page = decodeURIComponent((location.hash || '').replace(/^#/, '')) || 'overview'
-  let state = null
-  try { state = _viewCollectors[page] ? _viewCollectors[page]() : null } catch { state = null }
+  const state = _viewCollect(page)
   try {
     if (state) localStorage.setItem(VIEW_LIVE_KEY, JSON.stringify({ ts: Date.now(), page, state }))
     else if (_viewTakeSeen && _viewCollectors[page]) localStorage.removeItem(VIEW_LIVE_KEY)
@@ -1198,6 +1209,12 @@ async function hardRefresh() {
       await Promise.all(keys.map(k => caches.delete(k)))
     }
   } catch { /* best-effort: a failure here must not block the reload */ }
+  // The files change on disk before the dashboard restarts: reloading into a server that is down leaves an error
+  // page and the position is lost. Wait (up to a minute) until it answers again.
+  for (let i = 0; i < 30; i++) {
+    try { const r = await fetch('/api/app-version', { cache: 'no-store' }); if (r.ok) break } catch { /* still down */ }
+    await new Promise((r) => setTimeout(r, 2000))
+  }
   try {
     await Promise.all(['/', '/app.js', '/style.css'].map(u => fetch(u, { cache: 'reload' }).catch(() => {})))
   } catch { /* same */ }
@@ -49262,24 +49279,29 @@ async function loadProjectsPage() {
   _prj.openOnLoad = null
   _prj.openWbOnLoad = null
   if (openId) {
+    if (back && back.current === openId) viewStatePending('projects', back)
     await _prjOpenProject(openId)
-    // Right after the dashboard restarted the project may not answer yet: try again a few times before giving up,
-    // so the position taken from the saved state is not lost to a single failed call.
-    for (let i = 0; i < 3 && _prj.current === openId && !(_prj.overview && _prj.overview.project.id === openId); i++) {
-      await new Promise((r) => setTimeout(r, 2000))
+    // Right after the dashboard restarted the project may not answer yet: keep trying (up to ~3 minutes) so the
+    // position is never given up on a short outage. The saved position stays pending meanwhile.
+    for (let i = 0; i < 60 && _prj.current === openId && !(_prj.overview && _prj.overview.project.id === openId); i++) {
+      await new Promise((r) => setTimeout(r, 3000))
       if (_prj.current !== openId) break
       await _prjOpenProject(openId)
     }
+    if (!(_prj.current === openId && _prj.overview)) viewStateApplied('projects')
     // A work item clicked on the Kanban board opens on its Workbench (TG 1836).
     if (wbLoad && wbLoad.projectId === openId && _prj.current === openId && window.MarvinWorkbench && window.MarvinWorkbench.restore) {
-      window.MarvinWorkbench.restore(wbLoad)
+      try { await window.MarvinWorkbench.restore(wbLoad) } finally { viewStateApplied('projects') }
       return
     }
     if (back && back.current === openId && _prj.current === openId && _prj.overview) {
       const wb = back.wb
-      if (wb && wb.projectId === openId && window.MarvinWorkbench && window.MarvinWorkbench.restore) window.MarvinWorkbench.restore(wb)
-      else if (typeof back.tab === 'string' && back.tab !== _prj.tab) { _prj.tab = back.tab; _prjRenderProject() }
+      try {
+        if (wb && wb.projectId === openId && window.MarvinWorkbench && window.MarvinWorkbench.restore) await window.MarvinWorkbench.restore(wb)
+        else if (typeof back.tab === 'string' && back.tab !== _prj.tab) { _prj.tab = back.tab; _prjRenderProject() }
+      } finally { viewStateApplied('projects') }
     }
+    viewStateApplied('projects')
     return
   }
   _prj.current = null

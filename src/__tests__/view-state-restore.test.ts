@@ -82,6 +82,7 @@ describe('#435: F5 utan ugyanaz az oldal-belso nezet jon vissza', () => {
     let current: string | null = 'p1'
     a.viewStateRegister('projects', () => (current ? { current } : null))
     a.save()
+    a.viewStateTake('projects') // the page has loaded (and taken what was stored); only then does "no place" delete
     current = null
     a.save()
     expect(env.store.size).toBe(0)
@@ -126,5 +127,28 @@ describe('#435: F5 utan ugyanaz az oldal-belso nezet jon vissza', () => {
     expect(APP).toContain('setInterval(_viewLiveSave, 3000)')
     expect(APP).toContain('document.wasDiscarded')
     expect(APP).toMatch(/_viewIsReloadLoad\(\)\) \{\s*try \{\s*const live/)
+  })
+
+  it('TG 3883: a page left before it finished loading does not delete the stored position', () => {
+    const env = newEnv()
+    const a = loadDoc(env, '#projects')
+    a.viewStateRegister('projects', () => ({ current: 'p1', tab: 'overview', wb: { projectId: 'p1', item: 'w1' } }))
+    a.save()
+    const b = loadDoc(env, '#projects') // reload: the project page has not run yet, nothing taken, collector empty
+    b.viewStateRegister('projects', () => null)
+    b.save()
+    expect(loadDoc(env, '#projects').viewStateTake('projects')).toEqual({ current: 'p1', tab: 'overview', wb: { projectId: 'p1', item: 'w1' } })
+  })
+
+  it('TG 3883: while the restored view is not drawn yet the saved position is the taken one, not a degraded one', () => {
+    const src = APP
+    const i = src.indexOf('function viewStatePending')
+    expect(i).toBeGreaterThan(0)
+    expect(src).toContain('function _viewCollect(page)')
+    expect(src).toContain("viewStatePending('projects', back)")
+    expect(src).toContain("viewStateApplied('projects')")
+    // the project load keeps retrying for minutes, and the reload waits for the server to answer first
+    expect(src).toContain('i < 60 && _prj.current === openId')
+    expect(src).toContain("fetch('/api/app-version', { cache: 'no-store' }); if (r.ok) break")
   })
 })
