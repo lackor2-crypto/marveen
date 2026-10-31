@@ -324,7 +324,7 @@ describe('veglegesites celbirosag-profillal', () => {
     if (!pkg.ok) throw new Error('csomag ' + pkg.code)
     const all = pkg.files.map((f) => f.name)
     for (const n of all) expect(n).toMatch(/^[A-Za-zÄÖÜäöüß0-9_-]+\.pdf$/)
-    expect(all[1]).toMatch(/^02_Anlage_K1_Mietvertrag\.pdf$/)
+    expect(all[1]).toMatch(/^02_Mietvertrag\.pdf$/)
     const court = fin.body.court
     expect(court.check_current).toBe(true)
     expect(court.check.result.version).toBe('ERVB 2025')

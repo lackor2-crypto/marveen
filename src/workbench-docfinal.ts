@@ -382,7 +382,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   const outline = renderInputFor(item, true)
   const r = await renderOutlinePdf(outline, { title: docMetaTitle(item, input.lang), author: documentAuthor(), draft: false, lang: docLangFor(item, input.lang) })
   if (!r.ok) return { ok: false, code: 'docpdf_failed', detail: r.detail, convert: r.code }
-  let annexes: { label: string; title: string; pdf: Buffer }[] = []
+  let annexes: { label: string; title: string; pdf: Buffer; fileName: string }[] = []
   if (outline.annexes && outline.annexes.length) {
     if (!resolve) return { ok: false, code: 'annex_missing', detail: null }
     // With the owner's "finalize anyway" tick an annex whose file is gone (or cannot become a PDF) is left out, not an error.
@@ -553,7 +553,7 @@ async function samePdfInFolder(item: WorkItemRow, pdf: Buffer): Promise<{ path: 
 /** Records the final on a PDF already in the folder (#753 3A): nothing is written, the court check still runs on the file. */
 async function finalizeOnFile(
   item: WorkItemRow, file: { path: string; name: string; abs: string },
-  ctx: { hash: string; review: { reviewed_at: number; reviewed_by: string | null }; check: { items: CheckItem[] }; by: string | null; lang: 'hu' | 'en'; annexes: { label: string; title: string; pdf: Buffer }[]; mode: FinalMeta['annex_mode'] },
+  ctx: { hash: string; review: { reviewed_at: number; reviewed_by: string | null }; check: { items: CheckItem[] }; by: string | null; lang: 'hu' | 'en'; annexes: { label: string; title: string; pdf: Buffer; fileName: string }[]; mode: FinalMeta['annex_mode'] },
 ): Promise<FinalizeOutcome> {
   const label = `${FINAL_LABEL[ctx.lang]} – ${localDate()}`
   const meta: FinalMeta = {
@@ -586,9 +586,9 @@ async function finalizeOnFile(
   return { ok: true, final: state, asset_path: file.path, court, reused: true }
 }
 
-/** The file name an annex of the package carries when sent: "<label> – <title>.pdf", numbered by the court profile. */
-function annexFinalName(a: { label: string; title: string }, profile: ReturnType<typeof getProfile>, index: number, total: number): string {
-  return profileFileName(`${fileStem(a.label)} – ${fileStem(a.title)}.pdf`, profile, index, total)
+/** The file name an annex of the package carries when sent: the Life tree file's own name (#794), numbered only by a court profile's rule. */
+function annexFinalName(a: { fileName: string }, profile: ReturnType<typeof getProfile>, index: number, total: number): string {
+  return profileFileName(a.fileName, profile, index, total)
 }
 
 /** The language a final was made in (its label says it), for the annex cover pages made again when it is sent. */

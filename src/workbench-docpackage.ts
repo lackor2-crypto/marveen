@@ -20,7 +20,15 @@ import { convertOfficeToPdf, renderCacheDir } from './office-convert.js'
 import { annexPdfKind, docSettings, listAnnexes, type AnnexScheme, type FileResolver } from './workbench-docannex.js'
 import { buildCoverFodt, buildTextFodt, renderFodtPdf, PDF_FILTER_DRAFT, type DocLang } from './workbench-docrender.js'
 
-export interface AnnexPdf { label: string; title: string; pdf: Buffer }
+export interface AnnexPdf { label: string; title: string; pdf: Buffer; fileName: string }
+
+/**
+ * #794 (Boss TG 3865): an annex goes out under the name of the file in the Life tree, never a name made up when it is sent.
+ * The file is sent as a PDF: a name that is already .pdf is unchanged, another extension becomes .pdf.
+ */
+export function annexAttachmentName(fileName: string): string {
+  return /\.pdf$/i.test(fileName) ? fileName : `${fileName.replace(/\.[A-Za-z0-9]{1,8}$/, '')}.pdf`
+}
 
 export type PackageError =
   | { code: 'annex_missing'; label: string; detail: string | null }
@@ -92,7 +100,7 @@ export async function annexPdfs(itemId: string, resolve: FileResolver, opts: { l
     if (!cover.ok) return { ok: false, code: 'annex_convert_failed', label: a.label, detail: cover.detail, convert: cover.code }
     const merged = await mergePdfs([cover.pdf, content.pdf])
     if (!merged.ok) return merged
-    out.push({ label: a.label, title: a.title, pdf: merged.pdf })
+    out.push({ label: a.label, title: a.title, pdf: merged.pdf, fileName: annexAttachmentName(f.name) })
   }
   return { ok: true, annexes: out }
 }

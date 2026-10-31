@@ -16,7 +16,7 @@ import { mirrorOutlineToFile } from '../workbench-docmirror.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { attachAsset, markPlainItem } from '../workbench-assets.js'
 import { finalizeWorkItem } from '../workbench-approval.js'
-import { annexFileStem, buildEml, cleanAddresses, defaultMailBody, encodeHeaderText, forgetMailDraft, mailDraftView, mailPrefill, mailSubject, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
+import { buildEml, cleanAddresses, defaultMailBody, encodeHeaderText, forgetMailDraft, mailDraftView, mailPrefill, mailSubject, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../workbench-maildraft.js'
 import { addAgentMessage, createAgentSession } from '../workbench-agent/sessions.js'
 import { registerMailboxEngine, _setGoogleEngine } from '../mail-send.js'
 
@@ -230,7 +230,7 @@ describe('the e-mail draft of a work item', () => {
     expect(mailDraftView(item())).toBeNull()
   })
 
-  it('puts the document and every annex as its own PDF into the mailbox, named by label and title, and writes no file', async () => {
+  it('puts the document and every annex as its own PDF into the mailbox, named like the Life tree file, and writes no file', async () => {
     write('Text eins')
     annexes()
     await makeFinal()
@@ -246,8 +246,8 @@ describe('the e-mail draft of a work item', () => {
     // the submission is the FINAL PDF (named by the final), then every annex
     expect(got.attachments[0]).toMatch(/Levél – HU – v1\.pdf$/)
     expect(got.attachments.slice(1)).toEqual([
-      'K1 – Mietvertrag (Korpás László).pdf',
-      'K2 – Bescheid vom 04.07.2026.pdf',
+      'vertrag.pdf',
+      'bescheid.pdf',
     ])
     expect(got.contents[0]!.slice(0, 4)).toBe('%PDF')
     expect(got.contents[1]).toContain('VERTRAG-INHALT')
@@ -273,7 +273,7 @@ describe('the e-mail draft of a work item', () => {
     if (!d.ok) throw new Error('save: ' + d.code + ' ' + d.detail)
     expect(d.draft.attachments.map((a) => a.kind)).toEqual(['document', 'annex', 'annex'])
     const got = await boxSave(item())
-    expect(got.attachments).toEqual([f.final.pdf_name, 'K1 – Mietvertrag (Korpás László).pdf', 'K2 – Bescheid vom 04.07.2026.pdf'])
+    expect(got.attachments).toEqual([f.final.pdf_name, 'vertrag.pdf', 'bescheid.pdf'])
     // the cover page (made by the fake LibreOffice) comes first, then the annex itself
     expect(got.contents[1]!.startsWith('%PDF-1.4 SRC-')).toBe(true)
     expect(got.contents[1]!.indexOf('SRC-')).toBeLessThan(got.contents[1]!.indexOf('VERTRAG-INHALT'))
@@ -501,24 +501,6 @@ describe('the e-mail draft of a work item', () => {
     if (!first.ok) throw new Error('save')
     expect(forgetMailDraft(itemId)).toBe(true)
     expect(mailDraftView(item())).toBeNull()
-  })
-})
-
-describe('annexFileStem', () => {
-  it('keeps a short name whole', () => {
-    expect(annexFileStem('Anlage K1', 'Lohnabrechnung Juli 2026 (Minijob, Korpás László)')).toBe('Anlage K1 – Lohnabrechnung Juli 2026 (Minijob, Korpás László)')
-  })
-  it('cuts a long name at a word and drops the opened bracket, never mid-word', () => {
-    const n = annexFileStem('Anlage K11', 'Bescheid des ungarischen Rentenversicherungsträgers über die Einstellung der Rente zum 01.09.2026 (Éva Bakos)')
-    expect(n).toBe('Anlage K11 – Bescheid des ungarischen Rentenversicherungsträgers über die Einstellung der Rente zum 01.09.2026')
-    expect(n.length).toBeLessThanOrEqual(120)
-  })
-  it('keeps a closed bracket that fits', () => {
-    const t = 'x'.repeat(10) + ' (' + 'y'.repeat(20) + ') ' + 'word '.repeat(30)
-    const n = annexFileStem('K1', t)
-    expect(n).toContain('(' + 'y'.repeat(20) + ')')
-    expect(n.length).toBeLessThanOrEqual(120)
-    expect(n.endsWith('word')).toBe(true)
   })
 })
 
