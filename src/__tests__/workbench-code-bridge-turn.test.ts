@@ -405,3 +405,21 @@ describe('runCodeBridgeTurn -- az ágens válasza nem veszhet el, a sorban áll�
     expect(q).toHaveLength(1)
   })
 })
+
+describe('Boss TG 3838: a whole novel can be pasted into the Munkapad chat', () => {
+  it('a very long message goes to a file whole; the prompt stays under the bridge limit and names the file', async () => {
+    const { readFileSync } = await import('node:fs')
+    const novel = Array.from({ length: 40_000 }, (_, i) => `Mondat ${i}.`).join(' ')
+    expect(novel.length).toBeGreaterThan(300_000)
+    const prompt = buildCodeBridgePrompt({ projectName: 'P', projectFolder: null, workItem: null, history: [], message: novel, lang: 'hu' })
+    expect(prompt.length).toBeLessThanOrEqual(PROMPT_MAX_CHARS)
+    const m = prompt.match(/saved in the file (\S+\.txt)/)
+    expect(m).not.toBeNull()
+    expect(readFileSync(m![1], 'utf8')).toBe(novel)
+  })
+  it('a short message stays in the prompt as it is', () => {
+    const prompt = buildCodeBridgePrompt({ projectName: 'P', projectFolder: null, workItem: null, history: [], message: 'rovid kerdes', lang: 'hu' })
+    expect(prompt).toContain('rovid kerdes')
+    expect(prompt).not.toContain('saved in the file')
+  })
+})

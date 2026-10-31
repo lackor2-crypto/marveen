@@ -29,7 +29,10 @@ import { msg, type Lang } from './messages.js'
 import { documentLanguageRule } from './doc-language.js'
 import { PROMPT_MAX_CHARS } from '../web/code-bridge-store.js'
 import { detectsUsageLimit } from '../model-fallback.js'
-import { WEB_PORT } from '../config.js'
+import { WEB_PORT, STORE_DIR } from '../config.js'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 export type CodeBridgeStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 
@@ -113,6 +116,38 @@ const BACKGROUND_POLL_MS = 10_000
 export const CODE_BRIDGE_HISTORY_TURNS = 12
 export const CODE_BRIDGE_HISTORY_CHARS = 16_000
 const CODE_BRIDGE_TURN_CHARS = 4_000
+/** A new message longer than this is not put into the prompt (the bridge refuses prompts over PROMPT_MAX_CHARS): it is
+ *  saved whole to a file and the prompt names the file. Boss, TG 3838: "egy egesz regenyt lehessen ide beilleszteni". */
+export const LONG_MESSAGE_SPILL_CHARS = 3_000
+const SPILL_PREVIEW_CHARS = 800
+const SPILL_KEEP_MS = 14 * 24 * 3600 * 1000
+
+/** Saves a long chat message whole under store/chat-pastes/ (same text = same file) and returns its absolute path, or
+ *  null when it could not be written. Files older than two weeks are removed on the way. */
+export function spillLongMessage(text: string): string | null {
+  try {
+    const dir = join(STORE_DIR, 'chat-pastes')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, createHash('sha1').update(text).digest('hex').slice(0, 16) + '.txt')
+    if (!existsSync(file)) writeFileSync(file, text, 'utf8')
+    const now = Date.now()
+    for (const f of readdirSync(dir)) {
+      const fp = join(dir, f)
+      try { if (fp !== file && now - statSync(fp).mtimeMs > SPILL_KEEP_MS) unlinkSync(fp) } catch { /* best effort */ }
+    }
+    return file
+  } catch {
+    return null
+  }
+}
+
+/** What goes into the prompt for the owner's NEW message: short ones as they are, long ones as a preview plus the file. */
+export function promptMessage(text: string): string {
+  if (text.length <= LONG_MESSAGE_SPILL_CHARS) return text
+  const file = spillLongMessage(text)
+  if (!file) return text.slice(0, LONG_MESSAGE_SPILL_CHARS) + '\n[... the rest of the message could not be saved to a file]'
+  return `${text.slice(0, SPILL_PREVIEW_CHARS)}\n[... this message is ${text.length} characters long: the owner pasted a long text. The WHOLE text is saved in the file ${file} -- read it completely (in parts if needed) with your file-reading tool BEFORE answering, and answer about all of it, not just the beginning above.]`
+}
 
 export interface CodeBridgePromptInput {
   projectName: string
@@ -173,7 +208,7 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
     `READING SCANNED FILES: a scanned PDF or a photo of a letter CAN be read, never tell the owner it cannot. The Marveen server does the OCR (Hungarian, German, English): GET http://localhost:${WEB_PORT}/api/workbench/read-life-file?rel=<path of the file in the Life tree, relative to the depot root> (Bearer dashboard token) returns the page list; add &from=1&to=3 for the text of those pages. A 202 "processing" answer means the OCR is running: ask again in a few seconds. Pages marked low confidence are not a source of facts until the owner checks them. Use this BEFORE saying a file is unreadable.`,
     `When you have finished EVERYTHING this request needs -- the whole task, not just one sub-step -- end your final answer with the exact marker ${COMPLETION_MARKER} on its own last line. Write it ONLY when the whole work is truly done, and never in an answer that says something is still left to do. If you were cut off, ran out of steps, hit an error, or only finished a part, do NOT write the marker: the dashboard will then automatically have you continue the work. NEVER ask the owner which part to do first, whether to continue, or for permission to do what the request already covers: decide yourself and do ALL of it. Ask only when you are truly blocked on something only the owner can give (a secret, a payment, a choice that cannot be undone). The owner never sees the marker; it is removed from your answer.`,
   ]
-  const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', input.message]
+  const tail = ['\n--- NEW MESSAGE FROM THE OWNER ---', promptMessage(input.message)]
   const historyIntro = '\nThe conversation so far (oldest first; the project assistant answered these as ASSISTANT). The new message may refer back to it:\n\n'
   const noHistory = '\n(No earlier messages in this conversation.)'
   // #434: the code bridge refuses any prompt over PROMPT_MAX_CHARS, and the
@@ -187,8 +222,9 @@ export function buildCodeBridgePrompt(input: CodeBridgePromptInput): string {
   let total = 0
   for (let i = rows.length - 1; i >= 0; i--) {
     const r = rows[i]
+    const spilled = r.content.length > CODE_BRIDGE_TURN_CHARS ? spillLongMessage(r.content) : null
     const body = r.content.length > CODE_BRIDGE_TURN_CHARS
-      ? `${r.content.slice(0, CODE_BRIDGE_TURN_CHARS)}\n[... shortened here only; the owner saw the full message in the chat]`
+      ? `${r.content.slice(0, CODE_BRIDGE_TURN_CHARS)}\n[... shortened here only; the owner saw the full message in the chat${spilled ? `; the whole text is in the file ${spilled}` : ''}]`
       : r.content
     const line = `${r.role === 'user' ? 'OWNER' : 'ASSISTANT'}: ${body}`
     // "\n\n" joins the lines: count it, or the sum drifts past the budget.
