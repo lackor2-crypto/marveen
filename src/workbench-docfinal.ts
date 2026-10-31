@@ -99,6 +99,9 @@ export function webpToPng(data: Buffer): Buffer | null {
   } catch { return null }
 }
 
+/** WebP-to-PNG results by file version, so a render does not start ffmpeg again for a picture it already converted. */
+const PNG_CACHE = new Map<string, Buffer>()
+
 /** The picture of an `image` block (its path under the Marveen folder), or null when it is gone or not a picture. */
 export function readDocImage(rel: string): RenderImage | null {
   const abs = resolveLifePath(rel)
@@ -108,7 +111,19 @@ export function readDocImage(rel: string): RenderImage | null {
     if (!st.isFile() || st.size > DOC_IMAGE_MAX_BYTES) return null
     let data: Buffer<ArrayBuffer> = readFileSync(abs)
     // #719: Word and the PDF renderer know no WebP; it becomes a PNG (transparency kept) before it is measured.
-    if (isWebp(data)) { const png = webpToPng(data); if (!png) return null; data = png as Buffer<ArrayBuffer> }
+    if (isWebp(data)) {
+      // #794: the conversion is a SYNCHRONOUS ffmpeg run that stalls the whole dashboard (measured: loop lag 3-29 s around a
+      // finalize with a webp signature). A picture is converted once per file version (path, size, change time).
+      const key = `${abs}:${st.size}:${Math.floor(st.mtimeMs)}`
+      let png = PNG_CACHE.get(key) ?? null
+      if (!png) {
+        png = webpToPng(data)
+        if (!png) return null
+        PNG_CACHE.set(key, png)
+        if (PNG_CACHE.size > 16) PNG_CACHE.delete(PNG_CACHE.keys().next().value as string)
+      }
+      data = png as Buffer<ArrayBuffer>
+    }
     const dim = imageSize(data)
     return dim ? { data, ...dim } : null
   } catch { return null }
