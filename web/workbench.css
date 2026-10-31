@@ -2388,3 +2388,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-tw-page .wb-tw-block.wb-outline-kind-list { padding-left: 22px; }
 .wb-tw-page .wb-tw-block.wb-dp-numbered.wb-dp-lines { padding-left: 0; }
 .wb-tw-page .wb-tw-block.wb-outline-kind-footnote { padding-top: 4px; }
+
+/* Under the draft: what waits for the owner's own click (confirm a statement, acknowledge a flag). */
+.wb-dp-pending { margin: 14px 0; padding: 10px 14px; border: 1px solid #e0b252; border-left-width: 4px; border-radius: 8px; background: #fff8e6; }
+.wb-dp-pending h4 { margin: 0 0 6px; font-size: 14px; }

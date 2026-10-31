@@ -21,6 +21,7 @@
  * Munkapad sorai a busz tablajaba mennek. A MEZOK pontosan a spec szerintiek,
  * csak a tabla-nevek kaptak elotagot.
  */
+import { variantOf } from '../workbench-doclang.js'
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../db.js'
 
@@ -165,13 +166,24 @@ export function projectSessionKey(projectId: string): string {
 }
 
 /**
+ * One conversation per document FAMILY (Boss TG 3945): a language version (the German letter) and its original (the Hungarian
+ * one) share ONE assistant chat, so switching between them does not open a new chat. The key is the original's id; any other
+ * id (and a project key) stays itself. The turn lock (orchestrator.turnKey) uses the same key.
+ */
+export function chatFamilyKey(workItemId: string): string {
+  if (!workItemId || workItemId.startsWith('project:')) return workItemId
+  try { return variantOf(workItemId)?.source_item_id || workItemId } catch { return workItemId }
+}
+
+/**
  * A work item ELO beszelgetese, vagy egy uj.
  *
  * Egy munkadarabhoz egy folyo beszelgetes tartozik: a felhasznalo a
  * munkadarabbal beszel, nem munkamenet-azonositokkal. Ha nincs meg, szuletik.
  */
-export function openSessionForWorkItem(projectId: string, workItemId: string, language: 'hu' | 'en'): AgentSessionRow {
+export function openSessionForWorkItem(projectId: string, rawWorkItemId: string, language: 'hu' | 'en'): AgentSessionRow {
   ensureAgentTables()
+  const workItemId = chatFamilyKey(rawWorkItemId)
   const row = getDb().prepare(
     "SELECT * FROM workbench_agent_sessions WHERE work_item_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
   ).get(workItemId) as AgentSessionRow | undefined

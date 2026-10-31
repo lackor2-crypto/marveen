@@ -100,6 +100,9 @@ The user is not a programmer. They will not misdescribe what was on their screen
   user, with evidence, what the real defect was -- even if part of the system
   turned out to be working correctly.
 
+## Gyökérok mindenhol (Boss TG 3948)
+A javítás előtt keresd meg, hol használatos még ugyanaz a szabály/függvény/gomb/kirajzoló (grep a teljes kódban), és a KÖZÖS okot javítsd, ne csak a bejelentett példányt. Lásd marveen-learned-rules R16.
+
 ## Referenciak
 - CLAUDE.md: "A USER TAPASZTALATA TENY" szekcio.
 - Memory: user-report-is-truth, verify-ui-in-a-real-browser, user-is-not-a-programmer.

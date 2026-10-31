@@ -12152,7 +12152,13 @@
   // megadni -- ugyanabbol a feluletbol, terminal nelkul.
 
   /** Melyik beszelgetes: a kivalasztott munkadarabe, vagy a projekte. */
-  function chatKey() { return WB.selectedId || ('project:' + WB.projectId) }
+  /** One assistant chat per document family (Boss TG 3945): a language version and its original share the chat, the way the
+   *  server keys the session (chatFamilyKey). The picked item stays the context of each message. */
+  function chatKey() {
+    var o = WB.selectedId && WB.detail && WB.detail.item && WB.detail.item.id === WB.selectedId ? WB.detail.outline : null
+    if (o && o.variant && o.variant.source_item_id) return o.variant.source_item_id
+    return WB.selectedId || ('project:' + WB.projectId)
+  }
 
   function chatState() {
     if (!WB.chat[chatKey()]) {
@@ -16722,6 +16728,22 @@
   })
 
   /** A lap alatti kiegeszitok: nyelvi valtozatok, mellekletek, szoszedet (ezek nem a lap reszei). */
+  /** What waits for the owner's own click, under the draft where it is read (Boss TG 3945): the statements he said himself that
+   *  are still to be confirmed, and the open consistency flags. The same buttons as the Sources / Gaps tabs (one handler). */
+  function docPendingHtml(o, ro) {
+    if (ro) return ''
+    var claims = []
+    ;(o.sections || []).forEach(function (sec) {
+      ;(sec.blocks || []).forEach(function (b) { (b.claims || []).forEach(function (c) { if (c.strength === 'owner_unconfirmed') claims.push(c) }) })
+    })
+    var flags = ((o && o.consistency) || []).filter(function (i) { return !i.acked })
+    if (!claims.length && !flags.length) return ''
+    return '<section class="wb-dp-pending" aria-label="' + escA(t('workbench.dp.pending', { n: claims.length + flags.length })) + '">'
+      + '<h4>' + esc(t('workbench.dp.pending', { n: claims.length + flags.length })) + '</h4>'
+      + (claims.length ? '<ul class="wb-outline-claims">' + claims.map(function (c) { return claimHtml(c, ro) }).join('') + '</ul>' : '')
+      + (flags.length ? '<ul>' + flags.map(function (i) { return consistencyIssueHtml(i, ro) }).join('') + '</ul>' : '')
+      + '</section>'
+  }
   function docExtrasHtml() {
     var o = WB.detail && WB.detail.outline
     if (!o) return ''
@@ -16730,7 +16752,7 @@
     // of the language versions and the glossary.
     var annex = annexHtml(o, ro)
     var inner = courtOnly() ? langHeadHtml(o, ro) + glossaryHtml(o, ro) : ''
-    return (annex ? '<details class="wb-dp-more wb-dp-annex" open><summary>' + esc(t('workbench.dp.annex', { n: (o.annexes || []).length })) + '</summary>' + annex + '</details>' : '')
+    return docPendingHtml(o, ro) + (annex ? '<details class="wb-dp-more wb-dp-annex" open><summary>' + esc(t('workbench.dp.annex', { n: (o.annexes || []).length })) + '</summary>' + annex + '</details>' : '')
       + (inner ? '<details class="wb-dp-more"><summary>' + esc(t('workbench.dp.more')) + '</summary>' + inner + '</details>' : '')
   }
 
