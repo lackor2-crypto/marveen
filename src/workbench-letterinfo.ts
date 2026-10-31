@@ -40,7 +40,12 @@ export function letterSubject(itemId: string): string {
     if (!hasDocModel(itemId)) return ''
     // #794 (Boss TG 4081): the "Betreff:" line often stands INSIDE a multi-line paragraph (reference, clerk, subject), so
     // every block is read line by line, not as one text that starts with the first line.
-    return subjectFromLines(listBlocks(itemId).flatMap((b) => String(b.text ?? '').split(/\r\n|\r|\n/)))
+    const texts = listBlocks(itemId).map((b) => String(b.text ?? ''))
+    // Only a LABELLED line is looked for inside a paragraph; the "line after the date" guess stays on whole blocks (a date line
+    // inside a signature block must not turn the next word into a subject).
+    const labelled = texts.flatMap((x) => x.split(/\r\n|\r|\n/)).map((l) => l.replace(/[\u200b\s]+/g, ' ').trim())
+      .map((l) => /^(?:betreff|betr\.?|subject|re|tárgy|targy)\s*[:.]\s*(.{3,250})$/i.exec(l)).find((m) => !!m)
+    return labelled ? (labelled[1] as string).trim() : subjectFromLines(texts)
   } catch { return '' }
 }
 
