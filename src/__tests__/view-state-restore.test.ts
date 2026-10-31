@@ -151,4 +151,11 @@ describe('#435: F5 utan ugyanaz az oldal-belso nezet jon vissza', () => {
     expect(src).toContain('i < 60 && _prj.current === openId')
     expect(src).toContain("fetch('/api/app-version', { cache: 'no-store' }); if (r.ok) break")
   })
+  it('TG 3900: re-running the current page (reconnect, language switch) keeps the open project; a menu click still opens the list', () => {
+    expect(APP).toContain('let _viewKeepNext = false')
+    expect(APP).toMatch(/_viewKeepNext = true\s*try \{ switchPage\(active\)/)
+    expect(APP).toContain('_viewKeepNext = true; switchPage(pageId); _viewKeepNext = false')
+    expect(APP).toContain("const here = _viewKeepNext && _prj.current ? _viewCollect('projects') : null")
+    expect(APP).toContain("viewStateTake('projects') || here")
+  })
 })
