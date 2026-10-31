@@ -193,36 +193,32 @@ describe('#716: a melleklet csak az Eletfabol', () => {
   })
 
   it('a munkadarab mappajan belul allo fajl nem mellekletjelolt, a projekt mas helyen allo igen', () => {
-    expect(annexNeedsLifeMove(project, `${folder}/Feltöltések/aok.jpg`)).toBe(true)
-    expect(annexNeedsLifeMove(project, `${folder}/kesz.pdf`)).toBe(true)
+    // Boss, TG 3851: the restriction is removed, a file in the work item's own folder can be an annex.
+    expect(annexNeedsLifeMove(project, `${folder}/Feltöltések/aok.jpg`)).toBe(false)
+    expect(annexNeedsLifeMove(project, `${folder}/kesz.pdf`)).toBe(false)
     expect(annexNeedsLifeMove(project, 'Iratok/szerzodes.pdf')).toBe(false)
     expect(annexNeedsLifeMove(project, '')).toBe(false)
   })
 
-  it('az utvonal a feltoltesbeli fajlt 409-cel elutasitja, a projekt masik fajljat felveszi', async () => {
+  it('az utvonal a munkadarab mappajaban allo fajlt is felveszi (TG 3851)', async () => {
     const base = `/api/workbench/items/${itemId}/outline`
     const bad = await callWorkbench(`${base}/annexes`, 'POST', { path: `${folder}/Feltöltések/aok.jpg`, title: 'AOK' })
-    expect(bad.status).toBe(409)
-    expect(bad.body.error).toBe('outline_annex_not_in_life')
-    expect(bad.body.message).toContain('Életfába')
+    expect(bad.status).toBe(201)
     const ok = await callWorkbench(`${base}/annexes`, 'POST', { path: 'Iratok/szerzodes.pdf', title: 'Szerződés' })
     expect(ok.status).toBe(201)
   })
 
-  it('az agent doc.addAnnex a feltoltesbeli fajlt not_in_life koddal utasitja el', () => {
+  it('az agent doc.addAnnex a munkadarab mappajaban allo fajlt is felveszi', () => {
     const ctx = { projectId: pid, workItemId: itemId, lang: 'hu' as const }
     const bad: any = executeTool('doc.addAnnex', { path: `${folder}/Feltöltések/aok.jpg`, title: 'AOK' }, ctx)
-    expect(bad.ok).toBe(false)
-    expect(bad.code).toBe('not_in_life')
+    expect(bad.ok).toBe(true)
     expect(executeTool('doc.addAnnex', { path: 'Iratok/szerzodes.pdf', title: 'Szerződés' }, ctx).ok).toBe(true)
   })
 
-  it('a gepről csatolt melleklet a Feltoltesekbe kerul es MEG NEM melleklet: a felulet az Eletfaba koltoztetes utan koti be', async () => {
+  it('a gepről csatolt melleklet a Feltoltesekbe kerul es rogton melleklet lesz, nem kell az Eletfaba koltoztetni (TG 3851)', async () => {
     const r = await callWorkbench(`/api/workbench/items/${itemId}/outline/annexes/upload?name=${encodeURIComponent('levél.pdf')}`, 'POST', Buffer.from('%PDF-1'), { 'content-type': 'application/octet-stream' })
     expect(r.status).toBe(201)
-    expect(r.body.needs_move).toBe(true)
-    expect(r.body.rel).toContain('Feltöltések')
-    expect((getDb().prepare('SELECT COUNT(*) AS n FROM wb_doc_annexes WHERE work_item_id = ?').get(itemId) as { n: number }).n).toBe(0)
-    expect(existsSync(join(depot, r.body.rel))).toBe(true)
+    expect(r.body.needs_move).toBeUndefined()
+    expect((getDb().prepare('SELECT COUNT(*) AS n FROM wb_doc_annexes WHERE work_item_id = ?').get(itemId) as { n: number }).n).toBe(1)
   })
 })
