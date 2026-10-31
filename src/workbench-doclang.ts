@@ -27,6 +27,7 @@ import {
   BLOCK_KINDS, BLOCK_TEXT_MAX, SECTION_TITLE_MAX,
   type BlockKind, type CheckItem, type ModelResult, type SectionRow, type SourceRow,
 } from './workbench-docmodel.js'
+import { SIGNATURE_TERMS } from './workbench-signatures.js'
 import { normalizeForMatch } from './workbench-docread.js'
 import { isBlockAlign, parsePfmt, richMatches, richToPlain, sanitizePfmt, sanitizeRich, richUniform } from './workbench-docrich.js'
 import { createWorkItem, getWorkItem, type WorkItemRow } from './workbench.js'
@@ -139,13 +140,27 @@ export function langName(code: string, ui: 'hu' | 'en'): string {
   return LANG_NAMES[code]?.[ui] ?? code.toUpperCase()
 }
 
+/** A signature picture is mirrored between a document and its language versions (workbench-sigmirror), so it is not
+ *  part of what a translation is made from: adding one to either side must not turn the other side "stale". */
+export function isSignatureImage(b: { kind: string; text: string }): boolean {
+  if (b.kind !== 'image') return false
+  const name = (b.text.split('#')[0] ?? '').replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? ''
+  return SIGNATURE_TERMS.some((t) => name.includes(t))
+}
+
 /** Egy fejezet tartalmanak ujjlenyomata: cim + blokkok (fajta, szoveg). Az allapot (kesz/folyamatban) nem szamit. */
-export function sectionHash(sectionId: string): string {
+function hashOf(sectionId: string, skipSignatures: boolean): string {
   ensureDocModelTables()
   const s = getDb().prepare('SELECT title FROM wb_doc_sections WHERE id = ?').get(sectionId) as { title: string } | undefined
   if (!s) return 'missing'
-  const blocks = getDb().prepare('SELECT kind, text FROM wb_doc_blocks WHERE section_id = ? ORDER BY position, created_at').all(sectionId) as { kind: string; text: string }[]
+  let blocks = getDb().prepare('SELECT kind, text FROM wb_doc_blocks WHERE section_id = ? ORDER BY position, created_at').all(sectionId) as { kind: string; text: string }[]
+  if (skipSignatures) blocks = blocks.filter((b) => !isSignatureImage(b))
   return createHash('sha256').update(JSON.stringify({ t: s.title, b: blocks.map((b) => [b.kind, b.text]) })).digest('hex')
+}
+export function sectionHash(sectionId: string): string { return hashOf(sectionId, true) }
+/** A hash stored before signatures were left out still counts as current while the section has not changed otherwise. */
+export function hashIsCurrent(stored: string, sectionId: string): boolean {
+  return !!stored && (stored === hashOf(sectionId, true) || stored === hashOf(sectionId, false))
 }
 
 interface VariantRow { work_item_id: string; source_item_id: string; lang: string; created_at: number; created_by: string | null }
@@ -257,7 +272,7 @@ export function variantInfo(itemId: string): VariantInfo | null {
   const linked = new Set(links.map((l) => l.source_section_id))
   const sections = links.map((l): VariantSectionState => {
     const s = srcSections.get(l.source_section_id)
-    const state = !s ? 'source_removed' : !l.source_hash ? 'untranslated' : l.source_hash === sectionHash(s.id) ? 'current' : 'stale'
+    const state = !s ? 'source_removed' : !l.source_hash ? 'untranslated' : hashIsCurrent(l.source_hash, s.id) ? 'current' : 'stale'
     return { section_id: l.section_id, source_section_id: l.source_section_id, source_title: s ? s.title : null, state, translated_at: l.translated_at }
   })
   const newIn = [...srcSections.values()].filter((s) => !linked.has(s.id)).map((s) => ({ id: s.id, title: s.title }))
@@ -434,7 +449,7 @@ export function translationAlreadySaved(variantId: string, input: { source_secti
   const src = db.prepare('SELECT * FROM wb_doc_sections WHERE id = ? AND work_item_id = ?').get(String(input.source_section ?? ''), v.source_item_id) as SectionRow | undefined
   if (!src) return false
   const link = db.prepare('SELECT * FROM wb_doc_section_links WHERE work_item_id = ? AND source_section_id = ?').get(variantId, src.id) as LinkRow | undefined
-  if (!link || link.source_hash !== sectionHash(src.id)) return false
+  if (!link || !hashIsCurrent(link.source_hash, src.id)) return false
   const cur = db.prepare('SELECT title FROM wb_doc_sections WHERE id = ?').get(link.section_id) as { title: string } | undefined
   if (!cur || cur.title !== String(input.title ?? '').trim()) return false
   const have = db.prepare('SELECT kind, text, rich, align, pfmt FROM wb_doc_blocks WHERE section_id = ? ORDER BY position, created_at').all(link.section_id) as { kind: string; text: string; rich: string | null; align: string | null; pfmt: string | null }[]
@@ -599,7 +614,7 @@ export function backchecks(variantId: string): BackcheckView[] {
   return rows.map((r) => {
     const src = getDb().prepare('SELECT title FROM wb_doc_sections WHERE id = ?').get(r.source_section_id) as { title: string } | undefined
     return {
-      section_id: r.section_id, text: r.text, stale: r.base_hash !== sectionHash(r.section_id), created_at: r.created_at,
+      section_id: r.section_id, text: r.text, stale: !hashIsCurrent(r.base_hash, r.section_id), created_at: r.created_at,
       source_title: src ? src.title : null, source_text: src ? sectionText(r.source_section_id) : null,
     }
   })

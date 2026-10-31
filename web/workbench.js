@@ -15851,8 +15851,16 @@
     })
   }
   /** What the left column holds of a section right now: if it changes after the preview, the preview is old. */
+  /** A signature picture is mirrored between the original and its language version by the server (workbench-sigmirror), so
+   *  it is not part of what the translation was made from: adding one must not mark the translation "old". Same rule as
+   *  the server's `isSignatureImage`. */
+  function isSignatureImg(b) {
+    if (b.kind !== 'image') return false
+    var nm = String(b.text || '').split('#')[0].replace(/\\/g, '/').split('/').pop().toLowerCase()
+    return ['aláírás', 'alairas', 'alárás', 'signature', 'unterschrift', 'szignó'].some(function (x) { return nm.indexOf(x) >= 0 })
+  }
   function twSig(sec) {
-    return JSON.stringify([sec.title, (sec.blocks || []).map(function (b) { return [b.kind, b.text] })])
+    return JSON.stringify([sec.title, (sec.blocks || []).filter(function (b) { return !isSignatureImg(b) }).map(function (b) { return [b.kind, b.text] })])
   }
   function twKey(secId) { return WB.selectedId + ':' + twState().lang + ':' + secId }
   function twAvailable(o) {
