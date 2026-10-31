@@ -98,7 +98,7 @@ import { findLifeCopy } from '../../life-upload-dup.js'
 import { addProjectDoc, getProjectAiAccess, linkLifeFileAsAnnex, listProjectDocs, relinkMovedAnnexes, removeProjectDoc, setProjectAiAccess, tendLinkedAnnexes, updateProjectDoc, PROJECT_AI_ACCESS_MODES, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
 import { consistencyIssues, ackConsistencyIssue, unackConsistencyIssue } from '../../workbench-doccheck.js'
 import { itemDeadlines, proposeDue, deadlineToTodo, dismissDeadline } from '../../workbench-deadlines.js'
-import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable } from '../../workbench-docread.js'
+import { documentOverview, documentPagesText, verifyQuote, makeSearchableCopy, searchableName, searchableCopyAvailable, docKind } from '../../workbench-docread.js'
 import { scanForRedaction, makeRedactedCopy, redactedName } from '../../workbench-redact.js'
 import { realpathSync, readFileSync } from 'node:fs'
 import { basename, dirname as dirnamePath, join as joinPath, sep as pathSep } from 'node:path'
@@ -219,6 +219,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   pmount_not_found: { hu: 'Ez a mappa nincs meg az Életfában. Válassz másikat, vagy frissítsd az oldalt.', en: 'This folder is not in the Life tree. Choose another one, or refresh the page.' },
   pmount_exists: { hu: 'Ebben a projektben már van ilyen nevű mappa vagy csatolás. Nevezd át azt, vagy válassz másik mappát.', en: 'This project already has a folder or attachment with that name. Rename it, or choose another folder.' },
   pmount_nested: { hu: 'Ezt a mappát nem lehet a projektbe csatolni: a projekt saját mappája, vagy már annak a része. Válassz egy másik mappát.', en: 'This folder cannot be attached to the project: it is the project\'s own folder or already part of it. Choose another folder.' },
+  readlife_unsupported: { hu: 'Ezt a fájltípust nem tudom elolvasni (PDF, kép, Office-dokumentum vagy e-mail kell).', en: 'This file type cannot be read (a PDF, image, Office document or email is needed).' },
   plink_not_found: { hu: 'Ez a fájl nincs meg az Életfában. Válassz másikat, vagy frissítsd az oldalt.', en: 'This file is not in the Life tree. Choose another one, or refresh the page.' },
   plink_folder_gone: { hu: 'Ez a mappa a projektben már nincs meg. Frissítsd az oldalt, és válassz másikat.', en: 'This folder is no longer in the project. Refresh the page and choose another one.' },
   plink_exists: { hu: 'Ebben a mappában már van ilyen nevű fájl vagy csatolás. Nevezd át azt, vagy válassz másik fájlt.', en: 'This folder already has a file or attachment with that name. Rename it, or choose another file.' },
@@ -2976,6 +2977,29 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = addMount({ rel, target, kind: 'local', label: target })
     if (!r.ok) return fail(res, 400, r.code === 'nested' || r.code === 'same' ? 'pmount_nested' : 'pmount_failed', lang)
     json(res, { ok: true, rel, name }, 201)
+    return true
+  }
+
+  // Boss TG 3813: a SCANNED PDF or an image can be read: the server OCRs it (hun+deu+eng, cached by file hash) and returns the text per page.
+  // For the code-bridge assistant, which has no OCR of its own. GET ?rel=<Life tree path>[&from=1&to=3][&retry=1]; without `from`: page list.
+  if (path === '/api/workbench/read-life-file' && method === 'GET') {
+    const rel = String(url.searchParams.get('rel') || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    const abs = rel && !rel.split('/').includes('..') ? resolveLifePath(rel) : null
+    let isFile = false
+    if (abs) { try { isFile = statSync(abs).isFile() } catch { isFile = false } }
+    if (!abs || !isFile) return fail(res, 404, 'plink_not_found', lang)
+    const name = rel.slice(rel.lastIndexOf('/') + 1)
+    if (!docKind(name)) return fail(res, 400, 'readlife_unsupported', lang)
+    const retry = url.searchParams.get('retry') === '1'
+    const from = Number(url.searchParams.get('from') || 0)
+    const r = from > 0
+      ? documentPagesText(abs, name, from, Number(url.searchParams.get('to') || from), { retry })
+      : documentOverview(abs, name, { retry })
+    if (!r.ok) {
+      json(res, { error: r.code, detail: r.detail }, r.code === 'processing' ? 202 : r.code === 'missing' ? 404 : r.code === 'failed' ? 500 : 400)
+      return true
+    }
+    json(res, { ok: true, path: rel, ...r.data })
     return true
   }
 
