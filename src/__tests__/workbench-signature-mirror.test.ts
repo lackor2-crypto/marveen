@@ -86,3 +86,11 @@ describe('the column does not call a mirrored signature a change of the original
     expect(body).toContain('isSignatureImg')
   })
 })
+
+describe('the translation column follows a page change at once', () => {
+  it('dpCall re-reads the saved translation after a block change', () => {
+    const js = readFileSync(new URL('../../web/workbench.js', import.meta.url), 'utf8')
+    const body = js.slice(js.indexOf('function dpCall('), js.indexOf('function dpText('))
+    expect(body).toContain('twResync()')
+  })
+})
