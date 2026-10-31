@@ -208,6 +208,30 @@ describe('Munkapad chat teljes erteku modban (kod-hid)', () => {
     }
   })
 
+  // Boss TG 3807: choosing "1" (find and link it) must not be swallowed by the gate: that request alone goes to the bridge,
+  // with a directive limiting it to finding and linking; any other message stays held.
+  it('#794: "keressuk meg es linkeld be" atmegy a hidra a szuk utasitassal, mas uzenet marad tiltva', async () => {
+    const depot = mkdtempSync(join(tmpdir(), 'marveen-bridge-trig2-'))
+    try {
+      mkdirSync(join(depot, 'Projektek', 'Iroda', 'Munkadarabok', 'Level', 'Kiváltó irat'), { recursive: true })
+      process.env['MARVEEN_DEPOT'] = depot
+      updateProject(projectId, { folder_path: 'Projektek/Iroda' })
+      const { getDb } = await import('../db.js')
+      getDb().prepare('UPDATE work_items SET folder = ?, no_trigger = NULL WHERE id = ?').run('Munkadarabok/Level', workItemId)
+      await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'irj egy levelet' })
+      expect(enqueued).toHaveLength(0)
+      const r = await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: '1. keressuk meg! es linkeld be!' })
+      expect(r.status).toBe(200)
+      expect(enqueued).toHaveLength(1)
+      expect(enqueued[0].prompt).toContain('project-file-link')
+      expect(enqueued[0].prompt).toContain('Munkadarabok/Level/Kiváltó irat')
+      expect(enqueued[0].prompt).toContain('do ONLY this one job')
+    } finally {
+      rmSync(depot, { recursive: true, force: true })
+      delete process.env['MARVEEN_DEPOT']
+    }
+  })
+
   it('a feladat "workbench" eredettel megy a kod-hidra (nem "dashboard")', async () => {
     await post('/api/workbench/agent/message', { project_id: projectId, work_item_id: workItemId, message: 'szia' })
     expect(enqueued).toHaveLength(1)
