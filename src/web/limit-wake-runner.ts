@@ -22,6 +22,7 @@ import { agentSessionName, sessionExistsOnHost } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { sendAlert } from './channel-monitor.js'
+import { readAvailabilityState } from './agent-availability-watch.js'
 import {
   decideWakes,
   looksLikeRealOutage,
@@ -306,7 +307,13 @@ async function tick(): Promise<void> {
     // dropped WITHOUT recording anything: its boundary stays unconsumed, so the
     // wake still happens once the session is back, instead of being silently
     // swallowed while it was down.
+    // Boss, TG 3861: a signed-out account is left completely alone -- no wake, no Telegram line about it.
+    const signedOut = readAvailabilityState().agents
     const decisions = proposed.filter((d: WakeDecision) => {
+      if (signedOut[d.agent]?.reason === 'signed_out') {
+        logger.info({ limitWake: true, agent: d.agent, reason: d.reason }, 'limit-wake: agent is signed out; not waking it (owner order)')
+        return false
+      }
       if (hasLiveSession(d.agent)) {
         // Struck off here rather than after the send: whether the script
         // succeeds or not, this agent has had its one startup evaluation.

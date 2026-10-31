@@ -408,8 +408,9 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
   }
 
   if (decision.sendKeys) {
-    logger.warn({ label, session }, 'reauth-healer: confirmed dead token on live sub-agent -- best-effort /login send-keys')
-    void sendBestEffortLogin(session)
+    // Boss, TG 3861: a logged-out account is left alone -- no /login keystrokes into its session. The owner logs in
+    // from the agent card ("Bejelentkezés" button) when HE wants to.
+    logger.info({ label, session }, 'reauth-healer: dead token on live sub-agent -- left alone (no /login send-keys, owner logs in from the agent card)')
   }
   if (decision.restartAgent) {
     logger.warn({ label, session, reason: reauth.reason }, 'reauth-healer: first-run gate on live sub-agent -- restarting it (re-seeds hasCompletedOnboarding)')
@@ -425,11 +426,9 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
     if (hold === 'quota') {
       logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: dead-token escalation held back -- the agent is out of quota (cannot work until the window resets)')
     } else {
-      routeEscalation(
-        { session, label, reason: reauth.reason ?? 'auth failure', consecutiveDead: decision.next.consecutiveDead },
-        quiet,
-        sendNotify,
-      )
+      // Boss, TG 3861: "amig egy fiok ki van jelentkezve, addig ne csinaljon semmit vele, es a telegrammal se, ne irjon."
+      // A logged-out agent produces NO Telegram message: the state stays visible on its dashboard card only.
+      logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: logged-out agent -- no Telegram alert (owner order)')
       // Mark as told (a quiet-hours suppression is told in the morning summary, so it counts too).
       const m = readAlerted()
       writeAlerted({ ...m, [session]: { alertedAtMs: nowMs, lastDeadAtMs: nowMs } })
