@@ -109,4 +109,13 @@ describe('#435: F5 utan ugyanaz az oldal-belso nezet jon vissza', () => {
     expect(APP).toContain(`viewStateRegister('${page}'`)
     expect(APP).toContain(`viewStateTake('${page}')`)
   })
+
+  // Boss, TG 3829: the automatic update reload saves the position ON PURPOSE (a localStorage copy, used once and only
+  // when fresh), so the project / work item / panel come back even when the page-close event or the tab store fails.
+  it('the automatic update reload writes the position itself and the next load takes it back once', () => {
+    expect(APP).toMatch(/async function hardRefresh\(\) \{\s*_viewStateSave\(true\)/)
+    expect(APP).toContain("localStorage.setItem(VIEW_AUTO_KEY")
+    expect(APP).toContain("localStorage.removeItem(VIEW_AUTO_KEY)")
+    expect(APP).toContain('VIEW_AUTO_MAX_AGE_MS')
+  })
 })
