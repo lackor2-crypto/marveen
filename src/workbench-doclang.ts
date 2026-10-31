@@ -270,6 +270,17 @@ export function variantInfo(itemId: string): VariantInfo | null {
   // az eredeti parja ujra "meg nincs itt" lesz, nem tunik el a nyilvantartasbol.
   const links = (getDb().prepare('SELECT * FROM wb_doc_section_links WHERE work_item_id = ?').all(itemId) as LinkRow[]).filter((l) => mine.has(l.section_id))
   const linked = new Set(links.map((l) => l.source_section_id))
+  // #794 (Boss TG 4067): a chapter the owner translated BY HAND (it holds text, only the Translate button was never pressed)
+  // is translated: the button is one way to get there, not the definition. Its baseline is stamped now, so a LATER change of
+  // the original still shows it as outdated. An empty placeholder stays "untranslated".
+  for (const l of links) {
+    if (l.source_hash || !srcSections.has(l.source_section_id)) continue
+    const has = getDb().prepare("SELECT 1 FROM wb_doc_blocks WHERE section_id = ? AND TRIM(COALESCE(text, '')) != '' LIMIT 1").get(l.section_id)
+    if (!has) continue
+    getDb().prepare('UPDATE wb_doc_section_links SET source_hash = ?, translated_at = ?, translated_by = ? WHERE section_id = ? AND source_hash = \'\'')
+      .run(sectionHash(l.source_section_id), now(), 'manual', l.section_id)
+    l.source_hash = sectionHash(l.source_section_id)
+  }
   const sections = links.map((l): VariantSectionState => {
     const s = srcSections.get(l.source_section_id)
     const state = !s ? 'source_removed' : !l.source_hash ? 'untranslated' : hashIsCurrent(l.source_hash, s.id) ? 'current' : 'stale'
