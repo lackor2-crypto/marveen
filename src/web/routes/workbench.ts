@@ -2599,7 +2599,7 @@ function isBrowserPageClick(ctx: RouteContext): boolean {
 /** The owner's own click on a content button (confirm a claim, accept a rewrite, acknowledge a consistency flag, take a
  *  deadline as a to-do, mark a source as seen): a sign-in session OR a click on the dashboard page itself in token mode.
  *  One rule for all of them -- fixing these buttons one by one left the next one returning 403 for a page opened with the
- *  token only (#1512, #1520, TG 3936). Finalising, the sensitive switch and the court rules keep the strict session rule. */
+ *  token only (#1512, #1520, TG 3936). Finalising, the sensitive switch and the court rules use it too (Boss TG 4029: finalising answered "only you can" to his own click in token mode, the third time the same cause came back). */
 function isOwnerOrPageClick(ctx: RouteContext): boolean {
   return isOwnerClick(ctx) || isBrowserPageClick(ctx)
 }
@@ -3379,7 +3379,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (method === 'PUT') {
       const body = await readJson(req)
       if (!body || typeof body['sensitive'] !== 'boolean') return fail(res, 400, 'privacy_bad_input', lang)
-      if (body['sensitive'] === false && !isOwnerClick(ctx)) return fail(res, 403, 'privacy_owner_only', lang)
+      if (body['sensitive'] === false && !isOwnerOrPageClick(ctx)) return fail(res, 403, 'privacy_owner_only', lang)
       setProjectSensitive(project.id, body['sensitive'] === true, actor(ctx))
     }
     json(res, { ok: true, privacy: privacyState(project.id, null), sensitive_items: sensitiveItemIds(project.id) })
@@ -4236,21 +4236,21 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       return true
     }
     if (segs.length === 3 && segs[2] === 'checked' && method === 'POST') {
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'court_owner_only', lang)
+      if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'court_owner_only', lang)
       const r = markProfileChecked(String(body['profile_id'] ?? ''))
       if (!r.ok) return r.code === 'file_broken' ? failDetail(res, 409, 'court_file_broken', lang, r.detail) : fail(res, 404, 'court_bad_input', lang)
       json(res, { ok: true, court: courtOut(item.id) })
       return true
     }
     if (segs.length === 3 && segs[2] === 'settings' && method === 'PUT') {
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'court_owner_only_rules', lang)
+      if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'court_owner_only_rules', lang)
       const r = setMaxAgeDays(body['max_age_days'])
       if (!r.ok) return r.code === 'file_broken' ? failDetail(res, 409, 'court_file_broken', lang, r.detail) : failDetail(res, 400, 'court_settings_bad', lang, r.detail)
       json(res, { ok: true, court: courtOut(item.id) })
       return true
     }
     if (segs.length === 5 && segs[2] === 'proposals' && (segs[4] === 'accept' || segs[4] === 'reject') && method === 'POST') {
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'court_owner_only_rules', lang)
+      if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'court_owner_only_rules', lang)
       const r = segs[4] === 'accept' ? acceptProposal(segs[3]) : rejectProposal(segs[3])
       if (!r.ok) {
         if (r.code === 'file_broken') return failDetail(res, 409, 'court_file_broken', lang, r.detail)
@@ -4293,7 +4293,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 2 && segs[1] === 'privacy' && method === 'PUT') {
     const body = await readJson(req)
     if (!body || typeof body['sensitive'] !== 'boolean') return fail(res, 400, 'privacy_bad_input', lang)
-    if (body['sensitive'] === false && !isOwnerClick(ctx)) return fail(res, 403, 'privacy_owner_only', lang)
+    if (body['sensitive'] === false && !isOwnerOrPageClick(ctx)) return fail(res, 403, 'privacy_owner_only', lang)
     setItemSensitive(item.id, body['sensitive'] === true, actor(ctx))
     json(res, { ok: true, privacy: privacyState(item.project_id, item.id) })
     return true
@@ -4490,7 +4490,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // VEGLEGESITES (K-1.22, K-1.23): csak a tulajdonos sajat kattintasa, ellenorzes +
     // atnezes + felelossegvallalas utan. Verziot keszit, a PDF a munkadarab mappajaba kerul.
     if (segs.length === 3 && segs[2] === 'finalize' && method === 'POST') {
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'outline_finalize_owner_only', lang)
+      if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'outline_finalize_owner_only', lang)
       const body = await readJson(req)
       if (!body) return fail(res, 400, 'bad_json', lang)
       const r = await finalizeDocument(item, { accept: body['accept'], hash: body['hash'], override: body['override'], by: actor(ctx), lang })
@@ -5137,7 +5137,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       r = decideWorkItemApproval(item.id, action === 'approve' ? 'approved' : 'rejected', { by: who || 'dashboard', reason: body['reason'] })
     } else if (action === 'finalize' || action === 'reopen') {
       // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.
-      if (!isOwnerClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
+      if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
       // #777 / #803 (Boss TG: "egy helyen javitunk, mindenhol javitva van"): a note / Word file has ONE finalize, the court
       // document's own (/outline/finalize), so a fix there reaches every document. The old #667 note and #719 Word panels
       // are gone: a request for them is pointed to the document page (or told the text is not read onto it yet).

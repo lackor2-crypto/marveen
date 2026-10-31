@@ -10558,7 +10558,7 @@
       // The review, the tick and the final PDF are the owner's own click: a browser that is not logged in with a user name
       // (token access) can never record them, so the grey button would stay grey forever -- say so instead of a step.
       wbAuthLoad()
-      var notOwner = typeof WB.authMethod === 'string' && WB.authMethod !== 'session'
+      var notOwner = typeof WB.authMethod === 'string' && WB.authMethod !== 'session' && WB.authMethod !== 'token'
       var nextKey = notOwner ? 'workbench.outline.next_login' : !reviewed ? 'workbench.outline.next_review' : !overridden ? 'workbench.outline.next_override' : WB.docAccept !== hash ? 'workbench.outline.next_accept' : 'workbench.outline.next_final'
       var nextTip = escA(t(nextKey))
       // Which language is being finalized (Boss, 2026-10-16): the PDF is made of THIS work item; the other languages are their own
