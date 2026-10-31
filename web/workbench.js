@@ -64,6 +64,8 @@
     chatWatch: null,
     chatReconnect: null,
     chatDraft: '',
+    // The text just sent (see chatNoteSent): a late write of exactly this text into the field is an echo.
+    chatSent: null,
     // A megnyitott munkadarabhoz most csatolt fajlok (#441), munkadarabonkent:
     // a chat beiro mezoje felett latszanak, es a kovetkezo uzenettel az agens
     // is megkapja oket. Boss, 2026-09-29: "csatoltam ket mellekletet, nem
@@ -6188,6 +6190,19 @@
     render()
   }
 
+  /** Sending ends a dictation of the chat field for good: abort() (not stop()) delivers no late words, so the half-heard
+   *  end of the sentence that was just sent cannot land in the cleared field (Boss TG 4006: the screenshot shows the mic
+   *  still running over the field after Enter). The owner presses the mic again for the next message. */
+  function dictAbortForSend() {
+    var d = WB.dict
+    if (!d || d.target !== 'wbChatInput') { if (d) dictStop(); return }
+    d.aborted = true
+    WB.dict = null
+    if (d.rec) { try { d.rec.abort() } catch (_e) { try { d.rec.stop() } catch (_e2) { /* mar all */ } } }
+    dictForgetSent('wbChatInput')
+    render()
+  }
+
   function dictToggle(targetId) {
     if (WB.dict) {
       var same = WB.dict.target === targetId
@@ -6221,6 +6236,7 @@
     rec.onerror = function (ev) { d.error = ev && ev.error ? String(ev.error) : 'other' }
     rec.onend = function () {
       // The final text stays (the half-heard part does not); stop() still delivers the last final words, accepted above.
+      if (d.aborted) return
       dictApply(d, d.finals)
       if (WB.dict === d) { WB.dict = null; render() }
       if (d.error && d.error !== 'aborted') {
@@ -13073,6 +13089,62 @@
     flushChatQueue()
   }
 
+  // ---- A KULDOTT SZOVEG NEM JON VISSZA A MEZOBE (Boss TG 4006; ugyanez volt a TG 3608 is) ----------------------
+  //
+  // A mezot a kuldes uresre allitja, de harom dolog visszairhatja ugyanazt a szoveget: a diktalas (kezelve:
+  // dictForgetSent), a telefon billentyuzetenek / IME-nek folyamatban levo szovegbevitele (a beallitott ures ertek utan
+  // ujra beveszi a "komponalt" szoveget), es az automatikus kitoltes. Kozos kapu mindegyikre: a kuldes UTAN rovid ideig
+  // (CHAT_ECHO_MS) minden olyan mezo-valtozas, ami PONTOSAN a most elkuldott szoveg (vagy annak elejere ragasztott
+  // ujabb gepeles), visszhang, es kiurul. Amint a felhasznalo maga gepel/beilleszt, a kapu kikapcsol: az ugyanilyen
+  // uzenet ujra elkuldheto, semmit nem tiltunk.
+
+  var CHAT_ECHO_MS = 4000
+
+  /** Pure: what the field should hold if `value` is only an echo of the sent text `sent`, else null.
+   *  `programmatic` = the change came from script / dictation (no typing event), then a fragment of the sent text is an echo too. */
+  function chatEchoStrip(value, sent, programmatic) {
+    var s = String(sent || '').trim()
+    var v = String(value == null ? '' : value)
+    if (!s || !v.trim()) return null
+    if (v.trim() === s) return ''
+    if (v.indexOf(s) === 0) return v.slice(s.length).replace(/^[ \t]*\n?/, '')
+    if (programmatic && s.indexOf(v.trim()) >= 0) return ''
+    return null
+  }
+  window._wbChatEchoStrip = chatEchoStrip
+
+  function chatNoteSent(text) {
+    WB.chatSent = { text: String(text || '').trim(), at: Date.now() }
+    // Late writers (IME commit, autofill) may not fire an input event: look again shortly after.
+    ;[60, 300, 900, 2200].forEach(function (ms) { setTimeout(chatDropEcho, ms) })
+  }
+
+  function chatDropEcho() {
+    var g = WB.chatSent
+    if (!g || Date.now() - g.at > CHAT_ECHO_MS) return
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatInput') : null
+    if (!el || typeof el.value !== 'string') return
+    var clean = chatEchoStrip(el.value, g.text, false)
+    if (clean === null) return
+    el.value = clean
+    WB.chatDraft = clean
+  }
+
+  /** The input listener's half: runs BEFORE the draft is copied from the field. */
+  function chatGuardInput(e) {
+    var g = WB.chatSent
+    if (!g) return
+    if (Date.now() - g.at > CHAT_ECHO_MS) { WB.chatSent = null; return }
+    var it = String(e.inputType || '')
+    // The user is typing / pasting / deleting for real: the guard is off, the same text can be sent again.
+    if (/^(insertText|insertFromPaste|insertFromDrop|insertLineBreak|insertParagraph|delete)/.test(it)) { WB.chatSent = null; return }
+    var el = e.target
+    var clean = chatEchoStrip(el.value, g.text, !it)
+    if (clean === null) return
+    el.value = clean
+    try { el.selectionStart = el.selectionEnd = clean.length } catch (_e) { /* nem baj */ }
+  }
+
   function sendChat() {
     // A mezo TENYLEGES tartalma a forras -- az `input` esemenyre epiteni
     // onmagaban keves (beillesztes, IME, automatikus kitoltes utan elmaradhat).
@@ -13084,6 +13156,7 @@
     var attached = WB.selectedId ? (WB.chatAttached[WB.selectedId] || []) : []
     if (!text && !attached.length) return
     dictForgetSent('wbChatInput')
+    chatNoteSent(text)
     // The owner's own new message must be visible, wherever he had scrolled.
     WB.chatForceBottom = true
     if (attached.length) {
@@ -21943,7 +22016,7 @@
     else if (a === 'item-rename-row') renameItem(act.getAttribute('data-wb-id'))
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'version-delete') deleteVersion(act.getAttribute('data-wb-version'))
-    else if (a === 'chat-send') { if (WB.dict) dictStop(); sendChat() }
+    else if (a === 'chat-send') { dictAbortForSend(); sendChat() }
     else if (a === 'chat-stop') stopChat()
     else if (a === 'chat-unqueue') unqueueChat(Number(act.getAttribute('data-wb-turn')))
     else if (a === 'chat-continue') continueChat()
@@ -22636,7 +22709,7 @@
   // kozben soronkent) kulonben eltorolne a felig beirt mondatot.
   document.addEventListener('input', function (e) {
     if (!WB.open || !e.target) return
-    if (e.target.id === 'wbChatInput') WB.chatDraft = e.target.value
+    if (e.target.id === 'wbChatInput') { chatGuardInput(e); WB.chatDraft = e.target.value }
     if (e.target.id === 'wbIntakeText') WB.intakeDraft = e.target.value
     if (e.target.id === 'wbIntakeName') WB.intakeName = e.target.value
     if (e.target.id === 'wbIntakePlatform' || e.target.id === 'wbTplPlatform') {
@@ -22806,7 +22879,7 @@
     if (e.key === 'Enter' && !e.shiftKey) {
       if (typeof e.preventDefault === 'function') e.preventDefault()
       WB.chatDraft = e.target.value
-      if (WB.dict) dictStop()
+      dictAbortForSend()
       sendChat()
     }
   })
