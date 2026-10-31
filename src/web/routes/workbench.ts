@@ -70,6 +70,7 @@ import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitiv
 import { trailToText } from '../../workbench-doctrail-text.js'
 import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
+import { mirrorSignaturesFrom } from '../../workbench-sigmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
 import { forgetMailDraft, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
@@ -4523,7 +4524,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const done = (r: { ok: true } | { ok: false; code: string; detail: string }, created = false): true => {
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'outline_' + r.code, lang, r.detail)
-      if (method !== 'GET') scheduleOutlineMirror(item.id)
+      if (method !== 'GET') { mirrorSignaturesFrom(item.id); scheduleOutlineMirror(item.id) }
       json(res, { ok: true, outline: outlineOrEmpty(item.id) }, created ? 201 : 200)
       return true
     }
@@ -4561,6 +4562,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'translation-save' && segs.length === 3 && method === 'POST') {
       const r = saveShownTranslation(item, body['lang'], body['sections'], actor(ctx))
       if (!r.ok) return failDetail(res, r.code === 'outline_empty' ? 409 : 400, 'variant_' + r.code, lang, r.detail)
+      mirrorSignaturesFrom(r.variant.id)
       json(res, { ok: true, variant: { id: r.variant.id, title: r.variant.title }, existing: r.existing, saved: r.saved, unchanged: r.unchanged, failed: r.failed, claims_not_carried: r.claims_not_carried, format_lost: r.format_lost, outline: outlineOrEmpty(item.id) })
       return true
     }
@@ -4575,6 +4577,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'page' && segs.length === 3 && method === 'POST') {
       const r = replacePage(item.id, body['sections'], body['known'], 'owner')
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'outline_' + r.code, lang, r.detail)
+      mirrorSignaturesFrom(item.id)
       scheduleOutlineMirror(item.id)
       json(res, { ok: true, ids: r.ids, outline: outlineOrEmpty(item.id) })
       return true
@@ -4620,6 +4623,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         added++
         if (typeof pos === 'number') pos++
       }
+      mirrorSignaturesFrom(item.id)
       scheduleOutlineMirror(item.id)
       json(res, { ok: true, added, truncated: conv.truncated, empty_table: conv.emptyTable === true, outline: outlineOrEmpty(item.id) }, 201)
       return true

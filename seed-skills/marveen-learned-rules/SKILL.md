@@ -300,3 +300,8 @@ Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismeré
 **Hiba (2026-10-31, Boss TG):** A tulajdonos több javítást kért, és megkérdeztem, melyikkel kezdjem. Válasza: „mindegy, mert mindet meg kell csinálni, a sorrend sosem számít, ilyet legközelebb ne is kérdezz."
 **Szabály:** Ha a tulajdonos több feladatot, hibát vagy gombot említ, MINDET elvégzed. A sorrendről nem kérdezel: rutin döntés, magad választasz. A sorrend-kérdés nem „kötelező visszakérdezés": az csak kétértelmű MIT/MIN/mekkora esetén áll.
 **Mérés:** a válaszban nincs „melyikkel kezdjem" kérdés; a kész-üzenet mind a kért elemet felsorolja.
+
+### R18 -- Az aláírás oda-vissza tükröződik az eredeti és a nyelvi változat között (Boss TG 3975/3977, "beégetve")
+**Kérés (2026-10-31):** ha az aláírást a magyarra teszi, kerüljön a fordításra is, és ha a fordításra, kerüljön a magyarra is.
+**Szabály:** az aláírás-kép (fájlnevében: aláírás/alairas/signature/unterschrift/szignó) hozzáadása, mozgatása, méretezése és törlése KÖTELEZŐEN átmegy a másik oldalra, az oldal-mentés, a fordítási oszlop mentése és minden blokk-művelet közös útján (`src/workbench-sigmirror.ts`, `mirrorSignaturesFrom`). Az aláírás NEM része a fordítás ujjlenyomatának (`sectionHash`, kliensen `twSig`), különben a fordítás "elavult" lenne tőle. Új szerkesztő-útvonalnál a tükrözést oda is be kell kötni.
+**Mérés:** `workbench-signature-mirror.test.ts` + böngészős végigpróbálás mindkét irányban.
