@@ -3157,6 +3157,10 @@ export function buildBrowserClickthroughBody(): string {
     'az eredmenyt (mit kattintottal, mit mertel, mit NEM probaltal) kommentben a kartyara',
     'kell irni. Ha nem tudod megcsinalni, mondd ki, hogy nem mertel, es a kartya marad.',
     'Eljaras: `isolated-web-only-instance-browser-test` es `browser-clickthrough-before-done` skill.',
+    'KICSI JAVITASNAL IS (Boss, 2026-10-31, negyedszer): nincs "kicsi javitas" es nincs "csak backend"',
+    'kivetel; ami a felulet barmely pontjan megjelenik (fajlnev, link, PDF, level), azt vegig kell',
+    'kattintani. A kesz-uzenetben a "nem kattintottam vegig" mondat TILOS: ha ez lenne benne,',
+    'a munka nincs kesz, vissza kell menni es megcsinalni.',
   ].join('\n')
 }
 
