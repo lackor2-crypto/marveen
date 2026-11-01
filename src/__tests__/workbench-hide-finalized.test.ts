@@ -99,7 +99,7 @@ describe('#552 finalize / reopen: the server', () => {
 })
 
 // #825: the tree hides a work item only when it is finalized AND sent; the server says which ones went out (item_marks).
-const sentMarks = (list: { id: string; status: string }[]) => Object.fromEntries(list.map((i) => [i.id, { sent: i.status === 'done', sent_on: null, due: null }]))
+const sentMarks = (list: { id: string; status: string }[]) => Object.fromEntries(list.map((i) => [i.id, { sent: i.status === 'done', finished: i.status === 'done', sent_on: null, due: null }]))
 
 describe('#552 hide finalized work: the tree', () => {
   const box = 'Munkadarabok'
@@ -183,7 +183,7 @@ describe('#552 hide finalized work: the tree', () => {
     const f = `${box}/Level`
     const g = `${box}/Kuldve`
     const its = [item('un', 'Nincs elkuldve', f, 'done'), item('sn', 'Elkuldve', g, 'done'), item('op', 'Nyitott', `${box}/Nyitott`, 'in_progress')]
-    const marks = { un: { sent: false, sent_on: null, due: null }, sn: { sent: true, sent_on: '2026-11-01', due: null }, op: { sent: false, sent_on: null, due: { date: '2026-11-03', days: 2, level: 'soon' } } }
+    const marks = { un: { sent: false, finished: false, sent_on: null, due: null }, sn: { sent: true, finished: true, sent_on: '2026-11-01', due: null }, op: { sent: false, finished: false, sent_on: null, due: { date: '2026-11-03', days: 2, level: 'soon' } } }
     const h = workbenchHarness({ storage: { 'wb.hide.done': '1' } })
     h.respond((url) => {
       if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(its), item_marks: marks, work_folders: { box, folders: [f, g, `${g}/Elkeszitett`, `${g}/Ures`, `${box}/Nyitott`], truncated: false, files: { [`${g}/Elkeszitett`]: [{ name: 'level.pdf', size: 1, rel: 'x/level.pdf' }] } } } }

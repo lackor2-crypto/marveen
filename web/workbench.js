@@ -2469,7 +2469,7 @@
     // Boss TG 8804 ("hiding means hiding"): no exception -- not for the item that is open, not for a favourite.
     // #825: a work item leaves the tree only when it is finalized AND went out (the owner's mark): a finalized one that is
     // still unsent is the next thing to do, so it stays (with its empty circle).
-    function itHidden(it) { return hideOn && it.status === 'done' && markOf(it.id).sent }
+    function itHidden(it) { return hideOn && !!markOf(it.id).finished }
     var hideMemo = {}
     // #825 (owner TG 4189): the folders an item brings along (its own folder and what is under it: Elk\u00e9sz\u00edtett anyagok,
     // Felt\u00f6lt\u00e9sek, Kiv\u00e1lt\u00f3 irat ...) belong to that item. While the item is hidden they neither keep the folder in the tree
@@ -2522,7 +2522,7 @@
       return d && d.level !== 'later' ? ' ' + dueBadgeHtml(d) : ''
     }
     var hiddenTotal = hideOn ? hideInfo(box).hid : 0
-    var doneTotal = items.filter(function (it) { return it.status === 'done' && markOf(it.id).sent && byPlace[place[it.id]] && byPlace[place[it.id]].indexOf(it) >= 0 }).length
+    var doneTotal = items.filter(function (it) { return markOf(it.id).finished && byPlace[place[it.id]] && byPlace[place[it.id]].indexOf(it) >= 0 }).length
     WB.hideSwitch = { on: hideOn, hidden: hiddenTotal, done: doneTotal }
     function nameCmp(a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) }
     var rows = []

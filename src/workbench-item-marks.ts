@@ -9,10 +9,11 @@ import { getDb } from './db.js'
 import { sentStatus } from './workbench-docsent.js'
 import { ensureTodoTable } from './workbench-todos.js'
 import { listWorkItems } from './workbench.js'
+import { ensureDocLangTables } from './workbench-doclang.js'
 
 export type DueLevel = 'overdue' | 'today' | 'soon' | 'later'
 export interface ItemDue { date: string; days: number; level: DueLevel }
-export interface ItemMark { sent: boolean; /** YYYY-MM-DD the owner gave (or marked), when known */ sent_on: string | null; due: ItemDue | null }
+export interface ItemMark { /** one WORK in several languages counts as one: any language version sent = all of them sent (owner TG 4219) */ sent: boolean; /** sent AND some language version of the work is finalized: the hide switch treats the whole group as finished */ finished: boolean; /** YYYY-MM-DD the owner gave (or marked), when known */ sent_on: string | null; due: ItemDue | null }
 
 export const SOON_DAYS = 7
 
@@ -48,19 +49,39 @@ export function itemMarks(projectId: string, now: Date = new Date()): Record<str
     'SELECT work_item_id AS id, MIN(due_date) AS due FROM work_item_todos WHERE project_id = ? AND done_at IS NULL AND due_date IS NOT NULL GROUP BY work_item_id',
   ).all(projectId) as { id: string; due: string }[]
   for (const r of rows) nearest.set(r.id, r.due)
-  const out: Record<string, ItemMark> = {}
+  // Language versions: the original and its live versions are ONE work (owner TG 4216/4219). Group key = the original's id.
+  ensureDocLangTables()
+  const live = new Set(items.map((w) => w.id))
+  const groupOf = new Map<string, string>()
+  for (const v of getDb().prepare('SELECT work_item_id, source_item_id FROM wb_doc_variants').all() as { work_item_id: string; source_item_id: string }[]) {
+    if (live.has(v.work_item_id) && live.has(v.source_item_id)) groupOf.set(v.work_item_id, v.source_item_id)
+  }
+  const key = (id: string): string => groupOf.get(id) ?? id
+  const ownSent = new Map<string, { sent: boolean; on: string | null }>()
+  const groupSent = new Map<string, { id: string; on: string | null }>()
+  const groupDone = new Set<string>()
   for (const w of items) {
     let sent = false
-    let sentOn: string | null = null
     try { sent = sentStatus(w.id).sent } catch { sent = false }
-    if (sent) sentOn = sentDate(w.id)
+    const on = sent ? sentDate(w.id) : null
+    ownSent.set(w.id, { sent, on })
+    const k = key(w.id)
+    if (sent && (!groupSent.has(k) || (on && !groupSent.get(k)!.on) || (on && groupSent.get(k)!.on && on > (groupSent.get(k)!.on as string)))) groupSent.set(k, { id: w.id, on })
+    if (w.status === 'done') groupDone.add(k)
+  }
+  const out: Record<string, ItemMark> = {}
+  for (const w of items) {
+    const k = key(w.id)
+    const g = groupSent.get(k)
+    const sent = !!g
+    const sentOn = g ? (ownSent.get(w.id)?.sent ? ownSent.get(w.id)!.on : g.on) : null
     let due: ItemDue | null = null
     const d = nearest.get(w.id)
     if (d && !sent) {
       const days = daysUntil(d, now)
       if (days != null) due = { date: d, days, level: dueLevel(days) }
     }
-    out[w.id] = { sent, sent_on: sentOn, due }
+    out[w.id] = { sent, finished: sent && groupDone.has(k), sent_on: sentOn, due }
   }
   return out
 }
