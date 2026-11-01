@@ -2401,11 +2401,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-sent-banner { display: flex; align-items: center; gap: 6px; padding: 8px 12px; margin: 6px 0; border-radius: 6px; }
 .wb-sent-banner-yes { background: #e3f6e9; border: 1px solid #1e9e4a; color: #14602e; font-size: 1.05em; }
 .wb-sent-banner-no { background: #f1f2f5; border: 1px solid #c9ccd3; }
-.wb-trig-answered { margin-left: 6px; font-size: 11px; color: #14602e; font-weight: 600; white-space: nowrap; }
 
 /* #825 follow-up (owner TG 4233/4237): a sent work item says "Answered" in words and carries a green bar on the row's left edge,
    so it reads as finished at a glance even on the coloured folder backgrounds. */
-.wb-answered-chip { display: inline-block; padding: 0 6px; border-radius: 999px; background: #1e9e4a; color: #fff; font-weight: 700; font-size: .95em; white-space: nowrap; }
+.wb-answered-chip { display: inline-block; padding: 0 6px; border-radius: 999px; background: #1e9e4a; color: #fff; font-weight: 700; font-size: 0.72rem; line-height: 1.5; white-space: nowrap; }
 .wb-item-row.wb-item-answered { box-shadow: inset 4px 0 0 #1e9e4a; }
 .wb-item-row.wb-item-answered .wb-item-meta { opacity: 1; }
 .wb-answered-chip::first-letter { font-size: 1.5em; line-height: 1; }

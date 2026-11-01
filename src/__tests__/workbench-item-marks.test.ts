@@ -109,3 +109,12 @@ describe('green tick size (#826, owner TG 4255: 1.5x bigger)', () => {
     expect(css).toContain('.wb-answered-chip::first-letter { font-size: 1.5em')
   })
 })
+
+describe('one Answered form everywhere (#826 follow-up, owner TG 4267)', () => {
+  it('the tree row, the trigger-document row and the overview use answeredChipHtml; no lone tick before a sent title', () => {
+    const js = readFileSync('web/workbench.js', 'utf8')
+    expect((js.match(/answeredChipHtml\(\)/g) || []).length).toBeGreaterThanOrEqual(4)
+    expect(js).toContain("if (sent) return ''")
+    expect(js).not.toContain('wb-trig-answered')
+  })
+})
