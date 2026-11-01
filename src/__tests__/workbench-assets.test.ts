@@ -144,15 +144,50 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
     expect(existsSync(join(depot, 'Cel', 'kesz.pdf'))).toBe(true)
     expect(existsSync(join(dir, 'kesz.pdf'))).toBe(false)
     expect(existsSync(join(dir, 'Elkészített anyagok', 'level.pdf'))).toBe(true)
-    // a second file of the same name never overwrites: the project copy is trashed and a link stays (Boss TG 3686)
+    // Boss TG 4140: a second file of the same name with OTHER content is ASKED about: nothing moves until the answer.
     writeFileSync(join(dir, 'kesz.pdf'), 'masik')
     const c2 = lifeMoveCandidates(cur, w)
     if (!c2.ok) throw new Error('jeloltek2')
-    const r2 = moveItemFilesToLife(cur, w, [{ rel: c2.files.find((x) => x.name === 'kesz.pdf')!.rel, target: 'Cel' }], 'hu')
+    const rel2 = c2.files.find((x) => x.name === 'kesz.pdf')!.rel
+    const r2 = moveItemFilesToLife(cur, w, [{ rel: rel2, target: 'Cel' }], 'hu')
     if (!r2.ok) throw new Error('mozgatas2')
-    expect(r2.results[0].ok).toBe(true)
+    expect(r2.results[0].ok).toBe(false)
+    expect(r2.results[0].needs_decision).toBe(true)
+    expect(readFileSync(join(dir, 'kesz.pdf'), 'utf8')).toBe('masik')
+    expect(readFileSync(join(depot, 'Cel', 'kesz.pdf'), 'utf8')).toBe('k')
+    // keep_existing: the project copy is trashed, a link stays, the Life-tree file is untouched (the old behaviour)
+    const r3 = moveItemFilesToLife(cur, w, [{ rel: rel2, target: 'Cel', clash: 'keep_existing' } as any], 'hu')
+    if (!r3.ok) throw new Error('mozgatas3')
+    expect(r3.results[0].ok).toBe(true)
     expect(existsSync(join(dir, 'kesz.pdf'))).toBe(false)
     expect(readFileSync(join(depot, 'Cel', 'kesz.pdf'), 'utf8')).toBe('k')
+  })
+
+  it('Boss TG 4140: same name, other content: keep_both gives "name (2)", skip leaves the file, identical bytes need no question', () => {
+    const item = newItem('Wohngeld valasz')
+    const f = ensureWorkItemFolder(item)
+    if (!f.ok) throw new Error('mappa')
+    const dir = join(projDir(), f.folder)
+    writeFileSync(join(dir, 'kesz.pdf'), 'k')
+    const cur = getProject(pid) as ProjectRow
+    const w = getWorkItem(item.id) as any
+    markSentManually(item.id, null)
+    mkdirSync(join(depot, 'Cel'), { recursive: true })
+    writeFileSync(join(depot, 'Cel', 'kesz.pdf'), 'MAS')
+    const c = lifeMoveCandidates(cur, w)
+    if (!c.ok) throw new Error('jeloltek')
+    const rel = c.files.find((x) => x.name === 'kesz.pdf')!.rel
+    const skip = moveItemFilesToLife(cur, w, [{ rel, target: 'Cel', clash: 'skip' } as any], 'hu')
+    if (!skip.ok) throw new Error('skip')
+    expect(skip.results[0].ok).toBe(false)
+    expect(skip.results[0].needs_decision).toBeUndefined()
+    expect(existsSync(join(dir, 'kesz.pdf'))).toBe(true)
+    const both = moveItemFilesToLife(cur, w, [{ rel, target: 'Cel', clash: 'keep_both' } as any], 'hu')
+    if (!both.ok) throw new Error('both')
+    expect(both.results[0].ok).toBe(true)
+    expect(both.results[0].new_rel).toContain('kesz (2).pdf')
+    expect(readFileSync(join(depot, 'Cel', 'kesz.pdf'), 'utf8')).toBe('MAS')
+    expect(existsSync(join(depot, 'Cel', 'kesz (2).pdf'))).toBe(true)
   })
 
   it('#624: a new file in the item root is asked about; yes keeps it (asked once), no moves it to Feltoltesek; own files never', () => {

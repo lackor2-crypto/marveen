@@ -4,7 +4,7 @@
 // #661: the list may carry a SUGGESTED target per file (the inbox sorter's rules: whose, which area, which case), but it
 // is only a suggestion: nothing moves until the owner approves the list, and a row without a target is not moved.
 
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { ProjectRow } from './projects.js'
 import { getDb } from './db.js'
@@ -241,10 +241,15 @@ export function lifeMoveCandidates(project: ProjectRow, item: Pick<WorkItemRow, 
 }
 
 export interface LifeMoveRow { rel: string; target: string }
+/** The owner's answer to a same-name file with other content in the target folder (Boss TG 4140: the system asks). */
+export type ClashAnswer = 'keep_both' | 'keep_existing' | 'skip'
+const CLASH_ANSWERS: ClashAnswer[] = ['keep_both', 'keep_existing', 'skip']
 export interface LifeMoveOutcome {
   rel: string; target: string; ok: boolean; new_rel: string; message: string; trashed?: boolean
   /** #749: the file moved; false = no linked file could be left at its old place (the owner is told), true = it stands there. */
   link_left?: boolean
+  /** Boss TG 4140: a file of this name stands in the target with OTHER content: nothing was done, the owner is asked. */
+  needs_decision?: boolean
 }
 
 /** The files that really moved, as old and new Life-tree path (for re-pointing what referred to the old place). */
@@ -421,15 +426,20 @@ function leaveLinkBehind(oldRel: string, newRel: string, name: string): boolean 
   } catch { return false }
 }
 
-/** True when a file of the same name already stands in the target folder (the bytes do not matter). */
-function sameNameInTarget(rel: string, target: string, name: string): boolean {
+/**
+ * Is a file of the same name already in the target folder? 'same' = identical bytes, 'different' = other content,
+ * null = no clash. Boss TG 4140: identical bytes need no question (nothing is lost), other content is asked about.
+ */
+function sameNameInTarget(rel: string, target: string, name: string): 'same' | 'different' | null {
   try {
     const src = resolveLifePath(rel)
     const dir = resolveLifePath(target)
-    if (!src || !dir) return false
+    if (!src || !dir) return null
     const dst = join(dir, name)
-    return existsSync(dst) && statSync(dst).isFile() && statSync(src).isFile()
-  } catch { return false }
+    if (!(existsSync(dst) && statSync(dst).isFile() && statSync(src).isFile())) return null
+    if (statSync(dst).size !== statSync(src).size) return 'different'
+    return readFileSync(dst).equals(readFileSync(src)) ? 'same' : 'different'
+  } catch { return null }
 }
 
 /**
@@ -457,10 +467,31 @@ export function moveItemFilesToLife(project: ProjectRow, item: PlanItem, rows: u
       continue
     }
     ensureExtraFolderOnce(target)
-    // Boss TG 3686/3697: a file of the same name already stands there (any bytes): the project copy is removed
-    // physically (to the Trash, restorable) and a link to the Life-tree file stays. Never a renamed "(2)" copy,
-    // never an overwrite. No clash: the file moves under its own name.
-    if (sameNameInTarget(rel, target, cand.name)) {
+    // Boss TG 3686/3697: a file of the same name with the SAME bytes: the project copy is removed physically (to the
+    // Trash, restorable) and a link to the Life-tree file stays. Boss TG 4140: with OTHER bytes the owner is asked
+    // (keep both / keep the existing one / skip); without an answer nothing is touched. Never an overwrite.
+    const clash = sameNameInTarget(rel, target, cand.name)
+    const answer = CLASH_ANSWERS.find((a) => a === String((r as any)?.clash ?? ''))
+    if (clash === 'different' && !answer) {
+      results.push({ rel, target, ok: false, needs_decision: true, new_rel: '', message: lang === 'en'
+        ? 'A different file with this name is already there.' : 'Ott már van egy ilyen nevű, de más tartalmú fájl.' })
+      continue
+    }
+    if (clash === 'different' && answer === 'skip') {
+      results.push({ rel, target, ok: false, new_rel: '', message: lang === 'en' ? 'Left where it is, as you decided.' : 'Marad a helyén, ahogy döntöttél.' })
+      continue
+    }
+    if (clash === 'different' && answer === 'keep_both') {
+      const m2 = moveLife(rel, target, lang as any, { keepBoth: true })
+      const o2: LifeMoveOutcome = { rel, target, ok: m2.ok, new_rel: m2.ok ? m2.rel : '', message: m2.ok ? '' : m2.message }
+      results.push(o2)
+      if (m2.ok) {
+        o2.link_left = leaveLinkBehind(rel, m2.rel, cand.name)
+        if (cand.sent_final && cand.item_id) sentMoved.add(cand.item_id)
+      }
+      continue
+    }
+    if (clash) {
       const dest = `${target}/${cand.name}`
       const t = trashLife(rel, lang as any)
       const o: LifeMoveOutcome = { rel, target, ok: t.ok, new_rel: t.ok ? dest : '', message: t.ok ? '' : t.message }
