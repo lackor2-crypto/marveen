@@ -18,6 +18,7 @@
 //
 // Amit ez SZANDEKOSAN nem csinal: nem hoz letre semmit a Google oldalan, es
 // nem masol. A bekotes egy MUTATO -- ha torlod, a fajlok a helyukon maradnak.
+import { clearLifePathCache } from './life-path-cache.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, statSync } from 'node:fs'
 import { join, sep } from 'node:path'
 import { STORE_DIR } from './config.js'
@@ -78,6 +79,7 @@ function load(): Store {
 }
 
 function save(store: Store): void {
+  clearLifePathCache()
   mkdirSync(STORE_DIR, { recursive: true })
   const tmp = `${STORE_PATH}.tmp`
   writeFileSync(tmp, JSON.stringify({ mounts: store.mounts }, null, 2), 'utf8')
