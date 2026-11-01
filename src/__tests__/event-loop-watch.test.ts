@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events'
 import type http from 'node:http'
 import {
   _resetEventLoopWatch, noteLag, noteStallSample, recentStalls, recentStallSamples, trackRequest, watcherPolls,
-  STALL_MS, STALL_SAMPLER_SOURCE, trimStallSampleFile,
+  STALL_MS, STALL_SAMPLER_SOURCE, alertSevereStall, SEVERE_STALL_MS, SEVERE_ALERT_COOLDOWN_MS, trimStallSampleFile,
 } from '../web/event-loop-watch.js'
 
 const fakeRes = () => new EventEmitter() as unknown as http.ServerResponse
@@ -138,5 +138,25 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+// #823 (C): a long freeze reaches the owner, throttled; a short one does not.
+describe('#823 severe stall alert', () => {
+  afterEach(() => _resetEventLoopWatch())
+  it('sends for a long stall, names the requests, and is throttled', async () => {
+    const sent: string[] = []
+    const send = async (t: string) => { sent.push(t) }
+    const s = { at: 1000, lagMs: SEVERE_STALL_MS, inflight: ['POST /api/x'] }
+    expect(await alertSevereStall(s, send)).toBe(true)
+    expect(sent[0]).toContain('POST /api/x')
+    expect(await alertSevereStall({ ...s, at: 2000 }, send)).toBe(false)
+    expect(await alertSevereStall({ ...s, at: 1000 + SEVERE_ALERT_COOLDOWN_MS }, send)).toBe(true)
+    expect(sent.length).toBe(2)
+  })
+  it('does not send for a stall under the limit, and a failing send does not throw', async () => {
+    const send = async () => { throw new Error('x') }
+    expect(await alertSevereStall({ at: 1, lagMs: SEVERE_STALL_MS - 1, inflight: [] }, send)).toBe(false)
+    expect(await alertSevereStall({ at: 5, lagMs: SEVERE_STALL_MS, inflight: [] }, send)).toBe(false)
   })
 })
