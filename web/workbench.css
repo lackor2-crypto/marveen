@@ -2392,7 +2392,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-pending h4 { margin: 0 0 6px; font-size: 14px; }
 
 /* #825: sent mark (empty circle / green tick), deadline badge, sent banner */
-.wb-sent-mark { display: inline-flex; align-items: center; justify-content: center; width: 1.1em; height: 1.1em; margin-right: 4px; border-radius: 50%; border: 2px solid #8a8f98; box-sizing: border-box; font-size: .75em; line-height: 1; vertical-align: -0.1em; flex: none; }
+.wb-sent-mark { display: inline-flex; align-items: center; justify-content: center; width: 1.1em; height: 1.1em; margin-right: 4px; border-radius: 50%; border: 2px solid #8a8f98; box-sizing: border-box; font-size: 1.125em; line-height: 1; vertical-align: -0.25em; flex: none; }
 .wb-sent-mark.wb-sent-yes { background: #1e9e4a; border-color: #1e9e4a; color: #fff; font-weight: 700; }
 .wb-due { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: .85em; font-weight: 600; white-space: nowrap; }
 .wb-due-later { background: #e7e9ee; color: #4a4f58; }
@@ -2408,3 +2408,4 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-answered-chip { display: inline-block; padding: 0 6px; border-radius: 999px; background: #1e9e4a; color: #fff; font-weight: 700; font-size: .95em; white-space: nowrap; }
 .wb-item-row.wb-item-answered { box-shadow: inset 4px 0 0 #1e9e4a; }
 .wb-item-row.wb-item-answered .wb-item-meta { opacity: 1; }
+.wb-answered-chip::first-letter { font-size: 1.5em; line-height: 1; }

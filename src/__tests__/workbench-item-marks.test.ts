@@ -101,3 +101,11 @@ describe('project overview work rows share the tree marks (#826)', () => {
     expect(readFileSync('web/style.css', 'utf8')).toContain('.kanban-work.kanban-work-answered')
   })
 })
+
+describe('green tick size (#826, owner TG 4255: 1.5x bigger)', () => {
+  it('the sent circle and the Answered chip tick are drawn 1.5x larger', () => {
+    const css = readFileSync('web/workbench.css', 'utf8')
+    expect(css).toContain('font-size: 1.125em; line-height: 1; vertical-align: -0.25em')
+    expect(css).toContain('.wb-answered-chip::first-letter { font-size: 1.5em')
+  })
+})
