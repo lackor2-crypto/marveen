@@ -472,7 +472,7 @@ describe('project tree header order (#580, TG 3151)', () => {
 
   it('Favorites is the first row of the tree, right under the project name', async () => {
     const html = await openTree()
-    const tree = html.slice(html.indexOf('wb-blk-tree'), html.indexOf('wb-blk-top'))
+    const tree = html.slice(html.indexOf('wb-blk-tree'))
     const iTitle = tree.indexOf('wb-root-title')
     const iList = tree.indexOf('<ul class="wb-items">')
     const iFav = tree.indexOf('wb-fav-row')
@@ -505,18 +505,18 @@ describe('project tree panel in three separate blocks (#583, TG 3169)', () => {
   function blocksOf(html: string): { tree: string; top: string; foot: string; order: string[] } {
     const sec = html.slice(html.indexOf('<section class="wb-panel wb-panel-items'))
     const panel = sec.slice(0, sec.indexOf('</section>'))
-    const marks = ['wb-blk wb-blk-tree', 'wb-blk wb-blk-top', 'wb-blk wb-blk-foot'].map((m) => panel.indexOf('class="' + m + '"'))
+    const names = ['tree', 'top', 'foot']
+    const marks = names.map((n) => panel.indexOf('class="wb-blk wb-blk-' + n + '"'))
     const order = (panel.match(/class="wb-blk wb-blk-(tree|top|foot)"/g) || []).map((m) => m.replace(/.*wb-blk-|"/g, ''))
-    return {
-      tree: panel.slice(marks[0], marks[1]), top: panel.slice(marks[1], marks[2]), foot: panel.slice(marks[2]),
-      order,
-    }
+    const resc = panel.indexOf('class="wb-blk wb-blk-rescue"')
+    const cut = (i: number) => panel.slice(marks[i], Math.min(...marks.filter((m) => m > marks[i]), resc > 0 ? resc : panel.length))
+    return { tree: cut(0), top: cut(1), foot: cut(2), order }
   }
 
   it('the panel holds exactly three separate blocks: folder tree, Open/Attach/Hide buttons, trash + new work', async () => {
     const { order } = blocksOf(await openPanel())
-    // Boss TG 3201 put the folder tree first; the button block sits below it, the trash block last.
-    expect(order).toEqual(['tree', 'top', 'foot'])
+    // #831 (Boss TG 4361): the buttons and the trash/new-work block are pinned on top, the folder tree scrolls below them.
+    expect(order).toEqual(['top', 'foot', 'tree'])
   })
 
   it('each block holds only its own content (nothing leaks into a neighbouring block)', async () => {
@@ -531,10 +531,11 @@ describe('project tree panel in three separate blocks (#583, TG 3169)', () => {
     for (const c of ['wb-head-open', 'wb-head-attach', 'wb-hide-done']) expect(top).toContain(c)
     for (const c of ['wb-fav-row', 'data-wb-item=', 'wb-trash', 'wb-new-btn']) expect(top).not.toContain(c)
     // Footer block: the Trash and the New work button, nothing of the tree or the buttons above.
-    for (const c of ['wb-trash', 'wb-rescue', 'wb-new-btn']) expect(foot).toContain(c)
+    for (const c of ['wb-trash', 'wb-new-btn']) expect(foot).toContain(c)
+    // #831: the pinned block holds the controls only; the rescue box (when shown) is a block of its own below the tree.
+    expect(foot).not.toContain('wb-rescue')
     // The New work button is the last thing INSIDE the block (the block's closing tag follows it, nothing lies outside).
-    expect(foot.endsWith('</button></div>')).toBe(true)
-    expect(foot.lastIndexOf('wb-new-btn')).toBeGreaterThan(foot.lastIndexOf('wb-rescue'))
+    expect(foot.replace(/<div $/, '').endsWith('</button></div></div>')).toBe(true) // foot closes, then the pinned wrapper
     for (const c of ['wb-fav-row', 'data-wb-item=', 'wb-head-open', 'wb-head-attach', 'wb-hide-done']) expect(foot).not.toContain(c)
   })
 

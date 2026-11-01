@@ -2414,3 +2414,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
    Uploads, Trigger document, Attachments) are quiet, so one cannot mistake a case for a mere sub-folder. */
 /* #829: a clean purple SVG folder (the old recoloured emoji looked smeared). */
 .wb-folder-ico-item { display: inline-block; vertical-align: -0.12em; }
+
+/* #831 (Boss TG 4361): the controls (Open, Attach folder, hide switch, view size, upload, trash, new work item) are pinned
+   to the top of the left panel; the folder tree scrolls underneath. A long block (open trash, new-item form) scrolls
+   inside itself so it can never push the tree out of sight. */
+.wb-panel-items .wb-pin { position: sticky; top: -10px; z-index: 6; margin: -10px -10px 8px; padding: 10px 10px 8px; background: var(--bg-card);
+  border-bottom: 1px solid var(--border); max-height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
