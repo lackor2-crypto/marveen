@@ -49545,7 +49545,11 @@ function _prjEmptyLine(key) {
 /** A work item as a framed, clickable row (same frame as on the Kanban tab). */
 function _prjWorkRowHtml(ov, w) {
   const p = ov.project || {}
-  return workItemBoardHtml({ id: w.id, seq: w.seq, title: w.title, project_id: p.id, project_name: p.name }, false)
+  const html = workItemBoardHtml({ id: w.id, seq: w.seq, title: w.title, project_id: p.id, project_name: p.name }, false)
+  const wbm = window.MarvinWorkbench
+  const badges = wbm && wbm.markBadgesHtml ? wbm.markBadgesHtml(!!w.sent, w.due || null) : ''
+  const cls = w.sent ? ' kanban-work-answered' : ''
+  return badges || cls ? html.replace('<div class="kanban-work"', '<div class="kanban-work' + cls + '"').replace(/<\/button>/, '</button> ' + badges) : html
 }
 
 /** A work item named inside a line of text ("13M Title"): opens it on the

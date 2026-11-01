@@ -89,3 +89,15 @@ describe('one work in several languages counts as one (#794, owner TG 4216/4219)
     expect(m[de].finished).toBe(false)
   })
 })
+
+describe('project overview work rows share the tree marks (#826)', () => {
+  it('the overview carries sent + due from itemMarks and the row draws the shared badges', () => {
+    const ov = readFileSync('src/project-overview.ts', 'utf8')
+    expect(ov).toContain("import { itemMarks } from './workbench-item-marks.js'")
+    expect(ov).toContain('sent: !!marks[r.id]?.sent')
+    const app = readFileSync('web/app.js', 'utf8')
+    expect(app).toContain('wbm.markBadgesHtml(!!w.sent, w.due || null)')
+    expect(readFileSync('web/workbench.js', 'utf8')).toContain('markBadgesHtml: function (sent, due)')
+    expect(readFileSync('web/style.css', 'utf8')).toContain('.kanban-work.kanban-work-answered')
+  })
+})

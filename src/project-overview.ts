@@ -22,6 +22,7 @@
  * Minden ido EZREDMASODPERCBEN megy ki (a kanban masodpercben tarol, a kod-hid
  * ezredben -- itt egysegesitjuk).
  */
+import { itemMarks } from './workbench-item-marks.js'
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getDb, listPendingApprovals } from './db.js'
@@ -59,6 +60,9 @@ export interface OverviewWorkItem {
   /** draft / in_progress / review / done. */
   status: string
   updatedAt: number
+  /** #826: sent mark + nearest open deadline, same rule as the Workbench tree (itemMarks). */
+  sent: boolean
+  due: { date: string; days: number; level: string } | null
 }
 
 export interface WorkClaim { holder: string; kind: string; ref: string | null; since: number }
@@ -190,7 +194,9 @@ function loadWorkItems(projectId: string): OverviewWorkItem[] {
       WHERE project_id = ? AND deleted_at IS NULL
       ORDER BY updated_at DESC`,
   ).all(projectId) as { id: string; seq: number | null; title: string; status: string; updated_at: number }[]
-  return rows.map((r) => ({ id: r.id, seq: r.seq ?? null, title: r.title, status: r.status, updatedAt: toMs(r.updated_at) }))
+  let marks: Record<string, { sent: boolean; due: { date: string; days: number; level: string } | null }> = {}
+  try { marks = itemMarks(projectId) } catch { marks = {} }
+  return rows.map((r) => ({ id: r.id, seq: r.seq ?? null, title: r.title, status: r.status, updatedAt: toMs(r.updated_at), sent: !!marks[r.id]?.sent, due: marks[r.id]?.due ?? null }))
 }
 
 function loadClaims(cardIds: string[], now: number): Map<string, WorkClaim[]> {
