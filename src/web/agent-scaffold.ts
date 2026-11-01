@@ -3457,6 +3457,81 @@ export function ensureGlobalRootCauseFixRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+const ITEMFILES_BEGIN = '<!-- BEGIN GENERATED: workitem-folder-files-rule (auto-generated, do not edit by hand) -->'
+const ITEMFILES_END = '<!-- END GENERATED: workitem-folder-files-rule -->'
+const ITEMFILES_BLOCK_RE = new RegExp(
+  `${ITEMFILES_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${ITEMFILES_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildWorkItemFolderFilesBody(): string {
+  return [
+    '## MUNKADARAB MAPPAJABAN CSAK A KONTEXTUS ES A TEENDO FAJL LEHET -- A TULAJDONOS TORVENYE',
+    '',
+    'Egy munkadarab mappajaba (Munkapad) TILOS barmilyen sajat segedfajlt irni: se "Jogi kontextus",',
+    'se osszefoglalo, se GPT/chat-kivonat, se a dokumentum masolata (docx/md/canvas.json). Itt CSAK a',
+    '"Kontextus - <nev>.md" es a rendszer altal gyartott "Teendo - <nev>.md" fajl lehet. Amit a',
+    'feladatrol tudsz, azt a Kontextus fajlba irod (context.append / context.rewrite), nem uj fajlba.',
+    'A tenylegesen kikuldott kesz anyag az "Elkeszitett anyagok" mappaba megy. Reszletek:',
+    '`workitem-context-file` skill, `marveen-learned-rules` R24.',
+  ].join('\n')
+}
+
+/** Beviszi a szabalyt: munkadarab-mappa-fajlok egy agens sajat CLAUDE.md-jebe. */
+export function ensureWorkItemFolderFilesSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${ITEMFILES_BEGIN}\n${buildWorkItemFolderFilesBody()}\n${ITEMFILES_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = ITEMFILES_BLOCK_RE.test(existing)
+    ? existing.replace(ITEMFILES_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalWorkItemFolderFilesRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${ITEMFILES_BEGIN}\n${buildWorkItemFolderFilesBody()}\n${ITEMFILES_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = ITEMFILES_BLOCK_RE.test(existing)
+    ? existing.replace(ITEMFILES_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 // --- statusLine: the rate-limit snapshot producer ---------------------------
 //
 // scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;

@@ -28,3 +28,6 @@ scope: global
 ## Ellenőrzés
 - `npx vitest run src/__tests__/workbench-item-context.test.ts`
 - Élesben: a munkadarab melletti mappában ott a fájl, a nevében a munkadarab neve.
+
+## Csak két fájl (Boss, TG 4287)
+A munkadarab mappájában CSAK a `Kontextus - <név>.md` és a rendszer gyártotta `Teendő - <név>.md` lehet. Saját segédfájlt (Jogi kontextus, összefoglaló, GPT-kivonat, dokumentum-másolat) tilos írni: a tudás a Kontextusba megy. Lásd `marveen-learned-rules` R24.

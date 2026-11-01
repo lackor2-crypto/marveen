@@ -131,15 +131,11 @@ async function mirrorOutlineToFileCore(itemId: string): Promise<MirrorResult> {
   const project = getProject(item.project_id)
   if (!project) return { ok: false, code: 'no_item' }
   const own = textMirrorTarget(item)
-  let t: { dirAbs: string; dirRel: string }
-  if (own) t = own
-  else {
-    const folder = ensureWorkItemFolder(item)
-    if (!folder.ok) return { ok: false, code: 'no_folder' }
-    const ft = projectFileTarget(project, folder.folder)
-    if (!ft.ok) return { ok: false, code: 'no_folder' }
-    t = ft
-  }
+  // Boss, 2026-11-01 (TG 4287): a plain document lives in the page (the database); NO Word/Markdown copy is written into the
+  // work item folder any more (it was a duplicate next to the Kontextus/Teendo files). The finished material goes to the
+  // finished-materials folder when it is really sent. Only a note / Word file that IS its own source file is kept in sync.
+  if (!own) return { ok: true, file: '', format: 'docx', written: false }
+  const t: { dirAbs: string; dirRel: string } = own
 
   ensureMirrorTable()
   const db = getDb()
