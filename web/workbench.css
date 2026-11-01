@@ -2006,7 +2006,8 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 /* #552: the "hide finalized work" switch above the work items tree. */
 .wb-root .wb-hide-done { display: inline-flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
 .wb-root .wb-hide-done input { margin: 0; }
-.wb-root .wb-item-done .wb-item { opacity: 0.7; }
+/* #829 (Boss TG 4316): only the title fades on a finished item; fading the whole button washed out the green Answered chip */
+.wb-root .wb-item-done .wb-item-title { opacity: 0.7; }
 /* #556: the "finalized" word in the frame's top bar. */
 .wb-fr-final-done { font-size: 0.85rem; white-space: nowrap; }
 .wb-fr-top .wb-fr-final-done { color: #fff; }

@@ -131,3 +131,11 @@ describe('#829 folder kinds in the Workbench tree (owner TG 4294/4304)', () => {
     expect(css).toContain('.wb-folder-row.wb-folder-own .wb-folder-toggle')
   })
 })
+
+describe('Answered chip is not faded on finished items (#829, owner TG 4316)', () => {
+  it('only the title fades; the whole item button must not carry the opacity', () => {
+    const css = readFileSync('web/workbench.css', 'utf8')
+    expect(css).toContain('.wb-root .wb-item-done .wb-item-title { opacity: 0.7; }')
+    expect(css).not.toContain('.wb-root .wb-item-done .wb-item { opacity')
+  })
+})
