@@ -123,9 +123,11 @@ describe('#829 work item folders: only the icon is recoloured (owner TG 4326)', 
   const js = readFileSync('web/workbench.js', 'utf8')
   const css = readFileSync('web/workbench.css', 'utf8')
   it('every folder that holds a work item (also a shared one) gets the recoloured icon; no bold, no size change', () => {
-    expect(js).toContain('itemHolder[x.folder] = true')
+    expect(js).toContain('itemHolder[hf] = true')
+    expect(js).toContain('x.container_folder')
     expect(js).toContain('wb-folder-ico-item')
-    expect(css).toContain('.wb-folder-ico-item { display: inline-block; filter: hue-rotate(')
+    expect(css).toContain('.wb-folder-ico-item { display: inline-block;')
+    expect(css).not.toContain('hue-rotate')
     expect(css).not.toContain('wb-folder-own')
     expect(css).not.toContain('wb-folder-aux')
   })
