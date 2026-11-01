@@ -118,3 +118,16 @@ describe('one Answered form everywhere (#826 follow-up, owner TG 4267)', () => {
     expect(js).not.toContain('wb-trig-answered')
   })
 })
+
+describe('#829 folder kinds in the Workbench tree (owner TG 4294/4304)', () => {
+  const js = readFileSync('web/workbench.js', 'utf8')
+  const css = readFileSync('web/workbench.css', 'utf8')
+  it('the work item folder is marked loud, the system accessory folders quiet', () => {
+    expect(js).toContain('function folderKindClass(f, own)')
+    expect(js).toContain("' wb-folder-own'")
+    expect(js).toContain("' wb-folder-aux'")
+    expect(js).toContain('wb-folder-ico-own')
+    expect(css).toContain('.wb-folder-row.wb-folder-aux .wb-folder-toggle')
+    expect(css).toContain('.wb-folder-row.wb-folder-own .wb-folder-toggle')
+  })
+})

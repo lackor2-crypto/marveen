@@ -2408,3 +2408,11 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-item-row.wb-item-answered { box-shadow: inset 4px 0 0 #1e9e4a; }
 .wb-item-row.wb-item-answered .wb-item-meta { opacity: 1; }
 .wb-answered-chip::first-letter { font-size: 1.5em; line-height: 1; }
+
+/* Boss TG 4294/4304: the folder that holds a work item is loud; the system accessory folders (Agent, Finished materials,
+   Uploads, Trigger document, Attachments) are quiet, so one cannot mistake a case for a mere sub-folder. */
+.wb-fr-panel .wb-folder-row.wb-folder-own .wb-folder-toggle { font-size: 0.95rem; font-weight: 800; padding: 3px 3px; }
+.wb-fr-panel .wb-folder-row.wb-folder-own { box-shadow: inset 5px 0 0 #7c3aed; border-left-width: 1px; padding-top: 2px; padding-bottom: 2px; }
+.wb-folder-row.wb-folder-own .wb-folder-toggle { font-size: 0.95rem; font-weight: 800; }
+.wb-folder-ico-own { font-size: 1.25em; line-height: 1; vertical-align: -0.1em; }
+.wb-folder-row.wb-folder-aux .wb-folder-toggle { font-size: 0.7rem; font-weight: 400; opacity: .75; filter: grayscale(.8); }
