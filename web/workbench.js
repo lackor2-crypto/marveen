@@ -2541,14 +2541,11 @@
       if (g == null) return ''
       return ' style="' + grpVars(g) + '"'
     }
-    // Boss TG 4294/4304: a folder that holds a work item (its OWN folder) stands out; the folders the system adds to it are
-    // quiet accessories. Names are matched in both languages (current and old names).
-    var AUX_FOLDERS = ['agent', 'agentnek', 'for the agent', 'elk\u00e9sz\u00edtett anyagok', 'elk\u00e9sz\u00edtett iratok', 'finished materials', 'finished documents',
-      'felt\u00f6lt\u00e9sek', 'uploads', 'kiv\u00e1lt\u00f3 irat', 'trigger document', 'mell\u00e9kletek', 'attachments', 'vit\u00e1ztat\u00e1s', 'debate']
-    function folderKindClass(f, own) {
-      if (own) return ' wb-folder-own'
-      return AUX_FOLDERS.indexOf(baseOf(f).toLowerCase()) >= 0 ? ' wb-folder-aux' : ''
-    }
+    // Boss TG 4326: EVERY folder that is a work item's folder (also one shared by several items) gets a loud, recoloured
+    // folder ICON; text size and weight stay as they were.
+    var itemHolder = {}
+    ;(WB.items || []).forEach(function (x) { if (x && x.folder) itemHolder[x.folder] = true })
+    function folderKindClass(f) { return itemHolder[f] ? ' wb-folder-holder' : '' }
     function walk(path, depth, grp) {
       // #696 (Boss TG 9643/9650): a work item's own files/sub-items come FIRST, right under it, then its folders -- no
       // folder sits between the work item and its files. (Was: folders first, then the files, TG 2642.)
@@ -2574,10 +2571,10 @@
           if (!collapsed) walk(f, depth + 1, g)
           return
         }
-        rows.push('<li class="wb-folder-row' + folderKindClass(f, !!ownFold[f]) + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
+        rows.push('<li class="wb-folder-row' + folderKindClass(f) + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
-          + (collapsed ? '▸ ' : '▾ ') + (ownFold[f] ? '<span class="wb-folder-ico-own" aria-hidden="true">\ud83d\uddc2\ufe0f</span> ' : '📁 ') + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span>' + folderDueHtml(f) + '</button>'
+          + (collapsed ? '▸ ' : '▾ ') + (itemHolder[f] ? '<span class="wb-folder-ico-item" aria-hidden="true">📁</span> ' : '📁 ') + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span>' + folderDueHtml(f) + '</button>'
           + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="folder-ctx" data-wb-folder="' + escA(f) + '" aria-haspopup="menu"'
             + ' aria-label="' + escA(t('workbench.ctx.more_folder')) + '" title="' + escA(t('workbench.ctx.more_folder')) + '">&#8943;</button>')
           + triggerMarkHtml(f) + folderMenuHtml(f) + '</li>')
