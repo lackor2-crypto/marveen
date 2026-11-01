@@ -1714,14 +1714,14 @@
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
-    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (it.status === 'done' ? ' wb-item-done' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
+    return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (it.status === 'done' ? ' wb-item-done' : '') + (markOf(it.id).sent ? ' wb-item-answered' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
       + (pinned ? '★' : '☆') + '</button>'
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + ' title="' + escA((it.source_path ? baseOf(it.source_path) : it.title) + (archived() ? '' : ' \u2014 ' + t('workbench.ctx.hint'))) + '"' + '>'
       + '<span class="wb-item-title">' + sentMarkHtml(it) + workSeqHtml(it) + '<span class="wb-item-mark" title="' + escA(t('workbench.item.mark_title')) + '">\u25c6</span> ' + esc(it.source_path ? baseOf(it.source_path) : it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
-      + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + (markOf(it.id).due ? ' · ' + dueBadgeHtml(markOf(it.id).due) : '') + (it.source_path ? ' · <span class="wb-own-file" title="' + escA(t('workbench.item.own_file_hint')) + '">' + esc(t('workbench.item.own_file')) + '</span>' : '') + '</span>'
+      + '<span class="wb-item-meta">' + (markOf(it.id).sent ? '<span class="wb-answered-chip" title="' + escA(t('workbench.sent.trigger_hint')) + '">\u2714 ' + esc(t('workbench.sent.trigger_answered')) + '</span> \u00b7 ' : '') + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + (markOf(it.id).due ? ' · ' + dueBadgeHtml(markOf(it.id).due) : '') + (it.source_path ? ' · <span class="wb-own-file" title="' + escA(t('workbench.item.own_file_hint')) + '">' + esc(t('workbench.item.own_file')) + '</span>' : '') + '</span>'
       + '</button>'
       // Phones have no right-click, and iOS Safari fires no contextmenu on a long press: a small "..." button
       // (shown only on touch / narrow screens by the CSS) opens the same menu.

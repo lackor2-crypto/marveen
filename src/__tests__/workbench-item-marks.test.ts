@@ -35,6 +35,12 @@ describe('tree draws the marks (#825, source contract)', () => {
     expect(js).toContain('+ sentBannerHtml(it)')
     expect(js).toContain('workbench.sent.trigger_answered')
   })
+  it('a sent work item row says Answered in words and carries the green bar (#825 follow-up, owner TG 4237)', () => {
+    expect(js).toContain("(markOf(it.id).sent ? ' wb-item-answered' : '')")
+    expect(js).toContain('class="wb-answered-chip"')
+    const css = readFileSync('web/workbench.css', 'utf8')
+    expect(css).toContain('.wb-item-row.wb-item-answered { box-shadow: inset 4px 0 0 #1e9e4a; }')
+  })
   it('both languages carry the keys', () => {
     for (const f of ['web/lang/hu.js', 'web/lang/en.js']) {
       const s = readFileSync(f, 'utf8')
