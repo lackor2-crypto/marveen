@@ -2,10 +2,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { initDatabase, getDb } from '../db.js'
-import { createProject, listProjects, URGENT_DAYS } from '../projects.js'
+import { createProject, listProjects, registerSentItemsSource, URGENT_DAYS } from '../projects.js'
 import { addTodo } from '../workbench-todos.js'
 import { createWorkItem, setWorkItemDeleted } from '../workbench.js'
 import { markSentManually } from '../workbench-docsent.js'
+import { itemMarks } from '../workbench-item-marks.js'
 
 function day(offset: number): string {
   const d = new Date()
@@ -80,6 +81,7 @@ describe('urgent to-dos follow the sent mark (#832, owner TG 4370)', () => {
       if (!w.ok) throw new Error(w.code)
       return (w as { item: { id: string } }).item.id
     }
+    registerSentItemsSource((pid) => new Set(Object.entries(itemMarks(pid)).filter(([, m]) => m.sent).map(([id]) => id))) // the web server registers the same one
     const a = mkItem('Munkadarabok/a')
     const b = mkItem('Munkadarabok/b')
     addTodo({ work_item_id: a, text: 'x', due_date: day(-2) })

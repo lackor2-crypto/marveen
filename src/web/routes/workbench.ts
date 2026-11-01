@@ -50,7 +50,7 @@ import { executeTool, runTool } from '../../workbench-agent/execute.js'
 import { getTool, decideTool } from '../../workbench-agent/tools.js'
 import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
-import { getProject } from '../../projects.js'
+import { getProject, registerSentItemsSource } from '../../projects.js'
 import {
   ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, setWorkItemNoTrigger, listDeletedWorkItems, setWorkItemDeleted, setWorkItemTypePresentation, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
@@ -191,6 +191,9 @@ import {
 } from '../../workbench-assets.js'
 import { annexNeedsLifeMove } from '../../workbench-annex-guard.js'
 import type { RouteContext } from './types.js'
+
+// #832: the project chooser's urgent badge uses the same "a sent item shows no deadline" rule as the tree.
+registerSentItemsSource((projectId) => new Set(Object.entries(itemMarks(projectId)).filter(([, m]) => m.sent).map(([id]) => id)))
 
 /** The tree marks (sent / nearest deadline) must never break the list itself: on a failure the tree simply draws without them. */
 function safeItemMarks(projectId: string): Record<string, ItemMark> {

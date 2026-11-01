@@ -28,7 +28,6 @@
  */
 import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
-import { itemMarks } from './workbench-item-marks.js'
 
 export const PROJECT_STATUSES = ['active', 'paused', 'closed'] as const
 export type ProjectStatus = typeof PROJECT_STATUSES[number]
@@ -275,6 +274,11 @@ export function projectNameMap(): Record<string, { name: string; archived: boole
   return out
 }
 
+/** #832: which work items of a project count as SENT. Registered by workbench-item-marks.ts (it cannot be imported
+ *  here: it pulls in workbench.ts, which reaches back to this module). Unregistered = nothing counts as sent. */
+let sentItemsOf: ((projectId: string) => Set<string>) | null = null
+export function registerSentItemsSource(fn: (projectId: string) => Set<string>): void { sentItemsOf = fn }
+
 const STATUS_ORDER: Record<string, number> = { active: 0, paused: 1, closed: 2 }
 
 export function listProjects(opts: { includeArchived?: boolean } = {}): ProjectWithStats[] {
@@ -301,11 +305,11 @@ export function listProjects(opts: { includeArchived?: boolean } = {}): ProjectW
   ).all(...(hasTodos ? [urgentLimit, urgentLimit] : [])) as (ProjectRow & { open_cards: number; live_cards: number; last_card_at: number | null; last_comment_at: number | null; urgent_todos: number; urgent_next_due: string | null })[]
   // #832 (owner TG 4370): a SENT work item shows no deadline (itemMarks: sending it answered the trigger document), so its
   // open to-dos must not count in the badge either -- the badge and the project's Next steps list use one rule.
-  if (hasTodos) {
+  if (hasTodos && sentItemsOf) {
     for (const r of rows) {
       if (!r.urgent_todos) continue
       let sent: Set<string>
-      try { sent = new Set(Object.entries(itemMarks(r.id)).filter(([, m]) => m.sent).map(([id]) => id)) } catch { continue }
+      try { sent = sentItemsOf(r.id) } catch { continue }
       if (!sent.size) continue
       const todos = db.prepare(
         `SELECT t.work_item_id AS id, t.due_date AS due FROM work_item_todos t JOIN projects p ON p.id = t.project_id WHERE p.id = ? AND ${urgentWhere}`,
