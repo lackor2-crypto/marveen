@@ -3091,7 +3091,8 @@
       hideSw = hideSwitchHtml()
       body = (WB.items.length ? '' : emptyHintHtml()) + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
-    var foot = treeUploadHtml() + trashHtml() + rescueHtml()
+    var foot = treeUploadHtml() + trashHtml()
+    var rescue = rescueHtml()
     var newBtn = ''
     var rest = ''
     // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
@@ -3107,7 +3108,9 @@
     // Boss TG 3169: three separate blocks, folder tree first (TG 3201): (1) the folder tree, (2) the buttons + the hide switch, (3) trash / rescue / new work.
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
       // Boss TG 3235: the project's name is a header of its own, on its own background, on TOP of the folder tree.
-      + '<div class="wb-blk wb-blk-tree"><div class="wb-blk-title">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>') + '</div>' + body + '</div>'
+      // #831 (Boss TG 4361): the controls (Open, Attach folder, hide switch, view size, upload, trash, new work item) are
+      // PINNED to the top of the panel; the folder tree scrolls underneath them.
+      + '<div class="wb-pin">'
       + '<div class="wb-blk wb-blk-top">'
       + '<div class="wb-panel-head">'
       // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
@@ -3118,6 +3121,9 @@
       + hideSw + filesViewSelectHtml()
       + '</div>'
       + '<div class="wb-blk wb-blk-foot">' + foot + newBtn + '</div>'
+      + '</div>'
+      + '<div class="wb-blk wb-blk-tree"><div class="wb-blk-title">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>') + '</div>' + body + '</div>'
+      + (rescue ? '<div class="wb-blk wb-blk-rescue">' + rescue + '</div>' : '')
       + rest
       + '</section>'
   }

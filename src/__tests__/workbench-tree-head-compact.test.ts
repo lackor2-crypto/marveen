@@ -38,7 +38,8 @@ describe('workbench tree header compact (#580)', () => {
     const tree = js.indexOf('<div class="wb-blk wb-blk-tree"><div class="wb-blk-title">')
     const top = js.indexOf("'<div class=\"wb-blk wb-blk-top\">'")
     expect(tree).toBeGreaterThan(0)
-    expect(top).toBeGreaterThan(tree)
+    expect(top).toBeGreaterThan(0)
+    expect(js.indexOf('<div class="wb-pin">')).toBeLessThan(tree) // #831: the pinned controls come first, the tree scrolls below
     const head = js.slice(js.indexOf('<div class="wb-panel-head">', top), js.indexOf("+ hideSw", top))
     expect(head).not.toContain('WB.rootHead')
     const title = js.slice(js.indexOf('function frPanelTitleHtml'), js.indexOf('function frPanelHtml'))
