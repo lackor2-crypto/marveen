@@ -2412,4 +2412,5 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 
 /* Boss TG 4294/4304: the folder that holds a work item is loud; the system accessory folders (Agent, Finished materials,
    Uploads, Trigger document, Attachments) are quiet, so one cannot mistake a case for a mere sub-folder. */
-.wb-folder-ico-item { display: inline-block; filter: hue-rotate(200deg) saturate(8) brightness(1.1) drop-shadow(0 0 3px #7c3aed); }
+/* #829: a clean purple SVG folder (the old recoloured emoji looked smeared). */
+.wb-folder-ico-item { display: inline-block; vertical-align: -0.12em; }

@@ -2544,7 +2544,7 @@
     // Boss TG 4326: EVERY folder that is a work item's folder (also one shared by several items) gets a loud, recoloured
     // folder ICON; text size and weight stay as they were.
     var itemHolder = {}
-    ;(WB.items || []).forEach(function (x) { if (x && x.folder) itemHolder[x.folder] = true })
+    ;(WB.items || []).forEach(function (x) { var hf = x && (x.folder || x.container_folder); if (hf) itemHolder[hf] = true })
     function folderKindClass(f) { return itemHolder[f] ? ' wb-folder-holder' : '' }
     function walk(path, depth, grp) {
       // #696 (Boss TG 9643/9650): a work item's own files/sub-items come FIRST, right under it, then its folders -- no
@@ -2574,7 +2574,7 @@
         rows.push('<li class="wb-folder-row' + folderKindClass(f) + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
-          + (collapsed ? '▸ ' : '▾ ') + (itemHolder[f] ? '<span class="wb-folder-ico-item" aria-hidden="true">📁</span> ' : '📁 ') + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span>' + folderDueHtml(f) + '</button>'
+          + (collapsed ? '▸ ' : '▾ ') + (itemHolder[f] ? '<span class="wb-folder-ico-item" aria-hidden="true"><svg class="wb-folder-svg" viewBox="0 0 24 20" width="1.15em" height="1em" aria-hidden="true"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2H9l2 2.5h10.5A1.5 1.5 0 0 1 23 6v11.5a1.5 1.5 0 0 1-1.5 1.5h-19A1.5 1.5 0 0 1 1 17.5z" fill="#7c3aed" stroke="#4c1d95" stroke-width="1.2"/><path d="M1 8h22" stroke="#c4b5fd" stroke-width="1"/></svg></span> ' : '📁 ') + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span>' + folderDueHtml(f) + '</button>'
           + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="folder-ctx" data-wb-folder="' + escA(f) + '" aria-haspopup="menu"'
             + ' aria-label="' + escA(t('workbench.ctx.more_folder')) + '" title="' + escA(t('workbench.ctx.more_folder')) + '">&#8943;</button>')
           + triggerMarkHtml(f) + folderMenuHtml(f) + '</li>')
