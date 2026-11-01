@@ -198,7 +198,9 @@ describe('K-1.35 kitakaras-proba (szoveges + szkennelt oldal)', () => {
     expect(text).toContain('Die Klage wird abgewiesen')
     expect(text).toMatch(/17\. M.rz 2027/)
     // 2. A PDF belso objektumai es 3. metaadatai: a nyers fajlban sincs.
-    const raw = readFileSync(out)
+    // The xref table ("0000010115 00000 n") and startxref hold byte OFFSETS: a short number like 10115 can appear there
+    // by pure chance when the file layout shifts (red on CI 2026-11-01). They are structure, not content: blank them out.
+    const raw = Buffer.from(readFileSync(out).toString('latin1').replace(/\d{10} \d{5} [nf]/g, '').replace(/startxref\s+\d+/g, 'startxref'), 'latin1')
     for (const s of SECRETS) expect(rawContains(raw, s), s).toBe(false)
     const info = execFileSync('pdfinfo', [out], { encoding: 'utf8' })
     expect(info).not.toMatch(/Kov/)
