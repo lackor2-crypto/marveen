@@ -163,6 +163,35 @@ if git diff -U0 "$MAIN_REF"...HEAD -- src 2>/dev/null | grep -E '^\+' | grep -vE
   echo "land-pr: ======================================================================" >&2
 fi
 
+# #823 (Boss TG 4151/4154): egy "fix" commit teszt nelkul nem landolhat. A javitas zara a regresszios teszt: ha a
+# javitast valaki visszaalitja, a teszt bukik es a CI nem engedi be. A kapu a landolando commitokon megy vegig, es
+# CSAK a "fix" kezdetu cimu commitot nezi: a commit sajat fajljai kozott kell egy *.test.* fajl.
+# Kivetel (kimondott indokkal, a PR-leirasba kerul): LAND_PR_FIX_WITHOUT_TEST="miert nem tesztelheto".
+NOTEST_FIXES=""
+while IFS= read -r c; do
+  [ -n "$c" ] || continue
+  if ! git show --name-only --format= "$c" 2>/dev/null | grep -q '\.test\.'; then
+    NOTEST_FIXES="$NOTEST_FIXES$(git show -s --format='  %h %s' "$c" | cut -c1-150)"$'\n'
+  fi
+done < <(git log --no-merges --format='%h' --grep='^fix' "$MAIN_REF"..HEAD 2>/dev/null)
+if [ -n "$NOTEST_FIXES" ]; then
+  if [ -n "${LAND_PR_FIX_WITHOUT_TEST:-}" ]; then
+    echo "land-pr: figyelem: teszt nelkuli javitas, kimondott indokkal: $LAND_PR_FIX_WITHOUT_TEST" >&2
+    BODY="${BODY:+$BODY
+
+}Teszt nelkuli javitas, indok: $LAND_PR_FIX_WITHOUT_TEST"
+  else
+    echo "land-pr: ======================================================================" >&2
+    echo "land-pr: TESZT NELKULI JAVITAS -- ezek a 'fix' commitok nem erintenek tesztfajlt:" >&2
+    printf '%s' "$NOTEST_FIXES" >&2
+    echo "land-pr: A javitas zara a regresszios teszt (ha visszaallitjak, bukjon). Irj" >&2
+    echo "land-pr: hozza tesztet (src/__tests__/), commitold, futtasd ujra. Ha tenyleg nem" >&2
+    echo "land-pr: tesztelheto: LAND_PR_FIX_WITHOUT_TEST=\"indok\" scripts/land-pr.sh ..." >&2
+    echo "land-pr: ======================================================================" >&2
+    die "teszt nelkuli 'fix' commit, ezert NEM pusholok."
+  fi
+fi
+
 # --- 0. gyors lokalis tipusellenorzes a push ELOTT -----------------------------
 # A pre-push kapu a feature-branch push-t atengedi (csak main/master push-nal fut),
 # ezert a gyors, determinisztikus tipushiba-szurest ITT vegezzuk el: egy elgepelt
