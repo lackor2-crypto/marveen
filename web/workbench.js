@@ -420,6 +420,7 @@
       WB.error = null
       WB.project = r.data.project
       WB.items = r.data.items || []
+      WB.itemMarks = r.data.item_marks || {}
       WB.deleted = r.data.deleted || []
       if (WB.fileTrashPid !== projectId) { WB.fileTrash = []; WB.fileTrashPid = projectId }
       WB.workFolders = r.data.work_folders || null
@@ -444,11 +445,13 @@
       if (WB.projectId !== pid || !r.ok || !r.data) return
       var wf = r.data.work_folders || null
       var items = r.data.items || WB.items
+      var marks = r.data.item_marks || WB.itemMarks || {}
       if (quiet) {
-        try { if (JSON.stringify(wf) === JSON.stringify(WB.workFolders) && JSON.stringify(items) === JSON.stringify(WB.items)) return } catch (e) { /* draw */ }
+        try { if (JSON.stringify(wf) === JSON.stringify(WB.workFolders) && JSON.stringify(items) === JSON.stringify(WB.items) && JSON.stringify(marks) === JSON.stringify(WB.itemMarks || {})) return } catch (e) { /* draw */ }
       }
       WB.workFolders = wf
       WB.items = items
+      WB.itemMarks = marks
       announceFolderMoves(r.data.folder_moves, r.data.work_folders)
       render()
     })
@@ -515,7 +518,8 @@
     var it = (WB.items || []).filter(function (x) { return x.folder === parent || (!x.folder && x.container_folder === parent) })[0]
     if (!it) return ''
     var on = it.no_trigger === 1
-    return '<label class="wb-trig-mark" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap;font-size:11px;font-weight:400;margin-left:6px;vertical-align:middle" title="' + escA(t('workbench.trigger.hint')) + '">'
+    var answered = markOf(it.id).sent ? ' <span class="wb-trig-answered" title="' + escA(t('workbench.sent.trigger_hint')) + '"><span class="wb-sent-mark wb-sent-yes" aria-hidden="true">\u2714</span> ' + esc(t('workbench.sent.trigger_answered')) + '</span>' : ''
+    return answered + '<label class="wb-trig-mark" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap;font-size:11px;font-weight:400;margin-left:6px;vertical-align:middle" title="' + escA(t('workbench.trigger.hint')) + '">'
       + '<input type="checkbox" data-wb-act="item-no-trigger" data-wb-id="' + escA(it.id) + '"' + (on ? ' checked' : '') + (archived() ? ' disabled' : '') + '> '
       + esc(t('workbench.trigger.none')) + '</label>'
       + (on ? ' <span class="wb-trig-x" role="img" aria-label="' + escA(t('workbench.trigger.x_label')) + '" title="' + escA(t('workbench.trigger.x_hint')) + '" style="color:#d33;font-weight:700;font-size:11px">\u2716</span>' : '')
@@ -1668,6 +1672,42 @@
   /** The inline style of a tinted row: the colour and how strongly it shows (the dark item tint is stronger). */
   function grpVars(g) { return '--wb-grp: ' + grpHsl(g) + '; --wb-grp-a: ' + (g < 0 ? '40%' : '24%') + '; --wb-grp-a-on: ' + (g < 0 ? '46%' : '30%') }
 
+  // #825 (owner TG 4183/4189): every work item shows whether it went out -- an EMPTY circle = not sent, a green tick = sent --
+  // and, while it is open, how close its nearest deadline is. Both come from the server (item_marks); the colour is never
+  // the only signal (a word or a date always sits next to it).
+  function markOf(id) { return (WB.itemMarks && WB.itemMarks[id]) || { sent: false, due: null } }
+  function sentMarkHtml(it) {
+    var sent = markOf(it.id).sent
+    var label = t(sent ? 'workbench.sent.yes' : 'workbench.sent.no')
+    return '<span class="wb-sent-mark ' + (sent ? 'wb-sent-yes' : 'wb-sent-no') + '" role="img" aria-label="' + escA(label) + '" title="' + escA(label) + '">' + (sent ? '\u2714' : '') + '</span>'
+  }
+  function dueWord(d) {
+    if (d.level === 'overdue') return t('workbench.due.overdue', { n: Math.abs(d.days) })
+    if (d.level === 'today') return t('workbench.due.today')
+    return t('workbench.due.in', { n: d.days })
+  }
+  function dueBadgeHtml(d, extra) {
+    if (!d) return ''
+    var txt = dueWord(d)
+    return '<span class="wb-due wb-due-' + d.level + '" title="' + escA(t('workbench.due.title', { date: d.date })) + '">' + (extra ? esc(extra) + ' ' : '') + esc(txt) + '</span>'
+  }
+  /** The big strip at the top of an item: green "Sent" with the date once it went out (the trigger document is answered);
+   *  a finalized item that did not go out yet says so and offers the one click that records it (the owner's own mark). */
+  function sentBannerHtml(it) {
+    var m = markOf(it.id)
+    if (m.sent) {
+      return '<div class="wb-sent-banner wb-sent-banner-yes" role="status"><span class="wb-sent-mark wb-sent-yes" aria-hidden="true">\u2714</span> '
+        + '<strong>' + esc(t('workbench.sent.banner')) + '</strong>' + (m.sent_on ? ' \u00b7 ' + esc(m.sent_on) : '') + ' \u00b7 ' + esc(t('workbench.sent.banner_answered')) + '</div>'
+    }
+    if (it.status === 'done' && !archived()) {
+      return '<div class="wb-sent-banner wb-sent-banner-no" role="status"><span class="wb-sent-mark wb-sent-no" aria-hidden="true"></span> '
+        + esc(t('workbench.sent.banner_unsent')) + ' <button type="button" class="btn-secondary btn-compact" data-wb-act="item-sent-ask" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.sent.mark_btn')) + '</button></div>'
+    }
+    return ''
+  }
+  var DUE_RANK = { overdue: 0, today: 1, soon: 2, later: 3 }
+  function moreUrgent(a, b) { return !a ? b : !b ? a : (DUE_RANK[b.level] < DUE_RANK[a.level] || (DUE_RANK[b.level] === DUE_RANK[a.level] && b.days < a.days)) ? b : a }
+
   function itemRowHtml(it, depth, grp) {
     var on = it.id === WB.selectedId
     // A csillag KULON gomb a sorban (gombba gomb nem agyazhato), es nem
@@ -1680,8 +1720,8 @@
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
       + (pinned ? '★' : '☆') + '</button>'
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + ' title="' + escA((it.source_path ? baseOf(it.source_path) : it.title) + (archived() ? '' : ' \u2014 ' + t('workbench.ctx.hint'))) + '"' + '>'
-      + '<span class="wb-item-title">' + workSeqHtml(it) + '<span class="wb-item-mark" title="' + escA(t('workbench.item.mark_title')) + '">\u25c6</span> ' + esc(it.source_path ? baseOf(it.source_path) : it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
-      + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + (it.source_path ? ' · <span class="wb-own-file" title="' + escA(t('workbench.item.own_file_hint')) + '">' + esc(t('workbench.item.own_file')) + '</span>' : '') + '</span>'
+      + '<span class="wb-item-title">' + sentMarkHtml(it) + workSeqHtml(it) + '<span class="wb-item-mark" title="' + escA(t('workbench.item.mark_title')) + '">\u25c6</span> ' + esc(it.source_path ? baseOf(it.source_path) : it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
+      + '<span class="wb-item-meta">' + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + (markOf(it.id).due ? ' · ' + dueBadgeHtml(markOf(it.id).due) : '') + (it.source_path ? ' · <span class="wb-own-file" title="' + escA(t('workbench.item.own_file_hint')) + '">' + esc(t('workbench.item.own_file')) + '</span>' : '') + '</span>'
       + '</button>'
       // Phones have no right-click, and iOS Safari fires no contextmenu on a long press: a small "..." button
       // (shown only on touch / narrow screens by the CSS) opens the same menu.
@@ -2427,19 +2467,28 @@
     // are all hidden go with them.
     var hideOn = !!WB.hideDone
     // Boss TG 8804 ("hiding means hiding"): no exception -- not for the item that is open, not for a favourite.
-    function itHidden(it) { return hideOn && it.status === 'done' }
+    // #825: a work item leaves the tree only when it is finalized AND went out (the owner's mark): a finalized one that is
+    // still unsent is the next thing to do, so it stays (with its empty circle).
+    function itHidden(it) { return hideOn && it.status === 'done' && markOf(it.id).sent }
     var hideMemo = {}
+    // #825 (owner TG 4189): the folders an item brings along (its own folder and what is under it: Elk\u00e9sz\u00edtett anyagok,
+    // Felt\u00f6lt\u00e9sek, Kiv\u00e1lt\u00f3 irat ...) belong to that item. While the item is hidden they neither keep the folder in the tree
+    // (loose files, empty subfolders) nor count as something still to do: the whole branch goes with the finished, sent item.
+    var hiddenPlaces = []
+    items.forEach(function (it) { if (itHidden(it) && place[it.id] && place[it.id] !== box) hiddenPlaces.push(place[it.id]) })
+    function belongsHidden(path) { return hiddenPlaces.some(function (hp) { return path === hp || path.indexOf(hp + '/') === 0 }) }
     function hideInfo(path) {
       if (hideMemo[path]) return hideMemo[path]
       var own = byPlace[path] || []
       var ownHid = own.filter(itHidden).length
       var ownVis = own.length - ownHid
       var loose = (plainFiles[path] || []).length
-      var info = { hid: ownHid, vis: ownVis > 0 || (!own.length && loose > 0), shut: false }
+      var info = { hid: ownHid, vis: ownVis > 0 || (loose > 0 && !belongsHidden(path)), shut: false }
       ;(kids[path] || []).forEach(function (k) {
         var ki = hideInfo(k)
         info.hid += ki.hid
-        if (!ki.gone) info.vis = true
+        // an empty subfolder, or one that only holds a hidden item's own things, is not "something still shown"
+        if (!ki.gone && ki.vis) info.vis = true
       })
       info.gone = hideOn && info.hid > 0 && !info.vis
       hideMemo[path] = info
@@ -2458,8 +2507,22 @@
       ;(kids[path] || []).forEach(function (k) { if (!folderGone(k)) n += count(k) })
       return n
     }
+    // #825: a folder shows the most urgent open deadline anywhere under it (the project card's "3 urgent", but inside).
+    var dueMemo = {}
+    function folderDue(path) {
+      if (path in dueMemo) return dueMemo[path]
+      var best = null
+      ;(byPlace[path] || []).forEach(function (it) { if (!itHidden(it)) best = moreUrgent(best, markOf(it.id).due) })
+      ;(kids[path] || []).forEach(function (k) { if (!folderGone(k)) best = moreUrgent(best, folderDue(k)) })
+      dueMemo[path] = best
+      return best
+    }
+    function folderDueHtml(path) {
+      var d = folderDue(path)
+      return d && d.level !== 'later' ? ' ' + dueBadgeHtml(d) : ''
+    }
     var hiddenTotal = hideOn ? hideInfo(box).hid : 0
-    var doneTotal = items.filter(function (it) { return it.status === 'done' && byPlace[place[it.id]] && byPlace[place[it.id]].indexOf(it) >= 0 }).length
+    var doneTotal = items.filter(function (it) { return it.status === 'done' && markOf(it.id).sent && byPlace[place[it.id]] && byPlace[place[it.id]].indexOf(it) >= 0 }).length
     WB.hideSwitch = { on: hideOn, hidden: hiddenTotal, done: doneTotal }
     function nameCmp(a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) }
     var rows = []
@@ -2500,7 +2563,7 @@
         rows.push('<li class="wb-folder-row' + (g != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + groupStyle(g) + ' data-wb-drop-folder="' + escA(f) + '"' + (archived() ? '' : ' draggable="true" data-wb-drag-folder="' + escA(f) + '" data-wb-ctx-folder="' + escA(f) + '" title="' + escA(t('workbench.ctx.hint')) + '"') + '>'
           + '<button type="button" class="wb-folder-toggle" data-wb-act="folder-fold" data-wb-folder="' + escA(f) + '" aria-expanded="' + (!collapsed) + '"'
           + ' title="' + escA(t(collapsed ? 'workbench.folder.expand' : 'workbench.folder.collapse')) + '">'
-          + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span></button>'
+          + (collapsed ? '▸ ' : '▾ ') + '📁 ' + esc(baseOf(f)) + ' <span class="wb-muted">(' + count(f) + ')</span>' + folderDueHtml(f) + '</button>'
           + (archived() ? '' : '<button type="button" class="wb-item-more" data-wb-act="folder-ctx" data-wb-folder="' + escA(f) + '" aria-haspopup="menu"'
             + ' aria-label="' + escA(t('workbench.ctx.more_folder')) + '" title="' + escA(t('workbench.ctx.more_folder')) + '">&#8943;</button>')
           + triggerMarkHtml(f) + folderMenuHtml(f) + '</li>')
@@ -2510,7 +2573,7 @@
     // Items directly in the box come first, then the folders would clutter -- keep folders first, items after.
     var favsAll = items.filter(function (it) { return it.pinned_at != null })
     // #552 follow-up: a finalized favourite is hidden too while the switch is on (it comes back when it is off).
-    var favs = favsAll.filter(function (it) { return !(WB.hideDone && it.status === 'done') })
+    var favs = favsAll.filter(function (it) { return !itHidden(it) })
     // #563 (Boss TG 8941): among the favourites the live work stands on top, the finalized (greyed) ones under it; each
     // group keeps the order it had. Only here -- the folder tree keeps its own order.
     favs = favs.filter(function (it) { return it.status !== 'done' }).concat(favs.filter(function (it) { return it.status === 'done' }))
@@ -9974,6 +10037,7 @@
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         // #556: Finalize / Reopen in the head of the item, for every kind (it used to sit only at the very bottom).
         + finalizeTopHtml(it, 'btn-secondary btn-compact') + '</div>'
+        + sentBannerHtml(it)
         + noteFinalPanelHtml()
         + outlineHtml()
         + (WB.compare && WB.compare.itemId === WB.selectedId
@@ -10722,6 +10786,7 @@
             window.showToast(r.message || t('workbench.lifemove.failed')); return
           }
           window.showToast(t('workbench.lifemove.gate_marked'))
+          refreshTree()
           if (row.parentNode) row.parentNode.removeChild(row)
           finish()
           if (WB.open && WB.selectedId === it.id) loadDetail(it.id)
@@ -20539,7 +20604,7 @@
     // The zoom bar is no longer inside this column: it sits slim at the very bottom of the frame
     // (frameHtml), so the content above gets the room (Boss, TG 2252/2258).
     WB.frShowBar = !(isVid || tbl)
-    return '<div class="wb-fr-center' + (isVid ? ' wb-fr-center-vid' : '') + '">' + noteFinalPanelHtml() + (isVid ? tpBesideHtml(main + strip) : main + strip) + '</div>'
+    return '<div class="wb-fr-center' + (isVid ? ' wb-fr-center-vid' : '') + '">' + (it ? sentBannerHtml(it) : '') + noteFinalPanelHtml() + (isVid ? tpBesideHtml(main + strip) : main + strip) + '</div>'
   }
 
   /** Alul: nagyitas, oldalszam. */
@@ -21622,6 +21687,7 @@
     }
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'files-view') { setFilesView(act.getAttribute('data-wb-fv')) }
+    else if (a === 'item-sent-ask') { var sid = act.getAttribute('data-wb-id'); var sit = (WB.items || []).filter(function (x) { return x.id === sid })[0]; if (sit) sentAsk([{ id: sit.id, title: sit.title }], t('workbench.sent.ask_intro')) }
     else if (a === 'hide-done') { WB.hideDone = !WB.hideDone; writePref('wb.hide.done', WB.hideDone ? '1' : '0'); render() }
     else if (a === 'folder-fold') {
       var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.foldShut(ff)

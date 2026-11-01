@@ -98,6 +98,9 @@ describe('#552 finalize / reopen: the server', () => {
   })
 })
 
+// #825: the tree hides a work item only when it is finalized AND sent; the server says which ones went out (item_marks).
+const sentMarks = (list: { id: string; status: string }[]) => Object.fromEntries(list.map((i) => [i.id, { sent: i.status === 'done', sent_on: null, due: null }]))
+
 describe('#552 hide finalized work: the tree', () => {
   const box = 'Munkadarabok'
   const item = (id: string, title: string, folder: string, status = 'draft') => ({
@@ -117,7 +120,7 @@ describe('#552 hide finalized work: the tree', () => {
   function open(storage: Record<string, string> = {}) {
     const h = workbenchHarness({ storage })
     h.respond((url) => {
-      if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(items), work_folders: { box, folders, truncated: false } } }
+      if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(items), item_marks: sentMarks(items), work_folders: { box, folders, truncated: false } } }
       if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: items.find((i) => url.includes('/items/' + i.id)) || items[0], versions: [], parts: [], approval: null } }
       if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos: [] } }
       return { status: 200, body: {} }
@@ -154,14 +157,15 @@ describe('#552 hide finalized work: the tree', () => {
   // Context / To-do notes stay with it, and the item itself is still gone.
   it('on: a folder that stays shows its own loose files, the finalized item stays hidden', async () => {
     const f = `${box}/Level`
-    const its = [item('lv', 'Level', f, 'done'), item('other', 'Mas', `${box}/Vegyes`, 'in_progress')]
+    // #825: the folder stays because an OPEN item lives below it (not because of loose files, which belong to the hidden item).
+    const its = [item('lv', 'Level', f, 'done'), item('keep', 'Nyitott al', `${f}/Mellekletek`, 'in_progress'), item('other', 'Mas', `${box}/Vegyes`, 'in_progress')]
     const wf = {
       box, folders: [f, `${f}/Mellekletek`, `${box}/Vegyes`], truncated: false,
       files: { [f]: [{ name: 'Kontextus - Level.md', size: 1, rel: 'x/Kontextus - Level.md' }], [`${f}/Mellekletek`]: [{ name: 'K1.pdf', size: 1, rel: 'x/K1.pdf' }] },
     }
     const h = workbenchHarness({ storage: { 'wb.hide.done': '1' } })
     h.respond((url) => {
-      if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(its), work_folders: wf } }
+      if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(its), item_marks: sentMarks(its), work_folders: wf } }
       if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: its[1], versions: [], parts: [], approval: null } }
       if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos: [] } }
       return { status: 200, body: {} }
@@ -172,6 +176,33 @@ describe('#552 hide finalized work: the tree', () => {
     expect(t).toContain(`data-wb-folder="${f}"`)
     expect(t).toContain('Kontextus - Level.md')
     expect(t).not.toContain('data-wb-item="lv"')
+  })
+
+  // #825 (owner TG 4189): finalized but NOT sent is the next thing to do -- it stays (empty circle); sent leaves with its folder.
+  it('a finalized item that was not sent stays with an empty circle; the sent one and its folder leave', async () => {
+    const f = `${box}/Level`
+    const g = `${box}/Kuldve`
+    const its = [item('un', 'Nincs elkuldve', f, 'done'), item('sn', 'Elkuldve', g, 'done'), item('op', 'Nyitott', `${box}/Nyitott`, 'in_progress')]
+    const marks = { un: { sent: false, sent_on: null, due: null }, sn: { sent: true, sent_on: '2026-11-01', due: null }, op: { sent: false, sent_on: null, due: { date: '2026-11-03', days: 2, level: 'soon' } } }
+    const h = workbenchHarness({ storage: { 'wb.hide.done': '1' } })
+    h.respond((url) => {
+      if (url.includes('/api/workbench/items?')) return { status: 200, body: { ...itemsBody(its), item_marks: marks, work_folders: { box, folders: [f, g, `${g}/Elkeszitett`, `${g}/Ures`, `${box}/Nyitott`], truncated: false, files: { [`${g}/Elkeszitett`]: [{ name: 'level.pdf', size: 1, rel: 'x/level.pdf' }] } } } }
+      if (url.includes('/api/workbench/items/')) return { status: 200, body: { item: its[0], versions: [], parts: [], approval: null } }
+      if (url.includes('/api/workbench/todos')) return { status: 200, body: { todos: [] } }
+      return { status: 200, body: {} }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Robotok')
+    await vi.waitFor(() => expect(h.html()).toContain('data-wb-item="op"'))
+    const t = tree(h.html())
+    expect(t).toContain('data-wb-item="un"')
+    expect(t).toContain('wb-sent-no')
+    expect(t).not.toContain('data-wb-item="sn"')
+    expect(t).not.toContain(`data-wb-folder="${g}"`)
+    // the sent item's own sub-folders (with a loose file, and an empty one) go with it
+    expect(t).not.toContain(`data-wb-folder="${g}/Elkeszitett"`)
+    expect(t).not.toContain('level.pdf')
+    expect(t).not.toContain(`data-wb-folder="${g}/Ures"`)
+    expect(t).toContain('wb-due-soon')
   })
 
   // Boss TG 8804: "hiding means hiding" -- the finalized item is gone from the list even while it is open.

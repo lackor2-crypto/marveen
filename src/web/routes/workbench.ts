@@ -89,6 +89,7 @@ import { contentHash, docxFileName, draftFileName, documentTrail, finalizationSt
 import { syncCheckTodos } from '../../workbench-check-todos.js'
 import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
+import { itemMarks, type ItemMark } from '../../workbench-item-marks.js'
 import { fileOfficialCopy, listSent, markSentManually, recordSent, removeSent, sentStatus, SENT_METHODS, unmarkSentManually } from '../../workbench-docsent.js'
 import { addProjectPlace, removeProjectPlace } from '../../project-places.js'
 import { projectPlacesView } from '../../project-places-auto.js'
@@ -190,6 +191,11 @@ import {
 } from '../../workbench-assets.js'
 import { annexNeedsLifeMove } from '../../workbench-annex-guard.js'
 import type { RouteContext } from './types.js'
+
+/** The tree marks (sent / nearest deadline) must never break the list itself: on a failure the tree simply draws without them. */
+function safeItemMarks(projectId: string): Record<string, ItemMark> {
+  try { return itemMarks(projectId) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] item marks failed'); return {} }
+}
 
 function uiLang(url: URL): 'hu' | 'en' {
   const v = url.searchParams.get('lang')
@@ -3899,6 +3905,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       folder_moves: folderMoves,
       work_folders: listWorkFolders(project),
       items: listWorkItems(project.id),
+      item_marks: safeItemMarks(project.id),
       deleted: listDeletedWorkItems(project.id),
       types: WORK_ITEM_TYPES,
       statuses: WORK_ITEM_STATUSES,
