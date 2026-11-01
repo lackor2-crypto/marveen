@@ -32,6 +32,7 @@ tiltast, meret- vagy hely-hatart. Ha szerinted nagyon fontos egy korlat, ELOBB j
 a tulajdonosnak, es csak az engedelyevel told be (a felulet mondja ki, mi a korlat).
 GYOKEROK: hibajelzesnel ne csak a mutatott gombot javitsd: keresd meg, hol hasznalodik
 maskeppen ugyanaz a fuggveny/szabaly/renderer, es a KOZOS okot javitsd egyszerre (R16).
+MUNKADARAB MAPPA: csak a Kontextus es a Teendo fajl lehet benne, sajat segedfajl (Jogi kontextus stb.) TILOS (R24).
 A zaro 5+1 pontos onellenorzest ird is le a valaszodban (`fresh-install-usable` skill).""")
 
 sys.exit(0)

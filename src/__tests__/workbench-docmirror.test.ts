@@ -60,19 +60,13 @@ describe('outline mirror file', () => {
     expect(getWorkItem(id)!.folder ?? null).toBeNull()
   })
 
-  it('writes a real file into the item folder (created on demand) and refreshes it on change', async () => {
+  it('a plain document writes NO copy into the item folder (Boss 2026-11-01: only Kontextus / Teendo may live there)', async () => {
     const id = docItem()
     fill(id, 'Elso szoveg')
     const r = await mirrorOutlineToFile(id)
-    if (!r.ok) throw new Error('mirror: ' + r.code)
-    expect(r.written).toBe(true)
-    const folder = getWorkItem(id)!.folder!
-    // the item folder holds only the Word / Markdown copy
-    expect(filesIn(folder).sort()).toEqual(r.format === 'docx' ? ['Box szignal optimalizalasa.docx'] : ['Box szignal optimalizalasa.md'])
-    // Boss, 2026-10-16: no PDF twin any more: the finished-documents folder holds only finalized PDFs
-    expect(existsSync(pdfOf(folder))).toBe(false)
-    const again = await mirrorOutlineToFile(id)
-    expect(again).toMatchObject({ ok: true, written: false })
+    expect(r).toMatchObject({ ok: true, written: false })
+    expect(getWorkItem(id)!.folder ?? null).toBeNull()
+    expect(existsSync(join(dir, 'Projektek', 'Robotok', 'Box szignal optimalizalasa.docx'))).toBe(false)
   })
 
   it('markdown fallback carries title, section and text', () => {
@@ -82,18 +76,5 @@ describe('outline mirror file', () => {
     expect(md).toContain('# Box szignal optimalizalasa')
     expect(md).toContain('## Bevezeto')
     expect(md).toContain('Elso szoveg')
-  })
-
-  it('never overwrites a copy the owner edited by hand', async () => {
-    const id = docItem()
-    fill(id, 'Elso szoveg')
-    const r = await mirrorOutlineToFile(id)
-    if (!r.ok) throw new Error('mirror')
-    const folder = getWorkItem(id)!.folder!
-    const file = join(dir, 'Projektek', 'Robotok', ...folder.split('/'), `Box szignal optimalizalasa.${r.format}`)
-    writeFileSync(file, 'sajat kezi valtozat')
-    fill(id, 'Masodik szoveg')
-    expect(await mirrorOutlineToFile(id)).toMatchObject({ ok: false, code: 'edited_by_owner' })
-    expect(readFileSync(file, 'utf-8')).toBe('sajat kezi valtozat')
   })
 })

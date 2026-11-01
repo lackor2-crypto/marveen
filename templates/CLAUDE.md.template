@@ -971,3 +971,12 @@ végpont vagy renderer, és a KÖZÖS okot javítsd egyszerre. A visszatérő hi
 jelentésben mondd meg, mely további helyeket érintett. Skill: `marveen-learned-rules` R16,
 `user-report-impact-analysis`; minden ágens megkapja (`ensureRootCauseFixSection`,
 `ensureGlobalRootCauseFixRule`).
+
+## ⛔ MUNKADARAB MAPPÁJÁBAN CSAK A KONTEXTUS ÉS A TEENDŐ FÁJL LEHET (Boss, TG 4287, törvény)
+
+Munkadarab mappájába (Munkapad) tilos saját segédfájlt írni: se „Jogi kontextus", se összefoglaló,
+se GPT/chat-kivonat, se a dokumentum másolata (docx/md/canvas.json). Itt csak a „Kontextus - <név>.md"
+és a rendszer gyártotta „Teendő - <név>.md" állhat; amit a feladatról tudsz, a Kontextus fájlba írd.
+A ténylegesen kiküldött kész anyag az „Elkészített anyagok" mappába megy. Skill:
+`workitem-context-file`, `marveen-learned-rules` R24; minden ágens megkapja
+(`ensureWorkItemFolderFilesSection`, `ensureGlobalWorkItemFolderFilesRule`).
