@@ -2,9 +2,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { initDatabase, getDb } from '../db.js'
-import { createProject, listProjects, URGENT_DAYS } from '../projects.js'
+import { createProject, listProjects, registerSentItemsSource, URGENT_DAYS } from '../projects.js'
 import { addTodo } from '../workbench-todos.js'
 import { createWorkItem, setWorkItemDeleted } from '../workbench.js'
+import { markSentManually } from '../workbench-docsent.js'
+import { itemMarks } from '../workbench-item-marks.js'
 
 function day(offset: number): string {
   const d = new Date()
@@ -67,6 +69,31 @@ describe('urgent to-dos follow a deleted work item', () => {
     expect(n()).toBe(1)
     setWorkItemDeleted(a, false)
     expect(n()).toBe(3)
+  })
+})
+
+describe('urgent to-dos follow the sent mark (#832, owner TG 4370)', () => {
+  it('does not count the open to-do of a sent work item: the badge and the Next steps list agree', () => {
+    const r = createProject({ name: 'Hivatal' })
+    if (!r.ok) throw new Error(r.code)
+    const mkItem = (folder: string) => {
+      const w = createWorkItem({ project_id: r.project.id, type: 'document', title: folder, folder } as never)
+      if (!w.ok) throw new Error(w.code)
+      return (w as { item: { id: string } }).item.id
+    }
+    registerSentItemsSource((pid) => new Set(Object.entries(itemMarks(pid)).filter(([, m]) => m.sent).map(([id]) => id))) // the web server registers the same one
+    const a = mkItem('Munkadarabok/a')
+    const b = mkItem('Munkadarabok/b')
+    addTodo({ work_item_id: a, text: 'x', due_date: day(-2) })
+    addTodo({ work_item_id: b, text: 'y', due_date: day(1) })
+    const get = () => listProjects().find((x) => x.id === r.project.id)!
+    expect(get().urgent_todos).toBe(2)
+    markSentManually(a, null)
+    expect(get().urgent_todos).toBe(1)
+    expect(get().urgent_next_due).toBe(day(1))
+    markSentManually(b, null)
+    expect(get().urgent_todos).toBe(0)
+    expect(get().urgent_next_due).toBeNull()
   })
 })
 

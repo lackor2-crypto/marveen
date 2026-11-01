@@ -274,6 +274,11 @@ export function projectNameMap(): Record<string, { name: string; archived: boole
   return out
 }
 
+/** #832: which work items of a project count as SENT. Registered by workbench-item-marks.ts (it cannot be imported
+ *  here: it pulls in workbench.ts, which reaches back to this module). Unregistered = nothing counts as sent. */
+let sentItemsOf: ((projectId: string) => Set<string>) | null = null
+export function registerSentItemsSource(fn: (projectId: string) => Set<string>): void { sentItemsOf = fn }
+
 const STATUS_ORDER: Record<string, number> = { active: 0, paused: 1, closed: 2 }
 
 export function listProjects(opts: { includeArchived?: boolean } = {}): ProjectWithStats[] {
@@ -298,6 +303,22 @@ export function listProjects(opts: { includeArchived?: boolean } = {}): ProjectW
      FROM projects p
      ${opts.includeArchived ? '' : 'WHERE p.archived_at IS NULL'}`,
   ).all(...(hasTodos ? [urgentLimit, urgentLimit] : [])) as (ProjectRow & { open_cards: number; live_cards: number; last_card_at: number | null; last_comment_at: number | null; urgent_todos: number; urgent_next_due: string | null })[]
+  // #832 (owner TG 4370): a SENT work item shows no deadline (itemMarks: sending it answered the trigger document), so its
+  // open to-dos must not count in the badge either -- the badge and the project's Next steps list use one rule.
+  if (hasTodos && sentItemsOf) {
+    for (const r of rows) {
+      if (!r.urgent_todos) continue
+      let sent: Set<string>
+      try { sent = sentItemsOf(r.id) } catch { continue }
+      if (!sent.size) continue
+      const todos = db.prepare(
+        `SELECT t.work_item_id AS id, t.due_date AS due FROM work_item_todos t JOIN projects p ON p.id = t.project_id WHERE p.id = ? AND ${urgentWhere}`,
+      ).all(r.id, urgentLimit) as { id: string; due: string }[]
+      const open = todos.filter((t) => !sent.has(t.id))
+      r.urgent_todos = open.length
+      r.urgent_next_due = open.length ? open.map((t) => t.due).sort()[0] : null
+    }
+  }
   return rows
     .map(({ last_card_at, last_comment_at, ...r }) => ({
       ...r,
