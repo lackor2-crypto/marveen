@@ -11,7 +11,8 @@ describe('workbench files view (#708)', () => {
     expect(js).toContain("writePref('wb.files.view', WB.filesView)")
   })
   it('is one row of four quick buttons (not a dropdown) in the button row, the current one highlighted', () => {
-    expect(js).toContain('hideSw + filesViewSelectHtml()')
+    // #833 (Boss TG 4380): the four view buttons left the pinned box; they sit at the top of the tree block.
+    expect(js).toContain('filesViewSelectHtml() + body')
     expect(js).toContain("data-wb-act=\"files-view\" data-wb-fv=")
     expect(js).toContain("aria-pressed=\"' + (v === cur ? 'true' : 'false')")
     expect(js).toContain("a === 'files-view'")

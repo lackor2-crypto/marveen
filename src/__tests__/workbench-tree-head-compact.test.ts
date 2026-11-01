@@ -29,7 +29,7 @@ describe('workbench tree header compact (#580)', () => {
   })
   it('the project tree panel is three blocks and the Projects tab shows a path (TG 3169)', () => {
     const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
-    for (const c of ['wb-blk-top', 'wb-blk-tree', 'wb-blk-foot']) expect(js).toContain(c)
+    for (const c of ['wb-blk-top', 'wb-blk-tree', 'wb-pin-acts']) expect(js).toContain(c)
     expect(js).toContain('function frPanelTitleHtml')
     expect(css).toMatch(/\.wb-panel-items \.wb-blk \{ background:/)
   })
