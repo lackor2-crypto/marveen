@@ -41,6 +41,7 @@ import { displayLabelFor, moveDisplayLabels } from './life-labels.js'
 import { isArchived, moveArchivedPrefix, dropArchivedPrefix } from './life-archived.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
+import { lifePathCacheGet, lifePathCachePut } from './life-path-cache.js'
 import { thumbMediaKind } from './life-thumbs.js'
 import { lifeHint, personHint, personsGroupHint, companyHint, samplePersonHint, sampleCompanyHint,
   devKnowledgeHint, devMoreHint, projectHint } from './life-hints.js'
@@ -259,6 +260,18 @@ function isRealFile(abs: string): boolean {
 export function resolveLifePath(rel: string): string | null {
   const root = explorerRoot()
   if (!root) return null
+  const key = String(rel || '')
+  const hit = lifePathCacheGet(key, root)
+  if (hit) return hit.value
+  // A path behind a mount link is never remembered: whether a real file stands at a file link's own place changes
+  // the answer the moment an upload lands (#716), so that case is always measured fresh.
+  const behindMount = resolveMount(String(key).replace(/\\/g, '/').replace(/^\/+/, '')) !== null
+  const value = resolveLifePathUncached(key, root)
+  if (value !== null && !behindMount) lifePathCachePut(key, root, value)
+  return value
+}
+
+function resolveLifePathUncached(rel: string, root: string): string | null {
   let realRoot: string
   try { realRoot = realpathSync(root) } catch { return null }
 
