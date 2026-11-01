@@ -13259,3 +13259,4 @@ body.sidebar-collapsed .sidebar-collapse-btn { left: 0; }
 
 /* #812: why a queued VS Code task has not started */
 .cb-wait-why { font-size: 12px; line-height: 1.4; color: var(--text-muted, #6b7280); margin: 4px 0 8px; }
+.kanban-work.kanban-work-answered { box-shadow: inset 4px 0 0 #1e9e4a; }

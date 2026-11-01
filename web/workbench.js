@@ -24897,6 +24897,10 @@
 
   window.MarvinWorkbench = {
     open: openWorkbench,
+    // #826: the same sent chip + deadline badge the tree draws, for the project overview's work rows.
+    markBadgesHtml: function (sent, due) {
+      return (sent ? '<span class="wb-answered-chip" title="' + escA(t('workbench.sent.trigger_hint')) + '">\u2714 ' + esc(t('workbench.sent.trigger_answered')) + '</span>' : '') + (!sent && due ? dueBadgeHtml(due) : '')
+    },
     viewSettingCard: viewSettingCard,
     workmodeCard: workmodeSettingCard,
     close: closeWorkbench,
