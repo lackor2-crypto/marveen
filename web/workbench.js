@@ -518,7 +518,7 @@
     var it = (WB.items || []).filter(function (x) { return x.folder === parent || (!x.folder && x.container_folder === parent) })[0]
     if (!it) return ''
     var on = it.no_trigger === 1
-    var answered = markOf(it.id).sent ? ' <span class="wb-trig-answered" title="' + escA(t('workbench.sent.trigger_hint')) + '"><span class="wb-sent-mark wb-sent-yes" aria-hidden="true">\u2714</span> ' + esc(t('workbench.sent.trigger_answered')) + '</span>' : ''
+    var answered = markOf(it.id).sent ? ' ' + answeredChipHtml() : ''
     return answered + '<label class="wb-trig-mark" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap;font-size:11px;font-weight:400;margin-left:6px;vertical-align:middle" title="' + escA(t('workbench.trigger.hint')) + '">'
       + '<input type="checkbox" data-wb-act="item-no-trigger" data-wb-id="' + escA(it.id) + '"' + (on ? ' checked' : '') + (archived() ? ' disabled' : '') + '> '
       + esc(t('workbench.trigger.none')) + '</label>'
@@ -1676,8 +1676,14 @@
   // and, while it is open, how close its nearest deadline is. Both come from the server (item_marks); the colour is never
   // the only signal (a word or a date always sits next to it).
   function markOf(id) { return (WB.itemMarks && WB.itemMarks[id]) || { sent: false, due: null } }
+  /** THE one "Answered" form (owner TG 4267): white tick + white text on a green pill, everywhere. */
+  function answeredChipHtml() {
+    return '<span class="wb-answered-chip" title="' + escA(t('workbench.sent.trigger_hint')) + '">\u2714 ' + esc(t('workbench.sent.trigger_answered')) + '</span>'
+  }
   function sentMarkHtml(it) {
     var sent = markOf(it.id).sent
+    // A sent item shows the green Answered chip in its meta line; a second lone tick before the title is redundant (owner TG 4267).
+    if (sent) return ''
     var label = t(sent ? 'workbench.sent.yes' : 'workbench.sent.no')
     return '<span class="wb-sent-mark ' + (sent ? 'wb-sent-yes' : 'wb-sent-no') + '" role="img" aria-label="' + escA(label) + '" title="' + escA(label) + '">' + (sent ? '\u2714' : '') + '</span>'
   }
@@ -1721,7 +1727,7 @@
       + (pinned ? '★' : '☆') + '</button>'
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + ' title="' + escA((it.source_path ? baseOf(it.source_path) : it.title) + (archived() ? '' : ' \u2014 ' + t('workbench.ctx.hint'))) + '"' + '>'
       + '<span class="wb-item-title">' + sentMarkHtml(it) + workSeqHtml(it) + '<span class="wb-item-mark" title="' + escA(t('workbench.item.mark_title')) + '">\u25c6</span> ' + esc(it.source_path ? baseOf(it.source_path) : it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
-      + '<span class="wb-item-meta">' + (markOf(it.id).sent ? '<span class="wb-answered-chip" title="' + escA(t('workbench.sent.trigger_hint')) + '">\u2714 ' + esc(t('workbench.sent.trigger_answered')) + '</span> \u00b7 ' : '') + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + (markOf(it.id).due ? ' · ' + dueBadgeHtml(markOf(it.id).due) : '') + (it.source_path ? ' · <span class="wb-own-file" title="' + escA(t('workbench.item.own_file_hint')) + '">' + esc(t('workbench.item.own_file')) + '</span>' : '') + '</span>'
+      + '<span class="wb-item-meta">' + (markOf(it.id).sent ? answeredChipHtml() + ' \u00b7 ' : '') + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + (markOf(it.id).due ? ' · ' + dueBadgeHtml(markOf(it.id).due) : '') + (it.source_path ? ' · <span class="wb-own-file" title="' + escA(t('workbench.item.own_file_hint')) + '">' + esc(t('workbench.item.own_file')) + '</span>' : '') + '</span>'
       + '</button>'
       // Phones have no right-click, and iOS Safari fires no contextmenu on a long press: a small "..." button
       // (shown only on touch / narrow screens by the CSS) opens the same menu.
@@ -24899,7 +24905,7 @@
     open: openWorkbench,
     // #826: the same sent chip + deadline badge the tree draws, for the project overview's work rows.
     markBadgesHtml: function (sent, due) {
-      return (sent ? '<span class="wb-answered-chip" title="' + escA(t('workbench.sent.trigger_hint')) + '">\u2714 ' + esc(t('workbench.sent.trigger_answered')) + '</span>' : '') + (!sent && due ? dueBadgeHtml(due) : '')
+      return (sent ? answeredChipHtml() : '') + (!sent && due ? dueBadgeHtml(due) : '')
     },
     viewSettingCard: viewSettingCard,
     workmodeCard: workmodeSettingCard,
