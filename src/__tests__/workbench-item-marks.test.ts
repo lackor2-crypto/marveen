@@ -119,16 +119,15 @@ describe('one Answered form everywhere (#826 follow-up, owner TG 4267)', () => {
   })
 })
 
-describe('#829 folder kinds in the Workbench tree (owner TG 4294/4304)', () => {
+describe('#829 work item folders: only the icon is recoloured (owner TG 4326)', () => {
   const js = readFileSync('web/workbench.js', 'utf8')
   const css = readFileSync('web/workbench.css', 'utf8')
-  it('the work item folder is marked loud, the system accessory folders quiet', () => {
-    expect(js).toContain('function folderKindClass(f, own)')
-    expect(js).toContain("' wb-folder-own'")
-    expect(js).toContain("' wb-folder-aux'")
-    expect(js).toContain('wb-folder-ico-own')
-    expect(css).toContain('.wb-folder-row.wb-folder-aux .wb-folder-toggle')
-    expect(css).toContain('.wb-folder-row.wb-folder-own .wb-folder-toggle')
+  it('every folder that holds a work item (also a shared one) gets the recoloured icon; no bold, no size change', () => {
+    expect(js).toContain('itemHolder[x.folder] = true')
+    expect(js).toContain('wb-folder-ico-item')
+    expect(css).toContain('.wb-folder-ico-item { display: inline-block; filter: hue-rotate(')
+    expect(css).not.toContain('wb-folder-own')
+    expect(css).not.toContain('wb-folder-aux')
   })
 })
 
