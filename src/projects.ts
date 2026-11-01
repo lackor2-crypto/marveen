@@ -28,6 +28,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
+import { itemMarks } from './workbench-item-marks.js'
 
 export const PROJECT_STATUSES = ['active', 'paused', 'closed'] as const
 export type ProjectStatus = typeof PROJECT_STATUSES[number]
@@ -298,6 +299,22 @@ export function listProjects(opts: { includeArchived?: boolean } = {}): ProjectW
      FROM projects p
      ${opts.includeArchived ? '' : 'WHERE p.archived_at IS NULL'}`,
   ).all(...(hasTodos ? [urgentLimit, urgentLimit] : [])) as (ProjectRow & { open_cards: number; live_cards: number; last_card_at: number | null; last_comment_at: number | null; urgent_todos: number; urgent_next_due: string | null })[]
+  // #832 (owner TG 4370): a SENT work item shows no deadline (itemMarks: sending it answered the trigger document), so its
+  // open to-dos must not count in the badge either -- the badge and the project's Next steps list use one rule.
+  if (hasTodos) {
+    for (const r of rows) {
+      if (!r.urgent_todos) continue
+      let sent: Set<string>
+      try { sent = new Set(Object.entries(itemMarks(r.id)).filter(([, m]) => m.sent).map(([id]) => id)) } catch { continue }
+      if (!sent.size) continue
+      const todos = db.prepare(
+        `SELECT t.work_item_id AS id, t.due_date AS due FROM work_item_todos t JOIN projects p ON p.id = t.project_id WHERE p.id = ? AND ${urgentWhere}`,
+      ).all(r.id, urgentLimit) as { id: string; due: string }[]
+      const open = todos.filter((t) => !sent.has(t.id))
+      r.urgent_todos = open.length
+      r.urgent_next_due = open.length ? open.map((t) => t.due).sort()[0] : null
+    }
+  }
   return rows
     .map(({ last_card_at, last_comment_at, ...r }) => ({
       ...r,
