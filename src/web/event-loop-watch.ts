@@ -21,6 +21,11 @@ import { logger } from '../logger.js'
 export const TICK_MS = 100
 export const STALL_MS = 300
 const KEEP = 30
+/** #823 (C): a stall this long is told to the owner on the channel (after the fact: a frozen process cannot send). */
+export const SEVERE_STALL_MS = 3000
+/** At most one such message per this long, so a bad hour is one message, not a flood. */
+export const SEVERE_ALERT_COOLDOWN_MS = 30 * 60 * 1000
+let lastSevereAlertAt = 0
 
 export type Stall = { at: number; lagMs: number; inflight: string[] }
 
@@ -158,7 +163,29 @@ export function noteLag(lagMs: number, now = Date.now()): Stall | null {
   stalls.sort((a, b) => b.lagMs - a.lagMs)
   if (stalls.length > KEEP) stalls.length = KEEP
   logger.warn({ lagMs: s.lagMs, inflight: s.inflight }, 'event loop stalled (#490): these requests were running')
+  void alertSevereStall(s)
   return s
+}
+
+/**
+ * #823 (C): tell the owner about a long freeze, throttled. Returns true when a message was sent. The sender is
+ * injectable for the test; the default is the owner channel (no machine-level scheduler is involved).
+ */
+export async function alertSevereStall(
+  s: Stall,
+  send: (text: string) => Promise<unknown> = async (t) => (await import('../notify.js')).sendOwnerChannelChecked(t),
+): Promise<boolean> {
+  if (s.lagMs < SEVERE_STALL_MS) return false
+  if (s.at - lastSevereAlertAt < SEVERE_ALERT_COOLDOWN_MS && lastSevereAlertAt !== 0) return false
+  lastSevereAlertAt = s.at
+  const what = s.inflight.length ? s.inflight.join(', ') : 'nem futott kerés (időzítő vagy indulási lépés)'
+  try {
+    await send(`Figyelmeztetés: a dashboard ${(s.lagMs / 1000).toFixed(1)} mp-re lefagyott. Ami futott: ${what}. Részletek: GET /api/perf/stalls.`)
+    return true
+  } catch (e) {
+    logger.warn({ err: String(e) }, 'event loop stall alert could not be sent')
+    return false
+  }
 }
 
 export function recentStalls(): Stall[] {
@@ -259,4 +286,5 @@ export function _resetEventLoopWatch(): void {
   inflight.clear()
   stalls.length = 0
   samples.length = 0
+  lastSevereAlertAt = 0
 }
