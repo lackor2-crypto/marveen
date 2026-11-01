@@ -150,7 +150,7 @@ describe('#716: feltoltes -> Eletfa', () => {
     const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf-8')
     expect(route).toContain("moveItemFilesToLife(owner, item, body['moves'], lang, body['scope'] === 'uploads' ? 'only' : 'include')")
     const web = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
-    expect(web).toContain("upOnly ? { moves: moves, scope: 'uploads' } : { moves: moves }")
+    expect(web).toContain("upOnly ? { moves: list, scope: 'uploads' } : { moves: list }")
   })
 })
 

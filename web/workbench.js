@@ -16354,6 +16354,36 @@
   }
   // opts.scope === 'uploads': the list right after an upload -- only the files of the Uploads folder, and "Later" instead
   // of "Cancel" (#716, Boss TG 10015: every upload is followed by the move into the Life tree).
+  /** Boss TG 4140: asks, per file that met a same-name file with other content, what to do. Resolves { rel: answer }. */
+  function lifeClashAsk(asks) {
+    return new Promise(function (resolve) {
+      var ov = document.createElement('div')
+      ov.className = 'modal-overlay active'
+      ov.id = 'wbLifeClash'
+      var rows = asks.map(function (x, i) {
+        var nm = String(x.rel).split('/').pop()
+        var name = 'wbClash' + i
+        function opt(v, key, on) { return '<label style="display:block;margin:3px 0"><input type="radio" name="' + name + '" value="' + v + '"' + (on ? ' checked' : '') + '> ' + esc(t(key)) + '</label>' }
+        return '<div class="wb-lifeclash-row" style="margin:0 0 12px;padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.12)" data-rel="' + escA(x.rel) + '">'
+          + '<strong>' + esc(nm) + '</strong> <span class="wb-muted">&rarr; ' + esc(x.target) + '</span>'
+          + opt('keep_both', 'workbench.lifemove.clash_both', true) + opt('keep_existing', 'workbench.lifemove.clash_existing', false) + opt('skip', 'workbench.lifemove.clash_skip', false) + '</div>'
+      }).join('')
+      ov.innerHTML = '<div class="modal-content" style="max-width:640px;max-height:88vh;overflow-y:auto;padding:18px">'
+        + '<h3 style="margin:0 0 4px">' + esc(t('workbench.lifemove.clash_title')) + '</h3>'
+        + '<p class="subtitle" style="margin:0 0 10px">' + esc(t('workbench.lifemove.clash_help')) + '</p>' + rows
+        + '<div style="text-align:right"><button type="button" class="btn-primary" id="wbLifeClashOk">' + esc(t('workbench.lifemove.clash_ok')) + '</button></div></div>'
+      document.body.appendChild(ov)
+      ov.querySelector('#wbLifeClashOk').addEventListener('click', function () {
+        var out = {}
+        ov.querySelectorAll('.wb-lifeclash-row').forEach(function (row) {
+          var c = row.querySelector('input:checked')
+          out[row.getAttribute('data-rel')] = c ? c.value : 'skip'
+        })
+        ov.remove()
+        resolve(out)
+      })
+    })
+  }
   function lifeMoveOpen(opts) {
     var id = WB.selectedId
     var upOnly = !!(opts && opts.scope === 'uploads')
@@ -16508,7 +16538,22 @@
       var moves = files.filter(function (f) { return f.action === 'move' && target[f.rel] }).map(function (f) { return { rel: f.rel, target: target[f.rel] } })
       if (!moves.length && !files.some(function (f) { return f.action === 'trash' })) return
       go.disabled = true
-      api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move', upOnly ? { moves: moves, scope: 'uploads' } : { moves: moves }).then(function (r) {
+      var postMoves = function (list) { return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/life-move', upOnly ? { moves: list, scope: 'uploads' } : { moves: list }) }
+      // Boss TG 4140: a same-name file with OTHER content in the target is asked about, never decided silently.
+      postMoves(moves).then(function (r0) {
+        if (!r0.ok) return r0
+        var asks = ((r0.data && r0.data.results) || []).filter(function (x) { return x.needs_decision })
+        if (!asks.length) return r0
+        return lifeClashAsk(asks).then(function (answers) {
+          var again = asks.map(function (x) { return { rel: x.rel, target: x.target, clash: answers[x.rel] || 'skip' } })
+          return postMoves(again).then(function (r1) {
+            if (!r1.ok) return r1
+            var res0 = ((r0.data && r0.data.results) || []).filter(function (x) { return !x.needs_decision })
+            var data = Object.assign({}, r1.data || {}, { results: res0.concat((r1.data && r1.data.results) || []), relinked: ((r0.data && r0.data.relinked) || 0) + ((r1.data && r1.data.relinked) || 0) })
+            return Object.assign({}, r1, { data: data })
+          })
+        })
+      }).then(function (r) {
         if (!r.ok) { go.disabled = false; window.showToast(r.message || t('workbench.lifemove.failed')); return }
         var res = (r.data && r.data.results) || []
         var okN = res.filter(function (x) { return x.ok && !x.trashed }).length

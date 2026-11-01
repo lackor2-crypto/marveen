@@ -90,13 +90,17 @@ describe('#746: a same-name re-upload at the place of a left-behind link', () =>
     expect(resolveMount(rel)?.target).toBe('Cel2/antrag.pdf')
   })
 
-  // Boss TG 3686/3697: a same-name clash never leaves the project file behind and never makes a "(2)" copy: whatever the
-  // bytes, the project copy goes to the Trash and the link points at the file that is already there.
-  it('a second move into the SAME folder with OTHER content: the project copy is trashed, the old one is untouched, a link stays, no numbered copy', () => {
+  // Boss TG 4140: the same name with OTHER content is not decided silently: the move asks, and acts on the answer.
+  it('a second move into the SAME folder with OTHER content asks first; keep_existing then trashes the project copy, keeps the old file and the link', () => {
     const { project, item, dir } = setup()
     const rel = firstMove(project, item)
     writeFileSync(join(dir, 'antrag.pdf'), 'v2')
-    const r = moveItemFilesToLife(project, item, [{ rel, target: 'Cel' }], 'hu', 'include')
+    const asked = moveItemFilesToLife(project, item, [{ rel, target: 'Cel' }], 'hu', 'include')
+    if (!asked.ok) throw new Error('move')
+    expect(asked.results[0].ok).toBe(false)
+    expect(asked.results[0].needs_decision).toBe(true)
+    expect(readFileSync(join(dir, 'antrag.pdf'), 'utf8')).toBe('v2') // nothing touched
+    const r = moveItemFilesToLife(project, item, [{ rel, target: 'Cel', clash: 'keep_existing' } as any], 'hu', 'include')
     if (!r.ok) throw new Error('move')
     expect(r.results[0].ok).toBe(true)
     expect(readFileSync(join(depot, 'Cel', 'antrag.pdf'), 'utf8')).toBe('v1')
