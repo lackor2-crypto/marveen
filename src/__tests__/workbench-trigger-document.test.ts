@@ -1,7 +1,7 @@
 // #794 (Boss TG 3665/3670): the "Kiváltó irat" folder of every work item, the "no trigger document" mark, and what the
 // assistant is told about it.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
@@ -9,6 +9,7 @@ import { createProject, updateProject, getProject } from '../projects.js'
 import { getWorkItem } from '../workbench.js'
 import { triggerStateOf, triggerContextLine } from '../workbench-trigger.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
+import { msg } from '../workbench-agent/messages.js'
 import { runTurn, resetRunningForTest } from '../workbench-agent/orchestrator.js'
 import { resetUsageManagerForTest, setUsageSnapshotReader } from '../workbench-agent/usage-manager.js'
 import type { AIProvider, AICallRequest, AIChunk } from '../workbench-agent/provider.js'
@@ -155,4 +156,17 @@ describe('the assistant does nothing without a trigger document', () => {
     expect(await say(it.id, pr2)).toBe('dolgozom')
     expect(pr2.calls).toBe(1)
   })
+})
+
+// The held message sends the owner to a menu entry: it must be the entry the folder menu really has (browser click-through
+// 2026-11-02 found it naming "Fájl csatolása az Életfából", which does not exist).
+describe('trigger_missing names the real folder-menu entry', () => {
+  for (const lang of ['hu', 'en'] as const) {
+    it(`${lang}: the quoted menu label is the workbench.filelink.menu label`, () => {
+      const src = readFileSync(join(__dirname, '..', '..', 'web', 'lang', `${lang}.js`), 'utf8')
+      const label = /"workbench\.filelink\.menu":\s*"([^"]+)"/.exec(src)?.[1]
+      expect(label).toBeTruthy()
+      expect(msg('trigger_missing', lang)).toContain(label!)
+    })
+  }
 })
