@@ -216,8 +216,8 @@ describe('forrasrendszer', () => {
     const s = await callWorkbench(`/api/workbench/items/${itemId}/outline/sections`, 'POST', { title: '1. Bevezetés' })
     expect(s.status).toBe(201)
     const sid = s.body.outline.sections[0].id
-    const b = await callWorkbench(`/api/workbench/items/${itemId}/outline/blocks`, 'POST', { section: sid, text: 'Tisztelt Bíróság!' })
-    expect(b.body.outline.sections[0].blocks[0]).toMatchObject({ text: 'Tisztelt Bíróság!', author: 'owner' })
+    const b = await callWorkbench(`/api/workbench/items/${itemId}/outline/blocks`, 'POST', { section: sid, text: 'A bevezető szöveg.' })
+    expect(b.body.outline.sections[0].blocks[0]).toMatchObject({ text: 'A bevezető szöveg.', author: 'owner' })
     const st = await callWorkbench(`/api/workbench/items/${itemId}/outline/sections/${sid}`, 'PATCH', { status: 'done' })
     expect(st.body.outline.sections[0].status).toBe('done')
     const bad = await callWorkbench(`/api/workbench/items/${itemId}/outline/sections/${sid}`, 'PATCH', { status: 'kesz' })

@@ -102,6 +102,9 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     if (!c.ok || c.claim.strength !== 'verified') throw new Error('allitas')
     const sig = addBlock(itemId, s.section.id, { kind: 'signature', text: 'Budapest, 2026. szeptember 29.\n\nalperes', author: 'agent' })
     if (!sig.ok) throw new Error('alairas')
+    // a letter carries its labelled sender / recipient (the letter-head check); appended, so the first block stays the sourced one
+    const head = addBlock(itemId, s.section.id, { kind: 'table', text: 'Feladó: alperes | Címzett: Bíróság\nBudapest | Budapest', author: 'agent' })
+    if (!head.ok) throw new Error('levelfej')
   }
 
   it('K-1.13: a PDF forrasa csak a cimekbol es a szovegbol all -- fajlnev, idezet, azonosito, ikon nem kerul bele', () => {
@@ -343,6 +346,7 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     if (!s.ok) throw new Error('fejezet')
     addBlock(itemId, s.section.id, { text: 'Kérem a keresetet elutasítani.', author: 'agent' })
     addBlock(itemId, s.section.id, { text: 'Teszt Elek', author: 'agent', kind: 'signature' })
+    addBlock(itemId, s.section.id, { kind: 'table', text: 'Feladó: Teszt Elek | Címzett: Bíróság\nBudapest | Budapest', author: 'agent' })
     const base = `/api/workbench/items/${itemId}/outline`
     const got = (await callWorkbench(base, 'GET')).body.outline
     expect(got.check.needs_override).toBe(true)

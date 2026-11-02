@@ -8633,6 +8633,7 @@ window._i18n.en = {
   "workbench.outline.check.annex_dangling": "References to an annex that is not on the list: {n}",
   "workbench.outline.check.image_missing_file": "Pictures whose file is gone: {n}",
   "workbench.outline.check.signature_missing": "The letter has a signature block but no handwritten signature (picture). If needed, add it with the editor toolbar's \"Insert signature\" button.",
+  "workbench.outline.check.letter_head_missing": "Letter head missing: the letter does not spell out and frame the Sender and the Recipient. Put a sender/recipient table at the top, labelled \"Sender:\" and \"Recipient:\".",
   "workbench.outline.check.annex_missing_file": "Annexes whose file is gone: {n}",
   "workbench.outline.check.consistency": "Consistency: {n} mismatch(es)",
   "workbench.outline.check.consistency_ok": "Consistency: all good",
