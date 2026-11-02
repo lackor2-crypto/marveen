@@ -2851,7 +2851,7 @@ export const RECONCILE_MIN_GAP_MS = 4000
  * without an id gets one; a copy of a folder (same id twice) keeps the id on the original and gets a fresh one.
  * A folder that cannot be found any more is reported once per process (`lost`) but its row is KEPT (the disk may be unmounted); forgetLostFolder() drops it after the owner confirms. Never deletes or moves anything on disk.
  */
-export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: boolean } = {}): FolderReconcile {
+function* reconcileFolderMarkersSteps(project: ProjectRow, opts: { force?: boolean } = {}): Generator<void, FolderReconcile, void> {
   const out: FolderReconcile = { moved: [], lost: [] }
   ensureAssetTables()
   const box = findWorkItemsBox(project)
@@ -2864,7 +2864,7 @@ export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: bool
 
   type Dir = { rel: string; abs: string; id: string | null }
   const dirs: Dir[] = []
-  const walk = (abs: string, rel: string, depth: number): void => {
+  const walk = function* (abs: string, rel: string, depth: number): Generator<void, void, void> {
     if (depth > WORK_FOLDER_MAX_DEPTH || dirs.length >= WORK_FOLDER_MAX) return
     let entries: import('node:fs').Dirent[]
     try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
@@ -2876,10 +2876,11 @@ export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: bool
       try { const v = readFileSync(join(cAbs, FOLDER_MARKER), 'utf8').trim(); if (MARKER_RE.test(v)) id = v } catch { /* no marker yet */ }
       const cRel = `${rel}/${d.name}`
       dirs.push({ rel: cRel, abs: cAbs, id })
-      walk(cAbs, cRel, depth + 1)
+      yield // #835: one stat/read per folder on a slow drive -- let the async caller hand the loop back here
+      yield* walk(cAbs, cRel, depth + 1)
     }
   }
-  walk(t.dirAbs, box, 1)
+  yield* walk(t.dirAbs, box, 1)
 
   const db = getDb()
   const lifeRel = (rel: string): string => `${t.dirRel}${rel.slice(box.length)}`
@@ -2922,6 +2923,15 @@ export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: bool
     if (stamp(d, fresh)) put.run(project.id, fresh, d.rel)
   }
   return out
+}
+
+export function reconcileFolderMarkers(project: ProjectRow, opts: { force?: boolean } = {}): FolderReconcile {
+  return drainSteps(reconcileFolderMarkersSteps(project, opts))
+}
+
+/** Same pass, but the disk walk gives the event loop back every few ms (it held it for seconds on a slow drive, #835). */
+export function reconcileFolderMarkersYielding(project: ProjectRow, opts: { force?: boolean } = {}): Promise<FolderReconcile> {
+  return drainStepsYielding(reconcileFolderMarkersSteps(project, opts))
 }
 
 /** Test hook: forget the throttle. */

@@ -7,7 +7,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import {
-  makeWorkFolder, ensureWorkItemFolder, reconcileFolderMarkers, forgetLostFolder, resetFolderReconcileThrottleForTests, deleteWorkFolder, FOLDER_MARKER,
+  makeWorkFolder, ensureWorkItemFolder, reconcileFolderMarkers, reconcileFolderMarkersYielding, forgetLostFolder, resetFolderReconcileThrottleForTests, deleteWorkFolder, FOLDER_MARKER,
 } from '../workbench-assets.js'
 
 let pid = ''
@@ -47,6 +47,20 @@ function itemIn(folder: string, title: string) {
 const abs = (rel: string) => join(root(), ...rel.split('/'))
 
 describe('folder ids (.marveen-id)', () => {
+  // #835: the disk walk held the event loop for seconds on a slow drive; the yielding variant must do the same work
+  // (the yielding itself is covered by walk-staged-yielding.test.ts and src/yielding.ts).
+  it('the yielding reconcile stamps the same folders as the sync one and gives the same result', async () => {
+    const g = group('yield-a')
+    group('yield-b')
+    resetFolderReconcileThrottleForTests()
+    const r = await reconcileFolderMarkersYielding(proj(), { force: true })
+    expect(r).toEqual({ moved: [], lost: [] })
+    const id = readFileSync(join(abs(g), FOLDER_MARKER), 'utf8').trim()
+    expect(id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(recon()).toEqual({ moved: [], lost: [] })
+    expect(readFileSync(join(abs(g), FOLDER_MARKER), 'utf8').trim()).toBe(id)
+  })
+
   it('stamps every folder of the box once and keeps the id stable', () => {
     const g = group('birosagi')
     const first = recon()

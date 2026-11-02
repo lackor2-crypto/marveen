@@ -186,7 +186,7 @@ import {
   unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
   workFolderTarget, adviseUploadPlaces, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder, findWorkItemsBox,
-  renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
+  renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, reconcileFolderMarkersYielding, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
   folderNameFromTitle, projectRelative,
 } from '../../workbench-assets.js'
 import { annexNeedsLifeMove } from '../../workbench-annex-guard.js'
@@ -3901,7 +3901,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     try { repairProjectRelativeSourcePaths(project.id) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] source path repair failed') }
     // #481: a folder renamed or moved outside Marvin is found again by its hidden id before the list is built.
     let folderMoves: FolderReconcile = { moved: [], lost: [] }
-    try { folderMoves = reconcileFolderMarkers(project) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] folder id reconcile failed') }
+    try { folderMoves = await reconcileFolderMarkersYielding(project) } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e) }, '[workbench] folder id reconcile failed') }
     json(res, {
       project: { id: project.id, name: project.name, archived: project.archived_at != null, sensitive: projectSensitive(project.id) },
       sensitive_items: sensitiveItemIds(project.id),
