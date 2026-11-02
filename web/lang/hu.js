@@ -6210,6 +6210,7 @@ window._i18n.hu = {
   "workbench.rescue.adopt": "Mentés nélküli prezentációk és rajzok felvétele",
   "workbench.rescue.done": "Kész: {n} munkadarab visszakerült a listára.",
   "workbench.rescue.none": "Nincs mit visszaépíteni: minden munkadarab a listán van, vagy nincs hozzá mentés-fájl.",
+  "workbench.pin.more": "Több gomb",
   "workbench.trash.title": "Kuka",
   "workbench.trash.hint": "Amit itt, a Munkapadon töröltél: munkadarabokat és fájlokat. A Visszaállítás visszateszi őket a helyükre. A törölt fájlok közben az Életfa Kukájában vannak; ha ott kiüríted a Kukát, innen is eltűnnek. A Végleges törlés vissza nem hozható.",
   "workbench.versions.delete_last_title": "Ez az egyetlen verzió: ha törlöd, az egész munkadarab a Kukába kerül, onnan visszaállítható.",

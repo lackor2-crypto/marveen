@@ -64,8 +64,9 @@ describe('#501 Layers clicks during a save wait their turn (TG 2612)', () => {
 describe('#501 the rail Projects tab keeps a New work item button (TG 2619)', () => {
   const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
   it('compact items panel renders the new button or form', () => {
-    expect(js).toContain('if (compact) {')
-    expect(js).toContain('newBtn = archived() ?')
+    // #833: the New button / form is built for both layouts and pinned in the top box.
+    expect(js).toContain('if (!archived()) newBtn = WB.formOpen ?')
+    expect(js).toContain('data-wb-act="new"')
     expect(js).toContain('TG 2619')
   })
 })

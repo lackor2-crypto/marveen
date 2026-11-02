@@ -741,7 +741,7 @@
         + '<button type="button" class="btn-primary" data-wb-act="treeup-go"' + busy + '>' + esc(t(tu.stage === 'busy' ? 'workbench.treeup.busy' : 'workbench.treeup.go')) + '</button>'
         + '<button type="button" class="btn-secondary" data-wb-act="treeup-cancel"' + busy + '>' + esc(t('workbench.treeup.cancel')) + '</button></div>'
     }
-    return head + '<div class="wb-treeup-panel" role="dialog" aria-label="' + escA(t('workbench.treeup.button')) + '">' + body + '</div></div>'
+    return head + '<div class="wb-treeup-panel wb-pop" role="dialog" aria-label="' + escA(t('workbench.treeup.button')) + '">' + body + '</div></div>'
   }
 
   function treeUploadStart(files) {
@@ -874,7 +874,7 @@
     // What was deleted elsewhere (in the Explorer) is only in the Kuka: one click there.
     body += '<p class="wb-hint">' + esc(t('workbench.trash.kuka_hint')) + ' '
       + '<button type="button" class="wb-linklike" data-wb-act="kuka-open">' + esc(t('workbench.trash.kuka_open')) + '</button></p>'
-    return '<div class="wb-trash">' + head + body + '</div>'
+    return '<div class="wb-trash">' + head + '<div class="wb-pop">' + body + '</div></div>'
   }
 
   // ---- kis teendok hataridovel (#406, 14. pont) -------------------------------
@@ -3095,15 +3095,13 @@
     var rescue = rescueHtml()
     var newBtn = ''
     var rest = ''
+    // #833 (Boss TG 4380): the "New work item" button (and its form) sits in the ONE pinned box with the upload and the trash;
+    // whatever opens from there (form, upload steps, trash list) drops down over the tree instead of pushing it down.
+    if (!archived()) newBtn = WB.formOpen ? '<div class="wb-pop">' + newFormHtml() + '</div>' : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>'
     // #501 (TG 2619): the rail shows the "New work item" button (and its form) too, in the project list where Boss looks for it.
-    if (compact) {
-      newBtn = archived() ? '' : (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
-    } else if (archived()) {
-      rest = '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
-    } else {
-      rest = folderStepHtml() + (WB.formOpen ? newFormHtml() : '<button type="button" class="btn-primary wb-new-btn" data-wb-act="new">' + esc(t('workbench.new_item')) + '</button>')
-        + templatesHtml()
-        + uploadZoneHtml()
+    if (!compact) {
+      if (archived()) rest = '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
+      else rest = folderStepHtml() + templatesHtml() + uploadZoneHtml()
     }
     // Boss TG 3169: three separate blocks, folder tree first (TG 3201): (1) the folder tree, (2) the buttons + the hide switch, (3) trash / rescue / new work.
     return '<section class="wb-panel wb-panel-items' + (WB.panel === 'items' ? ' wb-panel-current' : '') + '" data-wb-panel-body="items" data-wb-drop="new">'
@@ -3111,18 +3109,21 @@
       // #831 (Boss TG 4361): the controls (Open, Attach folder, hide switch, view size, upload, trash, new work item) are
       // PINNED to the top of the panel; the folder tree scrolls underneath them.
       + '<div class="wb-pin">'
+      + '<div class="wb-pin-slot' + (WB.pinOpen ? ' wb-pin-open' : '') + '"' + (WB.pinOpen && WB.pinH ? ' style="height:' + Math.round(WB.pinH) + 'px"' : '') + '>'
       + '<div class="wb-blk wb-blk-top">'
+      + '<button type="button" class="wb-pin-more" data-wb-act="pin-more" aria-expanded="' + !!WB.pinOpen + '" title="' + escA(t('workbench.pin.more')) + '" aria-label="' + escA(t('workbench.pin.more')) + '">' + (WB.pinOpen ? '\u25b4' : '\u25be') + '</button>'
       + '<div class="wb-panel-head">'
       // #476: show WHERE the work item lives: the Explorer opens at its folder (no item picked: the work items box).
       + '<span class="wb-head-btns">'
       + '<button type="button" class="wb-btn wb-folder-btn wb-head-open" data-wb-act="folder-intezo" data-wb-place="' + (WB.selectedId ? 'assets' : 'box') + '"'
       + ' title="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '" aria-label="' + escA(t(WB.selectedId ? 'workbench.head_open.item_hint' : 'workbench.head_open.box_hint')) + '">\ud83d\udcc2 ' + esc(t('workbench.folder.open_short')) + '</button>'
       + (archived() ? '' : ' <button type="button" class="wb-btn wb-folder-btn wb-head-attach" data-wb-act="attach-folder" title="' + escA(t('workbench.attach.hint')) + '" aria-label="' + escA(t('workbench.attach.hint')) + '">\ud83d\udd17 ' + esc(t('workbench.attach.label')) + '</button>') + '</span></div>'
-      + hideSw + filesViewSelectHtml()
+      + hideSw
+      + '<div class="wb-pin-acts">' + newBtn + foot + '</div>'
       + '</div>'
-      + '<div class="wb-blk wb-blk-foot">' + foot + newBtn + '</div>'
       + '</div>'
-      + '<div class="wb-blk wb-blk-tree"><div class="wb-blk-title">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>') + '</div>' + body + '</div>'
+      + '</div>'
+      + '<div class="wb-blk wb-blk-tree"><div class="wb-blk-title">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>') + '</div>' + filesViewSelectHtml() + body + '</div>'
       + (rescue ? '<div class="wb-blk wb-blk-rescue">' + rescue + '</div>' : '')
       + rest
       + '</section>'
@@ -15157,6 +15158,19 @@
 
   /** A fejlec gombjai: a legnagyobb meret, amelyiknel a sor egy sorban elfer (Boss, TG 7284: ne
    *  legyenek feleslegesen kicsik). Szint 0 = eredeti, 3 = a legkisebb; ha egyik sem fer, torik. */
+  /** #833: the pinned box is never taller than its slot; when the buttons do not all fit, the "more" arrow shows and opens the box downward over the tree. */
+  function fitPinBox() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var slots = document.querySelectorAll('.wb-pin-slot')
+    for (var i = 0; i < slots.length; i++) {
+      var slot = slots[i]
+      var box = slot.querySelector('.wb-blk-top')
+      if (!box) continue
+      var open = slot.classList.contains('wb-pin-open')
+      slot.classList.toggle('wb-pin-clipped', !open && box.scrollHeight > box.clientHeight + 1)
+    }
+  }
+
   function fitHead() {
     if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return
     var head = document.querySelector('.wb-head-oneline')
@@ -21105,9 +21119,11 @@
     revealSplitFrame()
     lockFrameScroll()
     fitHead()
+    fitPinBox()
     // Az elso rajzolaskor a kontener meg nem biztos, hogy kapott szelesseget: kesobb ujra.
     if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(fitHead)
     setTimeout(fitHead, 400)
+    setTimeout(fitPinBox, 400)
     setTimeout(fitHead, 1500)
     observeHeadWidth()
     if (WB.formOpen && !WB.intakeFocused) {
@@ -21705,6 +21721,11 @@
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'files-view') { setFilesView(act.getAttribute('data-wb-fv')) }
     else if (a === 'item-sent-ask') { var sid = act.getAttribute('data-wb-id'); var sit = (WB.items || []).filter(function (x) { return x.id === sid })[0]; if (sit) sentAsk([{ id: sit.id, title: sit.title }], t('workbench.sent.ask_intro')) }
+    else if (a === 'pin-more') {
+      var pslot = document.querySelector('.wb-pin-slot'); var pbox = pslot && pslot.querySelector('.wb-blk-top')
+      if (!WB.pinOpen && pbox) WB.pinH = pbox.getBoundingClientRect().height
+      WB.pinOpen = !WB.pinOpen; render()
+    }
     else if (a === 'hide-done') { WB.hideDone = !WB.hideDone; writePref('wb.hide.done', WB.hideDone ? '1' : '0'); render() }
     else if (a === 'folder-fold') {
       var ff = act.getAttribute('data-wb-folder'); WB.collapsedFolder[ff] = !WB.foldShut(ff)

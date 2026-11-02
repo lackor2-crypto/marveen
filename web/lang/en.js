@@ -6136,6 +6136,7 @@ window._i18n.en = {
   "workbench.rescue.adopt": "Add presentations and drawings without a save file",
   "workbench.rescue.done": "Done: {n} work item(s) are back on the list.",
   "workbench.rescue.none": "Nothing to rebuild: every work item is on the list, or has no save file.",
+  "workbench.pin.more": "More buttons",
   "workbench.trash.title": "Trash",
   "workbench.trash.hint": "What you deleted here on the Workbench: work items and files. Restore puts them back in their place. Deleted files lie in the Life tree Trash meanwhile; if you empty that Trash, they disappear from here too. Delete permanently cannot be undone.",
   "workbench.versions.delete_last_title": "This is the only version: deleting it moves the whole work item to the Trash, where it can be restored.",
