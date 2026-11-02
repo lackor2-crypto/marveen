@@ -15917,6 +15917,33 @@
     isl.setAttribute('data-tw-text', text)
     isl.innerHTML = twBlockHtml({ kind: 'image', text: text }, bid, false)
   }
+  /** #837: the line of the translation page a dropped picture belongs to: the last paragraph / heading / table whose top is at
+   *  or above the picture's top (the first one when it was dropped above everything). The picture's own island and the
+   *  zero-height lines of other free pictures do not count. */
+  function twOverAnchor(bid, tbr) {
+    var host = document.getElementById('wbTwPage')
+    if (!host) return null
+    var own = host.querySelector('.wb-tw-island[data-tw-bid="' + bid + '"]')
+    var anchor = null
+    var first = null
+    Array.prototype.forEach.call(host.children, function (el) {
+      if (el === own || el.classList.contains('wb-tw-todo') || el.hasAttribute('hidden')) return
+      var r = el.getBoundingClientRect()
+      if (!(r.height > 0)) return
+      if (!first) first = el
+      if (r.top <= tbr.top + 0.5) anchor = el
+    })
+    return anchor || first
+  }
+  /** #837: move the picture's island right before the line it was dropped over; twCollect reads the order back on the save. */
+  function twPicMove(bid, el) {
+    var host = document.getElementById('wbTwPage')
+    var isl = host ? host.querySelector('.wb-tw-island[data-tw-bid="' + bid + '"]') : null
+    if (!isl || !el || el === isl || el.parentNode !== host) return
+    if (isl.nextSibling !== el) host.insertBefore(isl, el)
+    var sec = el.getAttribute('data-tw-sec')
+    if (sec) isl.setAttribute('data-tw-sec', sec)
+  }
   function twPicDelete(isl) {
     var host = document.getElementById('wbTwPage')
     if (isl.parentNode) isl.parentNode.removeChild(isl)
@@ -24092,6 +24119,13 @@
       var fullT = Math.max(1, anc.clientWidth || 1)
       var ar = anc.getBoundingClientRect()
       var tbr = box.getBoundingClientRect()
+      // #837: the picture is re-anchored to the paragraph / heading it was dropped over, as on the work item page: it may be
+      // put above its old line (the signature over the text), not only below its own anchor.
+      var tel = twOverAnchor(bid, tbr)
+      if (tel) {
+        var er = tel.getBoundingClientRect()
+        return { sid: null, pos: -1, el: tel, x: Math.max(0, Math.min(100 - wPct, Math.round((tbr.left - ar.left) / fullT * 1000) / 10)), y: Math.max(0, Math.min(300, Math.round((tbr.top - er.top) / fullT * 1000) / 10)), full: fullT }
+      }
       return { sid: null, pos: -1, x: Math.max(0, Math.min(100 - wPct, Math.round((tbr.left - ar.left) / fullT * 1000) / 10)), y: Math.max(0, Math.min(300, Math.round((tbr.top - ar.top) / fullT * 1000) / 10)), full: fullT }
     }
     var page = box.closest('.wb-dp-page') || dpRoot()
@@ -24142,6 +24176,7 @@
     var at = box ? dpOverPlace(bid, box, w2) : null
     var body = { text: dpPlaceText(b, cur, w2, cur.align, at ? at.x : 0, at ? at.y : 0, true) }
     if (at) { body.section = at.sid; body.position = at.pos }
+    if (at && at.el) twPicMove(bid, at.el)
     dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), body).then(function (o) { if (o) render() })
   }
 
@@ -24168,6 +24203,7 @@
       fig.style.transform = ''
       if (!at) return
       var text = dpPlaceText(b, cur, cur.width || 100, cur.align, at.x, at.y, true)
+      if (at.el) twPicMove(bid, at.el)
       dpCall('PATCH', '/blocks/' + encodeURIComponent(bid), { text: text, section: at.sid, position: at.pos }).then(function (o) { if (o) render() })
     }
     hd.addEventListener('pointermove', move)
