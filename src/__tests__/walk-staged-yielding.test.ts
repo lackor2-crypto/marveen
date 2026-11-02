@@ -24,3 +24,14 @@ describe('walkStagedYielding', () => {
     } finally { rmSync(root, { recursive: true, force: true }) }
   })
 })
+
+// #835: `git bundle create` took ~1 s as a sync spawn inside createBackup and held the whole dashboard.
+describe('createBackup git bundle', () => {
+  it('runs the bundle through an async execFile, never execFileSync', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(join(__dirname, '..', 'backup', 'create.ts'), 'utf8')
+    const bundleCall = src.slice(src.indexOf("'bundle', 'create'") - 200, src.indexOf("'bundle', 'create'") + 200)
+    expect(bundleCall).toContain('execFile(')
+    expect(bundleCall).not.toContain('execFileSync(')
+  })
+})

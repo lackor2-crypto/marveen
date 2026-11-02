@@ -15,7 +15,7 @@
  * Every file it creates is 0600, every dir 0700.
  */
 import { drainSteps, drainStepsYielding } from '../yielding.js'
-import { spawn, execFileSync } from 'node:child_process'
+import { spawn, execFileSync, execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   chmodSync, closeSync, cpSync, createWriteStream, existsSync, fsyncSync, lstatSync,
@@ -310,7 +310,10 @@ export async function createBackup(opts: CreateBackupOptions): Promise<BackupRes
       const bundle = join(staging, 'project', 'local-commits.bundle')
       mkdirSync(dirname(bundle), { recursive: true, mode: 0o700 })
       try {
-        execFileSync('git', ['-C', ctx.projectRoot, 'bundle', 'create', bundle, '--branches', '--not', '--remotes=origin'], { stdio: 'ignore', timeout: 120_000 })
+        // Async on purpose (#835): the bundle takes ~1 s on a real repo, and a sync spawn held the whole dashboard for that long.
+        await new Promise<void>((resolve, reject) => {
+          execFile('git', ['-C', ctx.projectRoot, 'bundle', 'create', bundle, '--branches', '--not', '--remotes=origin'], { timeout: 120_000 }, (e) => (e ? reject(e) : resolve()))
+        })
         chmodSync(bundle, 0o600)
         categories.git = ['project/local-commits.bundle']
       } catch {
