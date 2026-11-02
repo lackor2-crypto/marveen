@@ -1162,6 +1162,8 @@ describe('agent-chat (3. fazis)', () => {
       }
       if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
       if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      // Az uj elem megnyilik (#844), tehat a reszletet is a valodi alakjaban kapja.
+      if (url.indexOf('/api/workbench/items/w9') >= 0) return { status: 200, body: { item: { id: 'w9', title: 'Facebook-poszt', type: 'document', status: 'draft' } } }
       listazas++
       return { status: 200, body: itemsBody([{ id: 'w9', title: 'Facebook-poszt', type: 'document', status: 'draft' }]) }
     })

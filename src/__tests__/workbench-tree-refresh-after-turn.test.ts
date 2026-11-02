@@ -40,10 +40,10 @@ describe('the folder tree is asked for again after an agent turn that ran comman
     await vi.waitFor(() => expect(itemsGets(h)).toBeGreaterThan(before), { timeout: 3000 })
   })
 
-  it('a turn without any successful tool does not reload the tree', async () => {
+  it('a turn without any successful tool still reloads the tree once (#844: a delegated agent may have made an item meanwhile)', async () => {
     const { h, before } = await turn([{ name: 'Bash', status: 'error' }])
-    await new Promise((r) => setTimeout(r, 700))
-    expect(before).toBeGreaterThan(0)
-    expect(itemsGets(h)).toBe(before)
+    await vi.waitFor(() => expect(itemsGets(h)).toBe(before + 1), { timeout: 3000 })
+    await new Promise((r) => setTimeout(r, 500))
+    expect(itemsGets(h)).toBe(before + 1)
   })
 })

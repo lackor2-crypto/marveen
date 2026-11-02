@@ -413,6 +413,25 @@
     })
   }
 
+  /** A munkadarab, amit az asszisztens (a chatbol, vagy az altala inditott ugynok) hozott letre, MEGNYILIK kozepen
+   *  (owner TG 4518, 2026-11-02): nem elég, hogy a fan megjelenik. A chat-forduló indulásakor megjegyezzük az akkori
+   *  munkadarabokat; ami azota ÚJ, azt megnyitjuk -- de csak ha a tulajdonos azota nem valasztott mast. */
+  function agentWatchStart() {
+    WB.agentWatch = { pid: WB.projectId, sel: WB.selectedId || null, at: Date.now(), ids: (WB.items || []).map(function (x) { return x.id }) }
+  }
+  function openAgentCreated() {
+    var w = WB.agentWatch
+    if (!w) return
+    if (WB.projectId !== w.pid || Date.now() - w.at > 3 * 3600 * 1000) { WB.agentWatch = null; return }
+    if ((WB.selectedId || null) !== w.sel) return
+    var fresh = (WB.items || []).filter(function (x) { return w.ids.indexOf(x.id) < 0 })
+    if (!fresh.length) return
+    fresh.forEach(function (x) { w.ids.push(x.id) })
+    fresh.sort(function (a, b) { return String(b.created_at || '') < String(a.created_at || '') ? -1 : 1 })
+    w.sel = fresh[0].id
+    selectItem(fresh[0].id)
+  }
+
   function load(projectId) {
     return api('GET', '/api/workbench/items?project=' + encodeURIComponent(projectId)).then(function (r) {
       if (WB.projectId !== projectId) return
@@ -431,6 +450,7 @@
       loadFileTrash(projectId)
       if (WB.templates === null || WB.templatesLang !== (window._lang || 'hu')) loadTemplates()
       if (WB.selectedId && !WB.items.some(function (i) { return i.id === WB.selectedId })) WB.selectedId = null
+      openAgentCreated()
       render()
     })
   }
@@ -453,6 +473,7 @@
       WB.items = items
       WB.itemMarks = marks
       announceFolderMoves(r.data.folder_moves, r.data.work_folders)
+      openAgentCreated()
       render()
     })
   }
@@ -12914,7 +12935,7 @@
       + '<button type="button" class="btn-primary" data-wb-act="chat-send">'
       + esc(streaming ? t('workbench.chat.send_queue') : t('workbench.chat.send')) + '</button>'
       + '</div></div>'
-      + '<p class="wb-hint">' + esc(WB.selectedId && WB.detail
+      + '<p class="wb-hint">' + esc(WB.selectedId && WB.detail && WB.detail.item
         ? t('workbench.chat.target_item', { title: WB.detail.item.title })
         : t('workbench.chat.target_project')) + '</p>'
   }
@@ -13144,7 +13165,8 @@
     if (valtozott && WB.projectId) {
       load(WB.projectId)
       if (WB.selectedId) loadDetail(WB.selectedId)
-    } else if ((turn.tools || []).some(function (x) { return x.status === 'ok' })) {
+    } else {
+      // Also after a turn with no tool of its own: a delegated agent may have made the work item meanwhile (owner TG 4518).
       // The agent ran commands (a folder link, a move, a file written): the tree on the left must show the
       // new state without F5 (owner, 2026-10-13). The commands are not work-item tools, so ask the server.
       refreshTree()
@@ -13288,6 +13310,7 @@
     var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatInput') : null
     if (el && typeof el.value === 'string') WB.chatDraft = el.value
     WB.chatStreaming = true
+    agentWatchStart()
     WB.chatActivityClock = { startedAt: Date.now(), lastEventAt: Date.now() }
     startChatActivityTicker()
     renderChat()
