@@ -3532,6 +3532,81 @@ export function ensureGlobalWorkItemFolderFilesRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+const LETTERHEAD_BEGIN = '<!-- BEGIN GENERATED: letter-head-window-rule (auto-generated, do not edit by hand) -->'
+const LETTERHEAD_END = '<!-- END GENERATED: letter-head-window-rule -->'
+const LETTERHEAD_BLOCK_RE = new RegExp(
+  `${LETTERHEAD_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${LETTERHEAD_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildLetterHeadBody(): string {
+  return [
+    '## HIVATALOS LEVEL FEJE: ABLAKOS BORITEK -- A TULAJDONOS SAJAT FORMAJA',
+    '',
+    'Minden hivatalos level (birosag, hatosag, hivatal) UGYANIGY kezdodik, a tulajdonos egyszer beallitotta:',
+    'a FELADO keretes tablablokkent JOBBRA FENT (felirat "Felado:" / "Absender:" / "Sender:", nev, utca, iranyitoszam',
+    'es varos, az utolso sor `#w=45&a=l&x=55&y=0&o=1`), a CIMZETT BALRA, az ablak helyen (elso bekezdes: 4 ures sor,',
+    'felirat "Cimzett:" / "Empfaenger:" / "Recipient:", nev, hatosag, iranyitoszam es varos, 2 ures sor; ures sor = egy',
+    'U+200B karakter). Utana hely + datum, targy/ugyszam, megszolitas. Nem sima cimsor, es nem egy kozos tabla. A',
+    'projekt alatti asszisztensek keszitik ezeket: ugyanezt kapjak a promptjukban. Reszletek:',
+    '`letter-head-sender-recipient` skill, `marveen-learned-rules` R25, kod: `buildLetterHead()`.',
+  ].join('\n')
+}
+
+/** Beviszi a szabalyt: az ablakos boritek levelfej egy agens sajat CLAUDE.md-jebe. */
+export function ensureLetterHeadSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${LETTERHEAD_BEGIN}\n${buildLetterHeadBody()}\n${LETTERHEAD_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = LETTERHEAD_BLOCK_RE.test(existing)
+    ? existing.replace(LETTERHEAD_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben futo agens is ezt olvassa. */
+export function ensureGlobalLetterHeadRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${LETTERHEAD_BEGIN}\n${buildLetterHeadBody()}\n${LETTERHEAD_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = LETTERHEAD_BLOCK_RE.test(existing)
+    ? existing.replace(LETTERHEAD_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 // --- statusLine: the rate-limit snapshot producer ---------------------------
 //
 // scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;
