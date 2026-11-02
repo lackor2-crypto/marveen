@@ -16097,6 +16097,7 @@
     var shown = b.kind === 'table' ? dpTableParts(b.text).text : b.text
     var cls = 'wb-dp-block wb-outline-kind-' + escA(b.kind) + (b.kind === 'list' && dpIsNumbered(b.text) ? ' wb-dp-numbered' : '')
     var inner = b.rich && b.kind !== 'table' ? b.rich : esc(shown)
+    if (b.kind === 'paragraph' && dpIsBlank(b.text)) inner = '<br>' // #838: an empty line is an empty line on the page
     if (b.kind === 'list' && (!/(^| )wb-dp-numbered( |$)/.test(cls) || /\n[ \t]{2}/.test(String(b.text || '')))) {
       var lines = dpListLinesHtml(inner)
       if (lines !== null) { inner = lines; cls += ' wb-dp-lines' }
@@ -16204,9 +16205,16 @@
       if (!cur) { if (!firstSec) continue; cur = group(firstSec) }
       if (role === 'island') { cur.blocks.push({ kind: el.getAttribute('data-tw-kind') || 'image', text: el.getAttribute('data-tw-text') || '' }); continue }
       var tl = role !== 'title' && el.getAttribute('data-tw-kind') === 'table' ? twTableLines(el) : null
-      var txt = (tl != null ? tl : textOf(el)).trim()
-      if (!txt) continue
+      var txt = (tl != null ? tl : textOf(el)).replace(/\u200B/g, '').trim()
       var kind = role === 'title' ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph')
+      if (!txt) {
+        // #838 (Boss TG 4437): an empty line the owner made with Enter is the owner's and STAYS (as on the work item page,
+        // #565): it was dropped here, so the lines under it slid up and the name ran under the signature picture. Only a
+        // paragraph line can be one; an emptied table / heading is not.
+        if (role === 'title' || kind !== 'paragraph' || tl != null || (el.tagName !== 'DIV' && el.tagName !== 'P')) continue
+        cur.blocks.push({ kind: 'paragraph', text: DP_BLANK })
+        continue
+      }
       var nb = { kind: kind, text: txt }
       if (kind !== 'table') {
         // The paragraph's own look is read off the element, not guessed from a position: what stands on the page is what is saved.
