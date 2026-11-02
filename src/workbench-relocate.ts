@@ -28,7 +28,7 @@ import { logger } from './logger.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
 import { projectFileTarget } from './project-files.js'
 import { explorerRoot, resolveLifePath, toLifeRel } from './life-explorer.js'
-import { rehomeWorkItem, reconcileFolderMarkers } from './workbench-assets.js'
+import { rehomeWorkItem, reconcileFolderMarkersYielding } from './workbench-assets.js'
 import { ensureWorkbenchTables, type WorkItemRow } from './workbench.js'
 import { SNAPSHOT_FALLBACK_DIR, SNAPSHOT_FILE, SNAPSHOT_FORMAT } from './workbench-snapshot.js'
 import { notifyChannel } from './notify.js'
@@ -323,7 +323,7 @@ async function reconcilePass(): Promise<void> {
     // Folders with a known id that vanished from the disk: ask the owner, never forget them on our own.
     for (const p of listProjects({ includeArchived: false })) {
       let lost: string[] = []
-      try { lost = reconcileFolderMarkers(p).lost } catch { continue }
+      try { lost = (await reconcileFolderMarkersYielding(p)).lost } catch { continue }
       if (lost.length) await warnLost(p, lost)
     }
     saveWarned()
