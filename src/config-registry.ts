@@ -758,7 +758,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     key: 'DEBATE_MODELS',
     type: 'string',
     default: '',
-    description: 'A vitáztatáshoz használt OpenRouter modell-azonosítók, vesszővel elválasztva (pl. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Üresen hagyva a fő-agens minden vitáztatás-kérésnél megkérdezi, melyik modelleket használja.',
+    description: 'A vitáztatáshoz használt OpenRouter modell-azonosítók, vesszővel elválasztva (pl. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Üresen hagyva a vitáztatást végző ágens minden vitáztatás-kérésnél megkérdezi, melyik modelleket használja.',
     module: 'debate',
     secret: false,
     requiresRestart: false,
