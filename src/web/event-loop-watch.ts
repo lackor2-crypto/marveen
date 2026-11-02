@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { logger } from '../logger.js'
+import { ol } from '../owner-lang.js'
 
 export const TICK_MS = 100
 export const STALL_MS = 300
@@ -178,9 +179,13 @@ export async function alertSevereStall(
   if (s.lagMs < SEVERE_STALL_MS) return false
   if (s.at - lastSevereAlertAt < SEVERE_ALERT_COOLDOWN_MS && lastSevereAlertAt !== 0) return false
   lastSevereAlertAt = s.at
-  const what = s.inflight.length ? s.inflight.join(', ') : 'nem futott kerés (időzítő vagy indulási lépés)'
+  const what = s.inflight.length ? s.inflight.join(', ') : ol('nem futott kérés (időzítő vagy indulási lépés)', 'no request was running (a timer or a start-up step)')
   try {
-    await send(`Figyelmeztetés: a dashboard ${(s.lagMs / 1000).toFixed(1)} mp-re lefagyott. Ami futott: ${what}. Részletek: GET /api/perf/stalls.`)
+    const secs = (s.lagMs / 1000).toFixed(1)
+    await send(ol(
+      `Figyelmeztetés: a dashboard ${secs} mp-re lefagyott. Ami futott: ${what}. Részletek: GET /api/perf/stalls.`,
+      `Warning: the dashboard froze for ${secs} s. What was running: ${what}. Details: GET /api/perf/stalls.`,
+    ))
     return true
   } catch (e) {
     logger.warn({ err: String(e) }, 'event loop stall alert could not be sent')
