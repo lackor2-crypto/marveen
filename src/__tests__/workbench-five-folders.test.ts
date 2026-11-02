@@ -92,8 +92,9 @@ describe('the five standard folders of a work item', () => {
     expect(getProject(pid)).toBeTruthy()
   })
 
-  // #681 (Boss TG 9541): nothing is made automatically inside a sub-document; a folder the user deleted stays deleted.
-  it('a sub-document (a debate report item) gets NO folder at all, and a deleted folder is not made again', () => {
+  // #681 (Boss TG 9541): a debate report filed in the debate folder shares it and gets no folders of its own; a folder
+  // the user deleted stays deleted. (Boss TG 4561: every OTHER work item, a sub-document too, gets its own three.)
+  it('a debate report item gets NO folder at all, and a deleted folder is not made again', () => {
     const w = createWorkItem({ project_id: pid, title: 'Eredeti', type: 'document' })
     if (!w.ok) throw new Error('item')
     const f = ensureWorkItemFolder(w.item)

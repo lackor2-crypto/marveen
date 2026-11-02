@@ -64,10 +64,21 @@ describe('letter folders inside a case folder', () => {
     expect(subs(`${caseFolder}/2. levél`)).toEqual(['Elkészített anyagok', 'Kiváltó irat'])
   })
 
-  it('an item inside a standard folder of the case is still a sub-document: no folders', () => {
+  it('a sub-document provisioned earlier (with no folders) is topped up once; a deleted one stays deleted (Boss TG 4561)', () => {
+    const { caseFolder, childId } = caseWith('Mellékletek/valami')
+    getDb().prepare('INSERT OR IGNORE INTO work_item_std_folders (work_item_id, done_at) VALUES (?, ?)').run(childId, Date.now())
+    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual([])
+    ensureAllAttachmentsFolders()
+    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Kiváltó irat', 'Mellékletek'])
+    rmSync(join(projDir(), caseFolder, 'Mellékletek', 'valami', 'Mellékletek'), { recursive: true })
+    ensureAllAttachmentsFolders()
+    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Kiváltó irat'])
+  })
+
+  it('an item inside a standard folder of the case is a sub-document: it gets its own three folders (Boss TG 4561)', () => {
     const { caseFolder } = caseWith('Mellékletek/valami')
     ensureAllAttachmentsFolders()
-    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual([])
+    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Kiváltó irat', 'Mellékletek'])
     expect(getWorkItem).toBeTruthy()
   })
 })
