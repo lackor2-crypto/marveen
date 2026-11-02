@@ -152,7 +152,7 @@ import { tryHandleWorkbench } from './web/routes/workbench.js'
 import { tryHandleBackup } from './web/routes/backup.js'
 import { tryHandleBackupRestore } from './web/routes/backup-restore.js'
 import { tryHandleWorkbenchAgent, resumeInterruptedWorkbenchTurns } from './web/routes/workbench-agent.js'
-import { migrateAllWorkItemFolders, ensureAllAttachmentsFolders } from './workbench-assets.js'
+import { migrateAllWorkItemFolders, ensureAllAttachmentsFoldersAsync } from './workbench-assets.js'
 import { tryHandleEmail, warmEmailCaches } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
 import { tryHandleSpans } from './web/routes/spans.js'
@@ -824,7 +824,7 @@ export function startWebServer(port = 3420): http.Server {
   } catch (err) { logger.warn({ err }, '[workbench] work item folder migration failed') }
 
   // #618 (Boss TG 3515): every work item folder always has its "Mellekletek" / "Attachments" subfolder.
-  try { ensureAllAttachmentsFolders() } catch (err) { logger.warn({ err }, '[workbench] attachments folders backfill failed') }
+  ensureAllAttachmentsFoldersAsync().catch((err) => logger.warn({ err }, '[workbench] attachments folders backfill failed'))
 
   // #434 (Boss: "frissites utan azonnal folytasa a felbeszakadt munkat!"): a
   // Workbench full-agent turn cut off by this restart continues by itself.

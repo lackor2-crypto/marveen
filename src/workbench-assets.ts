@@ -27,6 +27,7 @@
  * A regi fajl SOSE VESZ EL: a Marveen tovabbra sem ir felul semmit
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
+import { drainSteps, drainStepsYielding } from './yielding.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, sep } from 'node:path'
@@ -1565,6 +1566,13 @@ function provisionStandardFolders(project: ProjectRow, item: WorkItemRow, folder
 
 /** #618: the "Mellekletek" subfolder every work item folder always has -- made for the items that already existed. Idempotent. */
 export function ensureAllAttachmentsFolders(): { items: number } {
+  return drainSteps(ensureAllAttachmentsFolderSteps())
+}
+/** #835: the same pass for the startup, handing the event loop back between work items (it blocked it for 5.2 s). */
+export function ensureAllAttachmentsFoldersAsync(): Promise<{ items: number }> {
+  return drainStepsYielding(ensureAllAttachmentsFolderSteps())
+}
+function* ensureAllAttachmentsFolderSteps(): Generator<void, { items: number }, void> {
   ensureAssetTables()
   let items = 0
   for (const p of listProjects({ includeArchived: true })) {
@@ -1575,6 +1583,7 @@ export function ensureAllAttachmentsFolders(): { items: number } {
     }
     const rows = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(p.id) as { id: string }[]
     for (const { id } of rows) {
+      yield
       const folder = workItemFolder(id)
       if (!folder) continue
       try { const it = getWorkItem(id); if (it) provisionStandardFolders(p, it, folder); noteItemStandardFoldersSeen(p, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
@@ -1583,6 +1592,7 @@ export function ensureAllAttachmentsFolders(): { items: number } {
     // got the other standard folders. The sixth ("Kiváltó irat") is topped up there too; a deleted one stays deleted.
     const plain = getDb().prepare("SELECT DISTINCT container_folder AS cf FROM work_items WHERE project_id = ? AND (folder IS NULL OR folder = '') AND deleted_at IS NULL AND container_folder IS NOT NULL AND container_folder != ''").all(p.id) as { cf: string }[]
     for (const { cf } of plain) {
+      yield
       if (cf === PROJECT_ROOT_PLACE) continue
       try {
         const hasStd = ['Mellékletek', 'Attachments'].some(n => projectFileTarget(p, `${cf}/${n}`).ok)

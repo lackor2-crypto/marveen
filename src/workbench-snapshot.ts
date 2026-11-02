@@ -9,6 +9,7 @@
 // <project folder>/.marveen-items/<id>.json. Project brand: <project folder>/marveen-brand.json.
 // A permanently deleted item gets a TOMBSTONE in its snapshot, so the rebuild never revives it.
 
+import { drainSteps, drainStepsYielding } from './yielding.js'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
@@ -112,8 +113,12 @@ export function snapshotStatus(): { lastSweepAt: number | null; items: number; w
   return { lastSweepAt: lastSweep?.at ?? null, items: lastSweep?.items ?? 0, written: lastSweep?.written ?? 0 }
 }
 
-/** One pass: write the snapshot of every item whose content changed. Returns how many files were written. */
-export function sweepSnapshots(opts: { force?: boolean } = {}): number {
+/**
+ * One pass as a generator: it yields after every item, so a caller that is on the event loop (the timers) can hand
+ * control back between items instead of blocking it for seconds (#835: statSync/readFileSync per item, measured
+ * 3.1 s stalls in /api/perf/stalls). The return value is how many files were written.
+ */
+function* sweepSnapshotSteps(opts: { force?: boolean } = {}): Generator<void, number, void> {
   ensureWorkbenchTables()
   const db = getDb()
   // The writers share this connection: no change since the last pass -> nothing to do.
@@ -145,6 +150,7 @@ export function sweepSnapshots(opts: { force?: boolean } = {}): number {
   try { for (const r of db.prepare('SELECT work_item_id AS id FROM work_item_snapshot_off').all() as { id: string }[]) optedOut.add(r.id) } catch { /* table appears with the first deleted snapshot */ }
   let n = 0
   for (const item of items) {
+    yield
     try {
       let project = projects.get(item.project_id)
       if (!projects.has(item.project_id)) projects.set(item.project_id, (project = getProject(item.project_id)))
@@ -208,6 +214,19 @@ export function sweepSnapshots(opts: { force?: boolean } = {}): number {
   lastChanges = changes
   lastSweep = { at: Date.now(), items: items.length, written: n, ms: Date.now() - t0 }
   return n
+}
+
+/** One pass, synchronously (shutdown, explicit requests that must finish before they answer). */
+export function sweepSnapshots(opts: { force?: boolean } = {}): number {
+  return drainSteps(sweepSnapshotSteps(opts))
+}
+
+let asyncSweeping = false
+/** One pass that gives the event loop back whenever it has held it for more than a few ms. */
+export async function sweepSnapshotsAsync(opts: { force?: boolean } = {}): Promise<number> {
+  if (asyncSweeping) return 0
+  asyncSweeping = true
+  try { return await drainStepsYielding(sweepSnapshotSteps(opts)) } finally { asyncSweeping = false }
 }
 
 /** Called right before an item is permanently deleted: its snapshot becomes a tombstone (never revived). */
@@ -414,11 +433,11 @@ export function startWorkbenchSnapshots(): void {
       const r = await restoreFromFolders()
       if (r.restored || r.projectsRebuilt) logger.info(r, 'workbench-snapshot: missing work items rebuilt from the project folders')
     } catch (err) { logger.warn({ err }, 'workbench-snapshot: startup rebuild failed') }
-    try { sweepSnapshots({ force: true }) } catch (err) { logger.warn({ err }, 'workbench-snapshot: first sweep failed') }
+    try { await sweepSnapshotsAsync({ force: true }) } catch (err) { logger.warn({ err }, 'workbench-snapshot: first sweep failed') }
   }, 20_000)
   startTimer.unref()
   timer = setInterval(() => {
-    try { sweepSnapshots() } catch (err) { logger.warn({ err }, 'workbench-snapshot: sweep failed') }
+    sweepSnapshotsAsync().catch((err) => logger.warn({ err }, 'workbench-snapshot: sweep failed'))
   }, SWEEP_MS)
   timer.unref()
 }
