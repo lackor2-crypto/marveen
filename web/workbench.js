@@ -2003,6 +2003,8 @@
 
   function dirOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? '' : String(path).slice(0, i) }
   function baseOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? String(path) : String(path).slice(i + 1) }
+  var STD_FOLDERS = { 'agent': 1, 'agentnek': 1, 'for the agent': 1, 'elkészített anyagok': 1, 'finished materials': 1, 'elkészített iratok': 1, 'finished documents': 1,
+    'feltöltések': 1, 'uploads': 1, 'kiváltó irat': 1, 'trigger document': 1, 'mellékletek': 1, 'attachments': 1, 'vitáztatás': 1, 'debate': 1, 'vitáztatás jelentés': 1, 'debate report': 1 }
   /** Show a Life-tree folder in the Explorer page. The Explorer is app.js's; when it is not there, say so -- a click
    *  that only changed the address bar and did nothing else looked like a dead button (#542). */
   function openInIntezo(folderRel) {
@@ -2454,7 +2456,7 @@
     Object.keys(place).forEach(function (id) { if (place[id] !== box && !have[place[id]]) place[id] = box })
     var kids = {}
     shown.forEach(function (f) { var d = dirOf(f); if (d !== box && !have[d]) d = box; (kids[d] = kids[d] || []).push(f) })
-    Object.keys(kids).forEach(function (k) { kids[k].sort(function (x, y) { return nameCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
+    Object.keys(kids).forEach(function (k) { kids[k].sort(function (x, y) { return folderCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
     // TG 2654: a work item whose own file lies outside the box (e.g. loose in the project folder) is shown ONCE, at the
     // place where the file really is, with the work item marker; it is not repeated inside the box.
     var out = mergedOutside(wf)
@@ -2552,6 +2554,10 @@
     var doneTotal = items.filter(function (it) { return markOf(it.id).finished && byPlace[place[it.id]] && byPlace[place[it.id]].indexOf(it) >= 0 }).length
     WB.hideSwitch = { on: hideOn, hidden: hiddenTotal, done: doneTotal }
     function nameCmp(a, b) { return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }) }
+    // Boss TG 4571: the standard folders of a work item (Agent, Finished materials, Uploads, Trigger document, Attachments,
+    // Debate) always stay together in one block; any other folder (a moved one, a letter folder) comes AFTER them.
+    function stdFolderRank(name) { return STD_FOLDERS[String(name).toLowerCase()] ? 0 : 1 }
+    function folderCmp(a, b) { return stdFolderRank(a.name) - stdFolderRank(b.name) || nameCmp(a, b) }
     var rows = []
     // Every top-level group gets its own base tint; its folders, items and files share it (Boss, TG 2531).
     var topIdx = 0
@@ -2618,7 +2624,7 @@
     ;(out.folders || []).forEach(function (f) { outHave[f] = true })
     var outKids = {}
     ;(out.folders || []).forEach(function (f) { var d = dirOf(f); if (d && !outHave[d]) d = ''; (outKids[d] = outKids[d] || []).push(f) })
-    Object.keys(outKids).forEach(function (k) { outKids[k].sort(function (x, y) { return nameCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
+    Object.keys(outKids).forEach(function (k) { outKids[k].sort(function (x, y) { return folderCmp({ name: baseOf(x) }, { name: baseOf(y) }) }) })
     // #502: a folder not read yet (linked, or no time for it) counts what it holds directly, and the count says "+".
     var outLazy = out.lazy || {}
     function outCount(path) {
@@ -2667,7 +2673,7 @@
     function walkOutside(path, depth, grp) {
       var kidsHere = (outKids[path] || []).map(function (f) { return { name: baseOf(f), f: f } })
       if (path === '' && box) kidsHere.push({ name: baseOf(box), box: true })
-      kidsHere.sort(nameCmp)
+      kidsHere.sort(folderCmp)
       // #696 (Boss TG 9643/9650): the files and work items come FIRST, then the folders -- no folder between a group and its files.
       ;((out.files || {})[path] || []).slice().sort(nameCmp).forEach(function (f) { rows.push(outItemByRel[f.rel] ? itemRowHtml(outItemByRel[f.rel], depth, grp) : plainFileRowHtml(f, depth, grp)) })
       kidsHere.forEach(function (e) {
