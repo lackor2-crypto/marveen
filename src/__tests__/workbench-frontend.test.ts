@@ -509,8 +509,7 @@ describe('project tree panel in three separate blocks (#583, TG 3169)', () => {
     const iTop = panel.indexOf('class="wb-blk wb-blk-top"')
     const iTree = panel.indexOf('class="wb-blk wb-blk-tree"')
     const top = panel.slice(iTop, iTree)
-    const resc = panel.indexOf('class="wb-blk wb-blk-rescue"')
-    const tree = panel.slice(iTree, resc > 0 ? resc : panel.length)
+    const tree = panel.slice(iTree)
     return { tree, top, foot: top.slice(top.indexOf('class="wb-pin-acts"')), order }
   }
 
@@ -538,7 +537,10 @@ describe('project tree panel in three separate blocks (#583, TG 3169)', () => {
     for (const c of ['wb-new-btn', 'wb-treeup', 'wb-trash']) expect(foot).toContain(c)
     expect(foot.indexOf('wb-new-btn')).toBeLessThan(foot.indexOf('wb-treeup'))
     expect(foot.indexOf('wb-treeup')).toBeLessThan(foot.indexOf('wb-trash'))
-    expect(foot).not.toContain('wb-rescue')
+    // #836 (Boss TG 4404): the rebuild-from-folders box sits in the pinned box right after the Trash, not below the tree.
+    expect(foot).toContain('wb-rescue')
+    expect(foot.indexOf('wb-trash')).toBeLessThan(foot.indexOf('wb-rescue'))
+    expect(tree).not.toContain('wb-rescue')
     for (const c of ['wb-fav-row', 'data-wb-item=', 'wb-head-open', 'wb-head-attach', 'wb-hide-done']) expect(foot).not.toContain(c)
   })
 
