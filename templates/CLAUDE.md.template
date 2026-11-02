@@ -980,3 +980,14 @@ se GPT/chat-kivonat, se a dokumentum másolata (docx/md/canvas.json). Itt csak a
 A ténylegesen kiküldött kész anyag az „Elkészített anyagok" mappába megy. Skill:
 `workitem-context-file`, `marveen-learned-rules` R24; minden ágens megkapja
 (`ensureWorkItemFolderFilesSection`, `ensureGlobalWorkItemFolderFilesRule`).
+
+## ⛔ HIVATALOS LEVÉL FEJE: ABLAKOS BORÍTÉK -- A TULAJDONOS SAJÁT FORMÁJA (TG 4543)
+
+Minden hivatalos levél (bíróság, hatóság, hivatal) ugyanígy kezdődik: a **Feladó** keretes
+táblablokként JOBBRA FENT (felirat Feladó:/Absender:/Sender:, név, utca, irányítószám és város,
+utolsó sor `#w=45&a=l&x=55&y=0&o=1`), a **Címzett** BALRA, az ablak helyén (első bekezdés: 4 üres sor,
+felirat Címzett:/Empfänger:/Recipient:, név, hatóság, irányítószám és város, 2 üres sor; üres sor =
+egy U+200B karakter). Utána hely + dátum, tárgy/ügyszám, megszólítás. Nem sima címsor, és nem egy
+közös tábla. A projekt alatti asszisztensek készítik ezeket: a promptjuk ugyanezt mondja. Skill:
+`letter-head-sender-recipient`, `marveen-learned-rules` R25; minden ágens megkapja
+(`ensureLetterHeadSection`, `ensureGlobalLetterHeadRule`).
