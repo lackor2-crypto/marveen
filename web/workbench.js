@@ -12935,7 +12935,7 @@
       + '<button type="button" class="btn-primary" data-wb-act="chat-send">'
       + esc(streaming ? t('workbench.chat.send_queue') : t('workbench.chat.send')) + '</button>'
       + '</div></div>'
-      + '<p class="wb-hint">' + esc(WB.selectedId && WB.detail
+      + '<p class="wb-hint">' + esc(WB.selectedId && WB.detail && WB.detail.item
         ? t('workbench.chat.target_item', { title: WB.detail.item.title })
         : t('workbench.chat.target_project')) + '</p>'
   }
