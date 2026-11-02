@@ -142,6 +142,7 @@ import { addTodo, updateTodo, deleteTodo, getTodo, listItemTodos, listProjectTod
 import { getReminderStatus, setReminderSettings } from '../../workbench-todo-reminder.js'
 import { gcalStatus, requestTodoCalendar, settleTodoCalendarApprovals } from '../../workbench-todo-gcal.js'
 import { sendOwnerChannelChecked } from '../../notify.js'
+import { alertKeyFunctionFailure } from '../../key-function-alert.js'
 import { getBrand, saveBrand, checkCanvasBrand, emptyBrand, brandIsEmpty, BrandUnreadableError, BRAND_FONTS, LOGO_CORNERS, BRAND_MAX_COLORS, BRAND_MAX_NOTES, BRAND_NOTE_MAX_CHARS, listBrandTemplates, deleteBrandTemplate, BRAND_MAX_TEMPLATES, BRAND_TEMPLATE_NAME_MAX } from '../../workbench-brand.js'
 import { brandTemplateFromItem, createFromBrandTemplate } from '../../workbench-brand-templates.js'
 import { listDecisions, addDecision, updateDecision, setDecisionRevoked, getDecision, DECISION_MAX_CHARS, DECISIONS_MAX_ACTIVE } from '../../workbench-decisions.js'
@@ -2478,9 +2479,12 @@ function docPdfStatus(code: string): number {
 }
 
 /** PDF-keszitesi hiba valasza: emberi mondat (a melleklet jelevel, ha arrol szol) + a valodi hibauzenet. */
-function docPdfFail(res: RouteContext['res'], raw: string, lang: 'hu' | 'en', detail: string | null, label?: string, extra: Record<string, unknown> = {}): true {
+function docPdfFail(res: RouteContext['res'], raw: string, lang: 'hu' | 'en', detail: string | null, label?: string, extra: Record<string, unknown> = {}, isFinalize = false): true {
   const code = docPdfCode(raw)
-  json(res, { error: code, message: msg(code, lang).replace('{label}', label || '?'), detail: detail || null, ...extra }, docPdfStatus(code))
+  const status = docPdfStatus(code)
+  // #823 (C): the one shared gate of every PDF / finalize failure -- a system failure (5xx) is told to the owner at once.
+  void alertKeyFunctionFailure(isFinalize ? 'finalize' : 'pdf', code, status, detail)
+  json(res, { error: code, message: msg(code, lang).replace('{label}', label || '?'), detail: detail || null, ...extra }, status)
   return true
 }
 
@@ -4517,7 +4521,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!body) return fail(res, 400, 'bad_json', lang)
       const r = await finalizeDocument(item, { accept: body['accept'], hash: body['hash'], override: body['override'], by: actor(ctx), lang })
       if (!r.ok) {
-        if (!r.code.startsWith('outline_')) return docPdfFail(res, r.code === 'docpdf_failed' && r.convert ? r.convert : r.code, lang, r.detail, r.label, { outline: outlineOut(item.id) })
+        if (!r.code.startsWith('outline_')) return docPdfFail(res, r.code === 'docpdf_failed' && r.convert ? r.convert : r.code, lang, r.detail, r.label, { outline: outlineOut(item.id) }, true)
         const status = r.code === 'outline_empty' ? 404 : r.code === 'outline_accept_required' ? 400 : 409
         json(res, { error: r.code, message: msg(r.code, lang), detail: r.detail, outline: outlineOut(item.id) }, status)
         return true
@@ -5167,7 +5171,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       // #674: a table item is finalized from its own panel; the workbook (and a PDF, when LibreOffice is there) lands in Finished materials.
       if (action === 'finalize' && body['pdf'] === true && hasTableFinalPanel(item)) {
         const tf = await finalizeTableItem(item, { by: who || 'dashboard' })
-        if (!tf.ok) return failDetail(res, tf.code === 'table_final_already_done' ? 409 : tf.code === 'table_final_not_table' ? 400 : 500, tf.code, lang, tf.detail)
+        if (!tf.ok) {
+          const tfStatus = tf.code === 'table_final_already_done' ? 409 : tf.code === 'table_final_not_table' ? 400 : 500
+          void alertKeyFunctionFailure('table_finalize', tf.code, tfStatus, tf.detail)
+          return failDetail(res, tfStatus, tf.code, lang, tf.detail)
+        }
         json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name, pdf_name: tf.pdf_name, pdf_note: tf.pdf_note }, placement: checkPlacementAfter(item, 'finalize', lang) })
         return true
       }
