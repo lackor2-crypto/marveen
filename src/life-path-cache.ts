@@ -20,4 +20,15 @@ export function lifePathCachePut(rel: string, root: string, value: string | null
   cache.set(rel, { at: now, value, root })
 }
 
-export function clearLifePathCache(): void { cache.clear() }
+export function clearLifePathCache(): void { cache.clear(); rootReal = null }
+
+// The depot root itself: realpath of it costs one 9p walk (~6 ms) on EVERY resolveLifePath call, and it only changes
+// when the depot setting does (the root string differs then) or a mount is saved (clearLifePathCache).
+export const REAL_ROOT_TTL_MS = 30_000
+let rootReal: { root: string; at: number; real: string } | null = null
+export function realRootCached(root: string, compute: (r: string) => string, now = Date.now()): string {
+  if (rootReal && rootReal.root === root && now - rootReal.at < REAL_ROOT_TTL_MS) return rootReal.real
+  const real = compute(root) // throws when the depot is not there: nothing is remembered then
+  rootReal = { root, at: now, real }
+  return real
+}

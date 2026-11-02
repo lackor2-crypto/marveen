@@ -41,7 +41,7 @@ import { displayLabelFor, moveDisplayLabels } from './life-labels.js'
 import { isArchived, moveArchivedPrefix, dropArchivedPrefix } from './life-archived.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
-import { lifePathCacheGet, lifePathCachePut } from './life-path-cache.js'
+import { lifePathCacheGet, lifePathCachePut, realRootCached } from './life-path-cache.js'
 import { thumbMediaKind } from './life-thumbs.js'
 import { lifeHint, personHint, personsGroupHint, companyHint, samplePersonHint, sampleCompanyHint,
   devKnowledgeHint, devMoreHint, projectHint } from './life-hints.js'
@@ -273,7 +273,7 @@ export function resolveLifePath(rel: string): string | null {
 
 function resolveLifePathUncached(rel: string, root: string): string | null {
   let realRoot: string
-  try { realRoot = realpathSync(root) } catch { return null }
+  try { realRoot = realRootCached(root, (r) => realpathSync(r)) } catch { return null }
 
   const asked = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '')
   // BEKOTES: amit a felhasznalo lat, es amit a lemez tud, nem ugyanaz.
