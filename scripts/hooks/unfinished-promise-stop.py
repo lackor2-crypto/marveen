@@ -47,6 +47,15 @@ def fold(s):
     return "".join(c for c in s if not unicodedata.combining(c))
 
 
+QUOTED = re.compile(r'"[^"\n]*"|\u201e[^\u201d\n]*\u201d|\'[^\'\n]*\'|`[^`\n]*`')
+
+
+def strip_mentions(s):
+    """A quoted word or one with a suffix ("Folytatom"-ra) is a mention, not a promise."""
+    s = QUOTED.sub(" ", s)
+    return re.sub(r"(folytatom|folytatok|kezdem|csinalom)-\w+", " ", s)
+
+
 def last_turn_texts(transcript_path, max_bytes=400_000):
     """Texts of the final turn: assistant text blocks and Telegram reply texts
     after the last real user message."""
@@ -98,7 +107,7 @@ def _decide(payload, texts=None):
     if not texts:
         return ""
     # Only the closing sentences of the LAST text count: a promise made earlier and kept is not a problem.
-    tail = fold(texts[-1].strip())[-260:]
+    tail = strip_mentions(fold(texts[-1].strip())[-260:])
     sentences = [s for s in re.split(r"[.!?\n]+", tail) if s.strip()]
     for s in sentences[-2:]:
         m = PROMISE.search(s)
@@ -117,6 +126,8 @@ def self_test():
     assert not _decide(p, ["Varom a valaszodat, utana folytatom."]), "waiting for the owner must pass"
     assert not _decide({"stop_hook_active": True}, ["Folytatom a #841-gyel."]), "loop guard"
     assert not _decide(p, []), "no text"
+    assert not _decide(p, ["Stop-hook a \"Folytatom\"-ra logo korok ellen. Kesz."]), "quoted mention must pass"
+    assert not _decide(p, ["Kesz. A Folytatom-ra logo korok javitva."]), "suffixed mention must pass"
     # the exact sentence that went unkept on 2026-11-02
     assert _decide(p, ["Kartya a varakozoban. Folytatom a #841-gyel."])
     print("unfinished-promise-stop self-test passed")
