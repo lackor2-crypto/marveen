@@ -41,6 +41,14 @@ describe('tree draws the marks (#825, source contract)', () => {
     const css = readFileSync('web/workbench.css', 'utf8')
     expect(css).toContain('.wb-item-row.wb-item-answered { box-shadow: inset 4px 0 0 #1e9e4a; }')
   })
+  it('the narrow tree panel wraps the meta line, so the deadline badge and status are never cut to an ellipsis (#826)', () => {
+    const css = readFileSync('web/workbench.css', 'utf8')
+    const last = css.lastIndexOf('.wb-fr-panel .wb-item-meta {')
+    const rule = css.slice(last, css.indexOf('}', last))
+    expect(rule).toContain('white-space: normal')
+    expect(rule).toContain('overflow: visible')
+    expect(rule).not.toContain('ellipsis')
+  })
   it('both languages carry the keys', () => {
     for (const f of ['web/lang/hu.js', 'web/lang/en.js']) {
       const s = readFileSync(f, 'utf8')
