@@ -1541,7 +1541,14 @@
 .wb-dp-secdel:hover { background: rgba(0, 0, 0, 0.08); }
 .wb-dp-row { position: relative; margin-left: -48px; padding-left: 48px; border-radius: 4px; }
 /* #562 (Boss TG 8922): the sheet has no line background of any kind -- not under the pointer, not on the current line. */
-.wb-dp-tail { min-height: 1.6em; }
+/* #841: the "new line" rows beside a picture / table take NO room until you click one, so the page in edit mode is laid out exactly
+   as the read-only page and the PDF (before, each cost 1.6em and pushed everything below it down). A thin click strip stays at
+   the row's top edge; once it has focus the row opens to a normal line and the next Enter / typing makes it a real block. */
+.wb-dp-tailrow { height: 0; min-height: 0; margin-top: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; overflow: visible; }
+.wb-dp-tailrow > .wb-dp-tail { position: absolute; left: 48px; right: 0; top: 0; height: 12px; min-height: 0; margin: 0; overflow: hidden; z-index: 3; }
+.wb-dp-tailrow:focus-within { height: auto; }
+.wb-dp-tailrow:focus-within > .wb-dp-tail { position: static; height: auto; min-height: 1.6em; margin: 0 -4px; overflow: visible; }
+@media (max-width: 600px) { .wb-dp-tailrow > .wb-dp-tail { left: 44px; } }
 .wb-dp-row-float .wb-dp-img { margin: 3px 0 4px; }
 .wb-dp-row-float .wb-dp-img-box { display: block; }
 /* The row keeps a 48px gutter on its left; a picture on the right has none of it, so the size the owner set is the size shown. */

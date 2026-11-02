@@ -17825,11 +17825,17 @@
     }
     var ro = docLocked()
     twCollect() // #534: any redraw (another tab, a changed original) first reads back what stands on the translation page
-    var tabs = [['draft', 'workbench.sh.doc.draft'], ['preview', 'workbench.sh.doc.preview']]
+    // #841: a document with chapters is drawn by ONE renderer, the page itself (docPageHtml): the Draft IS the preview (measured
+    // row for row equal), so the Preview tab goes away. A document without chapters (a plain file) keeps it: there the preview
+    // is the rendered file, which the draft page does not show.
+    var pageIsPreview = !!(o && o.sections && o.sections.length)
+    var tabs = [['draft', 'workbench.sh.doc.draft']]
+    if (!pageIsPreview) tabs.push(['preview', 'workbench.sh.doc.preview'])
     if (courtOnly()) tabs.push(['sources', 'workbench.sh.doc.sources'], ['gaps', 'workbench.sh.doc.gaps'])
     var tab = WB.shDocTab
+    if (pageIsPreview && tab === 'preview') tab = 'draft'
     if (!courtOnly() && (tab === 'sources' || tab === 'gaps')) tab = 'draft'
-    var head = '<div class="wb-sh-doc-tabs" role="tablist">' + tabs.map(function (x) {
+    var head = tabs.length < 2 ? '' : '<div class="wb-sh-doc-tabs" role="tablist">' + tabs.map(function (x) {
       return '<button type="button" class="tab-btn' + (tab === x[0] ? ' active' : '') + '" role="tab" aria-selected="' + (tab === x[0]) + '"'
         + ' data-wb-act="sh-doc-tab" data-wb-tab="' + x[0] + '">' + esc(t(x[1])) + '</button>'
     }).join('') + '</div>'
