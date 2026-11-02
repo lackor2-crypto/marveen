@@ -2410,6 +2410,8 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-item-row.wb-item-answered { box-shadow: inset 4px 0 0 #1e9e4a; }
 .wb-item-row.wb-item-answered .wb-item-meta { opacity: 1; }
 .wb-answered-chip::first-letter { font-size: 1.5em; line-height: 1; }
+/* #826 fix: in the narrow tree panel the meta line was cut with an ellipsis, so the deadline badge ("2 days") and the status vanished behind "..."; it wraps instead, every part stays readable. */
+.wb-fr-panel .wb-item-meta { white-space: normal; overflow: visible; text-overflow: clip; }
 
 /* Boss TG 4294/4304: the folder that holds a work item is loud; the system accessory folders (Agent, Finished materials,
    Uploads, Trigger document, Attachments) are quiet, so one cannot mistake a case for a mere sub-folder. */
