@@ -132,6 +132,13 @@ export function familyLines(item: WorkItemRow): string[] {
 }
 
 /**
+ * Boss (2026-11-03): a work item that belongs together with an existing one (the second letter of the same case, a
+ * follow-up) is made INSIDE the existing item's folder, never beside it. The system then gives it its own three
+ * folders (R21, ensureLetterFolders: Kiváltó irat, Elkészített anyagok, Mellékletek); nobody deletes or adds folders by hand.
+ */
+export const SUB_ITEM_RULE = 'new related work item: if it belongs to THIS item (same case, a second letter, a follow-up), create it with POST /api/workbench/items and "folder" = this item\'s folder so it lands INSIDE it, not beside it in the shared group folder. It then gets only its own three folders (Kiváltó irat, Elkészített anyagok, Mellékletek); never delete those and never make the shared ones (Feltöltések, Agent, Vitáztatás) for it. If the system refuses the folder, tell the owner to drag the new item into this item\'s folder.'
+
+/**
  * A kontextus-blokk. `workItem` = amin eppen dolgozunk (lehet null: a
  * beszelgetes a projektrol szol).
  */
@@ -204,6 +211,7 @@ export async function buildContext(
       assetsLine(workItem.id),
       triggerContextLine(triggerStateOf(project, workItem)),
       ...familyLines(workItem),
+      SUB_ITEM_RULE,
     ].join('\n'))
   } else {
     add('current_item', 'No work item is open: the conversation is about the project as a whole.')
