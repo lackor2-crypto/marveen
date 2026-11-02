@@ -8,7 +8,9 @@ const read = (p: string) => readFileSync(join(__dirname, '..', '..', p), 'utf-8'
 describe('main agent card reports a needed login', () => {
   it('/api/marveen carries the reauth fields', () => {
     const src = read('src/web/routes/marveen.ts')
-    expect(src).toContain('...mainAgentReauth()')
+    expect(src).toContain('...(await mainAgentReauth())')
+    // #835: the tmux pane read must not be a sync call on the event loop
+    expect(src).not.toMatch(/execFileSync\('\/usr\/bin\/tmux', \['capture-pane'/)
     expect(src).toContain('reconcileReauthWithDisk(MAIN_AGENT_ID')
   })
   it('the card draws the login banner and drops the fixed online dot', () => {

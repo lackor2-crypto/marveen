@@ -14,6 +14,7 @@
  *
  * Every file it creates is 0600, every dir 0700.
  */
+import { drainSteps, drainStepsYielding } from '../yielding.js'
 import { spawn, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
@@ -178,7 +179,8 @@ function readAppCommit(projectRoot: string): string {
   } catch { return '' }
 }
 
-function sha256File(p: string): string {
+/** Hash a file in 1 MiB slices; yields after each slice so the caller can hand the event loop back (#835). */
+function* sha256Steps(p: string): Generator<void, string, void> {
   const h = createHash('sha256')
   const fd = openSync(p, 'r')
   try {
@@ -188,13 +190,14 @@ function sha256File(p: string): string {
       if (n <= 0) break
       h.update(buf.subarray(0, n))
       pos += n
+      yield
     }
   } finally { closeSync(fd) }
   return h.digest('hex')
 }
 
-/** Walk the staging tree: regular files get hashed, symlinks recorded. */
-export function walkStaged(root: string, rel = ''): { files: ManifestFile[]; links: ManifestLink[] } {
+/** Walk the staging tree step by step (one yield per directory entry / hash slice). */
+function* walkStagedSteps(root: string, rel = ''): Generator<void, { files: ManifestFile[]; links: ManifestLink[] }, void> {
   const files: ManifestFile[] = []
   const links: ManifestLink[] = []
   const dir = rel ? join(root, rel) : root
@@ -204,12 +207,23 @@ export function walkStaged(root: string, rel = ''): { files: ManifestFile[]; lin
     const st = lstatSync(abs)
     if (st.isSymbolicLink()) links.push({ path: r, target: readlinkSync(abs) })
     else if (st.isDirectory()) {
-      const sub = walkStaged(root, r)
+      const sub = yield* walkStagedSteps(root, r)
       files.push(...sub.files)
       links.push(...sub.links)
-    } else if (st.isFile()) files.push({ path: r, size: st.size, sha256: sha256File(abs), mode: st.mode & 0o777 })
+    } else if (st.isFile()) files.push({ path: r, size: st.size, sha256: yield* sha256Steps(abs), mode: st.mode & 0o777 })
+    yield
   }
   return { files, links }
+}
+
+/** Walk the staging tree: regular files get hashed, symlinks recorded. */
+export function walkStaged(root: string, rel = ''): { files: ManifestFile[]; links: ManifestLink[] } {
+  return drainSteps(walkStagedSteps(root, rel))
+}
+
+/** Same walk, but gives the event loop back every few ms (a big staging tree held it for 3 s, #835). */
+export function walkStagedYielding(root: string): Promise<{ files: ManifestFile[]; links: ManifestLink[] }> {
+  return drainStepsYielding(walkStagedSteps(root))
 }
 
 function runTarInto(stage: string, entries: string[], sink: NodeJS.WritableStream & { on: any }, transform: NodeJS.ReadWriteStream): Promise<void> {
@@ -309,7 +323,7 @@ export async function createBackup(opts: CreateBackupOptions): Promise<BackupRes
     const now = opts.now ?? new Date()
     const appVersion = opts.appVersion ?? readAppVersion(ctx.projectRoot)
     const appCommit = opts.appCommit ?? readAppCommit(ctx.projectRoot)
-    const walked = walkStaged(staging)
+    const walked = await walkStagedYielding(staging)
     const manifest: BackupManifest = {
       format: MANIFEST_FORMAT,
       createdAt: localIso(now),
