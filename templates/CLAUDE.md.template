@@ -904,6 +904,10 @@ rosszabb. Idegen, gazdátlan commitolatlan munkát nem törlünk: készre vissz�
 (törlés előtt visszakérdezés). A „pusholatlan" külön kategória: a lokális commit a másik
 gépen nem létezik.
 
+## ⛔ ÖSSZETARTOZÓ MUNKADARAB AZ EREDETI ALÁ KERÜL (2026-11-03, Boss)
+
+Boss: „ha már egyszer csináltunk egy ilyet, akkor az alá kellett volna tenni ... globálisan beégetve, minden asszisztens így járjon el". Ha egy új munkadarab egy meglévőhöz tartozik (ugyanaz az ügy: második levél, folytatás), a meglévő munkadarab MAPPÁJA ALÁ jön létre (`POST /api/workbench/items` `folder` = a meglévő munkadarab mappája), nem mellé és nem a közös csoportmappába. A rendszer ilyenkor csak a három saját mappát adja (Kiváltó irat, Elkészített anyagok, Mellékletek, R21); ezeket nem töröljük, a közös mappákat (Feltöltések, Agent, Vitáztatás) nem hozzuk létre hozzá. Részletek: `marveen-learned-rules` R26.
+
 ## ⛔ SKILL NEM SZÜLETHET `scope:` NÉLKÜL
 
 Minden SKILL.md fejlécében kötelező a `scope:` sor: `personal` (konkrét emberre/fiókra szól,
