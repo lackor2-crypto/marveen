@@ -635,18 +635,18 @@
         ? t('workbench.rescue.done', { n: (res.restored || 0) + (res.adopted || 0) })
         : t('workbench.rescue.none')) + '</p>'
     }
-    return '<div class="wb-trash wb-rescue">'
-      + '<button type="button" class="wb-trash-toggle" data-wb-act="rescue-toggle" aria-expanded="' + !!WB.rescueOpen + '">'
+    var head = '<button type="button" class="wb-trash-toggle" data-wb-act="rescue-toggle" aria-expanded="' + !!WB.rescueOpen + '">'
       + (WB.rescueOpen ? '▾ ' : '▸ ') + esc(t('workbench.rescue.title')) + '</button>'
-      + (WB.rescueOpen
-        ? '<p class="wb-hint">' + esc(t('workbench.rescue.why')) + '</p>'
-          + '<p class="wb-hint">' + esc(t('workbench.rescue.how')) + '</p>'
-          + '<div class="wb-actions"><button type="button" class="wb-mini" data-wb-act="rescue-restore"' + (WB.rescueBusy ? ' disabled' : '') + '>' + esc(t('workbench.rescue.restore')) + '</button></div>'
-          + '<p class="wb-hint">' + esc(t('workbench.rescue.adopt_why')) + '</p>'
-          + '<div class="wb-actions"><button type="button" class="wb-mini" data-wb-act="rescue-adopt"' + (WB.rescueBusy ? ' disabled' : '') + '>' + esc(t('workbench.rescue.adopt')) + '</button></div>'
-          + note
-        : '')
-      + '</div>'
+    if (!WB.rescueOpen) return '<div class="wb-trash wb-rescue">' + head + '</div>'
+    // #836: sits in the pinned top box next to the Trash and drops down over the tree like it.
+    return '<div class="wb-trash wb-rescue">' + head + '<div class="wb-pop">'
+      + '<p class="wb-hint">' + esc(t('workbench.rescue.why')) + '</p>'
+      + '<p class="wb-hint">' + esc(t('workbench.rescue.how')) + '</p>'
+      + '<div class="wb-actions"><button type="button" class="wb-mini" data-wb-act="rescue-restore"' + (WB.rescueBusy ? ' disabled' : '') + '>' + esc(t('workbench.rescue.restore')) + '</button></div>'
+      + '<p class="wb-hint">' + esc(t('workbench.rescue.adopt_why')) + '</p>'
+      + '<div class="wb-actions"><button type="button" class="wb-mini" data-wb-act="rescue-adopt"' + (WB.rescueBusy ? ' disabled' : '') + '>' + esc(t('workbench.rescue.adopt')) + '</button></div>'
+      + note
+      + '</div></div>'
   }
 
   function runRescue(adopt) {
@@ -3091,8 +3091,7 @@
       hideSw = hideSwitchHtml()
       body = (WB.items.length ? '' : emptyHintHtml()) + selectionBarHtml() + '<ul class="wb-items">' + rows.join('') + '</ul>'
     }
-    var foot = treeUploadHtml() + trashHtml()
-    var rescue = rescueHtml()
+    var foot = treeUploadHtml() + trashHtml() + rescueHtml()
     var newBtn = ''
     var rest = ''
     // #833 (Boss TG 4380): the "New work item" button (and its form) sits in the ONE pinned box with the upload and the trash;
@@ -3124,7 +3123,6 @@
       + '</div>'
       + '</div>'
       + '<div class="wb-blk wb-blk-tree"><div class="wb-blk-title">' + (WB.rootHead || '<h2 class="wb-panel-title wb-root-title">' + esc((WB.project && WB.project.name) || t('workbench.root.fallback')) + '</h2>') + '</div>' + filesViewSelectHtml() + body + '</div>'
-      + (rescue ? '<div class="wb-blk wb-blk-rescue">' + rescue + '</div>' : '')
       + rest
       + '</section>'
   }
@@ -21743,8 +21741,8 @@
       ;((WB.treeUp && WB.treeUp.mism) || []).forEach(function (m) { if (m.suggested) rd[m.name] = m.suggested })
       treeUploadSend(rd)
     }
-    else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; render() }
-    else if (a === 'rescue-toggle') { WB.rescueOpen = !WB.rescueOpen; render() }
+    else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; if (WB.trashOpen) WB.rescueOpen = false; render() }
+    else if (a === 'rescue-toggle') { WB.rescueOpen = !WB.rescueOpen; if (WB.rescueOpen) WB.trashOpen = false; render() }
     else if (a === 'rescue-restore') runRescue(false)
     else if (a === 'rescue-adopt') runRescue(true)
     else if (a === 'privacy-project') setPrivacy('project', act.getAttribute('data-wb-on') === '1')
