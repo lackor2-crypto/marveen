@@ -1548,19 +1548,26 @@ export function isLetterFolderItem(item: { id: string; project_id: string }, fol
   return rows.some(r => isLetterFolderUnder(r.folder, folder))
 }
 
-/** #681: make the five standard folders of a TOP-LEVEL item once. A sub-document gets none; an item already provisioned
- *  is never topped up again (a folder the user deleted stays deleted). */
+/** #681: make the standard folders of an item. A TOP-LEVEL item gets all of them once; a sub-document or letter folder
+ *  gets its own three (Trigger document, Attachments, Finished materials). A folder the user deleted stays deleted. */
 function provisionStandardFolders(project: ProjectRow, item: WorkItemRow, folder: string): void {
   ensureAssetTables()
   const db = getDb()
   migrateFinishedFolder(item) // only renames an existing old-name folder, never makes one
   // #794: the sixth folder ("Kiváltó irat") came after the others, so an item provisioned before it still lacks it. Top
   // up that one folder here; a deleted one is remembered (onceFolderFor) and stays deleted.
-  const letter = isLetterFolderItem(item, folder) && !folder.split('/').some(seg => (([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]) as string[]).includes(seg))
-  if (!isSubDocumentItem(item, folder)) { try { triggerFolderFor(project, folder) } catch { /* made with its first link instead */ } }
+  const inDebate = folder.split('/').some(seg => (([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES]) as string[]).includes(seg))
+  const letter = isLetterFolderItem(item, folder) && !inDebate
+  const sub = isSubDocumentItem(item, folder)
+  // Boss TG 4557/4561 (option A): EVERY work item has its OWN three folders (Trigger document, Attachments, Finished
+  // materials) -- a sub-document too, so which attachment belongs to which document and what was sent where stays
+  // clear. Only a report filed inside a debate folder shares that folder. Topped up on every pass (existing items too);
+  // onceFolderFor makes only EMPTY folders and a folder the owner deleted stays deleted.
+  if (!inDebate) {
+    try { if (sub || letter) ensureLetterFolders(project, folder); else triggerFolderFor(project, folder) } catch { /* made with its first file instead */ }
+  }
   if (db.prepare('SELECT 1 FROM work_item_std_folders WHERE work_item_id = ?').get(item.id)) return
-  if (letter) ensureLetterFolders(project, folder) // #794: a letter folder gets only its own three
-  else if (!isSubDocumentItem(item, folder)) ensureItemStandardFolders(project, folder)
+  if (!letter && !sub) ensureItemStandardFolders(project, folder)
   db.prepare('INSERT OR IGNORE INTO work_item_std_folders (work_item_id, done_at) VALUES (?, ?)').run(item.id, Date.now())
 }
 
