@@ -350,6 +350,24 @@ export interface AbandonedDeps {
   now: () => number
 }
 
+const STATE_CONCURRENCY = 4
+
+/** `Promise.all(list.map(fn))` with at most `limit` calls in flight; the result keeps the input order. */
+async function mapLimit<T, R>(list: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(list.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < list.length) {
+      const i = next++
+      out[i] = await fn(list[i])
+      // Hand the loop back between worktrees so queued requests get their turn.
+      await new Promise<void>((res) => setImmediate(res))
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, list.length) }, worker))
+  return out
+}
+
 /**
  * The abandoned worktrees of `agent`. For the main agent the unowned ones are
  * added (after UNOWNED_QUIET_MS of quiet). Never throws.
@@ -371,7 +389,9 @@ export async function getAbandonedWorktrees(agent: string, mainAgentId: string, 
     // One worktree git cannot read must not blind the rest: it is counted as
     // "could not look", the others are still listed.
     let failed = 0
-    const states = await Promise.all([...mine, ...nobody].map((w) => deps.state(w.path).catch(() => { failed++; return null })))
+    // At most STATE_CONCURRENCY at a time (#835): the main agent looks at every ownerless worktree, and a few
+    // hundred git processes spawned at once froze the dashboard for seconds (the fork itself runs on the main thread).
+    const states = await mapLimit([...mine, ...nobody], STATE_CONCURRENCY, (w) => deps.state(w.path).catch(() => { failed++; return null }))
     ;[...mine, ...nobody].forEach((w, i) => {
       const s = states[i]
       if (!s || s.kind !== 'pending') return
