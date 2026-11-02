@@ -16811,6 +16811,15 @@
       var pv = tw.prev[id + ':' + lang + ':' + sec.id]
       if (pv && pv.sig === twSig(sec)) list.push({ source_section: sec.id, title: pv.title, blocks: pv.blocks })
     })
+    // #840 (Boss TG 4471/4484): a translation of an original that changed since is OLD; saving it would write the old text back.
+    // Pressing Save on it re-translates the old chapters (the run saves by itself at its end) instead of silently doing nothing.
+    var staleSecs = (o.sections || []).filter(function (sec) { var pv = tw.prev[id + ':' + lang + ':' + sec.id]; return pv && pv.sig !== twSig(sec) })
+    if (auto !== true && staleSecs.length && !archived()) {
+      twRun()
+      tw.note = t('workbench.tw.resave_stale', { n: staleSecs.length })
+      twRefresh()
+      return
+    }
     if (!list.length) { if (auto !== true) tw.note = t('workbench.tw.nothing_current'); twRefresh(); return }
     tw.busy = true; tw.note = ''
     twRefresh()

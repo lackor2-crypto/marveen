@@ -9110,6 +9110,7 @@ window._i18n.en = {
   "workbench.tw.saved": "Saved: {n} section(s) into the \"{title}\" version.",
   "workbench.tw.autosaved": "Translated and saved: {n} sections into the \"{title}\" version. You will find it in the work item list. If you edit the translation by hand, save it again with the \"Save translation\" button.",
   "workbench.tw.failed": "{n} section(s) could not be saved.",
+  "workbench.tw.resave_stale": "{n} chapter(s) of the translation were old (the original changed), so it is translated again and then saved.",
   "workbench.tw.nothing_current": "Nothing to save: press Translate first.",
   "workbench.dp.more": "Language versions, glossary",
   "workbench.dp.pending": "Waiting for your confirmation ({n})",
