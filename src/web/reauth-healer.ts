@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, RESPAWN_ENABLED, APP_TZ } from '../config.js'
 import { makeLazyBinResolver } from '../platform.js'
@@ -47,7 +47,7 @@ const DEAD_PROBE_THRESHOLD = 3          // ~9 min of consecutive dead-token prob
 // matters; every re-alert after it carries no new information, so keep it rare
 // (owner request 2026-07-30: "elég pár óránként jelezni" -- a 30 min cadence
 // produced ~10 identical alerts in one morning).
-const ESCALATION_COOLDOWN_MS = 3 * 60 * 60 * 1000 // 1 alert / agent / 3h (re-alerts if still dead)
+export const ESCALATION_COOLDOWN_MS = 3 * 60 * 60 * 1000 // 1 alert / agent / 3h (re-alerts if still dead)
 
 export interface ReauthHealerState {
   consecutiveDead: number
@@ -165,11 +165,26 @@ export interface AlertedEntry { alertedAtMs: number; lastDeadAtMs: number }
 export type AlertedMap = Record<string, AlertedEntry>
 const ALERTED_FILE = join(STORE_DIR, 'reauth-alerted.json')
 
-export function readAlerted(): AlertedMap {
-  try { return existsSync(ALERTED_FILE) ? JSON.parse(readFileSync(ALERTED_FILE, 'utf8')) as AlertedMap : {} } catch { return {} }
+export function readAlertedFrom(file: string): AlertedMap {
+  try { return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as AlertedMap : {} } catch { return {} }
 }
-function writeAlerted(m: AlertedMap): void {
-  try { writeFileSync(ALERTED_FILE, JSON.stringify(m)) } catch (err) { logger.debug({ err }, 'reauth-healer: alerted-file write failed') }
+/** Atomic (tmp + rename): a torn file would read back as {} and forget the mark, re-announcing the dead token. */
+export function writeAlertedTo(file: string, m: AlertedMap): void {
+  try {
+    const tmp = `${file}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(m))
+    renameSync(tmp, file)
+  } catch (err) { logger.debug({ err }, 'reauth-healer: alerted-file write failed') }
+}
+export function readAlerted(): AlertedMap { return readAlertedFrom(ALERTED_FILE) }
+function writeAlerted(m: AlertedMap): void { writeAlertedTo(ALERTED_FILE, m) }
+
+/**
+ * A probe counts as HEALTHY for the quiet-spell clock only when the session is alive AND shows no dead token. A
+ * missing session (restart gap, main down) is no evidence of a healed login, so it must not run the clear-clock.
+ */
+export function isHealthyProbe(needsReauth: boolean, sessionAlive: boolean): boolean {
+  return sessionAlive && !needsReauth
 }
 
 /** Pure: next alerted map after one probe. Dead keeps/extends the mark; clean drops it only after a long quiet spell. */
@@ -387,15 +402,15 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
 
   const nowMs = Date.now()
   const alertedBefore = readAlerted()
-  const isDeadNow = reauth.needsReauth && sessionAlive
-  const alertedNext = nextAlerted(alertedBefore, session, isDeadNow, nowMs)
+  const alertedNext = nextAlerted(alertedBefore, session, !isHealthyProbe(reauth.needsReauth, sessionAlive), nowMs)
   if (alertedNext !== alertedBefore) writeAlerted(alertedNext)
-  // Owner was already told and the token never looked healthy since: stay silent.
-  const alreadyAlerted = !!alertedNext[session]
 
   const decision = decideReauthAction(
     { isDeadToken: reauth.needsReauth, sessionAlive, isMain, canInteractiveLogin: hostCanInteractiveLogin(), isFirstRunGate, prev, nowMs },
-    { threshold: DEAD_PROBE_THRESHOLD, cooldownMs: alreadyAlerted ? Number.POSITIVE_INFINITY : ESCALATION_COOLDOWN_MS },
+    // The "owner already told" mark (alertedNext) must NOT stretch this cooldown: the cadence also paces the
+    // self-heal retries (main restart, fleet-token quarantine probe, first-run-gate relaunch), which an infinite
+    // cooldown would switch off for as long as the token stays dead. Alert-once is a notification rule, not a heal rule.
+    { threshold: DEAD_PROBE_THRESHOLD, cooldownMs: ESCALATION_COOLDOWN_MS },
   )
 
   if (decision.next.consecutiveDead === 0) {
