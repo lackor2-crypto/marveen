@@ -15314,7 +15314,7 @@
           lines.push('<li><mark class="wb-outline-missing">' + esc(m) + '</mark></li>')
         })
         ;(b.claims || []).forEach(function (c) {
-          if (c.strength === 'unverified' || c.strength === 'owner_unconfirmed' || c.strength === 'inference') {
+          if (c.strength === 'owner_unconfirmed' || c.strength === 'inference') {
             lines.push('<li>' + esc(claimIcon(c)) + ' ' + esc(c.text) + ' <span class="wb-muted">' + esc(t('workbench.outline.strength.' + c.strength)) + '</span></li>')
           }
         })

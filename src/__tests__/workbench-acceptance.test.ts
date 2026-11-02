@@ -597,7 +597,8 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
     expect(quotes.ok).toBe(false)
     expect(quotes.detail).toEqual(expect.arrayContaining([`${letter}:1 -- other_page`, `${lease}:1 -- not_found`]))
     expect(items.find((i) => i.key === 'unverified_references')).toMatchObject({ ok: false, count: 1, detail: ['BGB § 999'] })
-    expect(items.find((i) => i.key === 'unsupported_claims')).toMatchObject({ ok: false })
+    // #843 (Boss TG 4511): no check for statements without a verified source exists any more.
+    expect(items.find((i) => i.key === 'unsupported_claims')).toBeUndefined()
     const owner = await callWorkbench(`/api/workbench/items/${e.itemId}/outline`, 'GET')
     expect(owner.body.outline.check.ready).toBe(false)
 

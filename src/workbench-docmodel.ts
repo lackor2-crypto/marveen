@@ -971,7 +971,7 @@ export function documentOutline(itemId: string): { sections: SectionView[] } {
       const rw = rewrites.get(b.id)
       return { ...b, rich: richMatches(b.rich, b.text) ? b.rich : null, align: isBlockAlign(b.align) ? b.align : null, pfmt: parsePfmt(b.pfmt ?? null) as ParaFmt | null, claims: claims.filter((c) => c.block_id === b.id), missing: missingMarks(b.text), rewrite: rw ? rewriteView(rw, b.text) : null }
     })
-    const problems = bs.reduce((n, b) => n + b.missing.length + b.claims.filter((c) => c.strength === 'unverified').length, 0)
+    const problems = bs.reduce((n, b) => n + b.missing.length, 0)
     return { ...s, align: isBlockAlign(s.align) ? s.align : null, rich: richMatches(s.rich, s.title) ? s.rich : null, blocks: bs, problems, untitled: isPlaceholderSectionTitle(s.title) }
   })
   return { sections }
@@ -996,7 +996,6 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   const official = sources.filter((s) => s.kind === 'official')
   const officialBad = official.filter((s) => s.verdict !== 'verified')
   const inferenceOnly = claims.filter((c) => c.strength === 'inference')
-  const unsupported = claims.filter((c) => c.strength === 'unverified')
   const missing = blocks.flatMap((b) => b.missing)
   // #534: a chapter is what the owner made with a real heading. The section the program keeps behind a page without
   // headings (its title is only the placeholder) has no status control on the page any more, so it cannot hold the
@@ -1013,8 +1012,8 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
       key: 'quotes_verified', ok: docBad.length === 0, count: docSources.length - docBad.length, total: docSources.length,
       detail: docBad.map((s) => `${s.path}:${s.page} -- ${s.verdict}`),
     },
-    // Boss TG 3443/3445: the owner's own statements in the letter need NO confirmation (what the owner says is so); only the annexes are reviewed and confirmed.
-    { key: 'unsupported_claims', ok: unsupported.length === 0, count: unsupported.length, detail: unsupported.map((c) => c.text) },
+    // Boss TG 3443/3445 + TG 4511 (#843): there is NO check for statements without a verified source. What the owner says is so;
+    // only quotes from attached documents and official references are checked.
     { key: 'inference_as_fact', ok: true, count: inferenceOnly.length, detail: inferenceOnly.map((c) => c.text) },
     { key: 'owner_written', ok: true, count: blocks.filter((b) => b.owner_edited_at).length },
   ]

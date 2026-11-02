@@ -27,7 +27,6 @@ const PREFIX: Record<string, { hu: string; en: string }> = {
   missing_data: { hu: 'Hiányzó adat', en: 'Missing information' },
   unverified_references: { hu: 'Hivatkozás ellenőrzése', en: 'Check the reference' },
   quotes_verified: { hu: 'Idézet ellenőrzése', en: 'Check the quote' },
-  unsupported_claims: { hu: 'Állítás forrása', en: 'Source for the statement' },
   consistency: { hu: 'Eltérés a szövegben', en: 'Mismatch in the text' },
   variant_current: { hu: 'Nyelvi változat: fejezet fordítása', en: 'Language version: translate the chapter' },
   image_missing_file: { hu: 'Kép, amelynek a fájlja eltűnt', en: 'Picture whose file is gone' },
