@@ -70,7 +70,7 @@ describe('#751 check points -> to-dos', () => {
   describe('#807 a point ticked off in the to-dos is no longer open in the check', () => {
     const refs: CheckItem = { key: 'unverified_references', ok: false, count: 2, total: 2, detail: ['§ 47 Abs. 1 OWiG', '§ 47 Abs. 1 OWiG'] }
     const quotes: CheckItem = { key: 'quotes_verified', ok: false, count: 7, total: 8, detail: ['../x.pdf:1 -- not_found'] }
-    const claims: CheckItem = { key: 'unsupported_claims', ok: false, count: 2, detail: ['Erich-Steinfurth-Straße 25', 'Meine Mutter bezieht Grundsicherung'] }
+    const claims: CheckItem = { key: 'missing_data', ok: false, count: 2, detail: ['Erich-Steinfurth-Straße 25', 'Meine Mutter bezieht Grundsicherung'] }
     const tick = (end: string, done = true) => {
       const row = listItemTodos(itemId).find((r) => r.text.endsWith(end))!
       expect(updateTodo(row.id, { done }).ok).toBe(true)
