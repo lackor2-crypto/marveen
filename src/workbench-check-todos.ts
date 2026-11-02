@@ -30,6 +30,7 @@ const PREFIX: Record<string, { hu: string; en: string }> = {
   consistency: { hu: 'Eltérés a szövegben', en: 'Mismatch in the text' },
   variant_current: { hu: 'Nyelvi változat: fejezet fordítása', en: 'Language version: translate the chapter' },
   image_missing_file: { hu: 'Kép, amelynek a fájlja eltűnt', en: 'Picture whose file is gone' },
+  letter_head_missing: { hu: 'Levélfej: a levélből hiányzik a keretezett Feladó és Címzett (a Wohngeld-levél táblája a minta)', en: 'Letter head: the letter has no framed Sender and Recipient (the Wohngeld letter table is the model)' },
 }
 
 const SELF_LABELLED = /^(Hiányzó adat|Forrás nem található|Missing data|Source not found)(?=[\s:]|$)/

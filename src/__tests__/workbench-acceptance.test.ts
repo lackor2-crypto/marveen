@@ -481,6 +481,8 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
     const paid = t('doc.addBlock', { section: s1, text: 'Az alperes 2026. január 3-án 900 eurót utalt át (K2. melléklet).' }).id
     const request = t('doc.addBlock', { section: s2, text: 'Kérem a keresetet elutasítani.' }).id
     const sign = t('doc.addBlock', { section: s2, kind: 'signature', text: 'Budapest, 2026. október 1.\n\nalperes' }).id
+    // a letter carries its labelled sender / recipient (appended: the block order the tests read stays)
+    t('doc.addBlock', { section: s2, kind: 'table', text: 'Feladó: alperes | Címzett: Bíróság\nBudapest | Budapest' })
     const claim = (block: string, text: string, path: string, page: number, quote: string) => {
       const c = t('doc.addClaim', { block, text, sources: [{ kind: 'document', path, page, quote }] })
       return c.id
@@ -634,14 +636,14 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
             intro: ['Dear Court,\nIn case No. 12 O 345/26 the hearing will be held on 17 March 2027 at 10:30.', 'In case No. 12 O 345/26', 'the hearing will be held on 17 March 2027 at 10:30.'],
             rent: [`Under the ${rentWord} the monthly rent is EUR 900 (Exhibit A).`, 'the monthly rent is EUR 900'],
             paid: ['On 3 January 2026 the defendant transferred EUR 900 (Exhibit B).', 'On 3 January 2026 the defendant transferred EUR 900'],
-            request: 'I request that the claim be dismissed.', sign: 'Budapest, 1 October 2026\n\nDefendant',
+            request: 'I request that the claim be dismissed.', sign: 'Budapest, 1 October 2026\n\nDefendant', head: 'Sender: alperes | Recipient: Bíróság\nBudapest | Budapest',
           }
         : {
             s1: '1. Sachverhalt', s2: '2. Antrag',
             intro: ['Sehr geehrte Damen und Herren,\nIm Verfahren 12 O 345/26 findet die Verhandlung am 17. März 2027 um 10:30 Uhr statt.', 'Im Verfahren 12 O 345/26', 'findet die Verhandlung am 17. März 2027 um 10:30 Uhr statt.'],
             rent: [`Nach dem ${rentWord} beträgt die monatliche Miete 900 Euro (Anlage K1).`, 'beträgt die monatliche Miete 900 Euro'],
             paid: ['Die Beklagte hat am 3. Januar 2026 900 Euro überwiesen (Anlage K2).', 'Die Beklagte hat am 3. Januar 2026 900 Euro überwiesen'],
-            request: 'Es wird beantragt, die Klage abzuweisen.', sign: 'Budapest, 1. Oktober 2026\n\nBeklagte',
+            request: 'Es wird beantragt, die Klage abzuweisen.', sign: 'Budapest, 1. Oktober 2026\n\nBeklagte', head: 'Absender: alperes | Empfänger: Bíróság\nBudapest | Budapest',
           }
       const one = t('doc.translateSection', {
         id, source_section: brief.sections[0], title: L.s1,
@@ -653,7 +655,7 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
       })
       const two = t('doc.translateSection', {
         id, source_section: brief.sections[1], title: L.s2,
-        blocks: [{ kind: 'paragraph', text: L.request }, { kind: 'signature', text: L.sign }],
+        blocks: [{ kind: 'paragraph', text: L.request }, { kind: 'signature', text: L.sign }, { kind: 'table', text: L.head }],
       })
       return { one, two }
     }

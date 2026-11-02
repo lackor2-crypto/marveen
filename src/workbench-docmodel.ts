@@ -33,6 +33,7 @@ import { annexCheck, type FileResolver } from './workbench-docannex.js'
 import { consistencyIssues } from './workbench-doccheck.js'
 import { variantCheckItems } from './workbench-doclang.js'
 import { SIGNATURE_TERMS } from './workbench-signatures.js'
+import { letterHeadMissing } from './workbench-letterhead.js'
 import { applyTickedTodos, needsOverride } from './workbench-check-todos.js'
 import { isBlockAlign, parsePfmt, pfmtToStored, richMatches, richToPlain, sanitizePfmt, sanitizeRich, type ParaFmt } from './workbench-docrich.js'
 
@@ -1040,6 +1041,10 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
     return SIGNATURE_TERMS.some((term) => name.includes(term))
   })
   items.push({ key: 'signature_missing', ok: true, count: hasSignatureBlock && !hasSignaturePicture ? 1 : 0 })
+  // LETTER HEAD (Boss, 2026-11-02): a letter to a court / authority carries a labelled, framed sender and recipient. Content
+  // point -> to-do list (#751), never a gate on finalizing.
+  const headMissing = letterHeadMissing(blocks)
+  if (headMissing) items.push({ key: 'letter_head_missing', ok: false, count: headMissing })
   // KOVETKEZETESSEG (K-1.19): nevek, ugyszam, datumok, osszegek, cimek. A tulajdonos
   // altal szandekosnak jelolt elteres nem allitja meg a veglegesitest.
   const cons = consistencyIssues(itemId)

@@ -8706,6 +8706,7 @@ window._i18n.hu = {
   "workbench.outline.check.annex_dangling": "Hivatkozás olyan mellékletre, amely nincs a listán: {n}",
   "workbench.outline.check.image_missing_file": "Kép, amelynek a fájlja eltűnt: {n}",
   "workbench.outline.check.signature_missing": "A levél aláírás-blokkja megvan, de nincs benne kézi aláírás (kép). Ha kell, a szerkesztő eszköztárának „Aláírás beszúrása” gombjával tedd be.",
+  "workbench.outline.check.letter_head_missing": "Levélfej hiányzik: a levélben nincs kiírva és keretezve a Feladó és a Címzett. Egy feladó/címzett táblázat kell az elejére, „Feladó:” és „Címzett:” felirattal.",
   "workbench.outline.check.annex_missing_file": "Melléklet, amelynek a fájlja eltűnt: {n}",
   "workbench.outline.check.consistency": "Következetesség: {n} eltérés",
   "workbench.outline.check.consistency_ok": "Következetesség: rendben",
