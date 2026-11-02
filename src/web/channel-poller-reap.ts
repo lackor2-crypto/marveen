@@ -55,6 +55,12 @@ import { CHANNEL_STATE_ENV_VAR as STATE_ENV_VAR } from './mcp-probe-env.js'
 // note. Excluding both is cheap and there is no case where killing them helps.
 const DASHBOARD_BINARY_PATTERN = /(?:^|[\s/])(?:dist\/index\.js|src\/index\.ts)(?:\s|$)/
 
+// The shared tmux server inherits the main agent's channel env from the process that
+// started it, so it matches the needle too -- and killing it takes EVERY agent session
+// down with it (#842, 2026-11-02). The command column of a `ps eww` row starts after
+// the TIME column ("0:07 tmux new-session ..." / "0:07 tmux: server").
+const TMUX_COMMAND_PATTERN = /\d:\d\d\s+(?:\S*\/)?tmux(?::|\s|$)/
+
 export function parsePollerPidsFromPs(
   psOutput: string,
   envVar: string,
@@ -72,6 +78,11 @@ export function parsePollerPidsFromPs(
     if (pid === selfPid) {
       logger.warn({ pid, needle },
         'channel-poller-reap: this process matched the poller scan -- it inherited an agent channel env from its launcher. Skipping (killing it would take the dashboard down); start the dashboard with a clean environment.')
+      continue
+    }
+    if (TMUX_COMMAND_PATTERN.test(line)) {
+      logger.warn({ pid, needle },
+        'channel-poller-reap: the tmux server matched the poller scan -- skipping, killing it would stop every agent session')
       continue
     }
     if (DASHBOARD_BINARY_PATTERN.test(line)) {
