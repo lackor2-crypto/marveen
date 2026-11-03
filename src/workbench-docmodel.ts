@@ -33,7 +33,7 @@ import { annexCheck, type FileResolver } from './workbench-docannex.js'
 import { consistencyIssues } from './workbench-doccheck.js'
 import { variantCheckItems } from './workbench-doclang.js'
 import { SIGNATURE_TERMS } from './workbench-signatures.js'
-import { letterHeadMissing } from './workbench-letterhead.js'
+import { letterHeadMissing, letterSpacingMissing, enforceRecipientWindow } from './workbench-letterhead.js'
 import { applyTickedTodos, needsOverride } from './workbench-check-todos.js'
 import { isBlockAlign, parsePfmt, pfmtToStored, richMatches, richToPlain, sanitizePfmt, sanitizeRich, type ParaFmt } from './workbench-docrich.js'
 
@@ -400,7 +400,9 @@ export function addBlock(itemId: string, sectionId: string, input: { kind?: unkn
   if (!BLOCK_KINDS.includes(kind as BlockKind)) return { ok: false, code: 'bad_input', detail: `kind must be one of ${BLOCK_KINDS.join(', ')}` }
   // Formatting (bold / italic / ...) is kept next to the plain text; the plain text is what the rest of the system reads.
   let rich = typeof input.rich === 'string' ? sanitizeRich(input.rich) : ''
-  const text = (rich ? richToPlain(rich) : String(input.text ?? '')).replace(/\r\n/g, '\n').trim()
+  let text = (rich ? richToPlain(rich) : String(input.text ?? '')).replace(/\r\n/g, '\n').trim()
+  // Recipient window (Boss TG 4597): an agent's recipient paragraph always carries its blank lines above (plain newlines are trimmed away).
+  if (kind === 'paragraph' && input.author === 'agent') text = enforceRecipientWindow(text)
   if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `the text must be 1 to ${BLOCK_TEXT_MAX} characters` }
   if (kind === 'image' && !imageBlockPathOk(text)) return { ok: false, code: 'bad_input', detail: `an image block's text is the picture's path under the Marveen folder (${[...DOC_IMAGE_EXT].join(', ')})` }
   if (rich && !richMatches(rich, text)) rich = ''
@@ -442,6 +444,7 @@ export function updateBlock(itemId: string, id: string, input: { text?: unknown;
     if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `the text must be 1 to ${BLOCK_TEXT_MAX} characters` }
   } else if (input.text !== undefined && input.text !== null) {
     text = String(input.text).replace(/\r\n/g, '\n').trim()
+    if (input.author === 'agent' && (b.kind === 'paragraph' || input.kind === 'paragraph')) text = enforceRecipientWindow(text)
     if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `the text must be 1 to ${BLOCK_TEXT_MAX} characters` }
     // Plain text without formatting (an agent's edit, a cleared `rich`): no formatting is kept for it.
     if (text !== b.text || richGiven) rich = null
@@ -1045,6 +1048,9 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   // point -> to-do list (#751), never a gate on finalizing.
   const headMissing = letterHeadMissing(blocks)
   if (headMissing) items.push({ key: 'letter_head_missing', ok: false, count: headMissing })
+  // LETTER SPACING (Boss, 2026-11-03): subject, references, salutation and closing stand apart by blank lines. To-do, never a gate.
+  const spacingMissing = letterSpacingMissing(blocks)
+  if (spacingMissing) items.push({ key: 'letter_spacing_missing', ok: false, count: spacingMissing })
   // KOVETKEZETESSEG (K-1.19): nevek, ugyszam, datumok, osszegek, cimek. A tulajdonos
   // altal szandekosnak jelolt elteres nem allitja meg a veglegesitest.
   const cons = consistencyIssues(itemId)

@@ -55,3 +55,72 @@ export function buildLetterHead(lang: string, sender: string[], recipient: strin
   const paragraph = [...blank(LETTER_HEAD_LINES_ABOVE), lab.recipient + ':', ...recipient, ...blank(LETTER_HEAD_LINES_BELOW)].join('\n')
   return { table, paragraph }
 }
+
+// --- Letter body spacing (Boss TG 4582, 2026-11-03) --------------------------------------------------------------------
+// A Minijob letter came out with the date, subject, reference lines and salutation run together. DIN 5008 / Hungarian
+// official-letter practice: the parts of a letter are set apart by blank lines (an empty line = one U+200B line, otherwise
+// the system strips it). Every assistant, every agent and every new install gets the same rules from this one text.
+export const LETTER_LAYOUT_RULES_EN = [
+  'LETTER SPACING (every official letter): parts of the letter are set apart by one blank line (a line holding only U+200B).',
+  '1) Place + date line: blank line after it (2 are fine), then the subject ("Tárgy:" / "Betreff:") as its OWN paragraph, blank line after it.',
+  '2) The reference lines (employer, Betriebsnummer, insurance number, case number, "Hivatkozás") form ONE own paragraph of separate lines, blank line before and after.',
+  '3) Salutation ("Tisztelt ...!" / "Sehr geehrte ...,"): blank line before and after, never glued to the subject or the first body line.',
+  '4) Body paragraphs: one blank line between them; a list or numbered points is its own block with a blank line before and after.',
+  '5) Closing ("Tisztelettel," / "Mit freundlichen Grüßen"): one blank line before, about 3 blank lines after for the handwritten signature, then the printed name (and role). No blank line between the closing and the name only if a signature block is used.',
+  'Never put the subject, the references, the salutation or the closing on the same paragraph as the text before them without a blank line.',
+].join('\n')
+
+/** Minimum number of blank (U+200B-only or empty) lines between two consecutive pieces of a letter that must stand apart. */
+const BLANK_LINE_RE = /^[\s​]*$/
+
+/** Splits a block's text into its lines; blank = empty or U+200B-only. */
+function lines(text: string): string[] { return text.split('\n') }
+
+/**
+ * 1 = a letter whose subject, reference lines, salutation or closing are glued to the neighbouring text: the line before or
+ * after has real content and nothing (no blank line, no block boundary holding a blank line) separates them. 0 = fine / not a letter.
+ * Looks at the flat sequence of lines of all paragraph blocks; a block boundary alone does NOT count as a gap (the paragraph
+ * margin is small), only an explicit blank line does.
+ */
+export function letterSpacingMissing(blocks: HeadBlock[]): number {
+  const salutLine = (l: string): boolean => SALUTATION_RE.test(fold(l).trim())
+  const isLetter = looksLikeLetter(blocks) || blocks.some((b) => b.kind === 'paragraph' && lines(b.text).some(salutLine))
+  if (!isLetter) return 0
+  const flat: string[] = []
+  for (const b of blocks) {
+    if (b.kind !== 'paragraph') { flat.push(ZWSP); continue }
+    for (const l of lines(b.text)) flat.push(l)
+    flat.push('\u0001') // block boundary marker (not a gap)
+  }
+  const seq = flat.filter((l) => l !== '\u0001')
+  const blank = (l: string | undefined): boolean => l === undefined || BLANK_LINE_RE.test(l)
+  const subject = /^(targy|betreff|subject)\b\s*:/
+  const salut = /^(sehr geehrte|geehrte|tisztelt|kedves|dear)\b/
+  for (let i = 0; i < seq.length; i++) {
+    const f = fold(seq[i]!).trim()
+    if (!f) continue
+    if (subject.test(f) || salut.test(f)) {
+      // glued to a non-blank line before, or (salutation / subject block) directly followed by text
+      if (!blank(seq[i - 1]) && i > 0) return 1
+      if (salut.test(f) && !blank(seq[i + 1]) && i + 1 < seq.length) return 1
+    }
+  }
+  return 0
+}
+
+// --- Recipient window position (Boss TG 4597, 2026-11-03) --------------------------------------------------------------
+// The recipient block must sit LOWER on the page, in the window of a window envelope (4 blank lines above it). The
+// assistant sometimes wrote plain newlines, which the model strips (`trim()`), so the recipient started at the top, beside the
+// sender. The system itself puts the position right: an agent-written paragraph that starts with the recipient label gets the
+// blank (U+200B) lines in front of it. Never touches a block the owner wrote.
+const RECIPIENT_FIRST_RE = /^(cimzett|empfanger|empfaenger|recipient|addressee)\s*:/
+
+/** Text of a recipient paragraph with its LETTER_HEAD_LINES_ABOVE blank lines restored; any other text comes back unchanged. */
+export function enforceRecipientWindow(text: string): string {
+  const ls = text.split('\n')
+  let i = 0
+  while (i < ls.length && BLANK_LINE_RE.test(ls[i]!)) i++
+  if (i >= ls.length || !RECIPIENT_FIRST_RE.test(fold(ls[i]!).trim())) return text
+  if (i >= LETTER_HEAD_LINES_ABOVE) return text
+  return [...Array.from({ length: LETTER_HEAD_LINES_ABOVE }, () => ZWSP), ...ls.slice(i)].join('\n')
+}

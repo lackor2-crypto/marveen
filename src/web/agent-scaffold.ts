@@ -4,6 +4,7 @@ import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR, APP_LANG } from '../config.js'
 import { channelStateDir } from '../channel-provider.js'
+import { LETTER_LAYOUT_RULES_EN } from '../workbench-letterhead.js'
 import { runAgent } from '../agent.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { agentDir, agentConfigRoot, listAgentNames, readAgentCapabilities, mainAgentEffectiveConfigDir } from './agent-config.js'
@@ -3549,6 +3550,9 @@ export function buildLetterHeadBody(): string {
     'U+200B karakter). Utana hely + datum, targy/ugyszam, megszolitas. Nem sima cimsor, es nem egy kozos tabla. A',
     'projekt alatti asszisztensek keszitik ezeket: ugyanezt kapjak a promptjukban. Reszletek:',
     '`letter-head-sender-recipient` skill, `marveen-learned-rules` R25, kod: `buildLetterHead()`.',
+    '',
+    LETTER_LAYOUT_RULES_EN,
+    'Reszletek: `letter-head-sender-recipient` skill, `marveen-learned-rules` R28, kod: `LETTER_LAYOUT_RULES_EN`.',
   ].join('\n')
 }
 

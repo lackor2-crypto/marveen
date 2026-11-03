@@ -995,3 +995,10 @@ egy U+200B karakter). Utána hely + dátum, tárgy/ügyszám, megszólítás. Ne
 közös tábla. A projekt alatti asszisztensek készítik ezeket: a promptjuk ugyanezt mondja. Skill:
 `letter-head-sender-recipient`, `marveen-learned-rules` R25; minden ágens megkapja
 (`ensureLetterHeadSection`, `ensureGlobalLetterHeadRule`).
+
+**Levél tördelése (TG 4582):** a levél részeit egy-egy üres sor (U+200B sor) választja el: hely+dátum után üres sor,
+a **Tárgy** külön bekezdés, utána üres sor; a hivatkozás-sorok (munkáltató, Betriebsnummer, biztosítási szám,
+ügyszám) egy külön bekezdés, előtte-utána üres sor; a megszólítás előtt és után üres sor; a törzs bekezdései között
+egy üres sor; a záró formula (Tisztelettel / Mit freundlichen Grüßen, vessző nélkül) előtt egy üres sor, utána kb. 3 üres
+sor az aláírásnak, majd a nyomtatott név. Forrás: `LETTER_LAYOUT_RULES_EN` (`src/workbench-letterhead.ts`), tanult
+szabály R28, figyelő: `letter_spacing_missing`.

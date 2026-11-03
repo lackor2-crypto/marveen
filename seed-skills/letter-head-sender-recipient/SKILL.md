@@ -19,8 +19,19 @@ A levél úgy kezdődik, ahogy a hivatalok egymásnak írnak: a **Feladó** kere
 6. Nyelvi változatnál (`doc.translateSection`) a feliratok fordulnak (Feladó ↔ Absender, Címzett ↔ Empfänger), a pozíció-sor és az üres sorok változatlanok; a neveket és címeket nem fordítjuk.
 7. Mintának a „Minijob: kérés a Minijob-Zentrale és a Rentenversicherung felé” munkadarab első két blokkja. Kódban: `buildLetterHead()` a `src/workbench-letterhead.ts`-ben (ugyanezt a két blokkot adja, teszt: `workbench-letterhead-window.test.ts`).
 
+## Levél tördelése (üres sorok)
+A levél részei NEM folyhatnak össze (tulajdonos, TG 4582: a Minijob-levélben a dátum, tárgy, hivatkozás és megszólítás egybefolyt). Üres sor = egy sornyi U+200B.
+1. Hely + dátum után üres sor (2 is jó), majd a **Tárgy:** / **Betreff:** KÜLÖN bekezdésben, utána üres sor.
+2. A hivatkozás-sorok (munkáltató, Betriebsnummer, biztosítási szám, ügyszám, Hivatkozás) egy KÜLÖN bekezdés, külön sorokban, előtte és utána üres sor.
+3. Megszólítás (Tisztelt ...! / Sehr geehrte ...,): előtte és utána üres sor.
+4. Törzs: bekezdések között egy üres sor; felsorolás/számozott pontok külön blokk, előtte-utána üres sor.
+5. Záró formula (Tisztelettel, / Mit freundlichen Grüßen, vessző nélkül is jó): előtte egy üres sor, utána kb. 3 üres sor az aláírásnak, majd a nyomtatott név (és beosztás).
+Egy forrás: `LETTER_LAYOUT_RULES_EN` (`src/workbench-letterhead.ts`). Mintája: DIN 5008 (tárgy és megszólítás külön sor, a záró formula előtt üres sor, aláírásnak kb. 3 üres sor).
+
+A Címzett helye FIX: az ablak helyén, a Feladó doboz alatt, NEM fent a Feladó mellett. Ha az ágens sima újsorral írja az elejére az üres sorokat, a rendszer magától visszateszi a 4 U+200B sort (`enforceRecipientWindow`).
+
 ## Figyelő
-A dokumentum-ellenőrzés (`letter_head_missing`) teendőt ad a munkadarabnak, ha a szövegben van megszólítás vagy aláírás-blokk, de nincs kiírt „Feladó:/Címzett:” (vagy Absender/Empfänger, Sender/Recipient) felirat. Ez teendő, nem akadály: a tulajdonos dönt. Ne kerüld meg azzal, hogy a feliratot elrejted; írd meg a táblát.
+A dokumentum-ellenőrzés (`letter_head_missing`, és `letter_spacing_missing`, ha a tárgy/megszólítás hozzá van ragadva az előző sorhoz) teendőt ad a munkadarabnak, ha a szövegben van megszólítás vagy aláírás-blokk, de nincs kiírt „Feladó:/Címzett:” (vagy Absender/Empfänger, Sender/Recipient) felirat. Ez teendő, nem akadály: a tulajdonos dönt. Ne kerüld meg azzal, hogy a feliratot elrejted; írd meg a táblát.
 
 ## Ellenőrzés
 - Az Ellenőrzés fülön nincs „Levélfej hiányzik” pont.
