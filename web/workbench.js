@@ -16255,6 +16255,9 @@
       if (el.nodeType === 3) { bare(el.nodeValue); continue }
       if (el.nodeType !== 1) continue
       if (el.classList.contains('wb-tw-todo')) continue
+      // #854: a page-break line (#853) is drawn on the page, it is not a paragraph of the translation: reading it back put its words
+      // into the saved text and drew a new line over it at every redraw.
+      if (el.classList.contains('wb-dp-pagebreak')) continue
       var role = el.getAttribute('data-tw') || ''
       var sid = el.getAttribute('data-tw-sec') || ''
       if (role === 'title' && sid && !seen[sid]) {
