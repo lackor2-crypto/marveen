@@ -28,6 +28,8 @@ export interface RenderOutline {
   /** Mellekletjegyzek a dokumentum vegen (K-1.18): cimke + rovid leiras, a fajl utja NEM. */
   annexes?: { label: string; title: string }[]
   annexTitle?: string
+  /** #856: body font size in pt when a language version is drawn tighter to fit the original's page count (default 12). */
+  bodyPt?: number
 }
 
 export type DocLang = 'hu' | 'en' | 'de'
@@ -564,7 +566,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
 <office:meta><dc:title>${xmlEscape(o.title)}</dc:title>${o.author ? `<meta:initial-creator>${xmlEscape(o.author)}</meta:initial-creator><dc:creator>${xmlEscape(o.author)}</dc:creator>` : ''}<dc:language>${lang.tag}</dc:language></office:meta>
 <office:font-face-decls><style:font-face style:name="Liberation Serif" svg:font-family="'Liberation Serif'" style:font-family-generic="roman" style:font-pitch="variable"/></office:font-face-decls>
 <office:styles>
-<style:default-style style:family="paragraph"><style:paragraph-properties fo:orphans="2" fo:widows="2"/><style:text-properties style:font-name="Liberation Serif" fo:font-size="12pt" fo:language="${lang.l}" fo:country="${lang.c}"/></style:default-style>
+<style:default-style style:family="paragraph"><style:paragraph-properties fo:orphans="2" fo:widows="2"/><style:text-properties style:font-name="Liberation Serif" fo:font-size="${outline.bodyPt && outline.bodyPt >= 8 && outline.bodyPt <= 12 ? outline.bodyPt : 12}pt" fo:language="${lang.l}" fo:country="${lang.c}"/></style:default-style>
 <style:style style:name="Standard" style:family="paragraph"/>
 <style:style style:name="Body" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="0cm" fo:margin-bottom="0.25cm" fo:text-align="justify" style:justify-single-word="false" fo:line-height="130%"/></style:style>
 <style:style style:name="BodyLine" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0cm"/></style:style>

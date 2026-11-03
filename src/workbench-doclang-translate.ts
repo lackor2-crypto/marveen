@@ -22,7 +22,7 @@ import { LANG_NAMES, carriedLook, sourceForTranslated, createVariant, listGlossa
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
-import { pageBreaksFor } from './workbench-docpages.js'
+import { fitVariantToSource, pageBreaksFor, type FitResult } from './workbench-docpages.js'
 import { contentHash } from './workbench-docfinal.js'
 import { mirrorRecipientWindow } from './workbench-letterhead.js'
 import { notReadyMessage, usageNotice } from './workbench-agent/orchestrator.js'
@@ -531,7 +531,7 @@ async function callModel(req: { system: string; user: string; lang: Lang }): Pro
 export interface TranslationPageMark { sec: string; idx: number; page: number; inside: boolean }
 export type TranslationPageBreaks =
   | { ok: true; found: false }
-  | { ok: true; found: true; hash: string; pages: number; marks: TranslationPageMark[] }
+  | { ok: true; found: true; hash: string; pages: number; marks: TranslationPageMark[]; fit: FitResult | null }
   | { ok: false; code: string; detail: string | null }
 
 /**
@@ -546,6 +546,8 @@ export async function translationPageBreaks(source: WorkItemRow, targetLang: str
   const live = liveVariantFor(source.id, lang)
   const info = live ? variantInfo(live.item.id) : null
   if (!live || !info) return { ok: true, found: false }
+  // #856: the version is drawn as tight as it takes to have the original's page count.
+  const fit = await fitVariantToSource(source, live.item, uiLang)
   const r = await pageBreaksFor(live.item, uiLang)
   if (!r.ok) return r
   const srcOfSection = new Map(info.sections.map((x) => [x.section_id, x.source_section_id]))
@@ -565,5 +567,5 @@ export async function translationPageBreaks(source: WorkItemRow, targetLang: str
     const pl = place.get(m.id)
     if (pl) marks.push({ sec: pl.sec, idx: pl.idx, page: m.page, inside: m.inside })
   }
-  return { ok: true, found: true, hash: contentHash(live.item), pages: r.pages, marks }
+  return { ok: true, found: true, hash: contentHash(live.item), pages: r.pages, marks, fit }
 }
