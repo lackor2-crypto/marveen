@@ -1468,6 +1468,12 @@
 .wb-tw-right { position: sticky; top: 8px; max-height: calc(100vh - 24px); overflow-y: auto; padding: 12px 0; border: 0; box-shadow: 0 0 0 1px var(--border); border-radius: 8px; background: var(--bg-card); }
 /* Boss TG 4778: the translation page is exactly as wide as the original page, so the card keeps no side padding or border of its own (the outline is a shadow); everything but the page is inset instead. */
 .wb-tw-right > :not(.wb-tw-body) { margin-left: 14px; margin-right: 14px; }
+/* #854 (Boss TG 4813): the translation column is a plain stack like the original's: a box with the controls (as high as the original's toolbar box,
+   twAlignTop sets the height), then the white page. No card around both, so the page starts at the same height as the original page. */
+#wbTwPanel { border: 0; box-shadow: none; background: none; padding: 0; }
+#wbTwPanel > .wb-tw-top { width: min(100%, 794px); box-sizing: border-box; margin: 0 auto 10px; padding: 8px 12px; background: #f3f4f8; color: #1b1b1f; border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); font-size: 13px; }
+#wbTwPanel > .wb-tw-top .wb-label, #wbTwPanel > .wb-tw-top .wb-hint, #wbTwPanel > .wb-tw-top .wb-doc-low { color: #1b1b1f; }
+#wbTwPanel > .wb-tw-top > :last-child { margin-bottom: 0; }
 .wb-tw-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .wb-tw-sec h4 { margin: 12px 0 4px; font-size: 15px; }
 .wb-tw-block { margin: 0 0 8px; white-space: pre-wrap; line-height: 1.6; }

@@ -16355,7 +16355,9 @@
     var lost = 0
     secs.forEach(function (sec) { var pv = tw.prev[twKey(sec.id)]; if (pv) (pv.blocks || []).forEach(function (b) { if (b.format_lost) lost++ }) })
     var lostHint = lost ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.format_lost', { n: lost })) + '</p>' : ''
-    return head + note + droppedHint + failed + lostHint + (stale ? '<p class="wb-hint">' + esc(t('workbench.tw.stale_n', { n: stale })) + '</p>' : '') + '<div class="wb-tw-body">' + rows + '</div>'
+    // #854 (Boss TG 4813): the language / retranslate / save controls and their notes are ONE box above the page, as high as the
+    // original's toolbar box, so the white translation page starts at the same height as the original page.
+    return '<div class="wb-tw-top" id="wbTwTop">' + head + note + droppedHint + failed + lostHint + (stale ? '<p class="wb-hint">' + esc(t('workbench.tw.stale_n', { n: stale })) + '</p>' : '') + '</div><div class="wb-tw-body">' + rows + '</div>'
   }
   /** The Draft tab: just the page, or the page with the translation next to it. */
   /** The "show/hide translation" button. It sits in the action row beside "Finalize" (Boss TG 2839: the page starts as high as possible). */
@@ -16815,12 +16817,32 @@
       + (showTp ? '<aside class="wb-tw-right wb-tp-right" id="wbTpPanel" aria-label="' + escA(t('workbench.tp.title')) + '">' + tpPanelInnerHtml() + '</aside>' : '')
       + '</div>'
   }
+  /** #854: the box above the translation page is as high as the toolbar box above the original page (it wraps to more rows on a narrow
+   *  screen), so both white pages begin at the same height. Measured, not guessed; follows the toolbar when it changes size. */
+  function twAlignTop() {
+    var top = document.getElementById('wbTwTop')
+    var bar = document.querySelector('.wb-tw-left .wb-dp-toolbar')
+    if (!top) return
+    var panel = document.getElementById('wbTwPanel')
+    var off = 0
+    // The zoom slider scales both columns: screen pixels are turned back into the pixels the style is written in.
+    var scale = bar && bar.offsetHeight ? bar.getBoundingClientRect().height / bar.offsetHeight : 1
+    if (!(scale > 0)) scale = 1
+    if (bar && panel) off = Math.round((bar.getBoundingClientRect().top - panel.getBoundingClientRect().top) / scale * 10) / 10
+    top.style.marginTop = off > 0 ? off + 'px' : ''
+    top.style.minHeight = bar ? bar.offsetHeight + 'px' : ''
+    if (bar && typeof ResizeObserver === 'function' && !bar.getAttribute('data-tw-ro')) {
+      bar.setAttribute('data-tw-ro', '1')
+      new ResizeObserver(function () { twAlignTop() }).observe(bar)
+    }
+  }
   function twRefresh() {
     var el = document.getElementById('wbTwPanel')
     var o = WB.detail && WB.detail.outline
     if (el && o) {
       twCollect() // what was typed on the page is kept across the redraw
       el.innerHTML = twPanelInnerHtml(o, docLocked())
+      twAlignTop()
       twPagesAfterRender()
     }
   }
@@ -17316,7 +17338,7 @@
     return !!WB.dpPagesOn
   }
   function dpPageMarkHtml(m) {
-    var label = t(m.inside ? 'workbench.dp.pagebreak_inside' : 'workbench.dp.pagebreak', { n: m.page })
+    var label = t('workbench.dp.pagebreak', { n: m.page }) // #854: just "N. oldal", also where the paragraph goes on over the line
     return '<div class="wb-dp-pagebreak' + (m.inside ? ' is-inside' : '') + '" contenteditable="false" data-wb-pagebreak="' + m.page + '" role="separator" aria-label="' + escA(label) + '"><span>' + esc(label) + '</span></div>'
   }
   /** The sheet the lines go on: the editable page, or the read-only one of the Preview tab (it must show the same PDF edge). */
@@ -17373,6 +17395,7 @@
   }
   /** After a redraw: put the lines back, and measure when there is no (fresh) measurement of this document. */
   function dpPagesAfterRender() {
+    twAlignTop()
     if (!dpPagesOn() || !dpPagesRoot()) return
     dpPagesPaint()
     twPagesAfterRender()

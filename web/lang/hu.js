@@ -7693,7 +7693,6 @@ window._i18n.hu = {
   "workbench.dp.pagebreak_busy": "Az oldaltöréseket mérem a PDF-ből…",
   "workbench.dp.pagebreak_failed": "Az oldaltöréseket nem sikerült megmérni.",
   "workbench.dp.pagebreak": "{n}. oldal",
-  "workbench.dp.pagebreak_inside": "{n}. oldal – a fenti bekezdés itt tör át",
   "workbench.dp.tbl_free_move": "Fogd meg, és húzd a táblázatot oda, ahol lenni szeretnéd: a lap bal vagy jobb felére, bármelyik bekezdés mellé. A szöveg körbefutja. A „Szabadon, a szöveg fölött” gombbal a szöveg fölé is teheted. (Nyilakkal is megy.)",
   "workbench.dp.free_move": "Fogd meg, és vidd bárhová a lapon (a nyíl billentyűkkel is mozgatható). A Balra / Középre / Jobbra gomb visszateszi a szövegbe.",
   "workbench.dp.tbl_move": "Húzd a táblázatot, és máshová kerül a lapon",

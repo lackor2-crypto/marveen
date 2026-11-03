@@ -13,7 +13,7 @@ describe('the translation page has page-break lines too (#853)', () => {
     expect(JS).toContain('function twPagesPaint()')
     expect(JS).toContain('function twPagesAfterRender()')
     expect(JS).toMatch(/dpPagesPaint\(\)\n\s+twPagesAfterRender\(\)/)
-    expect(JS).toMatch(/el\.innerHTML = twPanelInnerHtml\(o, docLocked\(\)\)\n\s+twPagesAfterRender\(\)/)
+    expect(JS).toMatch(/el\.innerHTML = twPanelInnerHtml\(o, docLocked\(\)\)\n\s+twAlignTop\(\)\n\s+twPagesAfterRender\(\)/)
   })
   it('the switch paints (or clears) both pages and the lines vanish when it is off', () => {
     const i = JS.indexOf("a === 'dp-pages-toggle'")
@@ -36,5 +36,14 @@ describe('the translation page has page-break lines too (#853)', () => {
     const c = JS.slice(JS.indexOf('function twCollect()'), JS.indexOf('var shownOnes ='))
     expect(c).toContain("el.classList.contains('wb-dp-pagebreak')")
     expect(c.indexOf("wb-dp-pagebreak")).toBeLessThan(c.indexOf("var role = el.getAttribute('data-tw')"))
+  })
+  it('#854: the page-break line says just "N. oldal" everywhere, no explanation', () => {
+    expect(JS).not.toContain('pagebreak_inside')
+  })
+  it('#854: the translation controls are one box as high as the original toolbar, above the page', () => {
+    expect(JS).toContain('<div class="wb-tw-top" id="wbTwTop">')
+    expect(JS).toContain('function twAlignTop()')
+    expect(JS).toContain("document.querySelector('.wb-tw-left .wb-dp-toolbar')")
+    expect(JS).toContain("top.style.minHeight = bar ? bar.offsetHeight + 'px'")
   })
 })
