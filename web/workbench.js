@@ -17304,7 +17304,8 @@
   // ---- #590 (Boss, TG 9007): the dashed line where the next page of the PDF begins -------------------------------
   // The sheet on the screen is not as tall as the PDF page, so the place is MEASURED on the real draft PDF (the server reads
   // its text page by page and looks every chapter / block up). Drawn into the page after every redraw; the page is never
-  // redrawn for it, so typing is not interrupted.
+  // redrawn for it, so typing is not interrupted. A language version (the German one) gets the line too (Boss TG 4771, #852):
+  // its draft PDF is a real PDF with real page edges, and the sheet must not show a signature on a page the PDF pushes it off.
   function dpPagesOn() {
     if (WB.dpPagesOn === undefined) WB.dpPagesOn = readPref('marveen.workbench.dpSheets', '') !== '0'
     return !!WB.dpPagesOn
@@ -17335,7 +17336,7 @@
   function dpPagesHash() { return (WB.detail && WB.detail.outline && WB.detail.outline.content_hash) || '' }
   function dpPagesLoad() {
     var id = WB.selectedId
-    if (!id || !dpPagesOn() || archived() || !dpPagesRoot() || dpIsVariant()) return
+    if (!id || !dpPagesOn() || archived() || !dpPagesRoot()) return
     if (WB.dpPagesBusy) { WB.dpPagesAgain = true; return }
     WB.dpPagesBusy = true
     WB.dpPagesAgain = false
@@ -17365,7 +17366,7 @@
   }
   /** After a redraw: put the lines back, and measure when there is no (fresh) measurement of this document. */
   function dpPagesAfterRender() {
-    if (!dpPagesOn() || !dpPagesRoot() || dpIsVariant()) return
+    if (!dpPagesOn() || !dpPagesRoot()) return
     dpPagesPaint()
     var d = WB.dpPages
     if (!WB.dpPagesError && !WB.dpPagesBusy && (!d || d.item !== WB.selectedId || d.hash !== dpPagesHash())) dpPagesSoon()
