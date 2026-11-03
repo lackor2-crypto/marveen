@@ -41,3 +41,21 @@ describe('a language version is drawn tighter to fit the original page count (#8
     expect(buildFodt({ ...outline(), bodyPt: 40 }, meta)).toContain('fo:font-size="12pt" fo:language')
   })
 })
+
+describe('the stored fit follows the database handle (#856)', () => {
+  it('creates its table in every database, not only the first one the process saw', async () => {
+    const Database = (await import('better-sqlite3')).default
+    const { vi } = await import('vitest')
+    vi.resetModules()
+    for (let i = 0; i < 2; i++) {
+      const db = new Database(':memory:')
+      vi.doMock('../db.js', () => ({ getDb: () => db }))
+      const m = await import('../workbench-docfit.js')
+      expect(m.fitOf('x')).toBeNull()
+      m.saveFit('x', { hash: 'h', level: 2, source_pages: 2, pages: 2, fits: true })
+      expect(m.fitLevelFor('x')).toBe(2)
+      vi.doUnmock('../db.js')
+      vi.resetModules()
+    }
+  })
+})

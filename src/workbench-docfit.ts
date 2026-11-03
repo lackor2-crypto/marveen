@@ -18,10 +18,12 @@ export const FIT_BODY_PT: Record<number, number> = { 3: 11.5, 4: 11, 5: 10.5 }
 
 export interface FitRow { work_item_id: string; hash: string; level: number; source_pages: number; pages: number; fits: number; updated_at: number }
 
-let ready = false
+// Per database handle, not per process: a test (or a restored backup) opens a fresh database under the same module.
+const ready = new WeakSet<object>()
 function ensure(): void {
-  if (ready) return
-  getDb().exec(`
+  const db = getDb()
+  if (ready.has(db)) return
+  db.exec(`
     CREATE TABLE IF NOT EXISTS wb_doc_fit (
       work_item_id TEXT PRIMARY KEY,
       hash TEXT NOT NULL,
@@ -32,7 +34,7 @@ function ensure(): void {
       updated_at INTEGER NOT NULL
     )
   `)
-  ready = true
+  ready.add(db)
 }
 
 /** The stored fit of a language version, or null when none was measured. */
