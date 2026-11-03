@@ -16,7 +16,7 @@
  * azonosito nem jut el ide.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { convertOfficeToPdf, renderCacheDir, sofficeConvertFile, RENDER_CACHE_MAX_AGE_MS, type ConvertResult } from './office-convert.js'
 import { MISSING_MARK_RE, isBlankLine, isPlaceholderSectionTitle, imageBlockParts, tableBlockParts, type BlockKind, type SectionStatus } from './workbench-docmodel.js'
@@ -604,6 +604,21 @@ export type RenderResult =
   | { ok: true; pdf: Buffer; cached: boolean }
   | { ok: false; code: Exclude<ConvertResult, { ok: true }>['code']; detail: string | null }
 
+/**
+ * The .fodt source of a render lives under the hash of its content. Boss (2026-11-03, "a 78M-et nem generalja le a PDF-et"):
+ * a restart in the middle of the write left a ZERO-BYTE file under that hash; "the file exists" was taken for "it is right", so
+ * every later render of that exact content converted the empty file into a blank page, for ever (the same text, the same hash).
+ * Now the file counts only when its size is the size of the content; otherwise it is written again, atomically (a temp file
+ * renamed into place), so a crash can never leave a half file under the final name. True when the file was (re)written.
+ */
+export function ensureSourceFile(src: string, xml: string): boolean {
+  try { if (statSync(src).size === Buffer.byteLength(xml, 'utf-8')) return false } catch { /* missing: written below */ }
+  const tmp = `${src}.${process.pid}.${Date.now()}.tmp`
+  writeFileSync(tmp, xml, 'utf-8')
+  renameSync(tmp, src)
+  return true
+}
+
 /** A .fodt forrasok takaritasa: a legujabbak maradnak (a hozzajuk tartozo PDF-et az atalakito takaritja). */
 function pruneSources(dir: string, now = Date.now()): void {
   let names: string[] = []
@@ -625,7 +640,7 @@ export async function renderFodtPdf(xml: string, filter: string): Promise<Render
   try { mkdirSync(dir, { recursive: true }) } catch (e) { return fail(e) }
   const src = join(dir, createHash('sha256').update(xml).digest('hex').slice(0, 24) + '.fodt')
   // Ugyanaz a tartalom = ugyanaz a fajl, valtozatlan idobelyeggel: a PDF a gyorsitotarbol jon.
-  try { if (!existsSync(src)) { writeFileSync(src, xml, 'utf-8'); pruneSources(dir) } } catch (e) { return fail(e) }
+  try { if (ensureSourceFile(src, xml)) pruneSources(dir) } catch (e) { return fail(e) }
   const r = await convertOfficeToPdf(src, { pdfFilter: filter })
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
   try { return { ok: true, pdf: readFileSync(r.pdf), cached: r.cached } } catch (e) { return fail(e) }
@@ -653,7 +668,7 @@ export async function renderOutlineDocx(outline: RenderOutline, o: Omit<RenderOp
   const fail = (e: unknown): DocxResult => ({ ok: false, code: 'convert_failed', detail: e instanceof Error ? e.message : String(e) })
   try { mkdirSync(dir, { recursive: true }) } catch (e) { return fail(e) }
   const src = join(dir, createHash('sha256').update(xml).digest('hex').slice(0, 24) + '.fodt')
-  try { if (!existsSync(src)) { writeFileSync(src, xml, 'utf-8'); pruneSources(dir) } } catch (e) { return fail(e) }
+  try { if (ensureSourceFile(src, xml)) pruneSources(dir) } catch (e) { return fail(e) }
   const r = await sofficeConvertFile(src, DOCX_FILTER, { outExt: 'docx' })
   return r.ok ? { ok: true, docx: r.data } : { ok: false, code: r.code, detail: r.detail }
 }
