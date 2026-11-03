@@ -370,3 +370,8 @@ Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismeré
 **Hiba (2026-11-03):** a Fordítás mentése gomb, ha az eredeti azóta változott ("régi" fordítás), újrafordította az egészet és azt mentette, így a tulajdonos kézzel javított német szövege elveszett (a #840 régi ága).
 **Szabály:** a mentés pontosan azt írja, ami a fordítás oldalon áll, kézi javítással együtt, minden fejezetre, aminek van fordítása. Újrafordítást KIZÁRÓLAG az "Újrafordítás" gomb (`twRun`) indít. Szerkesztett tartalmat felülíró "okos" automatika tilos. Kapu: `tw-save-never-retranslates.test.ts` (a `twSave` törzsében nincs `twRun(`).
 **Mérés:** böngészőben kézi szöveg után mentés: 0 translate-preview hívás, a kézi szöveg megmarad.
+
+### R32 -- Az eredeti és a fordítás oldala UGYANAZ a szélesség és négy oldali margó (Boss TG 4778, 2026-11-03)
+**Hiba (2026-11-03):** a fordítás oldala 28/30 px belső margót kapott, az eredeti 56/64/72/72 pxet, ráadásul a három oszlopos nézetben a fordítás kártyája oldalpaddinggel és kerettel még 27 pxet elvett a szélességből: más helyre törtek a sorok, a két oldal szétcsúszott.
+**Szabály:** `.wb-dp-page` és `.wb-tw-page` ugyanazt a `--pg-pt/pr/pb/pl` négyest és a `width: min(100%, 794px)` szélességet használja, a keskeny nézet felülírása is közös; az oszlopok egyforma szélesek (`.wb-tw-cols.has-both`), a fordítás kártyájának nincs saját oldalpaddingje/kerete (árnyék a keret, a többi elem van beljebb húzva). Új margó csak EGY helyen változhat, mindkét oldalon. Kapu: `translation-page-same-margins.test.ts`.
+**Mérés:** böngészőben 3 oszlopos nézetben mindkét oldal 434 px széles, padding 72/64/56/72 mindkettőn.
