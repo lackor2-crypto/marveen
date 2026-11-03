@@ -59,3 +59,17 @@ describe('recipient window position (Boss TG 4597)', () => {
     expect(enforceRecipientWindow('Chemnitz, 2026. 11. 03.\nCímzett: ismeretlen')).toBe('Chemnitz, 2026. 11. 03.\nCímzett: ismeretlen')
   })
 })
+
+import { buildFodt } from '../workbench-docrender.js'
+describe('signature block position (Boss TG 4626/4631)', () => {
+  it('the printed name stands at the left margin, under the signature, as the draft shows it (no 9 cm indent)', () => {
+    const xml = buildFodt(
+      { sections: [{ title: 'Level', status: 'todo', blocks: [{ kind: 'signature', text: 'Korpás László' }] }] },
+      { title: 'Level', author: null, draft: true, lang: 'hu' },
+    )
+    const m = (n: string) => new RegExp(`style:name="${n}"[^>]*><style:paragraph-properties[^>]*fo:margin-left="([^"]+)"`).exec(xml)
+    expect(m('Signature')?.[1]).toBe('0cm')
+    expect(m('SignatureFirst')?.[1]).toBe('0cm')
+    expect(xml).not.toContain('fo:margin-left="9cm"')
+  })
+})
