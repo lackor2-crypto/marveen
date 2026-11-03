@@ -4690,6 +4690,17 @@
           })
           tools.appendChild(bt)
         })
+        // A delete button for every picture, a signature too (Boss TG 4675).
+        var dl = document.createElement('button')
+        dl.type = 'button'
+        dl.className = 'wb-dp-img-al'
+        dl.setAttribute('data-de-img-del', '1')
+        dl.title = t('workbench.tw.pic_del')
+        dl.setAttribute('aria-label', t('workbench.tw.pic_del'))
+        dl.innerHTML = '&#10005;'
+        dl.addEventListener('mousedown', function (ev) { ev.preventDefault(); ev.stopPropagation() })
+        dl.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); deleteSelected() })
+        tools.appendChild(dl)
         frame.appendChild(tools)
       }
       var cur = modeOf(sel)
@@ -4799,11 +4810,16 @@
       if (d) { e.preventDefault(); e.stopPropagation(); nudge(sel, d[0], d[1]) }
       else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault(); e.stopPropagation()
-        var old = anchorBlock(sel)
-        sel.parentNode.removeChild(sel)
-        dropEmpty(old)
-        unselect(); st.dirty = true; docStatus('')
+        deleteSelected()
       }
+    }
+    // Removes the selected picture (the Delete key and the toolbar's delete button share this).
+    function deleteSelected() {
+      if (!sel || !sel.parentNode) return
+      var old = anchorBlock(sel)
+      sel.parentNode.removeChild(sel)
+      dropEmpty(old)
+      unselect(); st.dirty = true; docStatus('')
     }
     function cleanup() {
       drag = null
@@ -15571,7 +15587,8 @@
         + dpFreeHandleHtml(b.id, 'tbl')
         // #590: the same two modes as a picture -- "the text runs round it" / "free, over the text".
         + '<span class="wb-dp-img-tools">' + (overT ? '' : al('l', 'workbench.dp.tbl_left') + al('c', 'workbench.dp.tbl_center') + al('r', 'workbench.dp.tbl_right'))
-          + dpImgModeBtn(b.id, 'wrap', !overT) + dpImgModeBtn(b.id, 'over', overT) + '</span>')
+          + dpImgModeBtn(b.id, 'wrap', !overT) + dpImgModeBtn(b.id, 'over', overT)
+          + '<button type="button" class="wb-dp-img-al wb-dp-img-del" data-wb-act="dp-del" data-wb-block="' + escA(b.id) + '" title="' + escA(t('workbench.dp.del')) + '" aria-label="' + escA(t('workbench.dp.del')) + '">&#10005;</button></span>')
       + '</div>'
   }
 
@@ -15660,7 +15677,9 @@
         + dpFreeHandleHtml(bid, true)
         + '<span class="wb-dp-img-tools">' + (picOver ? '' : al('l', 'workbench.dp.img_left') + al('c', 'workbench.dp.img_center') + al('r', 'workbench.dp.img_right'))
           + dpImgModeBtn(bid, 'wrap', !picOver) + dpImgModeBtn(bid, 'over', picOver)
-          + (tw ? '<button type="button" class="wb-dp-img-al" data-tw-pic="del" title="' + escA(t('workbench.tw.pic_del')) + '" aria-label="' + escA(t('workbench.tw.pic_del')) + '">&#10005;</button>' : '') + '</span>')
+          // Every picture (a signature too) has a delete button of its own; the column picture keeps its `data-tw-pic` one.
+          + (tw ? '<button type="button" class="wb-dp-img-al" data-tw-pic="del" title="' + escA(t('workbench.tw.pic_del')) + '" aria-label="' + escA(t('workbench.tw.pic_del')) + '">&#10005;</button>'
+            : '<button type="button" class="wb-dp-img-al wb-dp-img-del" data-wb-act="dp-del" data-wb-block="' + escA(bid) + '" title="' + escA(t('workbench.tw.pic_del')) + '" aria-label="' + escA(t('workbench.tw.pic_del')) + '">&#10005;</button>') + '</span>')
       + '</span></figure>'
   }
 
