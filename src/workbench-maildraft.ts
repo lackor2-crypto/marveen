@@ -467,7 +467,8 @@ export type MailDraftOutcome =
 export interface MailDraftInput { from_account?: unknown; from_addr?: unknown; to?: unknown; cc?: unknown; subject?: unknown; body?: unknown }
 
 const TEXT_MAX = 20_000
-const SUBJECT_MAX = 300
+// Boss TG 4871: a long letter subject (251 characters) must not leave the subject field empty; 998 is the mail line limit (RFC 5322).
+const SUBJECT_MAX = 998
 
 /**
  * Make (or remake) the draft. The owner's explicit action: whatever the page shows is what is written. Fields left out keep

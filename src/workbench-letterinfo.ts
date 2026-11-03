@@ -25,7 +25,7 @@ export function detectTextLanguage(textIn: string): LetterLang | null {
 export function subjectFromLines(linesIn: string[]): string {
   const lines = linesIn.map((l) => String(l ?? '').replace(/[​\s]+/g, ' ').trim()).filter(Boolean)
   for (const l of lines) {
-    const m = /^(?:betreff|betr\.?|subject|re|tárgy|targy)\s*[:.]\s*(.{3,250})$/i.exec(l)
+    const m = /^(?:betreff|betr\.?|subject|re|tárgy|targy)\s*[:.]\s*(.{3,})$/i.exec(l)
     if (m) return m[1].trim()
   }
   const di = lines.findIndex((l) => l.length <= 60 && /\b\d{1,2}\.\s?\d{1,2}\.\s?\d{4}\b|\b\d{4}-\d{2}-\d{2}\b/.test(l))
@@ -44,7 +44,7 @@ export function letterSubject(itemId: string): string {
     // Only a LABELLED line is looked for inside a paragraph; the "line after the date" guess stays on whole blocks (a date line
     // inside a signature block must not turn the next word into a subject).
     const labelled = texts.flatMap((x) => x.split(/\r\n|\r|\n/)).map((l) => l.replace(/[\u200b\s]+/g, ' ').trim())
-      .map((l) => /^(?:betreff|betr\.?|subject|re|tárgy|targy)\s*[:.]\s*(.{3,250})$/i.exec(l)).find((m) => !!m)
+      .map((l) => /^(?:betreff|betr\.?|subject|re|tárgy|targy)\s*[:.]\s*(.{3,})$/i.exec(l)).find((m) => !!m)
     return labelled ? (labelled[1] as string).trim() : subjectFromLines(texts)
   } catch { return '' }
 }
