@@ -22,6 +22,8 @@ import { LANG_NAMES, carriedLook, sourceForTranslated, createVariant, listGlossa
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
+import { pageBreaksFor } from './workbench-docpages.js'
+import { contentHash } from './workbench-docfinal.js'
 import { mirrorRecipientWindow } from './workbench-letterhead.js'
 import { notReadyMessage, usageNotice } from './workbench-agent/orchestrator.js'
 import { pickAIProvider, whyNoAIProvider } from './workbench-agent/provider.js'
@@ -523,4 +525,45 @@ async function callModel(req: { system: string; user: string; lang: Lang }): Pro
   }
   if (last) return last
   return { ok: false, code: blocked?.code ?? 'no_provider', message: blocked?.message ?? whyNoAIProvider(req.lang) }
+}
+
+/** A page-break line on the translation page: before / after block number `idx` of source chapter `sec` (idx -1 = the chapter heading). */
+export interface TranslationPageMark { sec: string; idx: number; page: number; inside: boolean }
+export type TranslationPageBreaks =
+  | { ok: true; found: false }
+  | { ok: true; found: true; hash: string; pages: number; marks: TranslationPageMark[] }
+  | { ok: false; code: string; detail: string | null }
+
+/**
+ * #853 (Boss TG 4785): the page-break lines of the SAVED language version, put on the translation page next to the original.
+ * The PDF is measured on the language version (a real PDF with real page edges); its chapter / block ids are turned into
+ * the ids of the original chapters and the block's place inside the chapter, which is what the translation page knows.
+ */
+export async function translationPageBreaks(source: WorkItemRow, targetLang: string, uiLang: 'hu' | 'en'): Promise<TranslationPageBreaks> {
+  if (variantOf(source.id)) return { ok: true, found: false }
+  const lang = String(targetLang || '').trim().toLowerCase()
+  if (!/^[a-z]{2}$/.test(lang)) return { ok: true, found: false }
+  const live = liveVariantFor(source.id, lang)
+  const info = live ? variantInfo(live.item.id) : null
+  if (!live || !info) return { ok: true, found: false }
+  const r = await pageBreaksFor(live.item, uiLang)
+  if (!r.ok) return r
+  const srcOfSection = new Map(info.sections.map((x) => [x.section_id, x.source_section_id]))
+  const place = new Map<string, { sec: string; idx: number }>()
+  const counters = new Map<string, number>()
+  for (const b of listBlocks(live.item.id)) {
+    const sec = srcOfSection.get(b.section_id)
+    if (!sec) continue
+    const n = counters.get(b.section_id) ?? 0
+    counters.set(b.section_id, n + 1)
+    place.set(b.id, { sec, idx: n })
+  }
+  const marks: TranslationPageMark[] = []
+  for (const m of r.marks) {
+    const sec = srcOfSection.get(m.id)
+    if (sec) { marks.push({ sec, idx: -1, page: m.page, inside: m.inside }); continue }
+    const pl = place.get(m.id)
+    if (pl) marks.push({ sec: pl.sec, idx: pl.idx, page: m.page, inside: m.inside })
+  }
+  return { ok: true, found: true, hash: contentHash(live.item), pages: r.pages, marks }
 }

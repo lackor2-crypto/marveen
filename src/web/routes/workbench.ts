@@ -76,7 +76,7 @@ import { forgetMailDraft, mailDraftView, mailPrefill, resetUntouchedMailText, sa
 // The mail routes register the shared sender's mailbox engine (src/mail-send.ts, #797) when they load.
 import './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
-import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, startVariantTranslation, translateJobState } from '../../workbench-doclang-translate.js'
+import { previewSectionTranslation, savedTranslationFor, saveShownTranslation, startVariantTranslation, translateJobState, translationPageBreaks } from '../../workbench-doclang-translate.js'
 import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus } from '../../workbench-snapshot.js'
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { hasTextFinalPanel } from '../../workbench-notefinal.js'
@@ -4419,6 +4419,16 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // a valodi PDF szovegebol merve. OLVASAS, archivalt projektben is.
     if (segs.length === 3 && segs[2] === 'pagebreaks' && method === 'GET') {
       if (!hasDocModel(item.id)) return fail(res, 404, 'outline_empty', lang)
+      // #853: ?to=de -> the lines of the saved language version, in the terms of the translation page.
+      if (url.searchParams.get('to')) {
+        const tr = await translationPageBreaks(item, String(url.searchParams.get('to')), lang)
+        if (!tr.ok) {
+          if (tr.code === 'pdftotext_failed') return failDetail(res, 501, 'pagebreaks_failed', lang, tr.detail)
+          return docPdfFail(res, tr.code, lang, tr.detail)
+        }
+        json(res, tr.found ? { hash: tr.hash, pages: tr.pages, marks: tr.marks } : { hash: '', pages: 0, marks: [] })
+        return true
+      }
       const r = await pageBreaksFor(item, lang)
       if (!r.ok) {
         // The converter's own failure keeps the draft PDF's wording; a missing / failing poppler gets its own, with the real message.
