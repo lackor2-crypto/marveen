@@ -46,4 +46,7 @@ describe('the translation page has page-break lines too (#853)', () => {
     expect(JS).toContain("document.querySelector('.wb-tw-left .wb-dp-toolbar')")
     expect(JS).toContain("top.style.minHeight = bar ? bar.offsetHeight + 'px'")
   })
+  it('#854: the height alignment tolerates a DOM without querySelector (the frontend test DOM)', () => {
+    expect(JS).toContain("typeof document.querySelector === 'function' ? document.querySelector('.wb-tw-left .wb-dp-toolbar') : null")
+  })
 })

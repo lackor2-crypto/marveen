@@ -16821,7 +16821,7 @@
    *  screen), so both white pages begin at the same height. Measured, not guessed; follows the toolbar when it changes size. */
   function twAlignTop() {
     var top = document.getElementById('wbTwTop')
-    var bar = document.querySelector('.wb-tw-left .wb-dp-toolbar')
+    var bar = typeof document.querySelector === 'function' ? document.querySelector('.wb-tw-left .wb-dp-toolbar') : null
     if (!top) return
     var panel = document.getElementById('wbTwPanel')
     var off = 0
