@@ -668,7 +668,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const etag = `"${r.etag}"`
     if (req.headers['if-none-match'] === etag) {
-      res.writeHead(304, { ETag: etag, 'Cache-Control': 'private, max-age=86400' })
+      res.writeHead(304, { ETag: etag, 'Cache-Control': 'private, no-cache' })
       res.end()
       return true
     }
@@ -678,7 +678,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       'Content-Type': r.kind === 'thumb' ? 'image/jpeg' : r.mime,
       'Content-Length': size,
       ETag: etag,
-      'Cache-Control': 'private, max-age=86400',
+      // no-cache = revalidate on every use (a cheap 304 by ETag): a replaced file shows at once, not a day later.
+      'Cache-Control': 'private, no-cache',
     })
     try {
       await pipeline(createReadStream(r.path), res)

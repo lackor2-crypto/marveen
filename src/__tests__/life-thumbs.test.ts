@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, chmodSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import type { RouteContext } from '../web/routes/types.js'
@@ -146,6 +147,8 @@ describe('GET /api/life/thumb', () => {
     expect(a.res.statusCode).toBe(200)
     expect(a.res.headers['Content-Type']).toBe('image/jpeg')
     expect(a.res.text()).toBe('THUMB')
+    // A replaced file must show at once: revalidate every time, never "max-age one day".
+    expect(String(a.res.headers['Cache-Control'])).toBe('private, no-cache')
     const etag = String(a.res.headers.ETag)
     const b = ctxFor('/api/life/thumb?rel=' + encodeURIComponent(f.rel), { 'if-none-match': etag })
     await tryHandleLife(b.ctx)
@@ -200,5 +203,24 @@ describe('PDF thumbnail (#708)', () => {
     expect(r).toMatchObject({ ok: true, kind: 'thumb' })
     const again = await thumbs.lifeThumb(f.abs, f.name)
     expect(again).toMatchObject({ ok: true, kind: 'thumb' })
+  })
+})
+
+// A transparent PNG/WebP (a signature) must not turn black in the JPEG preview.
+const REAL_FFMPEG = (() => { try { return execFileSync('which', ['ffmpeg'], { encoding: 'utf8' }).trim() } catch { return '' } })()
+describe('transparent images in the preview', () => {
+  it('a transparent PNG is laid on white, not black', async (ctx) => {
+    if (!REAL_FFMPEG) return ctx.skip()
+    thumbs.setThumbFfmpegForTests(REAL_FFMPEG)
+    // 4x4 fully transparent RGBA PNG with one blue opaque pixel.
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAADklEQVR4nGNgoBT8/w8AA0EB/xP1yt0AAAAASUVORK5CYII=', 'base64')
+    const f = mediaFile('png', '')
+    writeFileSync(f.abs, png)
+    const r = await thumbs.lifeThumb(f.abs, f.name)
+    expect(r).toMatchObject({ ok: true, kind: 'thumb' })
+    if (r.ok && r.kind === 'thumb') {
+      const out = execFileSync(REAL_FFMPEG, ['-v', 'error', '-i', r.path, '-vf', 'crop=1:1:0:0,format=gray', '-f', 'rawvideo', '-'])
+      expect(out[0]).toBeGreaterThan(200)
+    }
   })
 })
