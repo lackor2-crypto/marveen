@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { getDb } from './db.js'
 import { currentOwnerName, OWNER_NAME_PLACEHOLDER } from './config.js'
 import { getProject } from './projects.js'
+import { readItemContext } from './workbench-item-context.js'
 import { finishedFolderFor, freeFileName, projectFileTarget } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
@@ -334,9 +335,28 @@ export function chatRecipient(item: WorkItemRow): string {
  * first, then an address the letter itself carries (a line of its text), then the same for the original of a language version.
  * Nothing is made up: an address is only ever taken from something that was written.
  */
+/**
+ * Boss TG 4885: the work item's CONTEXT FILE is where everything the owner said in the chat is kept (the assistant writes the
+ * recipient's e-mail address there at once), so it is looked at too. A line that names a recipient ("Címzett e-mail: ...")
+ * wins; otherwise the first address in the file. The language versions share their original's file (readItemContext follows it).
+ */
+export function contextRecipient(item: WorkItemRow): string {
+  try {
+    const ctx = readItemContext(item)
+    if (!ctx) return ''
+    const re = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/
+    const lines = ctx.text.split(/\r\n|\r|\n/)
+    const named = lines.find((l) => /(címzett|cimzett|empf[aä]nger|recipient|kinek|küld(?:jük|jem)|send to|e-?mail)/i.test(l) && re.test(l))
+    const hit = re.exec(named ?? ctx.text)
+    return hit ? hit[0] : ''
+  } catch { return '' }
+}
+
 export function knownRecipient(item: WorkItemRow): string {
   const chat = chatRecipient(item)
   if (chat) return chat
+  const fromContext = contextRecipient(item)
+  if (fromContext) return fromContext
   const inText = (id: string): string => {
     try {
       if (!hasDocModel(id)) return ''
@@ -353,6 +373,16 @@ export function knownRecipient(item: WorkItemRow): string {
     try { return chatRecipient({ ...item, id: v.source_item_id } as WorkItemRow) || inText(v.source_item_id) } catch { return '' }
   }
   return ''
+}
+
+/** True when the letter has a labelled recipient block ("Címzett:" / "Empfänger:" / "Recipient:") but no e-mail address is known for it. */
+export function letterNeedsRecipientEmail(item: WorkItemRow): boolean {
+  try {
+    if (!hasDocModel(item.id)) return false
+    const text = listBlocks(item.id).map((b) => String(b.text ?? '')).join('\n')
+    if (!/^\s*(címzett|cimzett|empf[aä]nger|recipient)\s*:/im.test(text)) return false
+    return knownRecipient(item) === ''
+  } catch { return false }
 }
 
 export function mailPrefill(item: WorkItemRow): { to: string; subject: string; body: string; lang: DocLang } | null {
