@@ -140,6 +140,13 @@ export function familyLines(item: WorkItemRow): string[] {
 export const SUB_ITEM_RULE = 'new related work item: if it belongs to THIS item (same case, a second letter, a follow-up), create it with POST /api/workbench/items and "folder" = this item\'s folder so it lands INSIDE it, not beside it in the shared group folder. It then gets only its own three folders (Kiváltó irat, Elkészített anyagok, Mellékletek); never delete those and never make the shared ones (Feltöltések, Agent, Vitáztatás) for it. If the system refuses the folder, tell the owner to drag the new item into this item\'s folder.'
 
 /**
+ * Boss (2026-11-03): "ha nem írtad be a kontextusba, javítani kell, kötelezővé kell tenni, törvény". The case file is the memory of the
+ * work item: whatever the owner tells in the chat and whatever the assistant finds on the internet or in a document (an e-mail address,
+ * a phone number, a deadline, a decision, a legal finding with its source) goes into it BEFORE the answer is written.
+ */
+export const CONTEXT_DUTY_RULE = 'MANDATORY, every turn, BEFORE you write the final answer: everything the owner told you in the chat (decisions, wishes, "do not mention X") and everything you looked up (internet or documents: e-mail addresses, phone numbers, fax, deadlines, form numbers, legal findings with their source, what is verified and what is NOT) is written into this item\'s context file with context.append (section info / decisions / open / log). A fact that lives only in your chat answer is lost to the next assistant. Say in the answer that you wrote it down.'
+
+/**
  * A kontextus-blokk. `workItem` = amin eppen dolgozunk (lehet null: a
  * beszelgetes a projektrol szol).
  */
@@ -213,6 +220,7 @@ export async function buildContext(
       triggerContextLine(triggerStateOf(project, workItem)),
       ...familyLines(workItem),
       SUB_ITEM_RULE,
+      CONTEXT_DUTY_RULE,
     ].join('\n'))
   } else {
     add('current_item', 'No work item is open: the conversation is about the project as a whole.')

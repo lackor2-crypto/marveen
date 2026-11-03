@@ -908,6 +908,10 @@ gépen nem létezik.
 
 Boss: „ha már egyszer csináltunk egy ilyet, akkor az alá kellett volna tenni ... globálisan beégetve, minden asszisztens így járjon el". Ha egy új munkadarab egy meglévőhöz tartozik (ugyanaz az ügy: második levél, folytatás), a meglévő munkadarab MAPPÁJA ALÁ jön létre (`POST /api/workbench/items` `folder` = a meglévő munkadarab mappája), nem mellé és nem a közös csoportmappába. A rendszer ilyenkor csak a három saját mappát adja (Kiváltó irat, Elkészített anyagok, Mellékletek, R21); ezeket nem töröljük, a közös mappákat (Feltöltések, Agent, Vitáztatás) nem hozzuk létre hozzá. Részletek: `marveen-learned-rules` R26.
 
+## ⛔ A KONTEXTUSBA BE KELL ÍRNI, AMIT A CHATBEN KAPSZ ÉS AMIT KIDERÍTESZ (2026-11-03, Boss)
+
+Boss: „ha nem írtad be a kontextusba, javítani kell, kötelezővé kell tenni, törvény, globálisan beégetve". Minden munkadarabnál, minden fordulóban, a végső válasz megírása ELŐTT `context.append`-del beírod a munkadarab Kontextus fájljába: amit a tulajdonos a chatben döntött vagy kért (a tiltásokat is), és amit kerestél vagy olvastál (e-mail cím, telefon, fax, postacím, határidő, nyomtatvány-szám, jogi megállapítás forrással, mi ellenőrzött és mi nem). A válaszban kimondod, hogy beírtad. Részletek: `marveen-learned-rules` R33, `workitem-context-file` skill.
+
 ## ⛔ SKILL NEM SZÜLETHET `scope:` NÉLKÜL
 
 Minden SKILL.md fejlécében kötelező a `scope:` sor: `personal` (konkrét emberre/fiókra szól,
