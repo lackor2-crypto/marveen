@@ -72,7 +72,7 @@ import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryT
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
-import { forgetMailDraft, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
+import { forgetMailDraft, letterNeedsRecipientEmail, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
 // The mail routes register the shared sender's mailbox engine (src/mail-send.ts, #797) when they load.
 import './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
@@ -2427,6 +2427,12 @@ function outlineOut(itemId: string): OutlineOut | null {
  */
 function checkWithTodos(itemId: string, resolve: ReturnType<typeof resolverFor> | undefined): { check: ReturnType<typeof documentCheck>; check_todos_at?: number } {
   const check = documentCheck(itemId, resolve)
+  // Boss TG 4885: a letter with a recipient block but no e-mail address anywhere (chat, context file, letter) is an open point
+  // (a to-do, never a gate): the owner is asked for the address, which the assistant then writes into the context file.
+  try {
+    const it = getWorkItem(itemId)
+    if (it && letterNeedsRecipientEmail(it)) check.items.push({ key: 'recipient_email_missing', ok: false, count: 1 })
+  } catch { /* the check never fails on this */ }
   const changed = syncCheckTodos(itemId, check.items, APP_LANG === 'en' ? 'en' : 'hu')
   return changed ? { check, check_todos_at: Date.now() } : { check }
 }

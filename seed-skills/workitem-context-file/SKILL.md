@@ -29,5 +29,8 @@ scope: global
 - `npx vitest run src/__tests__/workbench-item-context.test.ts`
 - Élesben: a munkadarab melletti mappában ott a fájl, a nevében a munkadarab neve.
 
+## Amit a tulajdonos mond, AZONNAL a Kontextus fájlba megy (Boss, TG 4885)
+A chatben kapott konkrét adatot ugyanabban a körben beírod a Kontextus fájlba (`context.append`, `info` szakasz), MIELŐTT válaszolsz: címzett e-mail címe (`Címzett e-mail: nev@pelda.hu`), az e-mail tárgya (`E-mail tárgya: ...`), telefonszám, kapcsolattartó, nyitvatartás, weboldal, ügyszám, határidő. A véglegesítés utáni e-mail panel a címzettet innen olvassa (előbb a chatből, aztán a Kontextus fájlból, aztán a levélből), a Hiányok ellenőrzés pedig `recipient_email_missing` pontot ad (teendő, nem kapu), ha a levélnek van Címzett blokkja, de e-mail cím sehol nincs. Címet soha nem találsz ki: ha hiányzik, megkérdezed.
+
 ## Csak két fájl (Boss, TG 4287)
 A munkadarab mappájában CSAK a `Kontextus - <név>.md` és a rendszer gyártotta `Teendő - <név>.md` lehet. Saját segédfájlt (Jogi kontextus, összefoglaló, GPT-kivonat, dokumentum-másolat) tilos írni: a tudás a Kontextusba megy. Lásd `marveen-learned-rules` R24.
