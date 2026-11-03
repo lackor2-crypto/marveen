@@ -215,7 +215,7 @@ export function richMatches(rich: string | null | undefined, text: string): bool
 // ---- paragraph formatting ---------------------------------------------------------------------
 
 /** Line spacing, space after the paragraph, indent and heading level of one block. */
-export interface ParaFmt { ls?: number; sa?: number; ind?: number; h?: 1 | 2 | 3 }
+export interface ParaFmt { ls?: number; sa?: number; ind?: number; h?: 1 | 2 | 3; /** #856: render-time only (never stored, never read from the client): keep this paragraph on the page of the next one. */ k?: 1 }
 
 export const LINE_SPACINGS = [1, 1.15, 1.5, 2, 2.5, 3] as const
 
