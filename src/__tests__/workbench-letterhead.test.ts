@@ -62,6 +62,13 @@ describe('letter head in the document check', () => {
     addBlock(itemId, secId, { kind: 'paragraph', text: 'Tisztelt Bíróság!', author: 'agent' })
     expect(row()).toBeUndefined()
   })
+  it('glued subject/salutation is a to-do only (ok:true), it never blocks finalizing', () => {
+    addBlock(itemId, secId, { kind: 'table', text: HEAD.text, author: 'agent' })
+    addBlock(itemId, secId, { kind: 'paragraph', text: 'Chemnitz, 2026. 11. 03.\nTárgy: Kérés\nTisztelt Bíróság!\nSzöveg.', author: 'agent' })
+    const item = documentCheck(itemId).items.find((i) => i.key === 'letter_spacing_missing')
+    expect(item).toMatchObject({ ok: true })
+    expect(item?.count).toBeGreaterThan(0)
+  })
   it('both languages have the screen text', () => {
     for (const l of ['hu', 'en']) {
       expect(readFileSync(new URL(`../../web/lang/${l}.js`, import.meta.url), 'utf8')).toContain('"workbench.outline.check.letter_head_missing"')
