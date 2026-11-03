@@ -15,8 +15,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { documentOutline, isPlaceholderSectionTitle, tableBlockParts } from './workbench-docmodel.js'
-import { documentAuthor, docLangFor, docMetaTitle, renderInputFor } from './workbench-docfinal.js'
+import { documentAuthor, docLangFor, docMetaTitle, contentHash, renderInputFor } from './workbench-docfinal.js'
 import { renderOutlinePdf } from './workbench-docrender.js'
+import { FIT_MAX_LEVEL, fitOf, saveFit } from './workbench-docfit.js'
 import type { WorkItemRow } from './workbench.js'
 
 const run = promisify(execFile)
@@ -121,4 +122,36 @@ export async function pageBreaksFor(item: WorkItemRow, lang: 'hu' | 'en'): Promi
   if (!t.ok) return { ok: false, code: 'pdftotext_failed', detail: t.detail }
   // The render input carries no ids; the model's own outline lists the same chapters and blocks in the same order.
   return { ok: true, pages: t.pages.length, marks: matchPages(t.pages, pageUnitsOf(documentOutline(item.id).sections)) }
+}
+
+export interface FitResult { level: number; source_pages: number; pages: number; fits: boolean }
+
+async function pageCountOf(item: WorkItemRow, lang: 'hu' | 'en', level: number): Promise<number | null> {
+  const r = await renderOutlinePdf(renderInputFor(item, true, level), { title: docMetaTitle(item, lang), author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
+  if (!r.ok) return null
+  const t = await pdfPageTexts(r.pdf)
+  return t.ok ? t.pages.length : null
+}
+
+/**
+ * #856: the gentlest tightening step (workbench-docfit.ts) at which the language version has no more pages than its original.
+ * The result is stored per version, together with a fingerprint of both texts, so it is measured again only when one of them
+ * changed. Null when the pages cannot be counted (the caller then draws the version as it is).
+ */
+export async function fitVariantToSource(source: WorkItemRow, variant: WorkItemRow, lang: 'hu' | 'en'): Promise<FitResult | null> {
+  const hash = `${contentHash(source)}|${contentHash(variant)}`
+  const cur = fitOf(variant.id)
+  if (cur && cur.hash === hash) return { level: cur.level, source_pages: cur.source_pages, pages: cur.pages, fits: !!cur.fits }
+  const srcPages = await pageCountOf(source, lang, 0)
+  if (!srcPages) return null
+  let best: FitResult | null = null
+  for (let level = 0; level <= FIT_MAX_LEVEL; level++) {
+    const pages = await pageCountOf(variant, lang, level)
+    if (!pages) return null
+    best = { level, source_pages: srcPages, pages, fits: pages <= srcPages }
+    if (best.fits) break
+  }
+  if (!best) return null
+  saveFit(variant.id, { hash, ...best })
+  return best
 }

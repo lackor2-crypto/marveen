@@ -28,6 +28,8 @@ export interface RenderOutline {
   /** Mellekletjegyzek a dokumentum vegen (K-1.18): cimke + rovid leiras, a fajl utja NEM. */
   annexes?: { label: string; title: string }[]
   annexTitle?: string
+  /** #856: body font size in pt when a language version is drawn tighter to fit the original's page count (default 12). */
+  bodyPt?: number
 }
 
 export type DocLang = 'hu' | 'en' | 'de'
@@ -192,6 +194,7 @@ function paraStyle(st: StyleCtx, parent: string, pf: ParaFmt | null, last: boole
   if (pf?.sa !== undefined && last) props.push(`fo:margin-bottom="${pf.sa}pt"`)
   if (pf?.ind) props.push(`fo:margin-left="${pf.ind.toFixed(2)}cm"`)
   if (align) props.push(`fo:text-align="${align}"`)
+  if (pf?.k) props.push('fo:keep-with-next="always"')
   if (!props.length) return parent
   return autoStyle(st, `p|${parent}|${props.join(' ')}`, (name) => `<style:style style:name="${name}" style:family="paragraph" style:parent-style-name="${parent}"><style:paragraph-properties ${props.join(' ')}/></style:style>`)
 }
@@ -476,6 +479,42 @@ export function hasOwnAnnexList(outline: RenderOutline): boolean {
   return at >= 0 && texts.slice(at + 1).some((t) => labels.some((re) => re.test(t)))
 }
 
+/** #856: the closing of a letter ("Tisztelettel," + blank lines + signature picture + printed name) must never stand alone on
+ *  a page. Returns the indexes of the blocks that are kept with the next one: from the last long body paragraph up to the
+ *  one before the last block, so the page break falls before that paragraph and carries the whole closing with it.
+ *  Only when the end of the section really has that shape (a few short lines, blanks or pictures after a long paragraph). */
+export const CLOSING_BODY_MIN_CHARS = 60
+export const CLOSING_TAIL_MAX_BLOCKS = 10
+export const CLOSING_LINE_MAX_CHARS = 80
+export function closingKeepIndexes(blocks: { kind: string; text: string }[]): Set<number> {
+  const keep = new Set<number>()
+  let body = -1
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!
+    if (b.kind === 'paragraph' && !isBlankLine(b.text) && b.text.trim().length >= CLOSING_BODY_MIN_CHARS) { body = i; break }
+  }
+  if (body < 0 || body === blocks.length - 1) return keep
+  if (blocks.length - 1 - body > CLOSING_TAIL_MAX_BLOCKS) return keep
+  for (let i = body + 1; i < blocks.length; i++) {
+    const b = blocks[i]!
+    if (b.kind === 'image') continue
+    if (b.kind === 'table' || b.kind === 'list' || b.kind === 'footnote') return new Set<number>()
+    if (!isBlankLine(b.text) && b.text.trim().length > CLOSING_LINE_MAX_CHARS) return new Set<number>()
+  }
+  for (let i = body; i < blocks.length - 1; i++) keep.add(i)
+  return keep
+}
+
+/** #856: an image paragraph in the kept closing: the same common style plus keep-with-next (custom styles stay as they are). */
+const KEEPABLE_IMAGE_STYLES = new Set(['ImageP', 'ImagePL', 'ImagePR', 'FrameAnchor', 'Body'])
+function keepImageParagraph(xml: string, st: StyleCtx): string {
+  return xml.replace(/^<text:p text:style-name="([A-Za-z]+)"/, (m, name: string) => {
+    if (!KEEPABLE_IMAGE_STYLES.has(name)) return m
+    const n = autoStyle(st, `k|${name}`, (nm) => `<style:style style:name="${nm}" style:family="paragraph" style:parent-style-name="${name}"><style:paragraph-properties fo:keep-with-next="always"/></style:style>`)
+    return `<text:p text:style-name="${n}"`
+  })
+}
+
 export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
   const docx = opts.target === 'docx'
   // A Word-valtozatban a hiany-jelolesek kiemelve maradnak (a `draft` itt csak a kiemelest jelenti), vizjel nelkul.
@@ -492,7 +531,10 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
     // #534: a section the program titled with its own placeholder has no heading in the document.
     if (!isPlaceholderSectionTitle(s.title)) body.push(`<text:h text:style-name="${isBlockAlign(s.align) ? `Heading_20_1_Al_${s.align}` : 'Heading_20_1'}" text:outline-level="1">${titleInner(s, o.draft, st)}</text:h>`)
     const sec: string[] = []
-    for (const b of s.blocks) {
+    // #856: the closing of the letter (last section only) stays together with the body paragraph before it.
+    const keepSet = s === outline.sections[outline.sections.length - 1] ? closingKeepIndexes(s.blocks) : new Set<number>()
+    for (const [bi, b0] of s.blocks.entries()) {
+      const b = keepSet.has(bi) && b0.kind !== 'image' ? { ...b0, pfmt: { ...(b0.pfmt ?? {}), k: 1 as const } } : b0
       if (isBlankLine(b.text) && b.kind !== 'image' && b.kind !== 'table') {
         // #565: an empty line of the owner is an empty paragraph -- it holds its line in the PDF and in Word as on the page.
         // Whatever kind it was stored under (a list item or a note emptied by the owner), it never prints as a bullet or a note.
@@ -500,7 +542,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
       } else if (b.kind === 'list') sec.push(...listBlock(b.text, o.draft, st, b.rich))
       else if (b.kind === 'table') sec.push(...tableBlock(b.text, ++tables, o.draft, extraStyles))
       else if (b.kind === 'signature') sec.push(...signature(b.text, o.draft))
-      else if (b.kind === 'image') sec.push(...imageBlock(b, ++pictures, o.draft, extraStyles))
+      else if (b.kind === 'image') sec.push(...imageBlock(b, ++pictures, o.draft, extraStyles).map((x) => (keepSet.has(bi) ? keepImageParagraph(x, st) : x)))
       else if (b.kind === 'footnote') {
         // Nincs elotte szoveg a fejezetben: kis betus megjegyzeskent all.
         const note = footnoteXml(b.text, notes + 1, o.draft)
@@ -524,7 +566,7 @@ export function buildFodt(outline: RenderOutline, opts: RenderOptions): string {
 <office:meta><dc:title>${xmlEscape(o.title)}</dc:title>${o.author ? `<meta:initial-creator>${xmlEscape(o.author)}</meta:initial-creator><dc:creator>${xmlEscape(o.author)}</dc:creator>` : ''}<dc:language>${lang.tag}</dc:language></office:meta>
 <office:font-face-decls><style:font-face style:name="Liberation Serif" svg:font-family="'Liberation Serif'" style:font-family-generic="roman" style:font-pitch="variable"/></office:font-face-decls>
 <office:styles>
-<style:default-style style:family="paragraph"><style:paragraph-properties fo:orphans="2" fo:widows="2"/><style:text-properties style:font-name="Liberation Serif" fo:font-size="12pt" fo:language="${lang.l}" fo:country="${lang.c}"/></style:default-style>
+<style:default-style style:family="paragraph"><style:paragraph-properties fo:orphans="2" fo:widows="2"/><style:text-properties style:font-name="Liberation Serif" fo:font-size="${outline.bodyPt && outline.bodyPt >= 8 && outline.bodyPt <= 12 ? outline.bodyPt : 12}pt" fo:language="${lang.l}" fo:country="${lang.c}"/></style:default-style>
 <style:style style:name="Standard" style:family="paragraph"/>
 <style:style style:name="Body" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="0cm" fo:margin-bottom="0.25cm" fo:text-align="justify" style:justify-single-word="false" fo:line-height="130%"/></style:style>
 <style:style style:name="BodyLine" style:family="paragraph" style:parent-style-name="Body"><style:paragraph-properties fo:margin-bottom="0cm"/></style:style>

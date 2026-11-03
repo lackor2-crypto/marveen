@@ -17405,12 +17405,30 @@
   // ---- #853 (Boss TG 4785): the translation page breaks into pages too, with the same "Pages" switch -------------------------
   // The lines are measured on the SAVED language version's draft PDF; the server turns them into "chapter of the original +
   // place inside it", which is how the translation page (#wbTwPage) is built. Nothing saved yet = no lines (nothing to measure).
+  // #856 (Boss TG 4844/4848): the translation must have as many pages as the original. When the page had to be drawn tighter for
+  // that (or still does not fit), one line in the controls box says what was done; the text itself is never changed.
+  function twFitPaint(d, tw) {
+    var top = document.getElementById('wbTwTop')
+    if (!top) return
+    var old = document.getElementById('wbTwFit')
+    if (old) old.remove()
+    var f = d && tw && d.item === WB.selectedId && d.lang === tw.lang ? d.fit : null
+    if (!f || (f.fits && !f.level)) return
+    var pt = { 3: '11,5', 4: '11', 5: '10,5' }[f.level]
+    var what = !f.level ? '' : f.level === 1 ? t('workbench.tw.fit_l1') : f.level === 2 ? t('workbench.tw.fit_l2') : t('workbench.tw.fit_l3', { pt: window._lang === 'en' ? pt.replace(',', '.') : pt })
+    var txt = f.fits
+      ? t('workbench.tw.fit_ok', { pages: f.pages, source: f.source_pages, what: what })
+      : t('workbench.tw.fit_no', { pages: f.pages, source: f.source_pages, what: what })
+    top.insertAdjacentHTML('beforeend', '<p class="wb-hint" id="wbTwFit">' + esc(txt) + '</p>')
+    twAlignTop()
+  }
   function twPagesPaint() {
     var host = document.getElementById('wbTwPage')
     if (!host) return
     Array.prototype.slice.call(host.querySelectorAll('.wb-dp-pagebreak')).forEach(function (n) { n.remove() })
     var d = WB.twPages
     var tw = WB.tw
+    twFitPaint(d, tw)
     if (!dpPagesOn() || !d || !tw || d.item !== WB.selectedId || d.lang !== tw.lang) return
     d.marks.forEach(function (m) {
       var sec = m.sec
@@ -17433,7 +17451,7 @@
     api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/pagebreaks?lang=' + encodeURIComponent(window._lang || 'hu') + '&to=' + encodeURIComponent(lang)).then(function (r) {
       WB.twPagesBusy = false
       if (WB.selectedId !== id) return
-      if (r.ok && r.data) WB.twPages = { item: id, lang: lang, marks: r.data.marks || [] }
+      if (r.ok && r.data) WB.twPages = { item: id, lang: lang, marks: r.data.marks || [], fit: r.data.fit || null }
       twPagesPaint()
     })
   }

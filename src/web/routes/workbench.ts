@@ -4426,7 +4426,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
           if (tr.code === 'pdftotext_failed') return failDetail(res, 501, 'pagebreaks_failed', lang, tr.detail)
           return docPdfFail(res, tr.code, lang, tr.detail)
         }
-        json(res, tr.found ? { hash: tr.hash, pages: tr.pages, marks: tr.marks } : { hash: '', pages: 0, marks: [] })
+        json(res, tr.found ? { hash: tr.hash, pages: tr.pages, marks: tr.marks, fit: tr.fit } : { hash: '', pages: 0, marks: [] })
         return true
       }
       const r = await pageBreaksFor(item, lang)

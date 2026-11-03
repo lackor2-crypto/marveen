@@ -26,6 +26,7 @@ import { resolveLifePath } from './life-explorer.js'
 import { OWNER_NAME_PLACEHOLDER, currentOwnerName } from './config.js'
 import { documentCheck, documentOutline, hasDocModel, imageBlockParts, type CheckItem } from './workbench-docmodel.js'
 import { consistencyIssues } from './workbench-doccheck.js'
+import { fitLevelFor, tightenOutline } from './workbench-docfit.js'
 import { imageSize, outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderImage, type RenderResult } from './workbench-docrender.js'
 import { variantOf } from './workbench-doclang.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
@@ -75,12 +76,14 @@ export function resolverFor(item: WorkItemRow): FileResolver | undefined {
 }
 
 /** Ami a PDF-be kerul: fejezetek, blokkok es a mellekletjegyzek (cimke + leiras). */
-export function renderInputFor(item: WorkItemRow, withImages = false): RenderOutline {
+export function renderInputFor(item: WorkItemRow, withImages = false, tighten: number | null = null): RenderOutline {
   const annexes = listAnnexes(item.id)
   const base = toRenderOutline(documentOutline(item.id))
   if (withImages) for (const sec of base.sections) for (const b of sec.blocks) if (b.kind === 'image') b.img = readDocImage(imageBlockParts(b.text).path)
+  // #856: a language version is drawn at the tightening step that makes it fit the original's page count (`tighten` forces a step; the content hash uses 0, a different step is not a change of the content).
+  const tight = tightenOutline(base, tighten ?? fitLevelFor(item.id))
   return {
-    ...base,
+    ...tight,
     ...(annexes.length ? { annexes: annexes.map((a) => ({ label: a.label, title: a.title })), annexTitle: annexListTitle(docSettings(item.id), docLangFor(item, 'hu')) } : {}),
   }
 }
@@ -147,7 +150,7 @@ function imagePrints(item: WorkItemRow): string[] {
  * (meret + modositas ideje) is -- egy kicserelt mellekletet ujra at kell nezni.
  */
 export function contentHash(item: WorkItemRow): string {
-  const base = outlineHash(renderInputFor(item), item.title)
+  const base = outlineHash(renderInputFor(item, false, 0), item.title)
   const resolve = resolverFor(item)
   const annexes = listAnnexes(item.id)
   const pics = imagePrints(item)
