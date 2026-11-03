@@ -16818,6 +16818,7 @@
     if (el && o) {
       twCollect() // what was typed on the page is kept across the redraw
       el.innerHTML = twPanelInnerHtml(o, docLocked())
+      twPagesAfterRender()
     }
   }
   /** Translates the sections that have no current translation yet, one by one; the panel fills in as they arrive. */
@@ -16886,6 +16887,7 @@
         ? t(auto === true ? 'workbench.tw.autosaved' : 'workbench.tw.saved', { n: r.data.saved, title: r.data.variant.title })
         : t('workbench.tw.already_saved', { title: r.data.variant.title })
       if (WB.selectedId === id && WB.detail && r.data.outline) WB.detail.outline = r.data.outline
+      WB.twPages = null // the saved language version changed: its page lines are measured again
       load(WB.projectId)
       twRefresh()
     })
@@ -17353,6 +17355,8 @@
         window.showToast(WB.dpPagesError)
       }
       dpPagesPaint()
+      WB.twPages = null // the text changed: the translation lines are measured again
+      twPagesAfterRender()
       dpPagesButtonState()
       // The page changed while it was measured: measure the new state (once, not in a loop).
       if (!WB.dpPagesError && (WB.dpPagesAgain || dpPagesHash() !== (WB.dpPages && WB.dpPages.hash))) { WB.dpPagesAgain = false; dpPagesSoon() }
@@ -17368,8 +17372,50 @@
   function dpPagesAfterRender() {
     if (!dpPagesOn() || !dpPagesRoot()) return
     dpPagesPaint()
+    twPagesAfterRender()
     var d = WB.dpPages
     if (!WB.dpPagesError && !WB.dpPagesBusy && (!d || d.item !== WB.selectedId || d.hash !== dpPagesHash())) dpPagesSoon()
+  }
+  // ---- #853 (Boss TG 4785): the translation page breaks into pages too, with the same "Pages" switch -------------------------
+  // The lines are measured on the SAVED language version's draft PDF; the server turns them into "chapter of the original +
+  // place inside it", which is how the translation page (#wbTwPage) is built. Nothing saved yet = no lines (nothing to measure).
+  function twPagesPaint() {
+    var host = document.getElementById('wbTwPage')
+    if (!host) return
+    Array.prototype.slice.call(host.querySelectorAll('.wb-dp-pagebreak')).forEach(function (n) { n.remove() })
+    var d = WB.twPages
+    var tw = WB.tw
+    if (!dpPagesOn() || !d || !tw || d.item !== WB.selectedId || d.lang !== tw.lang) return
+    d.marks.forEach(function (m) {
+      var sec = m.sec
+      var els = Array.prototype.slice.call(host.querySelectorAll('[data-tw="block"],[data-tw="island"]')).filter(function (e) { return e.getAttribute('data-tw-sec') === sec })
+      if (m.idx < 0) {
+        var head = Array.prototype.slice.call(host.querySelectorAll('[data-tw="title"]')).filter(function (e) { return e.getAttribute('data-tw-sec') === sec && !e.hasAttribute('hidden') })[0]
+        if (head) head.insertAdjacentHTML('beforebegin', dpPageMarkHtml(m))
+        return
+      }
+      var row = els[m.idx]
+      if (row) row.insertAdjacentHTML(m.inside ? 'afterend' : 'beforebegin', dpPageMarkHtml(m))
+    })
+  }
+  function twPagesLoad() {
+    var id = WB.selectedId
+    var tw = WB.tw
+    if (!id || !tw || !dpPagesOn() || archived() || !document.getElementById('wbTwPage') || WB.twPagesBusy) return
+    var lang = tw.lang
+    WB.twPagesBusy = true
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/pagebreaks?lang=' + encodeURIComponent(window._lang || 'hu') + '&to=' + encodeURIComponent(lang)).then(function (r) {
+      WB.twPagesBusy = false
+      if (WB.selectedId !== id) return
+      if (r.ok && r.data) WB.twPages = { item: id, lang: lang, marks: r.data.marks || [] }
+      twPagesPaint()
+    })
+  }
+  function twPagesAfterRender() {
+    if (!dpPagesOn() || !document.getElementById('wbTwPage')) return
+    twPagesPaint()
+    var d = WB.twPages
+    if (!WB.twPagesBusy && (!d || d.item !== WB.selectedId || d.lang !== (WB.tw && WB.tw.lang))) twPagesLoad()
   }
   function dpPagesButtonState() {
     var b = document.querySelector('[data-wb-act="dp-pages-toggle"]')
@@ -23372,7 +23418,8 @@
       act.setAttribute('aria-pressed', WB.dpPagesOn ? 'true' : 'false')
       WB.dpPagesError = ''
       dpPagesPaint()
-      if (WB.dpPagesOn) dpPagesLoad()
+      twPagesPaint()
+      if (WB.dpPagesOn) { dpPagesLoad(); twPagesAfterRender() }
     }
   })
 
