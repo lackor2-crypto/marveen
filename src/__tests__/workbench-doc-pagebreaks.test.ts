@@ -62,7 +62,12 @@ describe('the editor', () => {
     expect(js).toContain('function dpPagesRoot()')
     expect(js).toMatch(/function dpPagesRoot\(\) \{[^}]*querySelector\('\.wb-dp-page'\)/)
     expect(js).toMatch(/function dpPagesPaint\(\) \{\s*var page = dpPagesRoot\(\)/)
-    expect(js).toContain('!dpPagesRoot() || dpIsVariant()')
+    // #852 (Boss TG 4771): a language version has a draft PDF too, so its sheet shows the page edge as well.
+    expect(js).toContain('!dpPagesRoot()) return')
+    const i = js.indexOf('function dpPagesLoad()')
+    expect(js.slice(i, i + 400)).not.toContain('dpIsVariant')
+    const j = js.indexOf('function dpPagesAfterRender()')
+    expect(js.slice(j, j + 300)).not.toContain('dpIsVariant')
   })
 
   it('has the toggle in the ribbon, asks the server, and paints the line into the page after every redraw', () => {
