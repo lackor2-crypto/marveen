@@ -15,7 +15,7 @@
 // (`OcrAdapter`/`FaceAdapter`), aminek az alapertelmezese "nincs telepitve".
 // A valodi implementacio a jovahagyas UTAN egy kulon modulban `setOcrAdapter`/
 // `setFaceAdapter` hivassal koto be -- ITT egy sor sem valtozik.
-import { existsSync, readdirSync, statSync, openSync, closeSync, readSync, fstatSync } from 'node:fs'
+import { type Dirent, existsSync, readdirSync, statSync, openSync, closeSync, readSync, fstatSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { inflateSync, inflateRawSync } from 'node:zlib'
 import { APP_LANG } from './config.js'
@@ -309,16 +309,19 @@ export function buildLearnedIndex(config: LifeConfig): LearnedIndex {
 
   function walk(absDir: string, depth: number, ownerPersonId: string | null, categoryKey: string | null): void {
     if (depth > MAX_SCAN_DEPTH || scanned >= MAX_SCAN_FILES) return
-    let entries: string[]
-    try { entries = readdirSync(absDir) } catch { return }
-    for (const entry of entries) {
+    // #855: one readdir with file types instead of a statSync per entry. On the slow depot disk every stat held the
+    // event loop (the dashboard froze 2-3 s); only a symlink still needs a stat to see what it points at.
+    let entries: Dirent[]
+    try { entries = readdirSync(absDir, { withFileTypes: true }) } catch { return }
+    for (const de of entries) {
+      const entry = de.name
       if (scanned >= MAX_SCAN_FILES) return
       if (entry.startsWith('.')) continue
       if (SKIP_ANY_DIR.has(entry)) continue
       if (depth === 0 && SKIP_ROOT_DIRS.has(entry)) continue
       const abs = join(absDir, entry)
-      let st: ReturnType<typeof statSync>
-      try { st = statSync(abs) } catch { continue }
+      let st: { isDirectory(): boolean; isFile(): boolean } = de
+      if (de.isSymbolicLink()) { try { st = statSync(abs) } catch { continue } }
       if (st.isDirectory()) {
         let nextOwner = ownerPersonId
         let nextCategory = categoryKey
