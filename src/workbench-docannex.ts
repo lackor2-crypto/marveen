@@ -107,10 +107,12 @@ const NA = '(?![\\p{L}\\p{N}])'
 function refPattern(s: Pick<DocSettings, 'annex_scheme' | 'annex_prefix'>): string {
   if (s.annex_scheme === 'exhibit') return `${NB}Exhibit ([A-Z]{1,2})${NA}`
   const p = esc(s.annex_prefix)
-  if (s.annex_scheme === 'anlage') return `${NB}(?:Anlage|Anl\\.) ?${p} ?(\\d{1,3})${NA}`
+  if (s.annex_scheme === 'anlage') return `${NB}(?:Anlage|Anl\\.) ?${p} ?([1-9]\\d{0,2})${NA}`
   // Az "Anlage K1" mar a nemet sema cimkeje, nem K1-hivatkozas: kulonben a
   // nemetre forditott szovegben semavaltaskor "Anlage Anlage K1" lenne belole.
-  return `${NB}(?<!(?:Anlage|Anl\\.)[ \\u00a0]?)${p} ?(\\d{1,3})${NA}`
+  // Boss (2026-11-03): "89 220275 K 006" (a Versicherungsnummer) nem K6-hivatkozas: egy szamjegy + szokoz utan allo K, es a nullaval
+  // kezdodo szam (006) sosem melleklet-hivatkozas (a rejtett jeles kerulout a szerkesztoben eltunt).
+  return `${NB}(?<!\\d[ \\u00a0])(?<!(?:Anlage|Anl\\.)[ \\u00a0]?)${p} ?([1-9]\\d{0,2})${NA}`
 }
 
 function numberOf(s: Pick<DocSettings, 'annex_scheme'>, raw: string): number {
