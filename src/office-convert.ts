@@ -214,12 +214,22 @@ export function cacheKeyFor(abs: string, variant = ''): { ok: true; key: string;
   }
 }
 
+/** A cached PDF counts only when it is not empty: a zero-byte file (a crash in the middle of a write) is removed and made again. */
+export function usableCachedPdf(pdf: string): boolean {
+  if (!existsSync(pdf)) return false
+  try {
+    if (statSync(pdf).size > 0) return true
+    rmSync(pdf, { force: true })
+  } catch { /* unreadable: made again */ }
+  return false
+}
+
 /** Megvan MAR az atalakitott PDF? (Ez sync es olcso -- az elonezet ebbol
  *  tudja megmondani, kell-e meg varni.) */
 export function cachedPdfFor(abs: string): string | null {
   const k = cacheKeyFor(abs)
   if (!k.ok) return null
-  return existsSync(k.pdf) ? k.pdf : null
+  return usableCachedPdf(k.pdf) ? k.pdf : null
 }
 
 export type ConvertResult =
@@ -297,7 +307,7 @@ export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number
   }
   const k = cacheKeyFor(abs, opts.pdfFilter || '')
   if (!k.ok) return { ok: false, code: 'missing_source', detail: k.detail }
-  if (existsSync(k.pdf)) return { ok: true, pdf: k.pdf, key: k.key, cached: true }
+  if (usableCachedPdf(k.pdf)) return { ok: true, pdf: k.pdf, key: k.key, cached: true }
 
   const running = inFlight.get(k.key)
   if (running) return running
