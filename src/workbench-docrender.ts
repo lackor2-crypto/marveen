@@ -546,8 +546,8 @@ ${(['l', 'c', 'r', 'j'] as const).map((a) => `<style:style style:name="Heading_2
 <style:style style:name="Note" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-bottom="0.15cm"/><style:text-properties fo:font-size="9.5pt"/></style:style>
 <style:style style:name="NoteLine" style:family="paragraph" style:parent-style-name="Note"><style:paragraph-properties fo:margin-bottom="0cm"/></style:style>
 <style:style style:name="Footnote" style:family="paragraph" style:parent-style-name="Standard" style:class="extra"><style:paragraph-properties fo:margin-left="0.4cm" fo:text-indent="-0.4cm"/><style:text-properties fo:font-size="10pt"/></style:style>
-<style:style style:name="SignatureFirst" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="1.2cm" fo:margin-left="9cm"/></style:style>
-<style:style style:name="Signature" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="9cm"/></style:style>
+<style:style style:name="SignatureFirst" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-top="1.2cm" fo:margin-left="0cm"/></style:style>
+<style:style style:name="Signature" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:margin-left="0cm"/></style:style>
 <style:style style:name="SignatureFirstKeep" style:family="paragraph" style:parent-style-name="SignatureFirst"><style:paragraph-properties fo:keep-with-next="always"/></style:style>
 <style:style style:name="SignatureKeep" style:family="paragraph" style:parent-style-name="Signature"><style:paragraph-properties fo:keep-with-next="always"/></style:style>
 <style:style style:name="TableHead" style:family="paragraph" style:parent-style-name="Standard"><style:text-properties fo:font-weight="bold" fo:font-size="11pt"/></style:style>

@@ -30,6 +30,7 @@ const PREFIX: Record<string, { hu: string; en: string }> = {
   consistency: { hu: 'Eltérés a szövegben', en: 'Mismatch in the text' },
   variant_current: { hu: 'Nyelvi változat: fejezet fordítása', en: 'Language version: translate the chapter' },
   image_missing_file: { hu: 'Kép, amelynek a fájlja eltűnt', en: 'Picture whose file is gone' },
+  letter_spacing_missing: { hu: 'Levél tördelése: a tárgy, a megszólítás vagy a hivatkozás hozzá van ragadva az előző sorhoz (hagyj egy üres sort elé és utána)', en: 'Letter spacing: the subject, salutation or reference is glued to the previous line (leave one blank line before and after)' },
   letter_head_missing: { hu: 'Levélfej: a levélből hiányzik a keretezett Feladó és Címzett (a Wohngeld-levél táblája a minta)', en: 'Letter head: the letter has no framed Sender and Recipient (the Wohngeld letter table is the model)' },
 }
 
