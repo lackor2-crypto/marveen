@@ -2043,6 +2043,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-tw-page > .wb-tw-h:first-child { margin-top: 0; }
 /* The block is spaced exactly like a block of the work item page (.wb-dp-edit): same minimum height, padding and wrapping, no extra gap between paragraphs. */
 .wb-tw-page .wb-tw-block { margin: 0 -4px; padding: 1px 4px; min-height: 1.6em; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+/* Boss TG 4734: the sender's table lies over the text in the translation too, like the original (zero-height anchor, percent of the text width). */
+.wb-tw-page .wb-tw-block.wb-tw-tbl-over { height: 0; min-height: 0; margin: 0; padding: 0; position: relative; }
+.wb-tw-page .wb-tw-block.wb-tw-tbl-over > .wb-tw-tbl { position: absolute; left: 0; top: 0; z-index: 2; margin: calc(100% * var(--wb-oy) / 100) 0 0 calc(100% * var(--wb-ox) / 100); width: calc(100% * var(--wb-ow) / 100); }
 .wb-tw-page .wb-tw-todo { color: #6b6b73; }
 /* #558: a formatted paragraph the translator gave back as plain text */
 .wb-tw-page .wb-tw-block[data-tw-fmtlost] { border-left: 3px solid #d9822b; padding-left: 8px; }

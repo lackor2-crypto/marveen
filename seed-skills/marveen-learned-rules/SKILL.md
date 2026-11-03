@@ -361,3 +361,12 @@ Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismeré
 **Szabály:** (1) hash-alapú gyorsítótár-fájl csak akkor érvényes, ha a mérete a tartalom mérete (`ensureSourceFile`), a PDF-gyorsítótáré pedig, ha nem üres (`usableCachedPdf`); (2) a fájlt ideiglenes néven írjuk és átnevezzük, így félig írt fájl nem kerülhet a végleges név alá; (3) ha egy dokumentum PDF-je üres, a gyorsítótárat nézd (`store/workbench-render/docmodel`, 0 bájtos fájl), ne a tartalmat.
 **Mérés:** `workbench-render-source-truncated.test.ts`; `find store/workbench-render -size 0` nem ad találatot.
 
+### R30 -- A fordított levél feje UGYANAZ, mint az eredetié: ugyanott, ugyanakkora (Boss TG 4734/4742, 2026-11-03, "milliméterre pontosan", "globálisan beégetve")
+**Hiba (2026-11-03):** a német változatban az Absender tábla balra került és háromszoros szélességű lett, az Empfänger lejjebb ült, mint az eredetiben. Az adat jó volt (`#w=45&a=l&x=55&y=0&o=1` megmaradt), a fordítás oldal rajzolója (`twTableHtml`/`twPageHtml`) a táblát sima, teljes szélességű blokkként rajzolta, és a modell néha levágta a Címzett üres sorait.
+**Szabály:** (1) a fordítás oldal a táblát ugyanazokból az adatokból rajzolja, mint a munkadarab oldala (`dpTableParts`): jobbra fent, a szöveg fölött (`wb-tw-tbl-over`), azonos szélességgel; (2) fordításkor a `Címzett:`-tel kezdődő bekezdés üres soraiból pontosan annyi marad, mint az eredetiben (`mirrorRecipientWindow`, `src/workbench-letterhead.ts`); (3) az asszisztens-promptban és minden ágens CLAUDE.md-jében ott a TRANSLATION sor (`LETTER_LAYOUT_RULES_EN`); (4) a fordító sosem fordítja az elrendezés-sort és az üres sorokat.
+**Mérés:** `translation-letter-head-same-place.test.ts`; böngészőben a fordított tábla bal széle ugyanaz a törtrésze az oldalnak, mint az eredetié.
+
+### R31 -- A "Fordítás mentése" CSAK ment, sosem fordít újra (Boss TG 4749, 2026-11-03, "égesd be jó mélyen")
+**Hiba (2026-11-03):** a Fordítás mentése gomb, ha az eredeti azóta változott ("régi" fordítás), újrafordította az egészet és azt mentette, így a tulajdonos kézzel javított német szövege elveszett (a #840 régi ága).
+**Szabály:** a mentés pontosan azt írja, ami a fordítás oldalon áll, kézi javítással együtt, minden fejezetre, aminek van fordítása. Újrafordítást KIZÁRÓLAG az "Újrafordítás" gomb (`twRun`) indít. Szerkesztett tartalmat felülíró "okos" automatika tilos. Kapu: `tw-save-never-retranslates.test.ts` (a `twSave` törzsében nincs `twRun(`).
+**Mérés:** böngészőben kézi szöveg után mentés: 0 translate-preview hívás, a kézi szöveg megmarad.

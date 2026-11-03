@@ -30,6 +30,8 @@ Egy forrás: `LETTER_LAYOUT_RULES_EN` (`src/workbench-letterhead.ts`). Mintája:
 
 A Címzett helye FIX: az ablak helyén, a Feladó doboz alatt, NEM fent a Feladó mellett. Ha az ágens sima újsorral írja az elejére az üres sorokat, a rendszer magától visszateszi a 4 U+200B sort (`enforceRecipientWindow`).
 
+FORDÍTÁS (Boss TG 4734, R30): a nyelvi változat feje UGYANAZ, mint az eredetié, ugyanott és ugyanakkora: a Feladó/Absender keretes tábla jobbra fent, ugyanazzal az elrendezés-sorral (`#w=45&a=l&x=55&y=0&o=1`), a Címzett/Empfänger ugyanazokkal az üres sorokkal (`mirrorRecipientWindow`). Csak a szavakat fordítod, az elrendezés-sort és az üres sorokat soha. A "Fordítás mentése" csak ment, sosem fordít újra (R31).
+
 ## Figyelő
 A dokumentum-ellenőrzés (`letter_head_missing`, és `letter_spacing_missing`, ha a tárgy/megszólítás hozzá van ragadva az előző sorhoz) teendőt ad a munkadarabnak, ha a szövegben van megszólítás vagy aláírás-blokk, de nincs kiírt „Feladó:/Címzett:” (vagy Absender/Empfänger, Sender/Recipient) felirat. Ez teendő, nem akadály: a tulajdonos dönt. Ne kerüld meg azzal, hogy a feliratot elrejted; írd meg a táblát.
 

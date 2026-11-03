@@ -10,5 +10,6 @@ export const LETTER_LAYOUT_RULES_EN = [
   '3) Salutation ("Tisztelt ...!" / "Sehr geehrte ...,"): blank line before and after, never glued to the subject or the first body line.',
   '4) Body paragraphs: one blank line between them; a list or numbered points is its own block with a blank line before and after.',
   '5) Closing ("Tisztelettel," / "Mit freundlichen Grüßen"): one blank line before, about 3 blank lines after for the handwritten signature, then the printed name (and role). No blank line between the closing and the name only if a signature block is used.',
+  'TRANSLATION (every language version): the translated letter has the SAME head as the original, at the same place and size: the sender ("Absender:" / "Sender:") stays the framed table at the top right with the SAME layout line (#w=45&a=l&x=55&y=0&o=1, never wider, never at the left), the recipient ("Empfänger:" / "Recipient:") keeps the same blank lines above and below. Translate only the words, never the layout line or the blank lines.',
   'Never put the subject, the references, the salutation or the closing on the same paragraph as the text before them without a blank line.',
 ].join('\n')

@@ -16101,8 +16101,12 @@
    *  as in the original, the alignment, the heading / spacing, the text format the server carried over (`rich`). */
   /** #620: a table block of the translation page is drawn as a real table, like the original (it stood there as " | " lines). */
   function twTableHtml(text) {
-    var rows = dpTableParts(text).text.split('\n')
-    return '<table class="wb-tw-tbl">' + rows.map(function (ln, r) {
+    var pt = dpTableParts(text)
+    var rows = pt.text.split('\n')
+    // Size and place of the original (not for the over-the-text one: its block places it, see .wb-tw-tbl-over).
+    var st = pt.over ? '' : pt.x != null ? ' style="width:' + (pt.width || 100) + '%;margin-left:' + pt.x + '%;margin-top:' + pt.y + '%"'
+      : pt.width && pt.width < 100 ? ' style="width:' + pt.width + '%;margin-left:' + (pt.align === 'r' ? 'auto' : pt.align === 'c' ? 'auto' : '0') + ';margin-right:' + (pt.align === 'l' ? 'auto' : pt.align === 'c' ? 'auto' : '0') + '"' : ''
+    return '<table class="wb-tw-tbl"' + st + '>' + rows.map(function (ln, r) {
       return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
     }).join('') + '</table>'
   }
@@ -16200,7 +16204,12 @@
         var pf = b.kind === 'table' ? { cls: '', attr: '' } : dpPfmtAttrs(b.pfmt)
         // A table keeps its size / alignment line (the text of the block after the lines) through an edit of the lines.
         var look = twTextLook(b)
-        out += '<div class="wb-tw-block ' + look.cls + dpAlignAttrs(b.align).cls + pf.cls + '"' + pf.attr + (b.kind === 'table' ? '' : dpAlignAttrs(b.align).attr)
+        // Boss TG 4734: a table of the translation keeps the size and place of the original's (the sender's table: right at the top,
+        // over the text), through the same parts the work item page reads (dpTableParts).
+        var tpl = b.kind === 'table' ? dpTableParts(b.text) : null
+        var tblOver = !!(tpl && tpl.over)
+        var tblStyle = tblOver ? ' style="--wb-ox:' + tpl.x + ';--wb-oy:' + tpl.y + ';--wb-ow:' + (tpl.width || 100) + '"' : ''
+        out += '<div class="wb-tw-block ' + (tblOver ? 'wb-tw-tbl-over ' : '') + look.cls + dpAlignAttrs(b.align).cls + pf.cls + '"' + tblStyle + pf.attr + (b.kind === 'table' ? '' : dpAlignAttrs(b.align).attr)
           + ' data-tw="block" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="' + escA(b.kind) + '"' + (b.format_lost ? ' data-tw-fmtlost="1" title="' + escA(t('workbench.tw.format_lost_mark')) + '"' : '') + ed + '>'
           + (b.kind === 'table' ? twTableHtml(b.text) : look.inner) + '</div>'
       })
@@ -16860,17 +16869,10 @@
     var list = []
     ;(o.sections || []).forEach(function (sec) {
       var pv = tw.prev[id + ':' + lang + ':' + sec.id]
-      if (pv && pv.sig === twSig(sec)) list.push({ source_section: sec.id, title: pv.title, blocks: pv.blocks })
+      if (pv) list.push({ source_section: sec.id, title: pv.title, blocks: pv.blocks })
     })
-    // #840 (Boss TG 4471/4484): a translation of an original that changed since is OLD; saving it would write the old text back.
-    // Pressing Save on it re-translates the old chapters (the run saves by itself at its end) instead of silently doing nothing.
-    var staleSecs = (o.sections || []).filter(function (sec) { var pv = tw.prev[id + ':' + lang + ':' + sec.id]; return pv && pv.sig !== twSig(sec) })
-    if (auto !== true && staleSecs.length && !archived()) {
-      twRun()
-      tw.note = t('workbench.tw.resave_stale', { n: staleSecs.length })
-      twRefresh()
-      return
-    }
+    // Boss TG 4749 (#851): "Fordítás mentése" SAVES what stands on the page, hand edits included. It never translates again:
+    // only the "Újrafordítás" button does. (The old #840 branch re-translated a stale page on save and threw the owner's German edits away.)
     if (!list.length) { if (auto !== true) tw.note = t('workbench.tw.nothing_current'); twRefresh(); return }
     tw.busy = true; tw.note = ''
     twRefresh()

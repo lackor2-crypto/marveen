@@ -9185,7 +9185,6 @@ window._i18n.hu = {
   "workbench.tw.saved": "Elmentve: {n} fejezet a(z) „{title}” változatba.",
   "workbench.tw.autosaved": "Lefordítva és elmentve: {n} fejezet a(z) „{title}” változatba. Megtalálod a munkadarabok listájában. Ha kézzel javítasz a fordításon, a „Fordítás mentése” gombbal mented el újra.",
   "workbench.tw.failed": "{n} fejezetet nem sikerült elmenteni.",
-  "workbench.tw.resave_stale": "{n} fejezet fordítása régi volt (az eredeti megváltozott), ezért újrafordítom és utána elmentem.",
   "workbench.tw.nothing_current": "Nincs mit menteni: előbb nyomd meg a Fordítást.",
   "workbench.dp.more": "Nyelvi változatok, szószedet",
   "workbench.dp.pending": "Megerősítésre vár ({n})",
