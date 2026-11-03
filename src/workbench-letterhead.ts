@@ -112,3 +112,26 @@ export function enforceRecipientWindow(text: string): string {
   if (i >= LETTER_HEAD_LINES_ABOVE) return text
   return [...Array.from({ length: LETTER_HEAD_LINES_ABOVE }, () => ZWSP), ...ls.slice(i)].join('\n')
 }
+
+/**
+ * The recipient block of a TRANSLATED letter keeps the window position of the original, to the line (Boss TG 4734, 2026-11-03):
+ * when the source paragraph is a recipient block (blank lines, then the "Címzett:" label), the translation gets exactly the
+ * source's leading and trailing blank (U+200B) lines, whatever the model wrote or stripped. Any other text comes back unchanged.
+ */
+export function mirrorRecipientWindow(source: string, translated: string): string {
+  const sl = source.split('\n')
+  let lead = 0
+  while (lead < sl.length && BLANK_LINE_RE.test(sl[lead]!)) lead++
+  if (lead >= sl.length || !RECIPIENT_FIRST_RE.test(fold(sl[lead]!).trim())) return translated
+  let trail = 0
+  while (trail < sl.length - lead - 1 && BLANK_LINE_RE.test(sl[sl.length - 1 - trail]!)) trail++
+  const tl = translated.split('\n')
+  let a = 0
+  while (a < tl.length && BLANK_LINE_RE.test(tl[a]!)) a++
+  let b = 0
+  while (b < tl.length - a && BLANK_LINE_RE.test(tl[tl.length - 1 - b]!)) b++
+  const core = tl.slice(a, tl.length - b)
+  if (!core.length) return translated
+  const blank = (n: number): string[] => Array.from({ length: n }, () => ZWSP)
+  return [...blank(lead), ...core, ...blank(trail)].join('\n')
+}

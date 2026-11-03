@@ -3552,7 +3552,7 @@ export function buildLetterHeadBody(): string {
     '`letter-head-sender-recipient` skill, `marveen-learned-rules` R25, kod: `buildLetterHead()`.',
     '',
     LETTER_LAYOUT_RULES_EN,
-    'Reszletek: `letter-head-sender-recipient` skill, `marveen-learned-rules` R28, kod: `LETTER_LAYOUT_RULES_EN`.',
+    'Reszletek: `letter-head-sender-recipient` skill, `marveen-learned-rules` R28, R30, R31, kod: `LETTER_LAYOUT_RULES_EN`.',
   ].join('\n')
 }
 

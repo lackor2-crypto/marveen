@@ -22,6 +22,7 @@ import { LANG_NAMES, carriedLook, sourceForTranslated, createVariant, listGlossa
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
+import { mirrorRecipientWindow } from './workbench-letterhead.js'
 import { notReadyMessage, usageNotice } from './workbench-agent/orchestrator.js'
 import { pickAIProvider, whyNoAIProvider } from './workbench-agent/provider.js'
 import { OFF_BUDGET, record, reserve } from './workbench-agent/usage-manager.js'
@@ -221,7 +222,8 @@ export function parseTranslation(text: string, src: SourceBlock[], sourceTitle?:
       if (rich) return { kind: s.kind, text, claims, rich }
       fallback++
     }
-    return { kind: s.kind, text, claims }
+    // The recipient block keeps the window position of the original (Boss TG 4734): same blank lines above and below.
+    return { kind: s.kind, text: s.kind === 'paragraph' ? mirrorRecipientWindow(s.text, text) : text, claims }
   })
   if (blocks.some((b) => !b.text)) return { ok: false, detail: 'a translated block is empty' }
   return { ok: true, title, blocks, format_fallback: fallback }
