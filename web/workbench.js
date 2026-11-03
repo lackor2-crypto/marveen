@@ -10766,7 +10766,7 @@
       + fromHtml
       + '<label>' + esc(t('workbench.mail.to')) + ' <input type="text" id="wbMailTo" maxlength="500" value="' + escA(v('to')) + '" placeholder="' + escA(t('workbench.mail.to_ph')) + '"></label>'
       + '<label>' + esc(t('workbench.mail.cc')) + ' <input type="text" id="wbMailCc" maxlength="500" value="' + escA(v('cc')) + '"></label>'
-      + '<label>' + esc(t('workbench.mail.subject')) + ' <input type="text" id="wbMailSubject" maxlength="300" value="' + escA(v('subject')) + '" placeholder="' + escA(t('workbench.mail.subject_ph')) + '"></label>'
+      + '<label>' + esc(t('workbench.mail.subject')) + ' <input type="text" id="wbMailSubject" maxlength="998" value="' + escA(v('subject')) + '" placeholder="' + escA(t('workbench.mail.subject_ph')) + '"></label>'
       + '<label>' + esc(t('workbench.mail.body')) + ' <textarea id="wbMailBody" rows="6" maxlength="20000" placeholder="' + escA(t('workbench.mail.body_ph')) + '">' + esc(v('body')) + '</textarea></label>'
       + '<p class="wb-hint">' + esc(t('workbench.mail.to_drafts_hint')) + '</p>'
       + '<p><button type="submit" class="wb-btn"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t(WB.mailBusy ? 'workbench.mail.making' : d ? 'workbench.mail.update' : 'workbench.mail.make')) + '</button></p></form>'
@@ -11212,7 +11212,11 @@
         WB.docAccept = null; WB.docOverride = null; window.showToast(t(r.data.reused ? 'workbench.outline.finalized_same' : 'workbench.outline.finalized', { label: r.data.final.label }))
         // #552: the server marked the work item finalized (done) with it; the box and the list follow.
         if (WB.selectedId === id && WB.detail && WB.detail.item) WB.detail.item.status = 'done'
+        // Boss TG 4865: the filled e-mail panel (the header E-mail button's panel: recipient, subject, text, the final PDF)
+        // opens at the top by itself -- the owner does not have to click it. The document stays below.
+        if (WB.selectedId === id) { WB.docxMailFor = id; WB.shFinal = false }
         render()
+        try { var mf = document.querySelector('.wb-docx-mail'); if (mf && mf.scrollIntoView) mf.scrollIntoView({ block: 'start' }) } catch (e) { /* only a convenience */ }
         load(WB.projectId)
         return
       }
