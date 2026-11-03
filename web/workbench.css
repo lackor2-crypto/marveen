@@ -1465,7 +1465,9 @@
 /* ---- Oldal melletti fordítas (#527): bal az eredeti lap, jobb az elo fordítas ---- */
 .wb-tw-toggle { margin: 0; }
 .wb-tw-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.wb-tw-right { position: sticky; top: 8px; max-height: calc(100vh - 24px); overflow-y: auto; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
+.wb-tw-right { position: sticky; top: 8px; max-height: calc(100vh - 24px); overflow-y: auto; padding: 12px 0; border: 0; box-shadow: 0 0 0 1px var(--border); border-radius: 8px; background: var(--bg-card); }
+/* Boss TG 4778: the translation page is exactly as wide as the original page, so the card keeps no side padding or border of its own (the outline is a shadow); everything but the page is inset instead. */
+.wb-tw-right > :not(.wb-tw-body) { margin-left: 14px; margin-right: 14px; }
 .wb-tw-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .wb-tw-sec h4 { margin: 12px 0 4px; font-size: 15px; }
 .wb-tw-block { margin: 0 0 8px; white-space: pre-wrap; line-height: 1.6; }
@@ -1476,7 +1478,7 @@
 .wb-tw-over > .wb-tw-img { position: absolute; left: 0; top: 0; z-index: 2; margin: calc(100% * var(--wb-oy) / 100) 0 0 calc(100% * var(--wb-ox) / 100); width: calc(100% * var(--wb-ow) / 100); }
 .wb-tw-page .wb-tw-island:has(> .wb-tw-over) { margin: 0; }
 /* To-do panel (Boss TG 3462): rows with alternating background, green tick = done, red X = not yet. */
-.wb-tw-cols.has-both { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr); }
+.wb-tw-cols.has-both { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr); }
 
 /* #754: the video with the to-do list on its right (Simple and Manual view). */
 /* Flex-wrap, not a fixed grid: in a narrow center (side tab + assistant open) the list drops below the video instead of squeezing it. */
@@ -1593,7 +1595,7 @@
 .wb-dp-annex > summary { font-weight: 600; }
 .wb-dp-annex .wb-annexes > h4 { display: none; }
 @media (max-width: 900px) {
-  .wb-dp-page { --pg-pt: 28px; --pg-pr: 18px; --pg-pb: 40px; --pg-pl: 44px; min-height: 0; }
+  .wb-dp-page, .wb-tw-page { --pg-pt: 28px; --pg-pr: 18px; --pg-pb: 40px; --pg-pl: 44px; min-height: 0; }
   .wb-dp-gutter { opacity: 1; width: 44px; }
   .wb-dp-row, .wb-dp-sechead { margin-left: -40px; padding-left: 44px; }
   .wb-dp-gbtn { width: 20px; height: 28px; }
@@ -2037,7 +2039,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-univer-el header [data-u-comp="ribbon-toolbar"] > div { display: flex; flex-wrap: wrap; flex-shrink: 1; row-gap: 4px; align-items: center; }
 
 /* ---- #534: the translation next to the original is one continuous page, like the original ---- */
-.wb-tw-page { box-sizing: border-box; min-height: 320px; padding: 28px 30px 40px; background: #fff; color: #1b1b1f; border-radius: 2px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16); font-size: 15px; line-height: 1.6; outline: none; }
+.wb-tw-page { --pg-pt: 56px; --pg-pr: 64px; --pg-pb: 72px; --pg-pl: 72px; width: min(100%, 794px); margin: 0 auto; box-sizing: border-box; min-height: 320px; padding: var(--pg-pt) var(--pg-pr) var(--pg-pb) var(--pg-pl); background: #fff; color: #1b1b1f; border-radius: 2px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16); font-size: 15px; line-height: 1.6; outline: none; }
 /* A chapter heading: the page puts 18px after every chapter (.wb-dp-sec) and nothing between the heading and its first line. */
 .wb-tw-page .wb-tw-h { margin: 18px 0 0; }
 .wb-tw-page > .wb-tw-h:first-child { margin-top: 0; }
