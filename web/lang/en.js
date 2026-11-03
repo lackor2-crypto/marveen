@@ -7620,7 +7620,6 @@ window._i18n.en = {
   "workbench.dp.pagebreak_busy": "Measuring the page breaks on the PDF…",
   "workbench.dp.pagebreak_failed": "The page breaks could not be measured.",
   "workbench.dp.pagebreak": "Page {n}",
-  "workbench.dp.pagebreak_inside": "Page {n} – the paragraph above breaks over here",
   "workbench.dp.free_move": "Grab it and take it anywhere on the page (the arrow keys move it too). The Left / Centre / Right button puts it back into the text.",
   "workbench.dp.tbl_move": "Drag the table to move it on the page",
   "workbench.dp.tbl_resize": "Table size: drag the corner (or use the arrow keys, 5% a step)",
