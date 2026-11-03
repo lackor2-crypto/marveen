@@ -1925,7 +1925,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-img img { max-width: 100%; max-height: 520px; height: auto; display: inline-block; border-radius: 2px; }
 .wb-dp-img img[draggable="true"] { cursor: grab; }
 .wb-dp-img-size { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; border-radius: 3px; background: var(--accent, #2563eb); border: 2px solid #fff; cursor: nwse-resize; touch-action: none; opacity: 0; transition: opacity .12s; }
-.wb-dp-img-tools { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; background: rgba(0,0,0,.65); border-radius: 6px; padding: 2px; opacity: 0; transition: opacity .12s; }
+.wb-dp-img-tools { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; background: rgba(0,0,0,.65); border-radius: 6px; padding: 2px; opacity: 0; transition: opacity .12s; z-index: 3; }
 .wb-dp-img-al { background: none; border: 0; color: #fff; font-size: 14px; line-height: 1; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
 .wb-dp-img-al.is-on, .wb-dp-img-al:hover { background: rgba(255,255,255,.25); }
 .wb-dp-img-box:hover .wb-dp-img-size, .wb-dp-img-box:hover .wb-dp-img-tools, .wb-dp-img-box:focus-within .wb-dp-img-size, .wb-dp-img-box:focus-within .wb-dp-img-tools { opacity: 1; }
