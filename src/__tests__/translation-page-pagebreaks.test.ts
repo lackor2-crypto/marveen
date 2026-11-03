@@ -32,4 +32,9 @@ describe('the translation page has page-break lines too (#853)', () => {
     expect(SRV).toContain('export async function translationPageBreaks')
     expect(SRV).toContain('pageBreaksFor(live.item, uiLang)')
   })
+  it('#854: the page-break line is never read back as a paragraph of the translation', () => {
+    const c = JS.slice(JS.indexOf('function twCollect()'), JS.indexOf('var shownOnes ='))
+    expect(c).toContain("el.classList.contains('wb-dp-pagebreak')")
+    expect(c.indexOf("wb-dp-pagebreak")).toBeLessThan(c.indexOf("var role = el.getAttribute('data-tw')"))
+  })
 })
