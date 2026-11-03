@@ -15531,6 +15531,9 @@
   // simply an empty line.
   var DP_BLANK = '\u200B'
   function dpIsBlank(text) { var s = String(text == null ? '' : text); return s.length > 0 && s.replace(/\u200B/g, '').trim() === '' }
+  // Boss (2026-11-03): an empty line another writer put on the page (the assistant, an import) must look like the one made with
+  // Enter: a line with a <br> in it. A bare empty element collapses to nothing (or shows the placeholder), so the line "was not there".
+  function dpBlankParagraph(b) { return !!b && b.kind === 'paragraph' && dpIsBlank(b.text) }
   function dpBlockShown(b) { return b.kind === 'table' ? dpTableParts(b.text).text : dpIsBlank(b.text) ? '' : b.text }
 
   /** The row of a table block narrower than the page and aligned left/right floats, so the text runs beside it (#508). */
@@ -15748,7 +15751,7 @@
       }
       rows += '<div class="wb-dp-row" data-wb-row="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '">' + dpGutterHtml(b.id, sec.id, i, blocks.length, ro)
         + dpEditHtml('wb-dp-block wb-outline-kind-' + escA(b.kind) + dpAlignAttrs(b.align).cls + dpPfmtAttrs(b.pfmt).cls + (b.kind === 'list' && dpIsNumbered(b.text) ? ' wb-dp-numbered' : ''), 'wbDpB_' + b.id, 'data-wb-dp="block" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sec.id) + '"' + dpAlignAttrs(b.align).attr + dpPfmtAttrs(b.pfmt).attr,
-          dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlockRich(b))
+          dpDraft('b:' + b.id, dpBlockShown(b)), t('workbench.dp.block_ph'), t('workbench.dp.block_label'), ro, dpBlankParagraph(b) ? '<br>' : dpBlockRich(b))
         + (b.rewrite ? '<div class="wb-dp-extra" contenteditable="false">' + rewriteHtml(b, ro) + '</div>' : '')
         + (b.kind === 'table' ? dpTableEditAidHtml(b) : '')
         + '</div>'
