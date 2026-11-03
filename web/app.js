@@ -695,14 +695,14 @@ const _netStatus = (() => {
   // cookie of a signed-in user does carry it, which is why this never showed on a logged-in install.
   // When such an element fails, load the SAME address through the token-adding fetch above and hand the
   // element the result. Once per address, images and audio only (a video would be downloaded whole).
-  const authBlobCache = new Map() // address -> blob URL; bounded, so a long session cannot pile up pictures
+  const authBlobCache = new Map() // address -> blob URL (kept only to bound the number of live blobs); bounded, so a long session cannot pile up pictures
   document.addEventListener('error', (e) => {
     const el = e.target
     if (!el || !el.tagName || (el.tagName !== 'IMG' && el.tagName !== 'AUDIO')) return
     const src = el.getAttribute('src') || ''
     if (!src.startsWith('/api/') || el.dataset.authBlobFor === src) return
-    const cached = authBlobCache.get(src)
-    if (cached) { el.dataset.authBlobFor = src; el.src = cached; return }
+    // No reuse of an earlier blob for the same address: a picture that was replaced since (a signature, a logo) would show
+    // the OLD one for the rest of the session. The fetch below revalidates by ETag (a cheap 304) instead.
     let token = sessionToken
     if (!token) { try { token = localStorage.getItem(TOKEN_KEY) } catch { token = '' } }
     if (!token) return

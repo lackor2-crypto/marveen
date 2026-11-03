@@ -115,7 +115,14 @@ async function generatePdf(abs: string, out: string): Promise<boolean> {
 async function generate(bin: string, abs: string, media: 'image' | 'video', out: string): Promise<boolean> {
   const tmp = out + '.part.jpg'
   const scale = `scale=w='min(${THUMB_EDGE},iw)':h='min(${THUMB_EDGE},ih)':force_original_aspect_ratio=decrease`
-  const tail = ['-vf', scale, '-frames:v', '1', '-q:v', '5', '-y', tmp]
+  // The preview is a JPEG, which has no transparency: a transparent PNG/WebP (a
+  // signature, a logo) would turn BLACK. Lay every still image on white first
+  // (harmless for opaque photos), so the preview shows what the file looks like
+  // on a page.
+  const onWhite = `split[a][b];[b]drawbox=x=0:y=0:w=iw:h=ih:color=white:t=fill[w];[w][a]overlay=format=auto,${scale}`
+  const tail = media === 'image'
+    ? ['-filter_complex', onWhite, '-frames:v', '1', '-q:v', '5', '-y', tmp]
+    : ['-vf', scale, '-frames:v', '1', '-q:v', '5', '-y', tmp]
   let ok = false
   if (media === 'video') {
     // Egy masodpercnel: az elso kocka gyakran fekete. Ha a video ennel rovidebb,
@@ -164,7 +171,7 @@ export async function lifeThumb(abs: string, name: string): Promise<ThumbResult>
   let st
   try { st = statSync(abs) } catch { return { ok: false, reason: 'failed' } }
   if (!st.isFile()) return { ok: false, reason: 'not_media' }
-  const key = createHash('sha1').update(`${abs}\0${st.mtimeMs}\0${st.size}\0${THUMB_EDGE}`).digest('hex')
+  const key = createHash('sha1').update(`${abs}\0${st.mtimeMs}\0${st.size}\0${THUMB_EDGE}\0v2-white`).digest('hex')
   const dir = cacheDir()
   const out = join(dir, key + '.jpg')
   if (existsSync(out)) return { ok: true, kind: 'thumb', path: out, etag: key }
