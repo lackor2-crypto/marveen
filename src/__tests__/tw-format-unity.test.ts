@@ -14,7 +14,7 @@ describe('one look in the translation column, the page and the preview (TG 3922)
     expect(JS).toContain("'<div class=\"wb-tw-block ' + look.cls")
   })
   it('the column block has the page block spacing and line height', () => {
-    expect(CSS).toMatch(/\.wb-tw-page \.wb-tw-block \{[^}]*line-height: 1\.6/)
+    expect(CSS).toMatch(/\.wb-tw-page \.wb-tw-block \{[^}]*line-height: var\(--wb-lh, 1\.6\)/)
   })
 })
 

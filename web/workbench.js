@@ -25184,7 +25184,8 @@
   function pageFitSoon() {
     if (pageFitQueued) return
     pageFitQueued = true
-    (typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame.bind(window) : setTimeout)(function () { pageFitQueued = false; pageFit() })
+    var later = typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame.bind(window) : setTimeout
+    later(function () { pageFitQueued = false; pageFit() })
   }
   if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined' && document.body) {
     new MutationObserver(function (muts) {
