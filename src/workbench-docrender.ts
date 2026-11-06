@@ -234,18 +234,30 @@ function paragraphs(text: string, style: 'Body' | 'Note', draft: boolean, st: St
     }
     // Same paragraph rule as the plain text: an empty line starts a new paragraph, the others are lines of one.
     const groups: RichRun[][][] = [[]]
+    let seenText = false
     for (const ln of lines) {
-      if (!ln.length || ln.every((r) => !r.text.trim())) { if (groups[groups.length - 1].length) groups.push([]) }
-      else groups[groups.length - 1].push(ln)
+      if (!ln.length || ln.every((r) => !r.text.trim())) {
+        if (groups[groups.length - 1].length) groups.push([])
+        else if (seenText) {
+          // A second, third ... empty line in a row is a line the owner typed (room for a signature): it stays a line,
+          // as in the editor, instead of collapsing into one paragraph gap (Boss TG 5086: the signature slid below the name).
+          groups.pop()
+          groups.push([[{ text: '\u200b' } as RichRun]], [])
+        }
+      } else { groups[groups.length - 1].push(ln); seenText = true }
     }
     for (const g of groups) {
       g.forEach((ln, i) => out.push(emit(ln.map((r) => richSpan(r, draft, st)).join(''), i === g.length - 1)))
     }
     return out
   }
-  for (const para of text.split(/\n[ \t]*\n+/)) {
-    const lines = para.split('\n')
+  const chunks = text.split(/(\n[ \t]*\n+)/)
+  for (let c = 0; c < chunks.length; c += 2) {
+    const lines = (chunks[c] as string).split('\n')
     lines.forEach((l, i) => out.push(emit(inlineMarked(l, draft), i === lines.length - 1)))
+    // The paragraph gap covers ONE empty line; every further empty line in a row is still a line (see the rich branch).
+    const gap = chunks[c + 1]
+    if (gap !== undefined) for (let k = 0; k < gap.split('\n').length - 3; k++) out.push(emit('\u200b', true))
   }
   return out
 }
