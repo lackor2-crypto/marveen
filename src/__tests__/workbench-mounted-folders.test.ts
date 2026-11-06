@@ -195,10 +195,11 @@ describe('listProjectOutside follows mounts and links (#502)', () => {
     const root = join(depot, ...p.folder.split('/'))
     mkdirSync(join(root, 'A', 'A1'), { recursive: true })
     mkdirSync(join(root, 'B'), { recursive: true })
-    // now(): 1 = the deadline, 2 = before A, 3 = A's child A1 is looked at, 4 = before B, 5 = before A/A1 (too late).
-    // Depth first would read A/A1 before B.
-    let calls = 0
-    const out = listProjectOutside(getProject(p.id)!, null, { budgetMs: 1000, now: () => (++calls > 4 ? 1e9 : 0) })
+    // A clock that steps 1 ms on every look. The walk charges only the time it ran itself (#860), and the budget is
+    // sized so the first level (A, B) is read and the budget runs out before the deeper A/A1.
+    // Depth first would read A/A1 before B, and B would be the one left lazy.
+    let clock = 0
+    const out = listProjectOutside(getProject(p.id)!, null, { budgetMs: 5, now: () => (clock += 1) })
     expect(out.folders.sort()).toEqual(['A', 'A/A1', 'B'])
     expect(out.lazy).toEqual({ 'A/A1': null })
   })
