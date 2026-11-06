@@ -75,3 +75,31 @@ describe('the editor', () => {
     expect(js).toContain('function dpOverPlace(')
   })
 })
+
+// Boss TG 5100/5107: a picture over the printed name at the end of a letter (the kept closing) must not get a paragraph of its own.
+describe('an over picture in the kept closing of a letter', () => {
+  const body = 'Dies ist der erste Absatz des Briefes. Etwas längerer Text, damit es etwas zum Umbrechen gibt.'
+  const x = fodt([
+    { kind: 'paragraph', text: body },
+    { kind: 'paragraph', text: 'Mit freundlichen Grüßen' },
+    { kind: 'image', text: 'k.png#w=20&a=l&x=1.2&y=3.1&o=1', img: PNG },
+    { kind: 'paragraph', text: '​\n​\n​\nBakos Éva' },
+  ])
+  it('the frame sits inside the next paragraph, not in an anchor paragraph of its own', () => {
+    expect(x).toContain('ImgOver1')
+    expect(x).not.toMatch(/<text:p [^>]*><draw:frame draw:style-name="ImgOver1"(?:(?!<\/text:p>)[\s\S])*<\/draw:frame><\/text:p>/)
+  })
+})
+
+describe('the editor page scales its type with the text width, like the PDF', () => {
+  const css = readFileSync(new URL('../../web/workbench.css', import.meta.url), 'utf8')
+  it('pageFit sets the font size and line pitch from the text width', () => {
+    expect(js).toContain('function pageFit()')
+    expect(js).toContain('PAGE_FONT_PER_TEXT_WIDTH')
+    expect(css).toContain('line-height: var(--wb-lh, 1.6)')
+  })
+  it('a picture over the text keeps its move handle above the click strip at the end of the page', () => {
+    expect(css).toMatch(/\.wb-dp-row-over > \.wb-dp-img[^{]*\{[^}]*z-index: 4/)
+    expect(css).toMatch(/\.wb-dp-free-move \{[^}]*z-index: 5/)
+  })
+})

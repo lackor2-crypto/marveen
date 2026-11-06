@@ -25163,6 +25163,40 @@
     return card
   }
 
+  // The paper's type scales with its width, like the PDF does (12pt on a 16.5 cm text column, 130% line pitch). Without this the
+  // editor's 15px type is not proportional to the text width, so a picture placed over the printed name (x/y are % of the text
+  // width) sat a few lines off in the editor while the PDF had it right.
+  var PAGE_FONT_PER_TEXT_WIDTH = 12 / (16.5 / 2.54 * 72)
+  var PAGE_LINE_PITCH = 1.493
+  function pageFit() {
+    var pages = document.querySelectorAll('.wb-dp-page, .wb-tw-page')
+    for (var i = 0; i < pages.length; i++) {
+      var pg = pages[i]
+      var cs = window.getComputedStyle(pg)
+      var tw = pg.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0)
+      if (!(tw > 40)) continue
+      var fs = (tw * PAGE_FONT_PER_TEXT_WIDTH).toFixed(3) + 'px'
+      if (pg.style.fontSize !== fs) pg.style.fontSize = fs
+      if (pg.style.getPropertyValue('--wb-lh') !== String(PAGE_LINE_PITCH)) pg.style.setProperty('--wb-lh', String(PAGE_LINE_PITCH))
+    }
+  }
+  var pageFitQueued = false
+  function pageFitSoon() {
+    if (pageFitQueued) return
+    pageFitQueued = true
+    window.requestAnimationFrame(function () { pageFitQueued = false; pageFit() })
+  }
+  if (typeof MutationObserver !== 'undefined') {
+    new MutationObserver(function (muts) {
+      for (var i = 0; i < muts.length; i++) {
+        var m = muts[i]
+        if (m.type === 'attributes') { if (m.target.style && m.target.classList && (m.target.classList.contains('wb-dp-page') || m.target.classList.contains('wb-tw-page'))) continue }
+        pageFitSoon(); return
+      }
+    }).observe(document.body, { childList: true, subtree: true })
+  }
+  window.addEventListener('resize', pageFitSoon)
+
   window.MarvinWorkbench = {
     open: openWorkbench,
     // #826: the same sent chip + deadline badge the tree draws, for the project overview's work rows.

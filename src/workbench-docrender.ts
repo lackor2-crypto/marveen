@@ -520,6 +520,10 @@ export function closingKeepIndexes(blocks: { kind: string; text: string }[]): Se
 /** #856: an image paragraph in the kept closing: the same common style plus keep-with-next (custom styles stay as they are). */
 const KEEPABLE_IMAGE_STYLES = new Set(['ImageP', 'ImagePL', 'ImagePR', 'FrameAnchor', 'Body'])
 function keepImageParagraph(xml: string, st: StyleCtx): string {
+  // A picture lying OVER the text has no line of its own: anchorOverPictures moves its frame into the next paragraph, and only
+  // finds it by the plain FrameAnchor style. A keep-with-next copy of that style left the frame in a paragraph of its own -- one
+  // extra line (+ gap) above the printed name, so the PDF had the signature a line higher than the editor and the draft (TG 5100/5107).
+  if (OVER_ANCHOR_RE.test(xml)) return xml
   return xml.replace(/^<text:p text:style-name="([A-Za-z]+)"/, (m, name: string) => {
     if (!KEEPABLE_IMAGE_STYLES.has(name)) return m
     const n = autoStyle(st, `k|${name}`, (nm) => `<style:style style:name="${nm}" style:family="paragraph" style:parent-style-name="${name}"><style:paragraph-properties fo:keep-with-next="always"/></style:style>`)
