@@ -503,6 +503,27 @@ process.stdin.on('data', () => {
     expect(msgs.some(([role, c]) => role === 'system' && c.includes('folytatom'))).toBe(false)
   })
 
+  it('Boss TG 5068: ha az ugynok minden korben dolgozik (CI-t nez), de a vegen a figyelore var, nincs folytatas-kor es nincs "nem tudtam tovabb haladni"', async () => {
+    const waiting = `
+let buf = '', n = 0
+process.stdin.on('data', (d) => {
+  buf += d
+  let i
+  while ((i = buf.indexOf('\\n')) >= 0) {
+    buf = buf.slice(i + 1); n++
+    const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n')
+    w({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't' + n, name: 'Bash', input: { command: 'gh pr checks' } }] } })
+    w({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't' + n }] } })
+    w({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'A PR CI-futasa meg tart. A figyelo jelez, amint vegez. Utana folytatom.' } } })
+    w({ type: 'result', subtype: 'success', result: 'x' })
+  }
+})
+`
+    const { msgs } = await run(waiting, 'landold')
+    expect(msgs.filter(([role]) => role === 'assistant')).toHaveLength(1)
+    expect(msgs.some(([role]) => role === 'system')).toBe(false)
+  })
+
   it('ha a folytatas sem hoz uj munkat, megall es megmondja', async () => {
     const stuck = `
 let buf = '', n = 0
