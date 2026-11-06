@@ -28,6 +28,7 @@
  */
 import { execFile } from 'node:child_process'
 import { existsSync, openSync, readSync, closeSync, statSync, readFileSync, writeFileSync } from 'node:fs'
+import { open as openAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { STORE_DIR } from './config.js'
@@ -91,31 +92,76 @@ export async function findClaudeBinary(): Promise<string | null> {
  * Darabokban olvas, mert a program tobb szaz MB is lehet. A darabok kozott
  * ATFEDES van, kulonben egy pont a hataron kettevagott azonosito elveszne.
  */
+const MODEL_ID_RE = /^claude-(fable|opus|sonnet|haiku)-\d+(?:-\d+)?/
+const MODEL_PREFIX = Buffer.from('claude-', 'latin1')
+const SCAN_CHUNK = 4 * 1024 * 1024
+const SCAN_OVERLAP = 64
+
+/**
+ * One chunk: find the literal `claude-` with Buffer.indexOf (native memchr-speed,
+ * no 8 MB string is built) and run the regex only on a short window per hit.
+ * The 340 MB binary used to be decoded to latin1 strings and regex-scanned in
+ * one synchronous loop, which froze the dashboard for 3.4-4.7 s (stall samples
+ * 2026-11-06 14:00 and 22:00).
+ */
+function collectIds(buf: Buffer, n: number, into: Set<string>): void {
+  let i = buf.indexOf(MODEL_PREFIX)
+  while (i !== -1 && i < n) {
+    const m = MODEL_ID_RE.exec(buf.toString('latin1', i, Math.min(n, i + 48)))
+    if (m) into.add(m[0])
+    i = buf.indexOf(MODEL_PREFIX, i + 1)
+  }
+}
+
+/** Same result as the async scan, blocking. Kept for callers and tests that need a sync answer. */
 export function scanBinaryForModelIds(path: string): Set<string> {
-  const MINTA = /claude-(fable|opus|sonnet|haiku)-\d+(?:-\d+)?/g
-  const DARAB = 8 * 1024 * 1024
-  const ATFEDES = 64
   const talalt = new Set<string>()
   let fd: number | null = null
   try {
     fd = openSync(path, 'r')
     const meret = statSync(path).size
-    const buf = Buffer.alloc(DARAB + ATFEDES)
+    const buf = Buffer.alloc(SCAN_CHUNK + SCAN_OVERLAP)
     let pos = 0
     while (pos < meret) {
-      const kezdet = pos === 0 ? 0 : pos - ATFEDES
-      const n = readSync(fd, buf, 0, DARAB + ATFEDES, kezdet)
+      const kezdet = pos === 0 ? 0 : pos - SCAN_OVERLAP
+      const n = readSync(fd, buf, 0, SCAN_CHUNK + SCAN_OVERLAP, kezdet)
       if (n <= 0) break
-      const szoveg = buf.subarray(0, n).toString('latin1')
-      let m: RegExpExecArray | null
-      MINTA.lastIndex = 0
-      while ((m = MINTA.exec(szoveg)) !== null) talalt.add(m[0])
+      collectIds(buf.subarray(0, n), n, talalt)
       pos = kezdet + n
     }
   } catch {
     return new Set()
   } finally {
     if (fd !== null) { try { closeSync(fd) } catch { /* mar zarva */ } }
+  }
+  return talalt
+}
+
+/**
+ * Non-blocking scan: file reads go through the thread pool and the loop is given
+ * back (setImmediate) after every chunk, so one slice of work never holds the
+ * event loop longer than a few milliseconds.
+ */
+export async function scanBinaryForModelIdsAsync(path: string): Promise<Set<string>> {
+  const talalt = new Set<string>()
+  let fh: Awaited<ReturnType<typeof openAsync>> | null = null
+  try {
+    fh = await openAsync(path, 'r')
+    const meret = (await fh.stat()).size
+    const buf = Buffer.alloc(SCAN_CHUNK + SCAN_OVERLAP)
+    let pos = 0
+    while (pos < meret) {
+      const kezdet = pos === 0 ? 0 : pos - SCAN_OVERLAP
+      const { bytesRead: n } = await fh.read(buf, 0, SCAN_CHUNK + SCAN_OVERLAP, kezdet)
+      if (n <= 0) break
+      collectIds(buf.subarray(0, n), n, talalt)
+      pos = kezdet + n
+      await new Promise<void>((r) => setImmediate(r))
+    }
+  } catch {
+    return new Set()
+  } finally {
+    if (fh) { try { await fh.close() } catch { /* mar zarva */ } }
   }
   return talalt
 }
@@ -190,7 +236,7 @@ export async function scanInstalledClaude(force = false): Promise<ClaudeModelSca
     }
   }
 
-  const talalt = scanBinaryForModelIds(path)
+  const talalt = await scanBinaryForModelIdsAsync(path)
   if (talalt.size === 0) {
     // NEM "nincs modell": egy valodi Claude-program mindig tartalmazza a
     // sajatjait. Ha egyet sem latunk, a fajlt nem ertettuk meg.
