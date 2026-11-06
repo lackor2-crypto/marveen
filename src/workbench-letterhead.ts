@@ -122,7 +122,9 @@ export function mirrorRecipientWindow(source: string, translated: string): strin
   const sl = source.split('\n')
   let lead = 0
   while (lead < sl.length && BLANK_LINE_RE.test(sl[lead]!)) lead++
-  if (lead >= sl.length || !RECIPIENT_FIRST_RE.test(fold(sl[lead]!).trim())) return translated
+  // Boss, 2026-11-06 (the fourth time): EVERY paragraph keeps the blank lines the original has above and below it, not only the
+  // recipient window. A blank line the owner put on the page stays on the page in every language version.
+  if (lead >= sl.length) return translated
   let trail = 0
   while (trail < sl.length - lead - 1 && BLANK_LINE_RE.test(sl[sl.length - 1 - trail]!)) trail++
   const tl = translated.split('\n')
@@ -134,4 +136,16 @@ export function mirrorRecipientWindow(source: string, translated: string): strin
   if (!core.length) return translated
   const blank = (n: number): string[] => Array.from({ length: n }, () => ZWSP)
   return [...blank(lead), ...core, ...blank(trail)].join('\n')
+}
+
+/** The label of the sender table ("Feladó:" / "Absender:" / "Sender:") is fixed by the language, never left to the translator
+ *  ("Absenderin:" once came out of a translation). Applies only to a table whose original starts with a sender label. */
+export function forceSenderLabel(source: string, translated: string, lang: string): string {
+  const first = (source.split('\n')[0] || '').replace(/:\s*$/, '').trim()
+  const isSender = Object.values(LETTER_HEAD_LABELS).some((l) => fold(l.sender) === fold(first))
+  const lab = LETTER_HEAD_LABELS[String(lang || '').toLowerCase().slice(0, 2)]
+  if (!isSender || !lab) return translated
+  const tl = translated.split('\n')
+  tl[0] = lab.sender + ':'
+  return tl.join('\n')
 }

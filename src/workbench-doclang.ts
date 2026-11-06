@@ -21,6 +21,7 @@
  *   allitas szovege a forditas szo szerinti resze.
  */
 import { createHash, randomUUID } from 'node:crypto'
+import { mirrorRecipientWindow, forceSenderLabel } from './workbench-letterhead.js'
 import { getDb } from './db.js'
 import {
   addBlock, addSection, ensureDocModelTables, isBlankLine, listBlocks, listSections, removeBlock, updateSection,
@@ -535,6 +536,10 @@ export function translateSection(variantId: string, input: { source_section?: un
     for (let bi = 0; bi < blocks.length; bi++) {
       const b = blocks[bi]!
       const sb = sourceForTranslated(srcList, bi, b.kind, blocks.length)
+      // The blank lines of the original stay in every language version (Boss, 2026-11-06, the fourth time the recipient window
+      // and the gaps were lost): the agent's plain newlines are trimmed away, so they are put back from the paired source block.
+      if (sb && sb.kind === 'paragraph' && b.kind === 'paragraph') b.text = mirrorRecipientWindow(sb.text, b.text)
+      if (sb && sb.kind === 'table' && b.kind === 'table') b.text = forceSenderLabel(sb.text, b.text, v.lang)
       const look = lookOfBlock(sb, b.own, b.text)
       if (sb && lostFormat(sb, look.rich)) formatLost++
       const nb = addBlock(variantId, secId, { kind: b.kind, text: b.text, ...look, author: 'agent' })
