@@ -126,6 +126,10 @@ export const MESSAGES = {
     hu: 'Az előző fordulód nem zárta le a TELJES munkát (hiányzott a befejezés jele, vagy a szövegedben még hátralévő munka állt). Folytasd onnan, ahol abbamaradt (a munkakönyvtár állapotából látod, meddig jutott), ne kezdd elölről, és ne ígérd a folytatást, hanem csináld. Ne kérdezd meg, melyik résszel kezdd, és ne kérj engedélyt: döntsd el magad, és csináld végig az összeset.',
     en: 'Your previous turn did not close the WHOLE work (the completion marker was missing, or your text said work was still left). Continue from where it stopped (the working folder shows how far it got), do not start over, and do not promise to continue -- do it. Do not ask which part to start with and do not ask permission: decide yourself and do all of it.',
   },
+  live_empty_turn: {
+    hu: 'A munkamenet válasz nélkül ért véget, nem jött belőle szöveg és munka sem. Írd meg újra az üzenetet, és újra nekifutok.',
+    en: 'The session ended without an answer: no text and no work came out of it. Send the message again and I run it again.',
+  },
   live_continue_stuck: {
     hu: 'Nem tudtam tovább haladni: a folytatás nem hozott új munkát, ezért megálltam. Írj egy sort, és onnan megyek tovább.',
     en: 'I could not make progress: the continuation brought no new work, so I stopped. Write a line and I go on from there.',
