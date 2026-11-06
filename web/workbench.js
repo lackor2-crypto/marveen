@@ -25184,9 +25184,9 @@
   function pageFitSoon() {
     if (pageFitQueued) return
     pageFitQueued = true
-    window.requestAnimationFrame(function () { pageFitQueued = false; pageFit() })
+    (typeof window.requestAnimationFrame === 'function' ? window.requestAnimationFrame.bind(window) : setTimeout)(function () { pageFitQueued = false; pageFit() })
   }
-  if (typeof MutationObserver !== 'undefined') {
+  if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined' && document.body) {
     new MutationObserver(function (muts) {
       for (var i = 0; i < muts.length; i++) {
         var m = muts[i]
@@ -25195,7 +25195,7 @@
       }
     }).observe(document.body, { childList: true, subtree: true })
   }
-  window.addEventListener('resize', pageFitSoon)
+  if (typeof window.addEventListener === 'function') window.addEventListener('resize', pageFitSoon)
 
   window.MarvinWorkbench = {
     open: openWorkbench,
