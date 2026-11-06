@@ -14,11 +14,13 @@
 // nyelven. A streamben ugyanez `event: notice` / `event: error` sorkent jon.
 import { recordTaskFromChat } from '../../workbench-item-context.js'
 import { privacyState } from '../../workbench-privacy.js'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { json, readBody } from '../http-helpers.js'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
+import { logger } from '../../logger.js'
 import { APP_LANG, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR, WEB_PORT } from '../../config.js'
 import { getProject, updateProject } from '../../projects.js'
 import { getWorkItem } from '../../workbench.js'
@@ -439,6 +441,46 @@ function liveInstallNote(): string {
   return `[MARVEEN INSTALL] ${PROJECT_ROOT} -- before changing ANY Marveen code, skill or rule, read ${join(PROJECT_ROOT, 'CLAUDE.md')} and follow it (own git worktree via scripts/agent-worktree.sh, land via scripts/land-pr.sh; never edit the live tree).\n`
 }
 
+/**
+ * The project chat agent must know what the Telegram agent knows (Boss, TG 5059): the rule files
+ * (CLAUDE.md) and the shared skills. `--setting-sources ''` keeps the Telegram plugin and the
+ * channel hooks out, but it also dropped these two, so the chat agent saw 13 built-in skills and
+ * no rules. Measured: CLAUDE.md text comes in through --append-system-prompt-file and the shared
+ * skill directory through a generated plugin (--plugin-dir); neither brings the channel back.
+ */
+export function liveKnowledgeArgs(dir = join(STORE_DIR, 'workbench-live-config', 'knowledge'), home = homedir(), root = PROJECT_ROOT): string[] {
+  const args: string[] = []
+  try {
+    mkdirSync(dir, { recursive: true })
+    // 1. rules: the owner's global CLAUDE.md and the installation's own, in this order.
+    const parts: string[] = []
+    for (const f of [join(home, '.claude', 'CLAUDE.md'), join(root, 'CLAUDE.md')]) {
+      if (existsSync(f)) parts.push(`# Rules from ${f}\n\n${readFileSync(f, 'utf8')}`)
+    }
+    if (parts.length) {
+      parts.unshift('# Workbench project chat\nYou run inside the Workbench project chat, not in Telegram: the owner reads this chat, so the answer goes into the chat as plain text, there is no Telegram reply tool here. All other rules below apply to you exactly as to the main agent.')
+      const rules = join(dir, 'rules.md')
+      writeFileSync(rules, parts.join('\n\n---\n\n'))
+      args.push('--append-system-prompt-file', rules)
+    }
+    // 2. skills: the shared skill library as a generated plugin (a link, so new skills show up at once).
+    const skills = join(home, '.claude', 'skills')
+    if (existsSync(skills)) {
+      const plug = join(dir, 'skills-plugin')
+      mkdirSync(join(plug, '.claude-plugin'), { recursive: true })
+      writeFileSync(join(plug, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'marveen-skills', version: '1.0.0', description: 'Shared fleet skills for the Workbench project chat' }))
+      const link = join(plug, 'skills')
+      let ok = false
+      try { ok = lstatSync(link).isSymbolicLink() } catch { /* missing */ }
+      if (!ok) { try { unlinkSync(link) } catch { /* nothing there */ } ; symlinkSync(skills, link) }
+      args.push('--plugin-dir', plug)
+    }
+  } catch (e) {
+    logger.warn({ err: e }, 'workbench live knowledge args failed, the chat agent starts without them')
+  }
+  return args
+}
+
 function liveCwd(projectFolder: string | null): string {
   const root = resolve(PROJECT_ROOT)
   if (projectFolder && existsSync(projectFolder)) {
@@ -467,6 +509,7 @@ function liveSpecFor(key: string, projectFolder: string | null, account: string 
     '--verbose', '--include-partial-messages',
     '--setting-sources', '', '--strict-mcp-config',
     '--settings', guard, '--permission-mode', mode,
+    ...liveKnowledgeArgs(),
   ]
   if (launch.kind === 'route') {
     // GLM / DeepSeek / OpenRouter / Ollama: no Claude login. An own config dir
