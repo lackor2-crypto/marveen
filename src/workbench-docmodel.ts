@@ -274,7 +274,7 @@ export interface SourceRow {
   said: string | null; said_at: number | null; message_id: string | null
   based_on: string | null
   /** document: verified / low_page / other_page / not_found / pending; owner: recorded / not_in_chat;
-   *  official: unverified / verified; inference: inference */
+   *  official: verified (accepted as given); inference: inference */
   verdict: string
   detail: string | null
   checked_at: number | null
@@ -762,7 +762,9 @@ export function addClaim(itemId: string, blockId: string, rawText: unknown, sour
         kind,
         f: {
           citation, url, quote: String(s.quote ?? '').trim() || null, retrieved_at: String(s.retrieved_at ?? '').trim() || null,
-          verdict: 'unverified', detail: 'not yet checked in the official source: shown as "⚠ Ellenőrizetlen hivatkozás"',
+          // Boss, 2026-11-06: a statute or ruling taken from the official source with its exact citation and URL is accepted
+          // as given. There is no confirmation step (the screen never had one) and nothing to prove.
+          verdict: 'verified', detail: 'official source (statute / ruling) with citation and URL: accepted as given, no further proof needed',
         },
       })
     } else {
@@ -795,7 +797,7 @@ export interface ClaimView extends ClaimRow {
  * megerositetlen kozles; a kovetkeztetes tenyt nem igazol.
  */
 export function claimStrength(sources: SourceRow[]): ClaimStrength {
-  if (sources.some((s) => (s.kind === 'document' || s.kind === 'official') && s.verdict === 'verified')) return 'verified'
+  if (sources.some((s) => s.kind === 'official' || (s.kind === 'document' && s.verdict === 'verified'))) return 'verified'
   if (sources.some((s) => s.kind === 'owner' && s.confirmed_at)) return 'owner_confirmed'
   if (sources.some((s) => s.kind === 'owner' && s.verdict === 'recorded')) return 'owner_unconfirmed'
   if (sources.length && sources.every((s) => s.kind === 'inference')) return 'inference'
@@ -998,7 +1000,8 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   const docSources = sources.filter((s) => s.kind === 'document')
   const docBad = docSources.filter((s) => s.verdict !== 'verified')
   const official = sources.filter((s) => s.kind === 'official')
-  const officialBad = official.filter((s) => s.verdict !== 'verified')
+  // an official source (statute, ruling) is accepted as given: it never holds the finalizing back (Boss, 2026-11-06)
+  const officialBad: SourceRow[] = []
   const inferenceOnly = claims.filter((c) => c.strength === 'inference')
   const missing = blocks.flatMap((b) => b.missing)
   // #534: a chapter is what the owner made with a real heading. The section the program keeps behind a page without
