@@ -36,7 +36,7 @@ import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
 import { decideWorkbenchBackend, isWindowsDriveBridgePath } from '../../workbench-agent/backend-router.js'
-import { runCodeBridgeTurn, incompleteAnswerText, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
+import { runCodeBridgeTurn, incompleteAnswerText, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, claimsBackgroundWait, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
 import {
   setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
 } from '../../workbench-agent/bridge-continuation.js'
@@ -1000,6 +1000,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         const wantsMore = !failed && !ac.signal.aborted && modelRoute === 'claude'
           && !finished && (worked || claimsPendingWork(answer))
         if (!wantsMore) break outer
+        // The agent only waits for a CI run / armed watcher: another round cannot make it work, it
+        // would just repeat the status line. Stop quietly, its own answer already says what it waits for.
+        if (!worked && claimsBackgroundWait(answer)) break outer
         if (rounds > 0 && !worked) {
           addAgentMessage(session.id, 'system', msg('live_continue_stuck', lang))
           send('notice', { type: 'notice', code: 'live_continue_stuck', message: msg('live_continue_stuck', lang) })
