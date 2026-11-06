@@ -24305,9 +24305,13 @@
       // The column: the picture is placed from its own anchor (the zero-height line, or the island), in percent of its width.
       var anc = box.closest('.wb-tw-over') || box.closest('.wb-tw-island')
       if (!anc) return null
-      var fullT = Math.max(1, anc.clientWidth || 1)
       var ar = anc.getBoundingClientRect()
       var tbr = box.getBoundingClientRect()
+      // The zoom slider scales the page: the rectangles are screen pixels, the width must be too (Boss TG 5100: at 90%
+      // every drop was read 10% too small, so the picture sat a little higher after the save).
+      var scT = anc.offsetWidth ? ar.width / anc.offsetWidth : 1
+      if (!(scT > 0)) scT = 1
+      var fullT = Math.max(1, (anc.clientWidth || 1) * scT)
       // #837: the picture is re-anchored to the paragraph / heading it was dropped over, as on the work item page: it may be
       // put above its old line (the signature over the text), not only below its own anchor.
       var tel = twOverAnchor(bid, tbr)
@@ -24320,10 +24324,13 @@
     var page = box.closest('.wb-dp-page') || dpRoot()
     if (!page) return null
     var pr = page.getBoundingClientRect()
+    // Screen pixels: the zoom slider scales the page, so its CSS pixels are turned into screen pixels first.
+    var sc = page.offsetWidth ? pr.width / page.offsetWidth : 1
+    if (!(sc > 0)) sc = 1
     var left = pr.left
     var full = page.clientWidth
-    try { var cs = window.getComputedStyle(page); left += (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0); full -= (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) } catch (_e) { /* the page box */ }
-    full = Math.max(1, full)
+    try { var cs = window.getComputedStyle(page); left += ((parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0)) * sc; full -= (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) } catch (_e) { /* the page box */ }
+    full = Math.max(1, full * sc)
     var br = box.getBoundingClientRect()
     var rows = Array.prototype.slice.call(page.querySelectorAll('[data-wb-row]')).filter(function (r) {
       return r.getAttribute('data-wb-row') !== bid && r.getBoundingClientRect().height > 0
