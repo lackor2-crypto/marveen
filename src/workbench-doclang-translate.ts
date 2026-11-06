@@ -24,7 +24,7 @@ import { ensureWorkbenchAgent } from './workbench-agent/index.js'
 import { msg, type Lang } from './workbench-agent/messages.js'
 import { fitVariantToSource, pageBreaksFor, type FitResult } from './workbench-docpages.js'
 import { contentHash } from './workbench-docfinal.js'
-import { mirrorRecipientWindow } from './workbench-letterhead.js'
+import { mirrorRecipientWindow, forceSenderLabel } from './workbench-letterhead.js'
 import { notReadyMessage, usageNotice } from './workbench-agent/orchestrator.js'
 import { pickAIProvider, whyNoAIProvider } from './workbench-agent/provider.js'
 import { OFF_BUDGET, record, reserve } from './workbench-agent/usage-manager.js'
@@ -185,7 +185,7 @@ export function usableRich(sourceRich: string, answered: unknown, text: string):
 }
 
 /** A modell valaszabol a mentheto forditas, vagy a hiba oka. Tiszta, teszthez exportalva. */
-export function parseTranslation(text: string, src: SourceBlock[], sourceTitle?: string):
+export function parseTranslation(text: string, src: SourceBlock[], sourceTitle?: string, targetLang?: string):
   | { ok: true; title: string; blocks: { kind: string; text: string; claims: { source_claim: string; text: string }[]; rich?: string }[]; format_fallback: number }
   | { ok: false; detail: string } {
   const raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
@@ -217,14 +217,14 @@ export function parseTranslation(text: string, src: SourceBlock[], sourceTitle?:
     // A table keeps the original's size/alignment (#508): the model never saw that line, it goes back on here.
     if (s.kind === 'table') {
       const body = tableBlockParts(text).text.trim()
-      return { kind: s.kind, text: body ? body + tableLayoutSuffix(s.text) : '', claims }
+      return { kind: s.kind, text: body ? forceSenderLabel(s.text, body, targetLang ?? '') + tableLayoutSuffix(s.text) : '', claims }
     }
     if (s.rich) {
       const rich = usableRich(s.rich, b.rich, text)
       if (rich) return { kind: s.kind, text, claims, rich }
       fallback++
     }
-    // The recipient block keeps the window position of the original (Boss TG 4734): same blank lines above and below.
+    // Every paragraph keeps the blank lines of the original above and below (Boss TG 4734 + 2026-11-06): the recipient window, the gaps around the subject and the salutation.
     return { kind: s.kind, text: s.kind === 'paragraph' ? mirrorRecipientWindow(s.text, text) : text, claims }
   })
   if (blocks.some((b) => !b.text)) return { ok: false, detail: 'a translated block is empty' }
@@ -261,7 +261,7 @@ export async function previewSectionTranslation(source: WorkItemRow, sectionId: 
     const r = await caller({ system: retryHint(prompt.system, detail, blocks.length), user: prompt.user, lang: ui })
     logCall(source.id, prompt.system.length + prompt.user.length, r)
     if (!r.ok) return { ok: false, code: r.code === 'no_provider' ? 'no_provider' : 'failed', message: r.message }
-    const parsed = parseTranslation(r.text, blocks, sec.title)
+    const parsed = parseTranslation(r.text, blocks, sec.title, lang)
     if (parsed.ok) {
       const rows = listBlocks(source.id).filter((b: BlockRow) => b.section_id === sec.id)
       // The formatted translation the model gave (when usable) wins over the one-piece format carried by position.
@@ -448,7 +448,7 @@ async function runJob(job: TranslateJobState, variantId: string, pending: { id: 
       logCall(variantId, prompt.system.length + prompt.user.length, r)
       // Szolgaltato-szintu hiba (nincs fiok, kifogyott keret): a tobbi fejezet sem menne -- megallunk, kimondva.
       if (!r.ok) { job.error = { code: r.code, message: r.message }; return }
-      const parsed = parseTranslation(r.text, blocks, title)
+      const parsed = parseTranslation(r.text, blocks, title, v.lang)
       if (!parsed.ok) { detail = parsed.detail; continue }
       if (parsed.format_fallback) logger.info({ variantId, section: s.id, blocks: parsed.format_fallback }, 'doclang-translate: formatted blocks kept as plain text (the model did not keep the format tags)')
       const t = translateSection(variantId, { source_section: s.id, title: parsed.title, blocks: parsed.blocks }, opts.by)

@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { mirrorRecipientWindow, buildLetterHead, LETTER_LAYOUT_RULES_EN } from '../workbench-letterhead.js'
+import { mirrorRecipientWindow, forceSenderLabel, buildLetterHead, LETTER_LAYOUT_RULES_EN } from '../workbench-letterhead.js'
 
 const Z = '​'
 const JS = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
@@ -20,6 +20,19 @@ describe('mirrorRecipientWindow', () => {
   it('does not add more than the original had', () => {
     const out = mirrorRecipientWindow(src, [Z, Z, Z, Z, Z, Z, 'Empfänger:', 'X', Z, Z, Z, Z].join('\n'))
     expect(out).toBe([Z, Z, Z, Z, 'Empfänger:', 'X', Z, Z].join('\n'))
+  })
+  // Boss, 2026-11-06 (the fourth time): not only the recipient window -- every paragraph keeps the blank lines of the original.
+  it('every paragraph keeps the blank lines the original has above and below', () => {
+    expect(mirrorRecipientWindow(`Tárgy: Meghatalmazás\n${Z}`, 'Betreff: Vollmacht')).toBe(`Betreff: Vollmacht\n${Z}`)
+    expect(mirrorRecipientWindow(`${Z}\nTisztelt Hölgyem!\n${Z}\n${Z}`, 'Sehr geehrte Damen und Herren,')).toBe(`${Z}\nSehr geehrte Damen und Herren,\n${Z}\n${Z}`)
+  })
+  it('a blank-line-only block stays as it is', () => {
+    expect(mirrorRecipientWindow(Z, Z)).toBe(Z)
+  })
+  it('the sender label is the language\'s own, never the translator\'s ("Absenderin")', () => {
+    expect(forceSenderLabel('Feladó:\nBakos Éva\n#w=45', 'Absenderin:\nBakos Éva', 'de')).toBe('Absender:\nBakos Éva')
+    expect(forceSenderLabel('Feladó:\nBakos Éva', 'Sender:\nBakos Éva', 'en')).toBe('Sender:\nBakos Éva')
+    expect(forceSenderLabel('Valami:\nx', 'Etwas:\nx', 'de')).toBe('Etwas:\nx')
   })
   it('leaves any other paragraph alone', () => {
     expect(mirrorRecipientWindow('Tisztelt Hölgyem!', 'Sehr geehrte Damen!')).toBe('Sehr geehrte Damen!')
