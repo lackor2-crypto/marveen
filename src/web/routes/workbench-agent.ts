@@ -983,6 +983,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         // megallt. Egy fordulo akkor KESZ, ha a vegen ott a jel, a szoveg nem
         // mond hatralevo munkat, vagy nem is dolgozott (sima valasz).
         let rounds = 0
+        let lastStatusKey = ''
         let toolsThisRound = 0
         outer: for (;;) {
         while (spec) {
@@ -1045,8 +1046,14 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         if (!wantsMore) break outer
         // The agent only waits for a CI run / armed watcher: another round cannot make it work, it
         // would just repeat the status line. Stop quietly, its own answer already says what it waits for.
-        if (!worked && claimsBackgroundWait(answer)) break outer
-        if (rounds > 0 && !worked) {
+        // Also when it did use tools this round (polling the CI is "work"): the closing words still say it
+        // waits for the outside, and a round that merely repeats the previous status adds nothing (Boss TG 5068:
+        // five identical "CI-futás tart" rounds, then "nem tudtam tovább haladni").
+        const statusKey = answer.replace(COMPLETION_MARKER, '').replace(/\s+/g, ' ').trim().slice(0, 160)
+        if (claimsBackgroundWait(answer)) break outer
+        const repeated = rounds > 0 && !!statusKey && statusKey === lastStatusKey
+        lastStatusKey = statusKey
+        if (rounds > 0 && (!worked || repeated)) {
           addAgentMessage(session.id, 'system', msg('live_continue_stuck', lang))
           send('notice', { type: 'notice', code: 'live_continue_stuck', message: msg('live_continue_stuck', lang) })
           break outer
