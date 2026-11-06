@@ -1037,6 +1037,13 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         }
         if (answer.trim()) addAgentMessage(session.id, 'assistant', stripCompletionMarker(answer))
         if (failed) addAgentMessage(session.id, 'system', failed)
+        // An empty turn (no text, no tool, no error, not stopped by the owner) used to leave nothing
+        // behind and the page showed a bare red "no answer" (Boss TG 5074): say it in the chat itself.
+        if (!answer.trim() && !failed && toolsThisRound === 0 && !ac.signal.aborted) {
+          const empty = msg('live_empty_turn', lang)
+          addAgentMessage(session.id, 'system', empty)
+          send('error', { type: 'error', code: 'live_empty', message: empty })
+        }
         // Folytatas-dontes. Csak Claude-modellnel (a masik modellek nem ismerik a
         // jelet), hiba nelkul, es ha a tulajdonos nem allitotta le.
         const worked = toolsThisRound > 0

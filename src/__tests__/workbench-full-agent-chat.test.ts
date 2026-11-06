@@ -503,6 +503,17 @@ process.stdin.on('data', () => {
     expect(msgs.some(([role, c]) => role === 'system' && c.includes('folytatom'))).toBe(false)
   })
 
+  it('Boss TG 5074: a szoveg es munka nelkuli, hiba nelkul veget ero fordulo lathato jegyzetet hagy, nem ures fordulot', async () => {
+    const silent = `
+process.stdin.on('data', () => {
+  process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', result: '' }) + '\\n')
+})
+`
+    const { msgs, r } = await run(silent, 'na mi ujsag?')
+    expect(msgs.some(([role, c]) => role === 'system' && c.includes('válasz nélkül ért véget'))).toBe(true)
+    expect(r.raw).toContain('live_empty')
+  })
+
   it('Boss TG 5068: ha az ugynok minden korben dolgozik (CI-t nez), de a vegen a figyelore var, nincs folytatas-kor es nincs "nem tudtam tovabb haladni"', async () => {
     const waiting = `
 let buf = '', n = 0
