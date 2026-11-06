@@ -1476,7 +1476,7 @@
 #wbTwPanel > .wb-tw-top > :last-child { margin-bottom: 0; }
 .wb-tw-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .wb-tw-sec h4 { margin: 12px 0 4px; font-size: 15px; }
-.wb-tw-block { margin: 0 0 8px; white-space: pre-wrap; line-height: 1.6; }
+.wb-tw-block { margin: 0 0 8px; white-space: pre-wrap; line-height: var(--wb-lh, 1.6); }
 .wb-tw-img { margin: 6px 0; }
 .wb-tw-img img { max-width: 100%; }
 /* #566 in the translation: the free picture is a zero-height anchor, placed from it (x across, y below, percent of the text width). */
@@ -1508,7 +1508,7 @@
 
 /* ---- Dokumentum lapja (#462, 4. lepes): a lap maga a szerkeszto ---- */
 .wb-dp-wrap { padding: 8px 0 24px; }
-.wb-dp-page { --pg-pt: 56px; --pg-pr: 64px; --pg-pb: 72px; --pg-pl: 72px; width: min(100%, 794px); min-height: 1000px; margin: 0 auto; box-sizing: border-box; padding: var(--pg-pt) var(--pg-pr) var(--pg-pb) var(--pg-pl); background: #fff; color: #1b1b1f; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); border-radius: 2px; font-size: 15px; line-height: 1.6; }
+.wb-dp-page { --pg-pt: 56px; --pg-pr: 64px; --pg-pb: 72px; --pg-pl: 72px; width: min(100%, 794px); min-height: 1000px; margin: 0 auto; box-sizing: border-box; padding: var(--pg-pt) var(--pg-pr) var(--pg-pb) var(--pg-pl); background: #fff; color: #1b1b1f; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); border-radius: 2px; font-size: 15px; line-height: var(--wb-lh, 1.6); }
 .wb-dp-toolbar { position: sticky; top: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; width: min(100%, 794px); box-sizing: border-box; margin: 0 auto 10px; padding: 5px 8px; background: #f3f4f8; color: #1b1b1f; border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); }
 .wb-dp-tb { min-width: 32px; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
 .wb-dp-tb:hover { background: rgba(80, 100, 220, 0.12); }
@@ -1555,13 +1555,13 @@
 .wb-dp-tailrow { height: 0; min-height: 0; margin-top: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; overflow: visible; }
 .wb-dp-tailrow > .wb-dp-tail { position: absolute; left: 48px; right: 0; top: 0; height: 12px; min-height: 0; margin: 0; overflow: hidden; z-index: 3; }
 .wb-dp-tailrow:focus-within { height: auto; }
-.wb-dp-tailrow:focus-within > .wb-dp-tail { position: static; height: auto; min-height: 1.6em; margin: 0 -4px; overflow: visible; }
+.wb-dp-tailrow:focus-within > .wb-dp-tail { position: static; height: auto; min-height: var(--wb-lh, 1.6em); margin: 0 -4px; overflow: visible; }
 @media (max-width: 600px) { .wb-dp-tailrow > .wb-dp-tail { left: 44px; } }
 .wb-dp-row-float .wb-dp-img { margin: 3px 0 4px; }
 .wb-dp-row-float .wb-dp-img-box { display: block; }
 /* The row keeps a 48px gutter on its left; a picture on the right has none of it, so the size the owner set is the size shown. */
 .wb-dp-row-float-r:has(> .wb-dp-img) { padding-left: 0; }
-.wb-dp-edit { outline: none; min-height: 1.6em; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 3px; padding: 1px 4px; margin: 0 -4px; cursor: text; }
+.wb-dp-edit { outline: none; min-height: calc(var(--wb-lh, 1.6) * 1em); white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 3px; padding: 1px 4px; margin: 0 -4px; cursor: text; }
 .wb-dp-page:focus { outline: none; }
 .wb-dp-edit:empty::before { content: attr(data-placeholder); color: #8b8b95; pointer-events: none; }
 /* #562 (Boss TG 8925: "egy feher lap, es barhova klikkelek, odairjon"): on the sheet an empty line says nothing -- no
@@ -1941,7 +1941,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 /* #566: a picture "free, over the text" -- a zero-height anchor row; the picture is placed from it (x across, y below,
    percent of the text width = the row's width without its 48 px / 44 px gutter) and the text runs under it. */
 .wb-dp-row-over { --wb-gut: 48px; height: 0; }
-.wb-dp-row-over > .wb-dp-img, .wb-dp-row-over > .wb-dp-tbl { position: absolute; left: var(--wb-gut); top: 0; z-index: 2; margin: calc((100% - var(--wb-gut)) * var(--wb-oy) / 100) 0 0 calc((100% - var(--wb-gut)) * var(--wb-ox) / 100); width: calc((100% - var(--wb-gut)) * var(--wb-ow) / 100); }
+.wb-dp-row-over > .wb-dp-img, .wb-dp-row-over > .wb-dp-tbl { position: absolute; left: var(--wb-gut); top: 0; z-index: 4; margin: calc((100% - var(--wb-gut)) * var(--wb-oy) / 100) 0 0 calc((100% - var(--wb-gut)) * var(--wb-ox) / 100); width: calc((100% - var(--wb-gut)) * var(--wb-ow) / 100); }
 /* the toolbar sits ABOVE a small picture, so it never covers the picture the owner has to grab */
 .wb-dp-img-over .wb-dp-img-tools, .wb-dp-tbl-over .wb-dp-img-tools { top: -34px; }
 .wb-dp-row-over img[data-wb-over-img] { cursor: grab; touch-action: none; -webkit-user-drag: none; user-select: none; }
@@ -2006,10 +2006,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 }
 
 /* #521: a picture or a table placed freely on the page -- the move handle, and the element while it is dragged. */
-.wb-dp-free-move { position: absolute; right: -6px; top: -6px; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 3px; background: var(--accent, #2563eb); color: #fff; font-size: 13px; cursor: move; touch-action: none; opacity: 0; transition: opacity .12s; z-index: 2; user-select: none; }
+.wb-dp-free-move { position: absolute; right: -6px; top: -6px; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 3px; background: var(--accent, #2563eb); color: #fff; font-size: 13px; cursor: move; touch-action: none; opacity: 0; transition: opacity .12s; z-index: 5; user-select: none; }
 .wb-dp-tbl:hover .wb-dp-free-move, .wb-dp-tbl:focus-within .wb-dp-free-move, .wb-dp-img-box:hover .wb-dp-free-move, .wb-dp-img-box:focus-within .wb-dp-free-move, .wb-dp-free-move:focus-visible { opacity: 1; }
 @media (hover: none) { .wb-dp-free-move { opacity: 1; width: 28px; height: 28px; line-height: 28px; } }
-.wb-dp-free-dragging { opacity: .75; outline: 2px dashed var(--accent, #2563eb); outline-offset: 2px; z-index: 3; }
+.wb-dp-free-dragging { opacity: .75; outline: 2px dashed var(--accent, #2563eb); outline-offset: 2px; z-index: 5; }
 .wb-dp-tbl.wb-dp-free { margin-right: 0; }
 
 /* #549 (owner, 2026-10-10: "no big buttons ... use the smaller buttons from now on"): inside the workbench the
@@ -2045,12 +2045,12 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-univer-el header [data-u-comp="ribbon-toolbar"] > div { display: flex; flex-wrap: wrap; flex-shrink: 1; row-gap: 4px; align-items: center; }
 
 /* ---- #534: the translation next to the original is one continuous page, like the original ---- */
-.wb-tw-page { --pg-pt: 56px; --pg-pr: 64px; --pg-pb: 72px; --pg-pl: 72px; width: min(100%, 794px); margin: 0 auto; box-sizing: border-box; min-height: 320px; padding: var(--pg-pt) var(--pg-pr) var(--pg-pb) var(--pg-pl); background: #fff; color: #1b1b1f; border-radius: 2px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16); font-size: 15px; line-height: 1.6; outline: none; }
+.wb-tw-page { --pg-pt: 56px; --pg-pr: 64px; --pg-pb: 72px; --pg-pl: 72px; width: min(100%, 794px); margin: 0 auto; box-sizing: border-box; min-height: 320px; padding: var(--pg-pt) var(--pg-pr) var(--pg-pb) var(--pg-pl); background: #fff; color: #1b1b1f; border-radius: 2px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16); font-size: 15px; line-height: var(--wb-lh, 1.6); outline: none; }
 /* A chapter heading: the page puts 18px after every chapter (.wb-dp-sec) and nothing between the heading and its first line. */
 .wb-tw-page .wb-tw-h { margin: 18px 0 0; }
 .wb-tw-page > .wb-tw-h:first-child { margin-top: 0; }
 /* The block is spaced exactly like a block of the work item page (.wb-dp-edit): same minimum height, padding and wrapping, no extra gap between paragraphs. */
-.wb-tw-page .wb-tw-block { margin: 0 -4px; padding: 1px 4px; min-height: 1.6em; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.wb-tw-page .wb-tw-block { margin: 0 -4px; padding: 1px 4px; min-height: calc(var(--wb-lh, 1.6) * 1em); white-space: pre-wrap; overflow-wrap: anywhere; line-height: var(--wb-lh, 1.6); }
 /* Boss TG 4734: the sender's table lies over the text in the translation too, like the original (zero-height anchor, percent of the text width). */
 .wb-tw-page .wb-tw-block.wb-tw-tbl-over { height: 0; min-height: 0; margin: 0; padding: 0; position: relative; }
 .wb-tw-page .wb-tw-block.wb-tw-tbl-over > .wb-tw-tbl { position: absolute; left: 0; top: 0; z-index: 2; margin: calc(100% * var(--wb-oy) / 100) 0 0 calc(100% * var(--wb-ox) / 100); width: calc(100% * var(--wb-ow) / 100); }
