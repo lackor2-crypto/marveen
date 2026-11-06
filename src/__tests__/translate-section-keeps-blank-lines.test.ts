@@ -3,7 +3,7 @@
 // sat next to the sender. Now every translated paragraph gets the blank lines of its original back, and the sender label is
 // the language's own word.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
@@ -50,5 +50,18 @@ describe('translateSection keeps the blank lines of the original', () => {
     expect(out[1]).toBe(`${Z}\n${Z}\n${Z}\n${Z}\nEmpfänger:\nStadt Chemnitz\n${Z}\n${Z}`)
     expect(out[2]).toBe(`Betreff: Vollmacht\n${Z}`)
     expect(out[3]).toBe(`Sehr geehrte Damen und Herren,\n${Z}`)
+  })
+})
+
+// The page that reads the translation back (twCollect) used to strip the zero-width spaces and trim: every save of the
+// translation page lost the four blank lines above the recipient and the two below, so it jumped up next to the sender.
+describe('the translation page keeps the blank lines at the top and bottom of a paragraph when it saves', () => {
+  const JS = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+  it('twCollect pads the saved paragraph with the blank lines it read from the page', () => {
+    const i = JS.indexOf('var rawTxt = tl != null ? tl : textOf(el)')
+    expect(i).toBeGreaterThan(0)
+    const body = JS.slice(i, i + 1500)
+    expect(body).toContain('padTo(lead).concat([core], padTo(trail))')
+    expect(body).toContain("kind === 'paragraph' && role !== 'title' && tl == null")
   })
 })

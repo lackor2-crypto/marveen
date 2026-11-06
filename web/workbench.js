@@ -16272,8 +16272,25 @@
       if (!cur) { if (!firstSec) continue; cur = group(firstSec) }
       if (role === 'island') { cur.blocks.push({ kind: el.getAttribute('data-tw-kind') || 'image', text: el.getAttribute('data-tw-text') || '' }); continue }
       var tl = role !== 'title' && el.getAttribute('data-tw-kind') === 'table' ? twTableLines(el) : null
-      var txt = (tl != null ? tl : textOf(el)).replace(/\u200B/g, '').trim()
+      var rawTxt = tl != null ? tl : textOf(el)
+      var txt = rawTxt.replace(/\u200B/g, '').trim()
       var kind = role === 'title' ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph')
+      // Boss, 2026-11-06 (the fourth time the recipient jumped up next to the sender): the blank lines at the TOP and the BOTTOM of a
+      // paragraph block (the recipient window: four above, two below; the gap after the subject) are the owner's and STAY. Stripping
+      // the zero-width spaces and trimming dropped them at every save of the translation page.
+      if (txt && kind === 'paragraph' && role !== 'title' && tl == null) {
+        var rl = rawTxt.split('\n')
+        var isBl = function (x) { return x.replace(/\u200B/g, '').trim() === '' }
+        var lead = 0
+        while (lead < rl.length && isBl(rl[lead])) lead++
+        var trail = 0
+        while (trail < rl.length - lead && isBl(rl[rl.length - 1 - trail])) trail++
+        if (lead || trail) {
+          var core = rl.slice(lead, rl.length - trail).join('\n').replace(/\u200B/g, '').trim()
+          var padTo = function (n) { var a = []; for (var q = 0; q < n; q++) a.push(DP_BLANK); return a }
+          txt = padTo(lead).concat([core], padTo(trail)).join('\n')
+        }
+      }
       if (!txt) {
         // #838 (Boss TG 4437): an empty line the owner made with Enter is the owner's and STAYS (as on the work item page,
         // #565): it was dropped here, so the lines under it slid up and the name ran under the signature picture. Only a
