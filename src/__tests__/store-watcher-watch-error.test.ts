@@ -23,14 +23,14 @@ vi.mock('node:fs', async (importOriginal) => {
 })
 
 // Plain factory, no importOriginal: the real config module must not load.
-// scanStore() swallows the missing directory, so nothing on disk is read.
+// The walk swallows the missing directory, so nothing on disk is read.
 vi.mock('../config.js', () => ({ STORE_DIR: '/nonexistent/marveen-store-watcher-test' }))
 vi.mock('../db.js', () => ({ logStoreFileEvent: vi.fn() }))
 vi.mock('../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import { startStoreWatcher, stopStoreWatcher } from '../store-watcher.js'
+import { startStoreWatcher, stopStoreWatcher, storeWatcherReady } from '../store-watcher.js'
 import { logger } from '../logger.js'
 
 const watchErr = (code?: string, path?: string) =>
@@ -50,10 +50,11 @@ afterEach(() => {
 })
 
 describe('store-watcher: a watch error does not take the process down', () => {
-  it('starts exactly one recursive watcher on STORE_DIR', () => {
+  it('starts exactly one watcher on STORE_DIR, not a recursive one (#860)', async () => {
+    await storeWatcherReady()
     expect(h.watchCalls.length).toBe(1)
     expect(h.watchCalls[0][0]).toBe('/nonexistent/marveen-store-watcher-test')
-    expect((h.watchCalls[0][1] as { recursive?: boolean }).recursive).toBe(true)
+    expect((h.watchCalls[0][1] as { recursive?: boolean }).recursive).not.toBe(true)
   })
 
   it('listens for the error event instead of throwing it', () => {
