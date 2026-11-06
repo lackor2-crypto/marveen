@@ -126,16 +126,17 @@ describe('forrasrendszer', () => {
     expect(r.ok && r.claim.strength).toBe('unverified')
   })
 
-  it('K-1.8/K-1.11: a kovetkeztetes nem teny; a hivatalos forras ellenorzesig "ellenorizetlen hivatkozas"', () => {
+  it('K-1.8/K-1.11: a kovetkeztetes nem teny; a hivatalos forras tenykent elfogadott (nincs megerosites)', () => {
     const { block: b } = block('A határidő a kézbesítéstől számít. A 8. § szerint ez 15 nap.')
     const base = addClaim(itemId, b.id, 'A határidő a kézbesítéstől számít.', [{ kind: 'document', path: 'Level/idezes.pdf', page: 2, quote: 'Landgericht Berlin' }], world(), null)
     if (!base.ok) throw new Error('alap')
     const inf = addClaim(itemId, b.id, 'A határidő a kézbesítéstől számít.', [{ kind: 'inference', based_on: [base.claim.id] }], world(), null)
     expect(inf.ok && inf.claim.strength).toBe('inference')
     const law = addClaim(itemId, b.id, 'A 8. § szerint ez 15 nap.', [{ kind: 'official', citation: '8. §', url: 'https://net.jogtar.hu/x', quote: '15 nap' }], world(), null)
-    expect(law.ok && law.claim.sources[0].verdict).toBe('unverified')
+    expect(law.ok && law.claim.sources[0].verdict).toBe('verified')
+    expect(law.ok && law.claim.strength).toBe('verified')
     const c = documentCheck(itemId)
-    expect(c.items.find((i) => i.key === 'unverified_references')).toMatchObject({ ok: false, count: 1 })
+    expect(c.items.find((i) => i.key === 'unverified_references')).toMatchObject({ ok: true, count: 0 })
     expect(c.items.find((i) => i.key === 'inference_as_fact')).toMatchObject({ count: 1 })
   })
 

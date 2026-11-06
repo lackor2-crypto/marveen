@@ -583,13 +583,13 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
     })
     expect(invented.ok && (invented.data as { strength: string; sources: { verdict: string }[] })).toMatchObject({ strength: 'unverified', sources: [{ verdict: 'not_found' }] })
 
-    // 3. Kitalalt jogszabaly: hivatalos forraskent rogzul, de ellenorzesig "ellenorizetlen hivatkozas".
+    // 3. Kitalalt jogszabaly: hivatalos forraskent rogzul es tenykent elfogadott (Boss, 2026-11-06: nincs megerosites).
     const b3 = t('doc.addBlock', { section: brief.sections[0], text: 'A BGB 999. §-a szerint a bérleti díj nem esedékes.' })
     const law = t('doc.addClaim', {
       block: b3.ok ? (b3.data as { id: string }).id : '', text: 'A BGB 999. §-a szerint a bérleti díj nem esedékes.',
       sources: [{ kind: 'official', citation: 'BGB § 999', url: 'https://www.gesetze-im-internet.de/bgb/__999.html', quote: 'Die Miete ist nicht fällig.' }],
     })
-    expect(law.ok && (law.data as { sources: { verdict: string }[] }).sources[0]!.verdict).toBe('unverified')
+    expect(law.ok && (law.data as { sources: { verdict: string }[] }).sources[0]!.verdict).toBe('verified')
 
     // Mindharom latszik az ellenorzesben -- az Agentnel es a tulajdonos feluleten is.
     const check = t('doc.check', {})
@@ -598,7 +598,7 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
     const quotes = items.find((i) => i.key === 'quotes_verified')!
     expect(quotes.ok).toBe(false)
     expect(quotes.detail).toEqual(expect.arrayContaining([`${letter}:1 -- other_page`, `${lease}:1 -- not_found`]))
-    expect(items.find((i) => i.key === 'unverified_references')).toMatchObject({ ok: false, count: 1, detail: ['BGB § 999'] })
+    expect(items.find((i) => i.key === 'unverified_references')).toMatchObject({ ok: true, count: 0 })
     // #843 (Boss TG 4511): no check for statements without a verified source exists any more.
     expect(items.find((i) => i.key === 'unsupported_claims')).toBeUndefined()
     const owner = await callWorkbench(`/api/workbench/items/${e.itemId}/outline`, 'GET')
