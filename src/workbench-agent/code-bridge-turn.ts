@@ -289,6 +289,23 @@ export function claimsPendingWork(text: string): boolean {
   return PENDING_CUES.test(before.slice(-PENDING_TAIL_CHARS))
 }
 
+/**
+ * The answer says the agent is waiting for something outside the chat (a CI run, an armed
+ * watcher/monitor that will report back). Re-prompting such a turn only makes it repeat the
+ * same status line, so the dashboard must not force "continue" rounds on it (Boss, TG 5054:
+ * the project chat kept adding "folytatom" lines and ended in "nem tudtam tovabb haladni").
+ */
+const BACKGROUND_WAIT_CUES = new RegExp([
+  'figyel[őo]', 'monitor', 'watcher', 'CI[- ]?(?:futás|run|ja|-ja)', 'CI-?futás', 'jelez(?:ni)?,? (?:amint|ha|a landol)',
+  'will (?:notify|report|ping)', 'waiting for (?:the )?(?:CI|monitor|watcher|merge)',
+].join('|'), 'i')
+
+export function claimsBackgroundWait(text: string): boolean {
+  const at = text.lastIndexOf(COMPLETION_MARKER)
+  const before = at >= 0 ? text.slice(0, at) : text
+  return BACKGROUND_WAIT_CUES.test(before.slice(-PENDING_TAIL_CHARS))
+}
+
 /** The answer text of a finished task that did NOT carry the whole-work marker, marker removed
  *  ('' when there is none). It is shown to the owner even though the work is continued. */
 export function incompleteAnswerText(task: CodeBridgeTaskView): string {

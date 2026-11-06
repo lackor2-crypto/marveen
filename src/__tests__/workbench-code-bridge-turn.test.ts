@@ -354,7 +354,7 @@ describe('1/A: a teljes erteku ugynok az iratok oldal-szoveget kapja', () => {
   })
 })
 
-import { claimsPendingWork, codeBridgeFullyDone as fullyDoneForPending } from '../workbench-agent/code-bridge-turn.js'
+import { claimsPendingWork, claimsBackgroundWait, codeBridgeFullyDone as fullyDoneForPending } from '../workbench-agent/code-bridge-turn.js'
 describe('a befejezes jele mellett kimondott hatralevo munka nem kesz (Boss, 2026-10-02)', () => {
   it('detects pending-work wording in the closing words, Hungarian and English', () => {
     expect(claimsPendingWork('Kesz a resz.\n\nAmi hátravan a tervből: a kijelzés. Ezzel folytatom.\n\n[MINDEN_KESZ]')).toBe(true)
@@ -421,5 +421,15 @@ describe('Boss TG 3838: a whole novel can be pasted into the Munkapad chat', () 
     const prompt = buildCodeBridgePrompt({ projectName: 'P', projectFolder: null, workItem: null, history: [], message: 'rovid kerdes', lang: 'hu' })
     expect(prompt).toContain('rovid kerdes')
     expect(prompt).not.toContain('saved in the file')
+  })
+})
+
+describe('claimsBackgroundWait (project chat must not loop while waiting for CI)', () => {
+  it('detects a status that waits for a CI run or watcher', () => {
+    expect(claimsBackgroundWait('A #1636-os PR CI-futása még tart. A figyelő jelez, amint a landolás véget ér. Utána folytatom.')).toBe(true)
+    expect(claimsBackgroundWait('Waiting for the CI; the monitor will report back.')).toBe(true)
+  })
+  it('does not flag ordinary pending work', () => {
+    expect(claimsBackgroundWait('Ami hátravan: a kijelzés. Ezzel folytatom.')).toBe(false)
   })
 })
