@@ -427,8 +427,18 @@ function directCount(abs: string, lifeRel: string): number | null {
 /** Breadth first, so every level is complete before the next one starts and the budget cuts the deep end. The start
  *  folder is always read; `startRel` is project-relative ('' = the project folder). */
 function walkOutside(projectRel: string, startAbs: string, startRel: string, box: string | null, opts: OutsideWalkOpts): ProjectOutside {
+  return drainSteps(walkOutsideSteps(projectRel, startAbs, startRel, box, opts))
+}
+
+/** #860: the same walk as a stepping generator. The time budget counts only the time the walk itself ran: the pauses
+ *  where the event loop served other requests are not charged to it, so a busy server never cuts the listing short. */
+function* walkOutsideSteps(projectRel: string, startAbs: string, startRel: string, box: string | null, opts: OutsideWalkOpts): Generator<void, ProjectOutside, void> {
   const now = opts.now ?? Date.now
-  const deadline = now() + (opts.budgetMs ?? OUTSIDE_TIME_BUDGET_MS)
+  const budget = opts.budgetMs ?? OUTSIDE_TIME_BUDGET_MS
+  let active = 0
+  let sliceStart = now()
+  const pause = function* (): Generator<void, void, void> { const t = now(); active += t - sliceStart; yield; sliceStart = now() }
+  const spentTime = (): boolean => active + (now() - sliceStart) > budget
   const out: ProjectOutside = { folders: [], files: {}, truncated: false, lazy: {}, linked: {} }
   let fileTotal = 0
   let read = 0
@@ -436,9 +446,10 @@ function walkOutside(projectRel: string, startAbs: string, startRel: string, box
   for (let qi = 0; qi < queue.length; qi++) {
     const { abs, rel, depth } = queue[qi]
     const first = qi === 0
-    const spent = () => !first && (now() > deadline || fileTotal >= WORK_FILES_TOTAL_MAX)
+    const spent = () => !first && (spentTime() || fileTotal >= WORK_FILES_TOTAL_MAX)
     if (spent() || (!first && (read >= WORK_FOLDER_MAX || depth > WORK_FOLDER_MAX_DEPTH))) { out.lazy[rel] = null; continue }
     read++
+    yield* pause()
     let entries: import('node:fs').Dirent[]
     try { entries = readdirSync(abs, { withFileTypes: true }) } catch { if (!first) out.lazy[rel] = null; continue }
     const here = `${projectRel}${rel ? '/' + rel : ''}`
@@ -464,6 +475,7 @@ function walkOutside(projectRel: string, startAbs: string, startRel: string, box
       if ((out.files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { out.truncated = true; break }
       // Out of time or room in the middle of a folder: what is listed stays, opening it loads the rest.
       if (spent()) { out.truncated = true; out.lazy[rel] = null; break }
+      if (fileTotal % 32 === 31) yield* pause()
       let size = 0
       let at: number | undefined
       try { const st = statSync(join(abs, name)); size = st.size; at = fileStamp(st) } catch { /* gone meanwhile */ }
@@ -514,9 +526,13 @@ function walkOutside(projectRel: string, startAbs: string, startRel: string, box
 }
 
 export function listProjectOutside(project: ProjectRow, box: string | null, opts: OutsideWalkOpts = {}): ProjectOutside {
+  return drainSteps(listProjectOutsideSteps(project, box, opts))
+}
+
+function* listProjectOutsideSteps(project: ProjectRow, box: string | null, opts: OutsideWalkOpts = {}): Generator<void, ProjectOutside, void> {
   const t = projectFileTarget(project, '')
   if (!t.ok) return { folders: [], files: {}, truncated: false, lazy: {}, linked: {} }
-  return walkOutside(t.dirRel, t.dirAbs, '', box, opts)
+  return yield* walkOutsideSteps(t.dirRel, t.dirAbs, '', box, opts)
 }
 
 /** #502: one folder of the project tree outside the box, opened on the page (a linked folder, or one the first
@@ -539,7 +555,7 @@ export function listProjectFolderLevel(project: ProjectRow, folder: unknown, opt
  * Boss TG 3025: a Life-tree document linked as an annex stands in the item's Attachments folder as a link (no copy):
  * it is listed there with the real path, flagged `linked` (the page offers no rename / move on it).
  */
-function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): void {
+function* linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): Generator<void, void, void> {
   let rows: { folder: string; life_rel: string | null; path: string; id: string; item: string }[] = []
   try {
     rows = getDb().prepare(`SELECT w.folder AS folder, a.life_rel AS life_rel, a.path AS path, a.id AS id, a.work_item_id AS item FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id
@@ -556,6 +572,7 @@ function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<s
     if (!key) continue
     const name = rel.slice(rel.lastIndexOf('/') + 1)
     if ((files[key] || []).some((f) => f.name === name)) continue
+    yield
     const abs = resolveLifePath(rel)
     if (!abs) continue
     let size = 0
@@ -570,7 +587,7 @@ function linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<s
  * Uploads folder as a link, so the owner sees it there without a second copy on the disk. Flagged `annex` like the
  * annex links: the page offers no delete / rename / move on it (a delete would hit the real Life-tree file).
  */
-function linkedAssetRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): void {
+function* linkedAssetRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): Generator<void, void, void> {
   let rows: { folder: string; path: string; name: string; id: string; item: string }[] = []
   try {
     rows = getDb().prepare(`SELECT w.folder AS folder, a.path AS path, a.name AS name, a.id AS id, a.work_item_id AS item FROM work_item_assets a JOIN work_items w ON w.id = a.work_item_id
@@ -584,6 +601,7 @@ function linkedAssetRows(project: ProjectRow, folders: string[], files: Record<s
     if (!key) continue
     const name = r.name || rel.slice(rel.lastIndexOf('/') + 1)
     if ((files[key] || []).some((f) => f.name === name || f.rel === rel)) continue
+    yield
     const abs = resolveLifePath(rel)
     if (!abs) continue
     let size = 0
@@ -595,7 +613,7 @@ function linkedAssetRows(project: ProjectRow, folders: string[], files: Record<s
 
 /** #741: a linked file (#601 mount) left at the old place of a file that moved to the Life tree shows in the work folder it
  *  stood in, flagged `linked`. `boxLife` is the Life path of the box, `box` its project-relative name. */
-function mountedFileRows(boxLife: string, box: string, folders: string[], files: Record<string, WorkFolderFile[]>): void {
+function* mountedFileRows(boxLife: string, box: string, folders: string[], files: Record<string, WorkFolderFile[]>): Generator<void, void, void> {
   let mounts: ReturnType<typeof listMounts> = []
   try { mounts = listMounts().filter((m) => m.file) } catch { return }
   if (!mounts.length) return
@@ -608,6 +626,7 @@ function mountedFileRows(boxLife: string, box: string, folders: string[], files:
     if (!known.has(key)) continue
     const name = m.rel.slice(cut + 1)
     if ((files[key] || []).some((f) => f.name === name)) continue
+    yield
     const real = resolveLifePath(m.rel)
     if (!real) continue
     let size = 0
@@ -619,8 +638,18 @@ function mountedFileRows(boxLife: string, box: string, folders: string[], files:
 
 /** `outside: false`: only the box (the file actions that check a path against the box need no more). */
 export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] } {
+  return drainSteps(listWorkFoldersSteps(project, opts))
+}
+
+/** #860: same listing, but the disk walk gives the event loop back every few ms (the Munkapad tree polls every 20 s and the
+ *  synchronous walk held the loop 2-3 s on the slow depot drive). */
+export function listWorkFoldersYielding(project: ProjectRow, opts: { outside?: boolean } = {}): Promise<{ box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] }> {
+  return drainStepsYielding(listWorkFoldersSteps(project, opts))
+}
+
+function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } = {}): Generator<void, { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] }, void> {
   const box = findWorkItemsBox(project)
-  const outside = opts.outside === false ? { folders: [], files: {}, truncated: false, lazy: {}, linked: {} } : listProjectOutside(project, box)
+  const outside = opts.outside === false ? { folders: [], files: {}, truncated: false, lazy: {}, linked: {} } : yield* listProjectOutsideSteps(project, box)
   // The real folder name of the project (it can differ from the project's display name).
   const rootName = String(project.folder_path ?? '').replace(/\\/g, '/').replace(/\/+$/g, '').split('/').pop() || ''
   if (!box) return { box: null, folders: [], truncated: false, files: {}, outside, root_name: rootName, own_folders: [] }
@@ -632,8 +661,9 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
   const ownFolders = liveOwnFolders(project)
   let fileTotal = 0
   let truncated = false
-  const walk = (abs: string, rel: string, depth: number): void => {
+  const walk = function* (abs: string, rel: string, depth: number): Generator<void, void, void> {
     if (depth > WORK_FOLDER_MAX_DEPTH) return
+    yield
     let entries: import('node:fs').Dirent[]
     try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
     // #488: list the loose files in EVERY folder, even one that also holds a work item (its snapshot
@@ -645,6 +675,7 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
         .sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true }))
       for (const f of plain) {
         if (fileTotal >= WORK_FILES_TOTAL_MAX || (files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { truncated = true; break }
+        if (fileTotal % 32 === 31) yield
         let size = 0
         let at: number | undefined
         try { const st = statSync(join(abs, f.name)); size = st.size; at = fileStamp(st) } catch { /* gone meanwhile */ }
@@ -667,15 +698,15 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
         if (!any) continue
       }
       out.push(childRel)
-      walk(childAbs, childRel, depth + 1)
+      yield* walk(childAbs, childRel, depth + 1)
     }
   }
-  walk(t.dirAbs, box, 1)
+  yield* walk(t.dirAbs, box, 1)
   // #698: a file that probably lies in the wrong place is only MARKED (nothing is moved or deleted).
   annotateMisplaced(box, files, itemFolders)
-  linkedAnnexRows(project, out, files)
-  linkedAssetRows(project, out, files)
-  mountedFileRows(t.dirRel, box, out, files)
+  yield* linkedAnnexRows(project, out, files)
+  yield* linkedAssetRows(project, out, files)
+  yield* mountedFileRows(t.dirRel, box, out, files)
   return { box, folders: out, truncated, files, outside, root_name: rootName, own_folders: out.filter((f) => ownFolders.has(f)) }
 }
 

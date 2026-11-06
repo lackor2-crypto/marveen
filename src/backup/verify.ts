@@ -13,7 +13,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { extractBackup, checkManifestHashes } from './extract.js'
-import { inspectDatabaseFile } from './db-snapshot.js'
+import { inspectDatabaseFileAsync } from './db-snapshot.js'
 import { buildRestorePlan, applyRestore, postRestoreCheck } from './restore.js'
 import { BackupDecryptError } from './crypto.js'
 
@@ -51,7 +51,7 @@ export async function verifyBackup(o: {
     const dbLogical = manifest.categories.database?.[0]
     if (dbLogical) {
       let integrity: string
-      try { integrity = inspectDatabaseFile(join(stage, dbLogical)).integrity } catch (e: any) { integrity = String(e?.message || e) }
+      try { integrity = (await inspectDatabaseFileAsync(join(stage, dbLogical))).integrity } catch (e: any) { integrity = String(e?.message || e) }
       if (integrity !== 'ok') return { ok: false, stage: 'database', reason: integrity, files: manifest.files.length }
     }
     // Trial restore: a fresh, empty "machine" with other paths.

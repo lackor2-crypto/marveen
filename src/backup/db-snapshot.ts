@@ -12,6 +12,9 @@
 import Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, rmSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 
 export interface DbSnapshotInfo {
   integrity: 'ok' | string
@@ -69,6 +72,23 @@ export function inspectDatabaseFile(file: string): DbSnapshotInfo {
 }
 
 /**
+ * #860: the same inspection off the main thread. `PRAGMA integrity_check` plus a count(*) per table is synchronous
+ * in better-sqlite3 and held the whole dashboard for ~3.3 s on the 153 MB database (the stall sampler caught it in
+ * describeDatabase). The compiled build runs it in a worker thread; a source run (vitest, tsx) has no compiled worker
+ * file beside it and keeps the inline call, which returns the very same value.
+ */
+export function inspectDatabaseFileAsync(file: string): Promise<DbSnapshotInfo> {
+  const here = fileURLToPath(import.meta.url)
+  if (!here.endsWith('.js')) return Promise.resolve().then(() => inspectDatabaseFile(file))
+  return new Promise<DbSnapshotInfo>((resolve, reject) => {
+    const w = new Worker(join(dirname(here), 'db-inspect-worker.js'), { workerData: { file } })
+    w.once('message', (m: { ok: boolean; info?: DbSnapshotInfo; error?: string }) => (m.ok && m.info ? resolve(m.info) : reject(new Error(m.error || 'inspect failed'))))
+    w.once('error', reject)
+    w.once('exit', (code) => { if (code !== 0) reject(new Error(`inspect worker exited with ${code}`)) })
+  })
+}
+
+/**
  * Snapshot `source` (an open handle -- the dashboard's own -- or a DB file path)
  * into `destFile`. The destination must not exist yet.
  */
@@ -97,5 +117,5 @@ export async function snapshotDatabase(source: Database.Database | string, destF
     if (existsSync(destFile + side)) rmSync(destFile + side, { force: true })
   }
   try { chmodSync(destFile, 0o600) } catch { /* best effort; staging dir is 0700 */ }
-  return inspectDatabaseFile(destFile)
+  return inspectDatabaseFileAsync(destFile)
 }

@@ -14,7 +14,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync } fr
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import { extractBackup, checkManifestHashes } from './extract.js'
-import { describeDatabase, inspectDatabaseFile } from './db-snapshot.js'
+import { describeDatabase, inspectDatabaseFileAsync } from './db-snapshot.js'
 import { checkCompat, type CompatResult } from './compat.js'
 import { applyPathRewrites, payloadBytes, planPathRewrites, targetFor, type Rewrite, type RestoreCtx } from './path-rewrite.js'
 import { categoryOf, isHeld, freeBytes } from './restore.js'
@@ -69,7 +69,7 @@ export async function inspectBackup(o: {
     let backupCounts: Record<string, number> = {}
     if (dbLogical) {
       let info
-      try { info = inspectDatabaseFile(join(stagingDir, dbLogical)) } catch (e: any) {
+      try { info = await inspectDatabaseFileAsync(join(stagingDir, dbLogical)) } catch (e: any) {
         throw new InspectError('db_integrity', `database in the backup cannot be opened: ${e?.message || e}`)
       }
       integrity = info.integrity
@@ -82,7 +82,7 @@ export async function inspectBackup(o: {
     if (o.currentDb) {
       try {
         if (typeof o.currentDb === 'string') {
-          if (existsSync(o.currentDb)) { const i = inspectDatabaseFile(o.currentDb); currentCounts = i.counts; currentFp = i.schemaFingerprint }
+          if (existsSync(o.currentDb)) { const i = await inspectDatabaseFileAsync(o.currentDb); currentCounts = i.counts; currentFp = i.schemaFingerprint }
         } else { const d = describeDatabase(o.currentDb); currentCounts = d.counts; currentFp = d.schemaFingerprint }
       } catch { currentCounts = null }
     }
