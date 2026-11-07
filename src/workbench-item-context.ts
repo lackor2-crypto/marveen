@@ -14,7 +14,7 @@
 // Runs as a periodic pass (all creation paths, legacy items and fresh installs are covered the same way) and is
 // kicked right after a Workbench write so a new item gets its file within seconds.
 
-import { existsSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { getDb } from './db.js'
 import { logger } from './logger.js'
@@ -33,7 +33,7 @@ import { ensureItemTodoFile, isTodoFileName, todoFileText } from './workbench-it
 import { listItemTodos } from './workbench-todos.js'
 import { isDebateReportTitle } from './debate-report-title.js'
 import { extractionBlockLines, readNewMaterials, type MaterialFile } from './workbench-upload-extract.js'
-import { drainSteps, drainStepsYielding } from './yielding.js'
+import { drainSteps, drainStepsYielding, type Steps } from './yielding.js'
 
 export const CONTEXT_PREFIX_HU = 'Kontextus'
 export const CONTEXT_PREFIX_EN = 'Context'
@@ -151,12 +151,12 @@ function inventoryLines(project: ProjectRow, dirAbs: string, ownName: string, ow
 }
 
 /** #869: the same walk as a stepping generator: it yields after every folder read, so the sweep can hand the event loop back (a read on the Windows drive takes ms to seconds). */
-function* inventoryLinesSteps(project: ProjectRow, dirAbs: string, ownName: string, ownFolder: boolean, files?: MaterialFile[]): Generator<void, string[], void> {
+function* inventoryLinesSteps(project: ProjectRow, dirAbs: string, ownName: string, ownFolder: boolean, files?: MaterialFile[]): Steps<string[]> {
   const lines: string[] = []
-  const walk = function* (abs: string, prefix: string, depth: number): Generator<void, void, void> {
-    let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
-    yield
+  const walk = function* (abs: string, prefix: string, depth: number): Steps<void> {
+    const got = yield { readdir: abs }
+    if (!got) return
+    const entries = got
     entries.sort((a, b) => a.name.localeCompare(b.name))
     for (const e of entries) {
       if (lines.length >= INVENTORY_MAX) return
@@ -261,7 +261,7 @@ function refreshInventory(item: WorkItemRow, project: ProjectRow, rel: string): 
   drainSteps(refreshInventorySteps(item, project, rel))
 }
 
-function* refreshInventorySteps(item: WorkItemRow, project: ProjectRow, rel: string): Generator<void, void, void> {
+function* refreshInventorySteps(item: WorkItemRow, project: ProjectRow, rel: string): Steps<void> {
   const abs = resolveLifePath(rel)
   yield
   const dir = itemDirRel(project, item)
@@ -332,7 +332,7 @@ export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { 
 }
 
 /** #869: the one-item pass as a stepping generator (yields between the slow file-system stages); the sweep drains it yielding. */
-export function* reconcileItemContextSteps(item: WorkItemRow, project: ProjectRow): Generator<void, { created: boolean; renamed: boolean; json: number }, void> {
+export function* reconcileItemContextSteps(item: WorkItemRow, project: ProjectRow): Steps<{ created: boolean; renamed: boolean; json: number }> {
   ensureTable()
   if (isDebateReportTitle(item.title)) { removeReportScaffolding(item); return { created: false, renamed: false, json: 0 } }
   // #717: a plain item generates nothing; a context / to-do file made for it before it was marked goes away while it is
