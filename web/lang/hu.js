@@ -6812,6 +6812,7 @@ window._i18n.hu = {
   "workbench.mail.drafts_done": "A levélpiszkozat a fiók Piszkozatok mappájában van ({mailbox}). Nem lett elküldve.",
   "workbench.mail.after_final": "Előbb készítsd el a végleges PDF-et (a Véglegesítés résznél, fent): a levélpiszkozat azt a végleges PDF-et és mellékleteit csatolja. Utána itt kitöltheted a feladót, a címzettet és a szöveget, és a levél mehet a Piszkozatok mappába.",
   "workbench.mail.final_stale": "A végleges PDF elavult (a dokumentum azóta változott). Véglegesítsd újra fent, mert a levél csak a mostani végleges PDF-et csatolja pontosan.",
+  "workbench.final.target_lang": "A választott nyelv: {lang}. Ezt nézed át, ezt pipálod be, és ebből készül a végleges PDF.",
   "workbench.final.lang_title": "Melyik nyelven véglegesíted?",
   "workbench.final.lang_this_original": "Ez a munkadarab (az eredeti nyelv): lent véglegesítheted.",
   "workbench.final.lang_this_variant": "Ez a(z) {lang} nyelvi változat: a véglegesítés ennek a PDF-ét készíti el.",

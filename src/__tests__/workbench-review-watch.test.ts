@@ -19,4 +19,12 @@ describe('review confirmation box stays in sync with the recorded review', () =>
     expect(fn).toContain("document.addEventListener('visibilitychange', check)")
     expect(fn).toContain('stop()')
   })
+
+  // #870: the language chosen in the picker is the one that is reviewed, ticked and finalized
+  it('accept and override tick the hash of the chosen language, not of the open item', () => {
+    const acc = src.slice(src.indexOf("a === 'outline-accept'"), src.indexOf("a === 'outline-finalize'"))
+    expect(acc).toContain('finalTargetFor(WB.selectedId)')
+    expect(acc).not.toMatch(/WB\.detail && WB\.detail\.outline\n\s+WB\.docAccept/)
+    expect(src).toContain('selectFinalTarget')
+  })
 })

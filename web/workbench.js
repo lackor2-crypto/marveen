@@ -10668,15 +10668,19 @@
       + '<a class="wb-linklike" href="' + escA(base + '/trail' + q + '&format=json') + '" download title="' + escA(t('workbench.outline.trail_json_hint')) + '">' + esc(t('workbench.outline.trail_json')) + '</a></p>'
     var fin = ''
     if (!ro) {
-      var hash = o.content_hash || ''
+      // #870 (Boss TG 5257): the language chosen at "open and review" is the one that is reviewed, ticked and finalized here.
+      var tgt = finalTargetFor(WB.selectedId)
+      var fo = tgt ? tgt.outline : o
+      var hash = fo.content_hash || ''
       // #751 (Boss, TG 4201): "ne akasszuk meg a veglegesitest semmivel. csak szoljunk!" -- the open points of the check
       // never grey the buttons. Only a missing signature or an annex not in order asks for a "finalize anyway" tick.
-      var ready = !!(o.check && o.check.ready)
-      var needOverride = !!(o.check && o.check.needs_override)
+      var ready = !!(fo.check && fo.check.ready)
+      var needOverride = !!(fo.check && fo.check.needs_override)
       var overridden = !needOverride || WB.docOverride === hash
-      var reviewed = !!o.reviewed
+      var reviewed = !!fo.reviewed
       var accepted = reviewed && WB.docAccept === hash && overridden
-      var reviewBtn = '<a class="btn-secondary btn-compact" data-wb-act="outline-review" href="' + escA(base + '/pdf' + q + '&review=' + encodeURIComponent(hash)) + '" target="_blank" rel="noopener">' + esc(t('workbench.outline.review_open')) + '</a>'
+      var reviewBase = tgt ? '/api/workbench/items/' + encodeURIComponent(tgt.id) + '/outline' : base
+      var reviewBtn = '<a class="btn-secondary btn-compact" data-wb-act="outline-review" href="' + escA(reviewBase + '/pdf' + q + '&review=' + encodeURIComponent(hash)) + '" target="_blank" rel="noopener">' + esc(t('workbench.outline.review_open')) + '</a>'
       // #590 (Boss, TG 9007): a grey button must say WHICH step is still open -- the check, the review, or the tick.
       // The review, the tick and the final PDF are the owner's own click: a browser that is not logged in with a user name
       // (token access) can never record them, so the grey button would stay grey forever -- say so instead of a step.
@@ -10700,10 +10704,11 @@
               + ' <button type="button" class="wb-linklike" data-wb-act="outline-lang-open" data-wb-item="' + escA(x.item_id) + '">' + esc(t(done ? 'workbench.final.lang_open_final' : 'workbench.final.lang_open_translate')) + '</button></li>'
           }).join('') + '</ul></div>'
       }
+      if (tgt) langPick = '<p class="wb-hint"><strong>' + esc(t('workbench.final.lang_title')) + '</strong> ' + esc(t('workbench.final.target_lang', { lang: tgt.label })) + '</p>'
       fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>' + langPick
         + '<p class="wb-hint">' + esc(t('workbench.outline.finalize_steps')) + '</p>'
         + '<p class="wb-outline-next" role="status"><strong>' + esc(t('workbench.outline.next_label')) + '</strong> ' + esc(t(nextKey)) + '</p>'
-        + (ready ? '' : outlineOpenPointsHtml(o, ro))
+        + (ready || tgt ? '' : outlineOpenPointsHtml(o, ro))
         + '<p>' + reviewBtn + (reviewed ? ' <span class="wb-ok">✓ ' + esc(t('workbench.outline.reviewed')) + '</span>' : '') + '</p>'
         + (needOverride ? '<p><label class="wb-outline-override wb-doc-low"><input type="checkbox" data-wb-act="outline-override"' + (WB.docOverride === hash ? ' checked' : '') + '> '
           + esc(t('workbench.outline.override')) + '</label></p>' : '')
@@ -11091,6 +11096,16 @@
    * the tab, so the confirmation box never stays grey while the review is already saved.
    */
   var reviewWatch = null
+  /** #870: the language version chosen at "open and review" (a sibling work item), while the panel of `panelId` is open. */
+  function finalTargetFor(panelId) {
+    var g = WB.finalTarget
+    return g && g.panel === panelId && g.outline ? g : null
+  }
+  /** The work item whose outline the review watcher / the finalize call concern: the chosen language version, else the open item. */
+  function reviewTargetId() {
+    var g = finalTargetFor(WB.selectedId)
+    return g ? g.id : WB.selectedId
+  }
   /** #794 (Boss, TG 3326): the language of the document that is opened, finalized and attached to the mail is the
    *  owner's choice, never the program's. Every language version is its own work item, so the choice lists this item
    *  and its siblings. Returns [] when there is only one language (nothing to choose). */
@@ -11113,7 +11128,7 @@
     return opts.length ? opts[0].label : ''
   }
   /** The choice dialog: no language is pre-selected; the button stays grey until one is ticked. */
-  function pickFinalLang(opts, purposeKey, onThis) {
+  function pickFinalLang(opts, purposeKey, onThis, onOther) {
     var overlay = document.createElement('div')
     overlay.className = 'modal-overlay active'
     overlay.id = 'wbFinalLangPick'
@@ -11145,6 +11160,7 @@
       // popup opened later would be blocked). A finished final opens as it is; otherwise the draft PDF of that version opens.
       var win = null
       try { win = window.open('', '_blank') } catch (_e) { win = null }
+      if (onOther) { onOther(x, win); return }
       var fin = x.final_path && !x.final_stale
       var href = fin
         ? '/api/life/file?rel=' + encodeURIComponent(x.final_path)
@@ -11156,7 +11172,8 @@
 
   function watchReview() {
     if (reviewWatch) reviewWatch.stop()
-    var id = WB.selectedId
+    var panelId = WB.selectedId
+    var id = reviewTargetId()
     var tries = 0
     var timer = null
     var stop = function () {
@@ -11169,12 +11186,15 @@
       if (reviewWatch && reviewWatch.stop === stop) reviewWatch = null
     }
     var check = function () {
-      if (WB.selectedId !== id) { stop(); return }
+      if (WB.selectedId !== panelId) { stop(); return }
       var url = '/api/workbench/items/' + encodeURIComponent(id) + '/outline'
       api('GET', url).then(function (r) {
-        if (WB.selectedId !== id) { stop(); return }
+        if (WB.selectedId !== panelId) { stop(); return }
         if (r.ok && WB.detail) {
-          WB.detail.outline = r.data.outline
+          // #870: a chosen language version has its own outline (and its own recorded review).
+          if (id === panelId) WB.detail.outline = r.data.outline
+          else if (WB.finalTarget && WB.finalTarget.id === id && WB.finalTarget.panel === panelId) WB.finalTarget.outline = r.data.outline
+          else { stop(); return }
           render()
           if (r.data.outline && r.data.outline.reviewed) stop()
         }
@@ -11193,9 +11213,30 @@
     timer = setTimeout(tick, 1500)
   }
 
+  /** #870: another language was chosen at "open and review": its outline becomes the one the panel reviews and finalizes;
+   *  its draft PDF opens WITH the review mark (the old code opened it without, so the tick stayed grey for ever). */
+  function selectFinalTarget(x, win) {
+    var panel = WB.selectedId
+    var closeWin = function () { try { if (win && win.close) win.close() } catch (_e) { /* nothing to close */ } }
+    api('GET', '/api/workbench/items/' + encodeURIComponent(x.id) + '/outline').then(function (r) {
+      if (!r.ok || !r.data || !r.data.outline || WB.selectedId !== panel) { closeWin(); if (!r.ok) window.showToast(r.text || r.message); return }
+      var out = r.data.outline
+      WB.finalTarget = { panel: panel, id: x.id, label: x.label, outline: out }
+      WB.docAccept = null; WB.docOverride = null
+      render()
+      var href = '/api/workbench/items/' + encodeURIComponent(x.id) + '/outline/pdf?lang=' + encodeURIComponent(window._lang || 'hu')
+        + (out.content_hash ? '&review=' + encodeURIComponent(out.content_hash) : '')
+      window.showToast(t('workbench.finalpick.opened_draft', { lang: x.label }))
+      openAuthed(href, 'draft.pdf', false, win)
+      watchReview()
+    })
+  }
+
   function finalizeDocument() {
-    var id = WB.selectedId
-    var o = WB.detail && WB.detail.outline
+    var panelId = WB.selectedId
+    var tg = finalTargetFor(panelId)
+    var id = tg ? tg.id : panelId
+    var o = tg ? tg.outline : (WB.detail && WB.detail.outline)
     if (!id || !o || WB.docFinalizing || archived()) return
     WB.docFinalizing = true
     render()
@@ -11203,7 +11244,8 @@
     if (o.check && o.check.needs_override && WB.docOverride === o.content_hash) body.override = true
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/finalize', body).then(function (r) {
       WB.docFinalizing = false
-      if (WB.selectedId === id && WB.detail) {
+      if (tg && WB.finalTarget === tg && r.data && r.data.outline) tg.outline = r.data.outline
+      if (!tg && WB.selectedId === id && WB.detail) {
         if (r.data && r.data.outline) WB.detail.outline = r.data.outline
         if (r.ok && r.data.assets) WB.detail.assets = r.data.assets
         if (r.ok && r.data.court) WB.detail.court = r.data.court
@@ -11211,7 +11253,9 @@
       if (r.ok) {
         WB.docAccept = null; WB.docOverride = null; window.showToast(t(r.data.reused ? 'workbench.outline.finalized_same' : 'workbench.outline.finalized', { label: r.data.final.label }))
         // #552: the server marked the work item finalized (done) with it; the box and the list follow.
-        if (WB.selectedId === id && WB.detail && WB.detail.item) WB.detail.item.status = 'done'
+        if (!tg && WB.selectedId === id && WB.detail && WB.detail.item) WB.detail.item.status = 'done'
+        // #870: the final PDF and its e-mail panel belong to the chosen language version: that item opens, the choice is spent.
+        if (tg) { WB.finalTarget = null; if (WB.selectedId === panelId) { selectItem(id); WB.docxMailFor = id; WB.shFinal = false; load(WB.projectId); return } }
         // Boss TG 4865: the filled e-mail panel (the header E-mail button's panel: recipient, subject, text, the final PDF)
         // opens at the top by itself -- the owner does not have to click it. The document stays below.
         if (WB.selectedId === id) { WB.docxMailFor = id; WB.shFinal = false }
@@ -11436,16 +11480,18 @@
       if (rvOpts.length > 1 && ev) {
         ev.preventDefault()
         var rvHref = act.getAttribute('href')
-        pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { var rvTab = null; try { rvTab = window.open('', '_blank') } catch (_e) { rvTab = null } openAuthed(rvHref, 'draft.pdf', false, rvTab); watchReview() })
+        pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { WB.finalTarget = null; WB.docAccept = null; WB.docOverride = null; render(); var rvTab = null; try { rvTab = window.open('', '_blank') } catch (_e) { rvTab = null } openAuthed(rvHref, 'draft.pdf', false, rvTab); watchReview() }, selectFinalTarget)
         return
       }
       watchReview()
     } else if (a === 'outline-accept') {
-      var o = WB.detail && WB.detail.outline
+      var acTg = finalTargetFor(WB.selectedId)
+      var o = acTg ? acTg.outline : (WB.detail && WB.detail.outline)
       WB.docAccept = act.checked && o ? o.content_hash : null
       render()
     } else if (a === 'outline-override') {
-      var oo = WB.detail && WB.detail.outline
+      var ovTg = finalTargetFor(WB.selectedId)
+      var oo = ovTg ? ovTg.outline : (WB.detail && WB.detail.outline)
       WB.docOverride = act.checked && oo ? oo.content_hash : null
       render()
     } else if (a === 'outline-finalize') {
