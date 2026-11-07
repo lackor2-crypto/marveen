@@ -16189,6 +16189,16 @@
       var pv = tw.prev[twKey(sec.id)]
       var cur = pv && pv.sig === twSig(sec)
       if (pv) { shownIds.push(sec.id); pv.fresh = false } // #619: from this draw on the page shows it
+      if (!pv && !ro && !tw.busy) {
+        // Boss TG 5175: a chapter nobody translated yet is an EDITABLE draft, not a locked placeholder: without an AI agent the owner
+        // types or pastes the translation (from the web, from anywhere) and saves it. The heading starts as the original's; an empty
+        // paragraph waits under it. twCollect turns it into a translation as soon as something real was typed.
+        shownIds.push(sec.id)
+        return (sec.untitled
+          ? '<span hidden contenteditable="false" data-tw="title" data-tw-sec="' + escA(sec.id) + '" data-tw-untitled="1">' + esc(sec.title) + '</span>'
+          : '<div class="wb-tw-h wb-dp-h1" data-tw="title" data-tw-sec="' + escA(sec.id) + '"' + ed + '>' + esc(sec.title) + '</div>')
+          + '<div class="wb-tw-block wb-dp-block wb-outline-kind-paragraph" data-tw="block" data-tw-sec="' + escA(sec.id) + '" data-tw-kind="paragraph"' + ed + '><br></div>'
+      }
       if (!pv) {
         return (sec.untitled ? '' : '<div class="wb-tw-h wb-dp-h1 wb-tw-todo" contenteditable="false">' + esc(sec.title) + '</div>')
           + '<p class="wb-muted wb-tw-todo" contenteditable="false">' + esc(t(tw.busy && tw.current === sec.id ? 'workbench.tw.working_sec' : 'workbench.tw.not_yet')) + '</p>'
@@ -16317,6 +16327,17 @@
     if (tw.note === t('workbench.tw.emptied_kept')) tw.note = ''
     var anyText = order.some(function (sid2) { return seen[sid2].title || seen[sid2].blocks.length })
     if (!anyText && shownOnes.length) { tw.note = t('workbench.tw.emptied_kept'); return }
+    // Boss TG 5175: a chapter that has no translation yet stands on the page as an editable draft (twPageHtml). What the owner typed or
+    // pasted into it IS the translation from now on (the AI agent is not needed); an untouched draft stays what it was.
+    ;(o.sections || []).forEach(function (sec) {
+      var key0 = twKey(sec.id)
+      if (tw.prev[key0] || shownIds.indexOf(sec.id) < 0) return
+      var g0 = seen[sec.id]
+      if (!g0) return
+      var real = g0.blocks.filter(function (b) { return b.kind !== 'paragraph' || String(b.text || '').replace(/\u200B/g, '').trim() })
+      if (!real.length && !(g0.title && g0.title !== sec.title)) return
+      tw.prev[key0] = { source_section: sec.id, title: g0.title || sec.title, blocks: g0.blocks, sig: twSig(sec), fresh: false }
+    })
     var dropped = 0
     ;(o.sections || []).forEach(function (sec) {
       var key = twKey(sec.id)
@@ -16367,9 +16388,11 @@
     var head = '<div class="wb-tw-head"><label class="wb-label" for="wbTwLang">' + esc(t('workbench.tw.lang')) + '</label> '
       + '<select id="wbTwLang" data-wb-tw-lang="1"' + (tw.busy ? ' disabled' : '') + '>' + langs + '</select> '
       + '<button type="button" class="btn-secondary btn-compact" data-wb-act="tw-run"' + (tw.busy ? ' disabled' : '') + '>' + esc(t(tw.busy ? 'workbench.tw.working' : have ? 'workbench.tw.again' : 'workbench.tw.run')) + '</button> '
-      + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="tw-save"' + (tw.busy || !have ? ' disabled' : '') + ' title="' + escA(t('workbench.tw.save_hint')) + '">' + esc(t('workbench.tw.save')) + '</button>')
+      + (ro ? '' : '<button type="button" class="btn-primary btn-compact" data-wb-act="tw-save"' + (tw.busy || (!have && !secs.length) ? ' disabled' : '') + ' title="' + escA(t('workbench.tw.save_hint')) + '">' + esc(t('workbench.tw.save')) + '</button>')
       + '</div>'
     var note = tw.note ? '<p class="wb-hint wb-tw-note">' + esc(tw.note) + '</p>' : ''
+    // Boss TG 5175: with no translation yet the page is a free document: say so, once, above it.
+    if (!ro && !tw.busy && !have && secs.length && !tw.note) note = '<p class="wb-hint wb-tw-note">' + esc(t('workbench.tw.draft_hint')) + '</p>'
     var droppedHint = tw.dropped ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.dropped', { n: tw.dropped })) + '</p>' : ''
     var failed = tw.failed.length ? '<p class="wb-doc-low">&#9888; ' + esc(t('workbench.tw.failed', { n: tw.failed.length })) + '</p>' : ''
     // #558: a formatted paragraph the translator gave back as plain text is marked on the page and counted here (a paragraph edited since is no longer one).
@@ -16849,7 +16872,25 @@
     // The zoom slider scales both columns: screen pixels are turned back into the pixels the style is written in.
     var scale = bar && bar.offsetHeight ? bar.getBoundingClientRect().height / bar.offsetHeight : 1
     if (!(scale > 0)) scale = 1
-    if (bar && panel) off = Math.round((bar.getBoundingClientRect().top - panel.getBoundingClientRect().top) / scale * 10) / 10
+    // Boss TG 5184: both the toolbar (top: 0) and the panel (top: 8px) are position:sticky. Measured while the page is scrolled they sit
+    // where the scroll holds them, not where the layout puts them, and the difference became a permanent margin: the header box of the
+    // translation hung lower than the original's toolbar. Both are measured in their natural (static) place, then put back at once.
+    if (bar && panel) {
+      var barPos = bar.style.position, panelPos = panel.style.position
+      bar.style.position = 'static'; panel.style.position = 'static'
+      off = Math.round((bar.getBoundingClientRect().top - panel.getBoundingClientRect().top) / scale * 10) / 10
+      bar.style.position = barPos; panel.style.position = panelPos
+    }
+    // Boss TG 5195: the column's height limit is 100vh in CSS, but inside the editor frame the page scrolls in a smaller box (.wb-fr-scroll).
+    // A column taller than that box was pushed up at the end of the document and its controls box sat above / below where it belongs.
+    // The limit is the scrolling box's own height (in the column's zoomed pixels).
+    var fr = typeof panel.closest === 'function' ? panel.closest('.wb-fr-scroll') : null
+    var cols = document.querySelectorAll('.wb-tp-right')
+    for (var ci = 0; ci < cols.length; ci++) cols[ci].style.maxHeight = fr && fr.clientHeight ? Math.max(120, Math.floor((fr.clientHeight - 16) / scale)) + 'px' : ''
+    if (fr && typeof ResizeObserver === 'function' && !fr.getAttribute('data-tw-ro')) {
+      fr.setAttribute('data-tw-ro', '1')
+      new ResizeObserver(function () { twAlignTop() }).observe(fr)
+    }
     top.style.marginTop = off > 0 ? off + 'px' : ''
     top.style.minHeight = bar ? bar.offsetHeight + 'px' : ''
     if (bar && typeof ResizeObserver === 'function' && !bar.getAttribute('data-tw-ro')) {
