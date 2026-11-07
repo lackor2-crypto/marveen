@@ -213,6 +213,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   sent_bad_input: { hu: 'Add meg a dátumot (naptárból) és a címzettet. Az időpont óra:perc alakban kell (például 14:30), a szövegek legfeljebb 300 karakteresek.', en: 'Give the date (from the calendar) and the recipient. The time must be hours:minutes (for example 14:30), and each text at most 300 characters.' },
   sent_too_many: { hu: 'Ennél a beadványnál már 100 elküldés van rögzítve, többet nem tudok felvenni.', en: 'This submission already has 100 sendings recorded; no more can be added.' },
   maildraft_bad_input: { hu: 'A címzett vagy a másolatot kapó nem érvényes e-mail-cím, vagy a tárgy / a szöveg túl hosszú. Több címet vesszővel válassz el.', en: 'The recipient or the copy address is not a valid e-mail address, or the subject / text is too long. Separate several addresses with a comma.' },
+  maildraft_own_address: { hu: 'Ez a cím a saját e-mail fiókjaid egyike, ezért nem lehet címzett vagy másolatot kapó. Írd be annak a címét, akinek a levél szól.', en: 'This address belongs to one of your own mail accounts, so it cannot be the recipient or a copy. Enter the address of the person the letter is for.' },
   maildraft_final_required: { hu: 'A levélpiszkozat a végleges PDF elkészülte után készülhet el, és a végleges PDF nyelvén íródik. Előbb készítsd el a Végleges PDF-et.', en: 'The e-mail draft can only be made after the final PDF exists, and it is written in the language of that PDF. Make the final PDF first.' },
   maildraft_no_draft: { hu: 'Előbb készítsd el a levélpiszkozatot (Levélpiszkozat készítése).', en: 'Make the e-mail draft first.' },
   maildraft_no_account: { hu: 'Válaszd ki a feladót (melyik e-mail fiókból menjen a levél), és mentsd a piszkozatot.', en: 'Choose the sender (which e-mail account the message goes from), and save the draft.' },
@@ -4709,6 +4710,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         if (r.code === 'docx_mail_no_pdf') return fail(res, 409, 'docx_mail_no_pdf', lang)
         if (r.code === 'bad_input') return failDetail(res, 400, 'maildraft_bad_input', lang, r.detail)
         if (r.code === 'final_required') return fail(res, 409, 'maildraft_final_required', lang)
+        if (r.code === 'own_address') return failDetail(res, 400, 'maildraft_own_address', lang, r.detail)
         if (r.code === 'no_folder' || r.code === 'write_failed') return failDetail(res, r.code === 'no_folder' ? 409 : 500, 'maildraft_' + r.code, lang, r.detail)
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }
