@@ -33,6 +33,7 @@ import { ensureItemTodoFile, isTodoFileName, todoFileText } from './workbench-it
 import { listItemTodos } from './workbench-todos.js'
 import { isDebateReportTitle } from './debate-report-title.js'
 import { extractionBlockLines, readNewMaterials, type MaterialFile } from './workbench-upload-extract.js'
+import { drainSteps, drainStepsYielding } from './yielding.js'
 
 export const CONTEXT_PREFIX_HU = 'Kontextus'
 export const CONTEXT_PREFIX_EN = 'Context'
@@ -146,20 +147,26 @@ function itemDirRel(project: ProjectRow, item: WorkItemRow): { abs: string; rel:
 
 /** Names of the materials around the item (two levels deep) and the folders attached to the project. */
 function inventoryLines(project: ProjectRow, dirAbs: string, ownName: string, ownFolder: boolean, files?: MaterialFile[]): string[] {
+  return drainSteps(inventoryLinesSteps(project, dirAbs, ownName, ownFolder, files))
+}
+
+/** #869: the same walk as a stepping generator: it yields after every folder read, so the sweep can hand the event loop back (a read on the Windows drive takes ms to seconds). */
+function* inventoryLinesSteps(project: ProjectRow, dirAbs: string, ownName: string, ownFolder: boolean, files?: MaterialFile[]): Generator<void, string[], void> {
   const lines: string[] = []
-  const walk = (abs: string, prefix: string, depth: number): void => {
+  const walk = function* (abs: string, prefix: string, depth: number): Generator<void, void, void> {
     let entries: import('node:fs').Dirent[]
     try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    yield
     entries.sort((a, b) => a.name.localeCompare(b.name))
     for (const e of entries) {
       if (lines.length >= INVENTORY_MAX) return
       if (e.name.startsWith('.') || e.name === 'marveen-item.json' || e.name === ownName || isTodoFileName(e.name)) continue
-      if (e.isDirectory()) { if (depth < 2) walk(join(abs, e.name), `${prefix}${e.name}/`, depth + 1); continue }
+      if (e.isDirectory()) { if (depth < 2) yield* walk(join(abs, e.name), `${prefix}${e.name}/`, depth + 1); continue }
       if (e.isFile()) { lines.push(`- ${prefix}${e.name}`); files?.push({ rel: `${prefix}${e.name}`, abs: join(abs, e.name) }) }
     }
   }
   // An item without its own folder shares it with others: listing the neighbours would be noise.
-  if (ownFolder) walk(dirAbs, '', 1)
+  if (ownFolder) yield* walk(dirAbs, '', 1)
   const home = String(project.folder_path || '').replace(/^\/+|\/+$/g, '')
   const attached = home
     ? listMounts().filter((m) => m.rel.startsWith(home + '/') && !m.rel.slice(home.length + 1).includes('/'))
@@ -251,14 +258,20 @@ export function ensureItemContext(item: WorkItemRow, project: ProjectRow): ItemC
 
 /** The machine-kept materials list inside the file: rewritten only when it changed. */
 function refreshInventory(item: WorkItemRow, project: ProjectRow, rel: string): void {
+  drainSteps(refreshInventorySteps(item, project, rel))
+}
+
+function* refreshInventorySteps(item: WorkItemRow, project: ProjectRow, rel: string): Generator<void, void, void> {
   const abs = resolveLifePath(rel)
+  yield
   const dir = itemDirRel(project, item)
+  yield
   if (!abs || !dir) return
   let text: string
   try { text = readFileSync(abs, 'utf8') } catch { return }
   const ownFolder = !!String(item.folder ?? '').trim()
   const files: MaterialFile[] = []
-  const lines = inventoryLines(project, dir.abs, basename(abs), ownFolder, files)
+  const lines = yield* inventoryLinesSteps(project, dir.abs, basename(abs), ownFolder, files)
   // #794 (Boss TG 10480): the content of every material, read out, sits in the same machine block.
   const next = withBlock(text, blockText(lines, extractionBlockLines(item.id, files)))
   if (next === text) return
@@ -315,6 +328,11 @@ export function healContextAsSource(item: WorkItemRow): WorkItemRow {
 
 /** One item: context file, JSON names, materials list. */
 export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { created: boolean; renamed: boolean; json: number } {
+  return drainSteps(reconcileItemContextSteps(item, project))
+}
+
+/** #869: the one-item pass as a stepping generator (yields between the slow file-system stages); the sweep drains it yielding. */
+export function* reconcileItemContextSteps(item: WorkItemRow, project: ProjectRow): Generator<void, { created: boolean; renamed: boolean; json: number }, void> {
   ensureTable()
   if (isDebateReportTitle(item.title)) { removeReportScaffolding(item); return { created: false, renamed: false, json: 0 } }
   // #717: a plain item generates nothing; a context / to-do file made for it before it was marked goes away while it is
@@ -324,6 +342,7 @@ export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { 
   const before = readRow(item.id)
   const oldStem = before?.stem || ''
   const json = followItemJsonNames(item, oldStem)
+  yield
   if (contextOwner(item).id !== item.id) {
     // A language version: no file of its own (an empty path clears any old pointer); the original's pass keeps the
     // shared file. Only the name stem is tracked, so the version's JSON files still follow its rename.
@@ -331,7 +350,9 @@ export function reconcileItemContext(item: WorkItemRow, project: ProjectRow): { 
     return { created: false, renamed: false, json }
   }
   const r = ensureItemContext(item, project)
-  if (r.rel) refreshInventory(item, project, r.rel)
+  yield
+  if (r.rel) yield* refreshInventorySteps(item, project, r.rel)
+  yield
   // The to-do file lives beside the context file (Boss TG 3462); a failure there never stops the context pass.
   try { ensureItemTodoFile(item, project) } catch (err: any) { logger.warn({ item: item.id, err: String(err?.message || err) }, '[item-context] to-do file skipped') }
   return { created: r.created, renamed: r.renamed, json }
@@ -349,9 +370,9 @@ export async function readItemMaterials(item: WorkItemRow, project: ProjectRow, 
   const abs = row && row.rel ? resolveLifePath(row.rel) : null
   if (!row || !row.rel || !abs || !dir || !existsSync(abs)) return 0
   const files: MaterialFile[] = []
-  inventoryLines(project, dir.abs, basename(abs), !!String(item.folder ?? '').trim(), files)
+  await drainStepsYielding(inventoryLinesSteps(project, dir.abs, basename(abs), !!String(item.folder ?? '').trim(), files), 4)
   const n = await readNewMaterials(item.id, files, limit)
-  if (n) refreshInventory(item, project, row.rel)
+  if (n) await drainStepsYielding(refreshInventorySteps(item, project, row.rel), 4)
   return n
 }
 
@@ -411,7 +432,7 @@ export async function sweepItemContexts(): Promise<{ items: number; created: num
       if (!project || !project.folder_path) continue
       for (const item of listWorkItems(project.id)) {
         try {
-          const r = reconcileItemContext(item, project)
+          const r = await drainStepsYielding(reconcileItemContextSteps(item, project), 4)
           out.items++
           if (r.created) out.created++
           if (r.renamed) out.renamed++
