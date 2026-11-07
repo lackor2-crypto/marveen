@@ -39,4 +39,14 @@ describe('#866: the translation page is editable before any translation', () => 
       expect(l).toContain('"workbench.tw.draft_hint"')
     }
   })
+
+  // Boss TG 5184: the header box of the translation hung lower than the original's toolbar when the page had been scrolled,
+  // because both are sticky and the offset was measured at their scrolled places.
+  it('twAlignTop measures the toolbar / panel offset in their static place, not where sticky holds them', () => {
+    const at = js.indexOf('function twAlignTop()')
+    const body = js.slice(at, at + 2200)
+    expect(body).toContain("bar.style.position = 'static'; panel.style.position = 'static'")
+    expect(body.indexOf("panel.style.position = 'static'")).toBeLessThan(body.indexOf('off = Math.round('))
+    expect(body.indexOf('off = Math.round(')).toBeLessThan(body.indexOf('bar.style.position = barPos'))
+  })
 })

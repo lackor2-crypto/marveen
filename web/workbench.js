@@ -16872,7 +16872,15 @@
     // The zoom slider scales both columns: screen pixels are turned back into the pixels the style is written in.
     var scale = bar && bar.offsetHeight ? bar.getBoundingClientRect().height / bar.offsetHeight : 1
     if (!(scale > 0)) scale = 1
-    if (bar && panel) off = Math.round((bar.getBoundingClientRect().top - panel.getBoundingClientRect().top) / scale * 10) / 10
+    // Boss TG 5184: both the toolbar (top: 0) and the panel (top: 8px) are position:sticky. Measured while the page is scrolled they sit
+    // where the scroll holds them, not where the layout puts them, and the difference became a permanent margin: the header box of the
+    // translation hung lower than the original's toolbar. Both are measured in their natural (static) place, then put back at once.
+    if (bar && panel) {
+      var barPos = bar.style.position, panelPos = panel.style.position
+      bar.style.position = 'static'; panel.style.position = 'static'
+      off = Math.round((bar.getBoundingClientRect().top - panel.getBoundingClientRect().top) / scale * 10) / 10
+      bar.style.position = barPos; panel.style.position = panelPos
+    }
     top.style.marginTop = off > 0 ? off + 'px' : ''
     top.style.minHeight = bar ? bar.offsetHeight + 'px' : ''
     if (bar && typeof ResizeObserver === 'function' && !bar.getAttribute('data-tw-ro')) {
