@@ -1474,6 +1474,11 @@
 #wbTwPanel > .wb-tw-top { width: min(100%, 794px); box-sizing: border-box; margin: 0 auto 10px; padding: 8px 12px; background: #f3f4f8; color: #1b1b1f; border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); font-size: 13px; }
 #wbTwPanel > .wb-tw-top .wb-label, #wbTwPanel > .wb-tw-top .wb-hint, #wbTwPanel > .wb-tw-top .wb-doc-low { color: #1b1b1f; }
 #wbTwPanel > .wb-tw-top > :last-child { margin-bottom: 0; }
+/* Boss TG 5195: the translation column is a plain column as tall as the original's (no sticky, no scroll of its own: a column taller than the
+   scrolling box was pushed up at the end of the document, and its controls box hung away from the original's toolbar). Only the controls box
+   sticks, at the top of the scrolling box, exactly like the original's toolbar. */
+#wbTwPanel.wb-tw-right { position: static; max-height: none; overflow: visible; align-self: stretch; }
+#wbTwPanel > .wb-tw-top { position: sticky; top: 0; z-index: 3; }
 .wb-tw-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .wb-tw-sec h4 { margin: 12px 0 4px; font-size: 15px; }
 .wb-tw-block { margin: 0 0 8px; white-space: pre-wrap; line-height: var(--wb-lh, 1.6); }

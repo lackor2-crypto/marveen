@@ -49,4 +49,19 @@ describe('#866: the translation page is editable before any translation', () => 
     expect(body.indexOf("panel.style.position = 'static'")).toBeLessThan(body.indexOf('off = Math.round('))
     expect(body.indexOf('off = Math.round(')).toBeLessThan(body.indexOf('bar.style.position = barPos'))
   })
+
+  // Boss TG 5195: scrolled to the end of a long document, the translation column (sticky + 100vh limit, taller than the editor's own scrolling
+  // box) was pushed up and its controls box hung away from the original's toolbar. The column is a plain stretched block now; only the box sticks.
+  it('the translation column is a plain block and only its controls box sticks at the top of the scrolling box', () => {
+    const css = readFileSync(join(root, 'web', 'workbench.css'), 'utf8')
+    expect(css).toContain('#wbTwPanel.wb-tw-right { position: static; max-height: none; overflow: visible; align-self: stretch; }')
+    expect(css).toContain('#wbTwPanel > .wb-tw-top { position: sticky; top: 0; z-index: 3; }')
+  })
+
+  it('the height limit taken from the editor scrolling box is applied to the other side column only', () => {
+    const at = js.indexOf('function twAlignTop()')
+    const body = js.slice(at, at + 4000)
+    expect(body).toContain("document.querySelectorAll('.wb-tp-right')")
+    expect(body).not.toContain("document.querySelectorAll('.wb-tw-right')")
+  })
 })

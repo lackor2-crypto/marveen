@@ -16881,6 +16881,16 @@
       off = Math.round((bar.getBoundingClientRect().top - panel.getBoundingClientRect().top) / scale * 10) / 10
       bar.style.position = barPos; panel.style.position = panelPos
     }
+    // Boss TG 5195: the column's height limit is 100vh in CSS, but inside the editor frame the page scrolls in a smaller box (.wb-fr-scroll).
+    // A column taller than that box was pushed up at the end of the document and its controls box sat above / below where it belongs.
+    // The limit is the scrolling box's own height (in the column's zoomed pixels).
+    var fr = typeof panel.closest === 'function' ? panel.closest('.wb-fr-scroll') : null
+    var cols = document.querySelectorAll('.wb-tp-right')
+    for (var ci = 0; ci < cols.length; ci++) cols[ci].style.maxHeight = fr && fr.clientHeight ? Math.max(120, Math.floor((fr.clientHeight - 16) / scale)) + 'px' : ''
+    if (fr && typeof ResizeObserver === 'function' && !fr.getAttribute('data-tw-ro')) {
+      fr.setAttribute('data-tw-ro', '1')
+      new ResizeObserver(function () { twAlignTop() }).observe(fr)
+    }
     top.style.marginTop = off > 0 ? off + 'px' : ''
     top.style.minHeight = bar ? bar.offsetHeight + 'px' : ''
     if (bar && typeof ResizeObserver === 'function' && !bar.getAttribute('data-tw-ro')) {
