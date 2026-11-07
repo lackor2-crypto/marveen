@@ -36,7 +36,7 @@ import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
 import { resolveLifePath } from './life-explorer.js'
 import type { DocLang } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
-import { saveDraft as saveMailboxDraft } from './mail-send.js'
+import { saveDraft as saveMailboxDraft, sendingAccounts } from './mail-send.js'
 import { listAgentMessages, listAgentSessions } from './workbench-agent/sessions.js'
 
 // ---------------------------------------------------------------------------
@@ -302,7 +302,7 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   const state: MailDraftView['state'] = !titled && row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
   return {
     file: '', file_name: '',
-    from_account: row.from_account, from_addr: row.from_addr, to: row.to_addr || knownRecipient(item), cc: row.cc_addr, subject: row.subject || mailSubject(item), body: shownBody(item, row.body),
+    from_account: row.from_account, from_addr: row.from_addr, to: withoutOwnAddresses(row.to_addr) || knownRecipient(item), cc: row.cc_addr, subject: row.subject || mailSubject(item), body: shownBody(item, row.body),
     attachments, total_bytes: attachments.reduce((n, a) => n + a.bytes, 0), updated_at: row.updated_at, state,
   }
 }
@@ -312,6 +312,32 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
  * default text, in the language of the current final PDF. Nothing is stored here: the row appears when the button is pressed.
  * Null when a draft exists already, or there is no current final (the form is not offered then).
  */
+const ADDRESS_G = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g
+
+/**
+ * #871 (Boss TG 5283): the addresses of the owner's OWN mail accounts (every account set up in the mail settings, the Google one
+ * too). They send the draft, they are never who it is sent TO: a recipient taken from a text that mentions them is skipped.
+ */
+export function ownMailAddresses(): Set<string> {
+  const out = new Set<string>()
+  try { for (const a of sendingAccounts()) if (a.address) out.add(a.address.trim().toLowerCase()) } catch { /* no accounts known: nothing to exclude */ }
+  return out
+}
+export const isOwnAddress = (addr: string): boolean => ownMailAddresses().has(addr.trim().toLowerCase())
+
+/** The first address of a text that is not one of the owner's own ('' when there is none). */
+export function firstForeignAddress(text: string): string {
+  const own = ownMailAddresses()
+  for (const m of String(text ?? '').matchAll(ADDRESS_G)) if (!own.has(m[0].toLowerCase())) return m[0]
+  return ''
+}
+
+/** An address list without the owner's own addresses ("a@x.y, b@x.y"). */
+export function withoutOwnAddresses(list: string): string {
+  const own = ownMailAddresses()
+  return list.split(/[,;\s]+/).filter((a) => a && !own.has(a.toLowerCase())).join(', ')
+}
+
 /**
  * #794 (Boss TG 10459): the recipient the owner typed into the assistant chat. Only the OWNER's own messages count (never the
  * assistant's text or a tool result), the earliest one first: an address is never made up, it is taken from what was said.
@@ -322,8 +348,8 @@ export function chatRecipient(item: WorkItemRow): string {
     for (const se of sessions) {
       for (const m of listAgentMessages(se.id, 400)) {
         if (m.role !== 'user') continue
-        const hit = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/.exec(String(m.content ?? ''))
-        if (hit) return hit[0]
+        const hit = firstForeignAddress(String(m.content ?? ''))
+        if (hit) return hit
       }
     }
   } catch { /* no chat tables yet: nothing to take */ }
@@ -344,11 +370,9 @@ export function contextRecipient(item: WorkItemRow): string {
   try {
     const ctx = readItemContext(item)
     if (!ctx) return ''
-    const re = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/
     const lines = ctx.text.split(/\r\n|\r|\n/)
-    const named = lines.find((l) => /(címzett|cimzett|empf[aä]nger|recipient|kinek|küld(?:jük|jem)|send to|e-?mail)/i.test(l) && re.test(l))
-    const hit = re.exec(named ?? ctx.text)
-    return hit ? hit[0] : ''
+    const named = lines.find((l) => /(címzett|cimzett|empf[aä]nger|recipient|kinek|küld(?:jük|jem)|send to|e-?mail)/i.test(l) && firstForeignAddress(l))
+    return firstForeignAddress(named ?? ctx.text)
   } catch { return '' }
 }
 
@@ -360,8 +384,7 @@ export function knownRecipient(item: WorkItemRow): string {
   const inText = (id: string): string => {
     try {
       if (!hasDocModel(id)) return ''
-      const hit = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/.exec(listBlocks(id).map((b) => String(b.text ?? '')).join('\n'))
-      return hit ? hit[0] : ''
+      return firstForeignAddress(listBlocks(id).map((b) => String(b.text ?? '')).join('\n'))
     } catch { return '' }
   }
   const own = inText(item.id)
@@ -369,7 +392,7 @@ export function knownRecipient(item: WorkItemRow): string {
   const v = variantOf(item.id)
   if (v && v.source_item_id) {
     const src = getRow(v.source_item_id)
-    if (src && src.to_addr) return src.to_addr
+    if (src && src.to_addr && withoutOwnAddresses(src.to_addr)) return withoutOwnAddresses(src.to_addr)
     try { return chatRecipient({ ...item, id: v.source_item_id } as WorkItemRow) || inText(v.source_item_id) } catch { return '' }
   }
   return ''
@@ -514,6 +537,10 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   const to = input.to === undefined ? (prev?.to_addr ?? '') : cleanAddresses(input.to)
   const cc = input.cc === undefined ? (prev?.cc_addr ?? '') : cleanAddresses(input.cc)
   if (to === null || cc === null) return { ok: false, code: 'bad_input', detail: 'address' }
+  // #871 (Boss TG 5283): an address of the owner's own mail accounts is never a recipient or a copy.
+  const own = ownMailAddresses()
+  const ownHit = [...to.split(', '), ...cc.split(', ')].find((a) => a && own.has(a.toLowerCase()))
+  if (ownHit) return { ok: false, code: 'own_address', detail: ownHit }
   // #794 (Boss TG 10425/10429): the draft exists only AFTER the final PDF, and it is written in the language of THAT PDF
   // (the final's label says it), not in whatever the work item or the page happens to be in.
   const fin = hasDocModel(item.id) ? finalState(item) : null

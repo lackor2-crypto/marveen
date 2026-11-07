@@ -49,6 +49,12 @@ export function letterSubject(itemId: string): string {
   } catch { return '' }
 }
 
+const foldClosing = (l: string): string => l.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/ß/g, 'ss').replace(/[\s,.!;:]+$/g, '').trim()
+/** A closing phrase of a letter (folded, no accents): it stands above the name, it is not the name. */
+const CLOSING_LINE = /^(mit freundlichen grussen|freundliche grusse|mit freundlichem gruss|beste grusse|viele grusse|hochachtungsvoll|mit vorzuglicher hochachtung|tisztelettel|udvozlettel|baratsagos udvozlettel|koszonettel|kind regards|best regards|warm regards|regards|yours sincerely|yours faithfully|sincerely)$/
+/** The label line that opens the sender block. */
+const SENDER_LABEL = /^(feladó|felado|absender|sender)\s*:?$/i
+
 /**
  * #794 (Boss TG 4081: "Boss" stood under "Mit freundlichen Grüßen"): the name that signs a letter is the one the LETTER
  * carries -- the last text block's first line when it is a person's name (2-4 words, letters only), a signature block's
@@ -57,20 +63,31 @@ export function letterSubject(itemId: string): string {
 export function letterSignatory(itemId: string): string {
   try {
     if (!hasDocModel(itemId)) return ''
-    const blocks = listBlocks(itemId).filter((b) => String(b.text ?? '').replace(/[\u200b\s]+/g, '') !== '')
+    const all = listBlocks(itemId)
+    const blocks = all.filter((b) => String(b.text ?? '').replace(/[\u200b\s]+/g, '') !== '')
     const nameOf = (line: string): string => {
       const l = line.replace(/[\u200b]/g, '').trim()
-      return /^[\p{L}][\p{L}.'’-]*(?:\s+[\p{L}][\p{L}.'’-]*){1,3}$/u.test(l) && l.length <= 40 ? l : ''
+      return !CLOSING_LINE.test(foldClosing(l)) && !/[.!?,;:]$/.test(l) && /^[\p{L}][\p{L}.'’-]*(?:\s+[\p{L}][\p{L}.'’-]*){1,3}$/u.test(l) && l.length <= 40 ? l : ''
     }
+    // #871 (Boss TG 5283): the closing phrase ("Mit freundlichen Grüßen") is never the name, and a signature PICTURE between the
+    // closing and the name does not hide it: pictures and closing lines are stepped over, the first real text decides.
     for (const b of blocks.slice().reverse()) {
-      const lines = String(b.text ?? '').split(/\r\n|\r|\n/).map((x) => x.trim()).filter(Boolean)
+      if (b.kind !== 'paragraph' && b.kind !== 'signature') continue
+      const lines = String(b.text ?? '').split(/\r\n|\r|\n/).map((x) => x.trim()).filter(Boolean).filter((l) => !CLOSING_LINE.test(foldClosing(l)))
+      // a block holding only the closing: nothing signs below it, the text above is the body, not a name
+      if (!lines.length) break
       if (b.kind === 'signature') {
         for (const l of lines.slice().reverse()) { const n = nameOf(l); if (n) return n }
         continue
       }
-      const n = lines.length ? nameOf(lines[0] as string) : ''
+      const n = nameOf(lines[0] as string)
       if (n && lines.slice(1).every((l) => /\d/.test(l) || l.length <= 40)) return n
       break
+    }
+    // No name under the closing: the letter is signed by its own sender (the framed "Absender:" / "Feladó:" block).
+    for (const b of blocks) {
+      const lines = String(b.text ?? '').split(/\r\n|\r|\n/).map((x) => x.replace(/[\u200b]/g, '').trim()).filter(Boolean)
+      if (lines.length > 1 && SENDER_LABEL.test(lines[0] as string)) { const n = nameOf(lines[1] as string); if (n) return n }
     }
     return ''
   } catch { return '' }
