@@ -6738,6 +6738,7 @@ window._i18n.en = {
   "workbench.mail.drafts_done": "The e-mail draft is in the account's Drafts folder ({mailbox}). It was not sent.",
   "workbench.mail.after_final": "Make the final PDF first (in the Finalize part above): the e-mail draft attaches that final PDF and its annexes. Then you can fill in the sender, the recipient and the text here, and put the message into the Drafts folder.",
   "workbench.mail.final_stale": "The final PDF is out of date (the document changed since). Finalize again above: the message carries the current final PDF only then.",
+  "workbench.final.target_lang": "Chosen language: {lang}. This is the one you review, tick and the final PDF is made from.",
   "workbench.final.lang_title": "Which language are you finalizing?",
   "workbench.final.lang_this_original": "This work item (the original language): you can finalize it below.",
   "workbench.final.lang_this_variant": "This is the {lang} language version: finalizing makes the PDF of this one.",
