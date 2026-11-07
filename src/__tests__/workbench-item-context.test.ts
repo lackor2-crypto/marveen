@@ -283,8 +283,15 @@ describe('the one-item pass steps instead of blocking', () => {
     for (let i = 0; i < 6; i++) { mkdirSync(join(itemDir, `Anyag ${i}`), { recursive: true }); writeFileSync(join(itemDir, `Anyag ${i}`, 'a.txt'), 'x') }
     const project = getProject(pid)!
     const it = reconcileItemContextSteps(getWorkItem(itemId)!, project)
+    // #872: every folder read is a request the drain answers; count them (the async drain reads each without blocking)
     let steps = 0
-    for (;;) { const r = it.next(); if (r.done) break; steps++ }
+    let answer: ReturnType<typeof readdirSync> | null | undefined
+    for (;;) {
+      const r = it.next(answer as never)
+      if (r.done) break
+      answer = undefined
+      if (r.value) { steps++; try { answer = readdirSync(r.value.readdir, { withFileTypes: true }) as never } catch { answer = null } }
+    }
     expect(steps).toBeGreaterThanOrEqual(6)
     expect(readItemContext(getWorkItem(itemId)!)!.text).toContain('Anyag 5/a.txt')
   })
