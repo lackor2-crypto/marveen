@@ -8,7 +8,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { getWorkItem, createWorkItemVersion, createWorkItem } from '../workbench.js'
 import { renameWorkItem, assignWorkItemFolder } from '../workbench-assets.js'
-import { sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext, recordTaskFromChat } from '../workbench-item-context.js'
+import { reconcileItemContextSteps, sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext, recordTaskFromChat } from '../workbench-item-context.js'
 import { readdirSync } from 'node:fs'
 import { todoFileName } from '../workbench-item-todos.js'
 import { addSection } from '../workbench-docmodel.js'
@@ -271,5 +271,21 @@ describe('the context file is refused by the data layer, not only by one route',
     const r = createWorkItemVersion(itemId, { source_path: real })
     expect(r.ok).toBe(true)
     expect(item().source_path).toBe(real)
+  })
+})
+
+// #869: one item's pass held the event loop for 5.7 s on a slow mount (readdirSync walk); it must hand the loop back often.
+describe('the one-item pass steps instead of blocking', () => {
+  it('yields at least once per folder it reads', async () => {
+    await sweepItemContexts()
+    const ctx = where()
+    const itemDir = join(dir, ...ctx.rel.split('/').slice(0, -1))
+    for (let i = 0; i < 6; i++) { mkdirSync(join(itemDir, `Anyag ${i}`), { recursive: true }); writeFileSync(join(itemDir, `Anyag ${i}`, 'a.txt'), 'x') }
+    const project = getProject(pid)!
+    const it = reconcileItemContextSteps(getWorkItem(itemId)!, project)
+    let steps = 0
+    for (;;) { const r = it.next(); if (r.done) break; steps++ }
+    expect(steps).toBeGreaterThanOrEqual(6)
+    expect(readItemContext(getWorkItem(itemId)!)!.text).toContain('Anyag 5/a.txt')
   })
 })
