@@ -458,7 +458,7 @@
   /** Loads the folder tree and the item list again, for a change made outside the page (an agent's command, a link
    *  made in another view, an upload). Only these two are replaced; the open item, the editor and the ticks stay as
    *  they are. `quiet`: draw only when the server's lists differ from what is shown (the timer below). */
-  function refreshTree(quiet) {
+  function refreshTree(quiet, swap) {
     var pid = WB.projectId
     if (!pid || !WB.open) return Promise.resolve()
     return api('GET', '/api/workbench/items?project=' + encodeURIComponent(pid)).then(function (r) {
@@ -474,39 +474,70 @@
       WB.itemMarks = marks
       announceFolderMoves(r.data.folder_moves, r.data.work_folders)
       openAgentCreated()
+      // Owner, 2026-11-07: the tree stayed old while the assistant was working and while the cursor stood in the document page.
+      // `swap`: only the folder-tree panel is replaced (the editor, the chat and the open pop-ups are not redrawn under the owner).
+      if (swap) { treeSwapOnly(); return }
       render()
     })
   }
 
-  // The tree follows the disk by itself (owner, 2026-10-13: "an upload, or anything else changes: refresh every 20
-  // seconds or so"): while the page is open and visible, the lists are asked for again every 20 s, and when the owner
-  // comes back to the tab. Nothing is drawn if nothing changed, and nothing is asked while a file action or an
-  // agent answer is running or a field is being typed in.
-  var TREE_POLL_MS = 20000
-  var treeSeenAt = 0
-  var treeBusy = false
-  function treeQuietNow() {
-    if (!WB.open || !WB.projectId || WB.fileBusy || WB.chatStreaming || treeBusy) return false
-    if (typeof document === 'undefined' || document.visibilityState === 'hidden') return false
-    var a = document.activeElement
-    if (a && a.tagName && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !/^wbChatInput$/.test(String(a.id || ''))) return false
-    if (a && a.isContentEditable) return false
+  /** Replaces only the folder-tree panel (the left column) with a fresh drawing of the state in WB. Returns false when the
+   *  panel is not where this needs it (another view): then nothing is drawn now and the next full redraw shows the state. */
+  function treeSwapOnly() {
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return false
+    var cur = document.querySelector('.wb-panel-items')
+    var host = cur && cur.parentNode
+    if (!host || typeof host.replaceChild !== 'function') return false
+    // The same panel is drawn in two shapes: full in the classic view (the two grids), compact in the frame ("Simple") view.
+    var compact = !(host.classList && (host.classList.contains('wb-grid-below') || host.classList.contains('wb-grid-aside')))
+    var own = function (el) { return [el].concat(Array.prototype.slice.call(el.querySelectorAll('.wb-blk-tree, .wb-items'))) }
+    var keep = own(cur).map(function (e) { return e.scrollTop })
+    var holder = document.createElement('div')
+    holder.innerHTML = itemsPanelHtml(compact)
+    var fresh = holder.firstElementChild
+    if (!fresh) return false
+    host.replaceChild(fresh, cur)
+    own(fresh).forEach(function (e, i) { if (keep[i]) e.scrollTop = keep[i] })
     return true
   }
+
+  // The tree follows the disk by itself (owner, 2026-10-13: "an upload, or anything else changes: refresh every 20
+  // seconds or so"): while the page is open and visible, the lists are asked for again, and when the owner
+  // comes back to the tab. Nothing is drawn if nothing changed. Owner, 2026-11-07: it must NOT wait for F5 while the assistant is
+  // working (its commands move and link files meanwhile) or while the cursor stands in the document page: then only the
+  // tree panel is replaced ('swap'); a full redraw ('full') is used only when the owner is doing nothing special.
+  var TREE_POLL_MS = 10000
+  var TREE_POLL_BUSY_MS = 4000
+  var treeSeenAt = 0
+  var treeBusy = false
+  /** '' = do not ask now, 'swap' = ask and replace only the tree panel, 'full' = ask and redraw as before. */
+  function treeMode() {
+    if (!WB.open || !WB.projectId || WB.fileBusy || treeBusy) return ''
+    if (typeof document === 'undefined' || document.visibilityState === 'hidden') return ''
+    var a = document.activeElement
+    if (a && a.tagName && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !/^wbChatInput$/.test(String(a.id || ''))) return ''
+    if (WB.chatStreaming || (a && a.isContentEditable)) return 'swap'
+    return 'full'
+  }
   function treeAutoRefresh(minGap) {
-    if (!treeQuietNow()) return
+    var mode = treeMode()
+    if (!mode) return
     var now = Date.now()
     if (now - treeSeenAt < minGap) return
     treeSeenAt = now
     treeBusy = true
-    refreshTree(true).then(function () { treeBusy = false }, function () { treeBusy = false })
+    refreshTree(true, mode === 'swap').then(function () { treeBusy = false }, function () { treeBusy = false })
   }
   if (typeof document !== 'undefined' && document.addEventListener) {
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') treeAutoRefresh(5000)
     })
   }
-  if (typeof setInterval === 'function') setInterval(function () { treeAutoRefresh(TREE_POLL_MS - 1000) }, TREE_POLL_MS)
+  if (typeof setInterval === 'function') {
+    setInterval(function () { treeAutoRefresh(TREE_POLL_MS - 1000) }, TREE_POLL_MS)
+    // While the assistant works the lists and the right translation column follow faster (what it changes shows at once).
+    setInterval(function () { if (WB.chatStreaming) { treeAutoRefresh(TREE_POLL_BUSY_MS - 500); twResync() } }, TREE_POLL_BUSY_MS)
+  }
 
   // ---- kituzes (#406, 21bcb1f4) ---------------------------------------------
   //
@@ -13198,6 +13229,8 @@
       refreshTree()
     }
     refreshSelectedAfterTurn()
+    // Owner, 2026-11-07: a language version the assistant corrected shows in the right column at once, not after 20 s or F5.
+    twResync()
     // A keret allapota a fordulo utan mar mas: ujramerjuk, nem emlekezetbol irjuk.
     loadChatStatus()
     // A valasz kozben irt uzenet most megy el.
@@ -16923,7 +16956,54 @@
     if (!list.length) { if (auto !== true) tw.note = t('workbench.tw.nothing_current'); twRefresh(); return }
     tw.busy = true; tw.note = ''
     twRefresh()
-    api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translation-save', { lang: lang, sections: list }).then(function (r) {
+    // Owner, 2026-11-07 (the assistant had corrected the German version; a save from the old page wrote the old text back):
+    // BEFORE writing, the saved translation is read again. A section the server changed behind this page's back is never
+    // overwritten silently: if the page was not edited since it took the text over, the server's newer text is taken into the
+    // page; if the page was edited too, the owner is asked which of the two wins.
+    api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translation?to=' + encodeURIComponent(lang)).then(function (g) {
+      var server = {}
+      if (g && g.ok && g.data && g.data.found) (g.data.sections || []).forEach(function (s) { server[s.source_section] = s })
+      var cur = WB.detail && WB.detail.outline
+      var take = function (s) { // the server's text goes into the page
+        var sec = ((cur && cur.sections) || []).filter(function (x) { return x.id === s.source_section })[0]
+        var key = id + ':' + lang + ':' + s.source_section
+        tw.prev[key] = { source_section: s.source_section, title: s.title, blocks: s.blocks || [], sig: sec && s.state === 'current' ? twSig(sec) : '', fresh: true }
+        tw.base[key] = twBaseSig(s)
+      }
+      var keep = [], taken = 0, conflicts = []
+      list.forEach(function (it) {
+        var key = id + ':' + lang + ':' + it.source_section
+        var s = server[it.source_section]
+        var base = tw.base[key]
+        if (!s || base === undefined) { keep.push(it); return } // nothing saved yet from this page: a normal first save
+        var srv = twBaseSig(s)
+        if (srv === base) { keep.push(it); return } // the server did not change since the page took it over
+        var pageSig = twBaseSig(it)
+        if (pageSig === srv) { tw.base[key] = srv; return } // the page already holds exactly the newer text
+        if (pageSig === base) { take(s); taken++; return } // the page was not edited: the newer server text replaces it
+        conflicts.push({ it: it, s: s })
+      })
+      if (conflicts.length) {
+        var overwrite = typeof window.confirm === 'function' ? window.confirm(t('workbench.tw.conflict_confirm', { n: conflicts.length })) : false
+        if (overwrite) conflicts.forEach(function (c) { keep.push(c.it) })
+        else conflicts.forEach(function (c) { take(c.s); taken++ })
+      }
+      if (!keep.length) {
+        tw.busy = false
+        tw.note = t('workbench.tw.newer_taken', { n: taken })
+        twRefresh()
+        return
+      }
+      return twSavePost(id, lang, keep, auto).then(function () {
+        if (taken && tw.note) tw.note += ' ' + t('workbench.tw.newer_taken', { n: taken })
+        if (taken) twRefresh()
+      })
+    })
+  }
+  /** The write itself (the save of the sections that are safe to write). */
+  function twSavePost(id, lang, list, auto) {
+    var tw = twState()
+    return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translation-save', { lang: lang, sections: list }).then(function (r) {
       tw.busy = false
       if (!r.ok) { tw.note = r.message || ''; twRefresh(); return }
       tw.failed = r.data.failed || []
