@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events'
 import type http from 'node:http'
 import {
   _resetEventLoopWatch, noteLag, noteStallSample, recentStalls, recentStallSamples, trackRequest, watcherPolls,
-  STALL_MS, STALL_SAMPLER_SOURCE, alertSevereStall, SEVERE_STALL_MS, SEVERE_ALERT_COOLDOWN_MS, trimStallSampleFile,
+  startEventLoopWatch, TICK_MS, STALL_MS, STALL_SAMPLER_SOURCE, alertSevereStall, SEVERE_STALL_MS, SEVERE_ALERT_COOLDOWN_MS, trimStallSampleFile,
 } from '../web/event-loop-watch.js'
 
 const fakeRes = () => new EventEmitter() as unknown as http.ServerResponse
@@ -158,5 +158,23 @@ describe('#823 severe stall alert', () => {
     const send = async () => { throw new Error('x') }
     expect(await alertSevereStall({ at: 1, lagMs: SEVERE_STALL_MS - 1, inflight: [] }, send)).toBe(false)
     expect(await alertSevereStall({ at: 5, lagMs: SEVERE_STALL_MS, inflight: [] }, send)).toBe(false)
+  })
+})
+
+// #865: the system wall clock was stepped forward ~2.1 s every ~34.5 s (WSL clock sync) while nothing was blocked; the
+// watch measured the lag on Date.now() and so reported (and messaged the owner about) a freeze that never happened.
+describe('#865 a wall-clock step is not a stall', () => {
+  afterEach(() => { _resetEventLoopWatch(); vi.useRealTimers() })
+
+  it('a forward step of the wall clock between two ticks records nothing', () => {
+    process.env.MARVEEN_STALL_SAMPLER = '0'
+    // Only the timer and the wall clock are faked: performance.now() (the monotonic clock) keeps real time.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    startEventLoopWatch()
+    vi.advanceTimersByTime(TICK_MS)
+    vi.setSystemTime(Date.now() + 2100)
+    vi.advanceTimersByTime(TICK_MS)
+    vi.advanceTimersByTime(TICK_MS)
+    expect(recentStalls()).toEqual([])
   })
 })

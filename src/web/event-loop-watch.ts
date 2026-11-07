@@ -15,6 +15,7 @@ import type http from 'node:http'
 import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Worker } from 'node:worker_threads'
+import { performance } from 'node:perf_hooks'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { logger } from '../logger.js'
 import { ol } from '../owner-lang.js'
@@ -59,7 +60,7 @@ const inspector = require('node:inspector')
 const fs = require('node:fs')
 const { sab, file, root, pollMs, afterMs, resampleMs, max, frames, pid, blindMs } = workerData
 const beat = new Int32Array(sab)
-let last = Atomics.load(beat, 0), stuckSince = 0, taken = 0, nextAt = 0, busy = false, prevTick = Date.now()
+let last = Atomics.load(beat, 0), stuckSince = 0, taken = 0, nextAt = 0, busy = false, prevTick = performance.now()
 let askedAt = 0, blindTaken = 0, blindNextAt = 0
 // The inspector can only stop the main thread once it is back in JavaScript. While it sits inside ONE long system
 // call (an external program, a read on a hung drive) there is no stack yet -- so say what the operating system
@@ -74,7 +75,7 @@ function blind(now) {
         try { return fs.readFileSync('/proc/' + c + '/cmdline', 'utf8').split('\\0').filter(Boolean).slice(0, 3).join(' ').slice(0, 120) } catch { return 'pid ' + c }
       })
     } catch {}
-    const rec = { at: now, stuckMs: now - stuckSince, pid, stack: [], noStackYet: true, state, waitingFor }
+    const rec = { at: Date.now(), stuckMs: now - stuckSince, pid, stack: [], noStackYet: true, state, waitingFor }
     fs.appendFileSync(file, JSON.stringify(rec) + '\\n')
     try { parentPort.postMessage(rec) } catch {}
   } catch {}
@@ -100,11 +101,11 @@ function sample() {
     session.on('Debugger.paused', (m) => {
       // Resume FIRST: nothing below may keep the main thread paused.
       try { session.post('Debugger.resume') } catch {}
-      const now = Date.now()
+      const now = performance.now()
       const stack = (m.params.callFrames || []).slice(0, frames).map((f) => ({
         fn: f.functionName || '(anonymous)', file: short(f.url || urls.get(f.location && f.location.scriptId)), line: (f.location ? f.location.lineNumber : 0) + 1,
       }))
-      const rec = { at: now, stuckMs: now - since, pid, stack }
+      const rec = { at: Date.now(), stuckMs: now - since, pid, stack }
       try { fs.appendFileSync(file, JSON.stringify(rec) + '\\n') } catch {}
       try { parentPort.postMessage(rec) } catch {}
       taken++; nextAt = now + resampleMs
@@ -113,12 +114,12 @@ function sample() {
     // Not chained on callbacks: a blocked main thread answers nothing until it returns to JavaScript.
     session.post('Debugger.enable')
     session.post('Debugger.pause')
-    askedAt = Date.now()
+    askedAt = performance.now()
     abandon = end
   } catch { end() }
 }
 setInterval(() => {
-  const now = Date.now()
+  const now = performance.now()
   const ownGap = now - prevTick
   prevTick = now
   Atomics.add(beat, 1, 1)
@@ -273,12 +274,15 @@ function startStallSampler(): void {
 export function startEventLoopWatch(): void {
   if (timer) return
   startStallSampler()
-  let expected = Date.now() + TICK_MS
+  // The lag is the gap on the MONOTONIC clock. The wall clock (Date.now) can be stepped forward by the system: on this
+  // WSL machine it jumped ~2.1 s every ~34.5 s while the monotonic clock ran on, which was counted as a 2.1 s freeze
+  // (and told to the owner) with nothing blocked (#865). Date.now() stays only as the timestamp of the record.
+  let expected = performance.now() + TICK_MS
   timer = setInterval(() => {
-    const now = Date.now()
+    const mono = performance.now()
     if (beat) Atomics.add(beat, 0, 1)
-    noteLag(now - expected, now)
-    expected = now + TICK_MS
+    noteLag(mono - expected, Date.now())
+    expected = mono + TICK_MS
   }, TICK_MS)
   timer.unref()
 }
