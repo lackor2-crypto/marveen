@@ -30,6 +30,7 @@ import { resolveLifePath } from './life-explorer.js'
 import { documentById, ensureDocumentId, ensureLifeDocTables, hashDocument, relocateDocument } from './life-doc-ids.js'
 import { LINKED_PREFIX, linkAnnex, linkedAnnexRows, listAnnexes, rememberLinkedRel, type AnnexResult, type AnnexView, type FileResolver } from './workbench-docannex.js'
 import { ensureWorkbenchTables } from './workbench.js'
+import { isMarkedMissing } from './linked-docs-missing-state.js'
 import { projectRelative } from './workbench-assets.js'
 import type { ProjectRow } from './projects.js'
 
@@ -101,6 +102,8 @@ export function tendLinkedAnnexes(itemId: string, resolve: FileResolver | undefi
       if (doc) rememberLinkedRel(a.id, doc.rel)
       continue
     }
+    // The guard already looked and found nothing: that is "missing", not "searching" (#873).
+    if (isMarkedMissing(id)) continue
     if (looking.has(id)) { searching++; continue }
     looking.add(id)
     searching++
@@ -236,6 +239,7 @@ export function listProjectDocs(projectId: string): { docs: ProjectDocView[]; at
   const db = getDb()
   let searching = 0
   const lookFor = (docId: string): void => {
+    if (isMarkedMissing(docId)) return
     searching++
     if (looking.has(docId)) return
     looking.add(docId)

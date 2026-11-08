@@ -53,6 +53,7 @@ import { startCardNudge } from './web/card-work-nudge-job.js'
 import { listMounts } from './life-mounts.js'
 import { reconcileMountLinks } from './life-mount-links.js'
 import { liveSweepDeps, sweepWorktrees, SWEEP_INTERVAL_MS } from './web/worktree-sweeper.js'
+import { startLinkedDocsGuard } from './linked-docs-guard.js'
 import { listBusyCodeTaskWorkspaces } from './web/code-bridge-store.js'
 import { worktreeNameFor } from './web/code-live-tree-worktree.js'
 import { startWeeklySummarySweeper } from './workbench-weekly.js'
@@ -814,6 +815,8 @@ export function startWebServer(port = 3420): http.Server {
   }
   const worktreeSweepStart = setTimeout(worktreeSweep, 5 * 60_000)
   const worktreeSweepInterval = setInterval(worktreeSweep, SWEEP_INTERVAL_MS)
+  // #873: linked Life-tree documents are watched; a move/rename is followed, a deletion is told to the owner.
+  const stopLinkedDocsGuard = startLinkedDocsGuard()
 
   // #441 (Boss, 2026-09-29: 1A, 2A): every project gets its "Munkadarabok"
   // folder and the work item folders lying loose in the project root move under
@@ -1237,6 +1240,7 @@ export function startWebServer(port = 3420): http.Server {
     if (cardNudgeInterval) clearInterval(cardNudgeInterval)
     clearTimeout(worktreeSweepStart)
     clearInterval(worktreeSweepInterval)
+    stopLinkedDocsGuard()
     clearInterval(weeklySummaryInterval)
     clearInterval(todoReminderInterval)
     clearInterval(updateCheckerInterval)
