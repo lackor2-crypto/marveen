@@ -189,7 +189,7 @@ describe('AnthropicProvider -- config-fuggo viselkedes', () => {
       },
     }))
     vi.doMock('../web/claude-plans.js', () => ({ resolveAgentConfigDir: () => ({ configDir: '/nincs/ilyen/konyvtar-404' }) }))
-    vi.doMock('../workbench-agent/accounts.js', () => ({ workbenchAccounts: () => [] }))
+    vi.doMock('../workbench-agent/accounts.js', () => ({ workbenchAccounts: () => [], workbenchAccountStatuses: () => [] }))
     const mod = await import('../workbench-agent/provider-anthropic.js')
     expect('hasServerApiKey' in mod).toBe(false)
     expect('ANTHROPIC_API_URL' in mod).toBe(false)

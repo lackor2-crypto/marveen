@@ -271,7 +271,7 @@ describe('whole-document translation and annex upload', () => {
       const r = await callWorkbench(`/api/workbench/items/${v.id}/outline/translate?lang=hu`, 'POST', {})
       expect(r.status).toBe(424)
       expect(r.body.error).toBe('translate_no_provider')
-      expect(r.body.message).toContain('nincs beállítva AI-szolgáltató')
+      expect(r.body.message).toContain('Nincs bejelentkezett Claude-fiók')
       // After a reload the header still says why -- not a silently empty version.
       const o = await callWorkbench(`/api/workbench/items/${v.id}/outline`, 'GET')
       expect(o.body.outline.translate_job).toMatchObject({ running: false, done: 0, total: 3, error: { code: 'no_provider', message: expect.stringContaining('Claude-fiók') } })
