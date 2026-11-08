@@ -175,7 +175,7 @@ Ezek mind éles hibából származnak; ha újra kell építeni, ne fussunk belé
        teszi — azt te küldöd el Enterrel, ahogy eddig. A sima üzenetnek nincs 1024-es határa
        (4096, a hosszabbat a Telegram maga bontja több üzenetre).
 
-    A felismerés nyelvfüggetlen: a Telegram a mezők *osztálynevét* adja (`HistoryWidget` =
+    A felismerés nyelvfüggetlen: a Telegram a mezők *osztálynevét* adja (`HistoryWidget` vagy az újabb Telegramban `HistoryView::ChatWidget` =
     sima üzenetmező, `SendFilesBox` = képaláírás). Ha a diktáló nem biztos benne, nem nyúl
     semmihez, és a régi módon illeszt be (a 900 karakter feletti figyelmeztetéssel). Ha
     valami félremegy, a szöveg nem vész el: a **vágólapra** kerül, és egy buborék megmondja,
