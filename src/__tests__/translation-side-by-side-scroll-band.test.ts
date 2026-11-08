@@ -17,7 +17,7 @@ describe('side-by-side translation scroll (#857)', () => {
   it('the middle band is drawn and only the band scrolls both columns', () => {
     expect(css).toContain('#wbTwBand {')
     expect(js).toContain("cols.addEventListener('wheel'")
-    expect(js).toMatch(/e\.clientX < mm\.x0 \|\| e\.clientX > mm\.x1\) return/)
+    expect(js).toMatch(/e\.clientX < mm\.x0 \|\| e\.clientX > mm\.x1 \|\| e\.clientY < mm\.y0\) return/)
     expect(js).toContain('a.scrollTop += dy; b.scrollTop += dy')
   })
   it('the band label is in both languages', () => {

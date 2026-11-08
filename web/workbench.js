@@ -16962,7 +16962,10 @@
     var pr = parseFloat(getComputedStyle(lp).paddingRight) || 0, pl = parseFloat(getComputedStyle(rp).paddingLeft) || 0
     var x0 = l.right - pr * ls, x1 = r.left + pl * rs
     if (!(x1 > x0)) return null
-    return { x0: x0, x1: x1, left: x0 - c.left, width: x1 - x0 }
+    // Boss TG 5363: the band reaches up to the top of the documents only, never under / over the toolbar and controls boxes.
+    var tb = cols.querySelector('.wb-tw-left .wb-dp-toolbar'), cb = cols.querySelector('#wbTwPanel > .wb-tw-top')
+    var y0 = Math.max(c.top, tb ? tb.getBoundingClientRect().bottom : 0, cb ? cb.getBoundingClientRect().bottom : 0)
+    return { x0: x0, x1: x1, y0: y0, left: x0 - c.left, top: y0 - c.top, width: x1 - x0, gapC: (l.right + r.left) / 2 - x0 }
   }
   function twBandSetup() {
     var cols = document.querySelector('.wb-fr-scroll .wb-sh-doc-body > .wb-tw-cols')
@@ -16970,16 +16973,18 @@
     if (!cols || window.innerWidth <= 1100) { if (old) old.remove(); return }
     var band = old || document.createElement('div')
     if (!old) { band.id = 'wbTwBand'; cols.appendChild(band) }
-    band.setAttribute('data-label', t('workbench.tw.band_label'))
+    var lab = band.querySelector('.wb-tw-band-label')
+    if (!lab) { lab = document.createElement('span'); lab.className = 'wb-tw-band-label'; band.appendChild(lab) }
+    lab.textContent = t('workbench.tw.band_label')
     var m = twBandRect(cols)
     band.style.display = m ? '' : 'none'
-    if (m) { band.style.left = m.left + 'px'; band.style.width = m.width + 'px' }
+    if (m) { band.style.left = m.left + 'px'; band.style.width = m.width + 'px'; band.style.top = m.top + 'px'; lab.style.left = m.gapC + 'px' }
     if (!cols.getAttribute('data-tw-wheel')) {
       cols.setAttribute('data-tw-wheel', '1')
       cols.addEventListener('wheel', function (e) {
         if (window.innerWidth <= 1100 || e.ctrlKey) return
         var mm = twBandRect(cols)
-        if (!mm || e.clientX < mm.x0 || e.clientX > mm.x1) return
+        if (!mm || e.clientX < mm.x0 || e.clientX > mm.x1 || e.clientY < mm.y0) return
         var a = cols.querySelector('.wb-tw-left'), b = cols.querySelector('.wb-tw-right')
         if (!a || !b) return
         var dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * a.clientHeight : e.deltaY
@@ -16987,6 +16992,13 @@
         a.scrollTop += dy; b.scrollTop += dy
       }, { passive: false })
       if (typeof ResizeObserver === 'function') new ResizeObserver(function () { twBandSetup() }).observe(cols)
+      // the sticky boxes settle after the first layout and when a column scrolls: the band's top follows them
+      var raf = 0
+      var again = function () { if (raf) return; raf = requestAnimationFrame(function () { raf = 0; twBandSetup() }) }
+      var ca = cols.querySelector('.wb-tw-left'), cb2 = cols.querySelector('.wb-tw-right')
+      if (ca) ca.addEventListener('scroll', again, { passive: true })
+      if (cb2) cb2.addEventListener('scroll', again, { passive: true })
+      setTimeout(twBandSetup, 400)
       window.addEventListener('resize', function () { twBandSetup() })
     }
   }
