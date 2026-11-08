@@ -22,7 +22,9 @@ describe('Elküldve-kérdés ablak', () => {
     const fn = js.slice(js.indexOf('function sentAsk('), js.indexOf('function sentAskProject('))
     expect(fn).not.toContain('Escape')
     expect(fn).not.toContain("overlay.addEventListener('click'")
-    expect(fn).toContain('/sent-mark')
+    // Boss, 2026-11-08: the answer is a method button that opens the small form (sentViaDialog), which posts the mark with its details.
+    expect(fn).toContain('sentViaDialog(')
+    expect(js.slice(js.indexOf('function sentViaDialog('), js.indexOf('function sentAskProject('))).toContain('/sent-mark')
   })
 
   it('mindkét nyelven megvan a szöveg', () => {
@@ -33,10 +35,11 @@ describe('Elküldve-kérdés ablak', () => {
   })
 
   it('ha a "Igen" 403-at kap (nincs bejelentkezés), az ablak megmondja az okot és bezárható marad', () => {
-    const fn = js.slice(js.indexOf('function sentAsk('), js.indexOf('function sentAskProject('))
+    const fn = js.slice(js.indexOf('function sentViaDialog('), js.indexOf('function sentAskProject('))
     expect(fn).toContain('r.status === 403')
     expect(fn).toContain("t('workbench.sentask.login_needed')")
-    expect(fn).toContain('wb-sentask-close')
+    // the "Nem, még nem" button stays: the window can always be left without an answer
+    expect(fn).toContain("t('workbench.sentask.no')")
   })
 
   it('a sent-mark a dashboard-oldalról jövő (same-origin böngészős) tokenes kattintást is elfogadja, curl-t nem', () => {
