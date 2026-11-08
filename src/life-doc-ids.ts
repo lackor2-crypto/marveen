@@ -295,12 +295,18 @@ export async function relocateDocument(id: string): Promise<string | null> {
     try { entries = await readdir(rel ? join(root, ...rel.split('/')) : root, { withFileTypes: true }) } catch { return }
     if (++dirs % 64 === 0) await new Promise<void>((r) => setImmediate(r))
     if (entries.some((e) => e.name === '.git')) return
+    const files: string[] = []
     for (const e of entries) {
       if (e.name.startsWith('.') || e.name === 'node_modules') continue
       const child = rel ? `${rel}/${e.name}` : e.name
       if (e.isDirectory()) { if (!skip.has(child)) await walk(child, depth + 1); continue }
-      if (!e.isFile()) continue
-      try { if ((await stat(join(root, ...child.split('/')))).size === row.size) sameSize.push(child) } catch { /* gone meanwhile */ }
+      if (e.isFile()) files.push(child)
+    }
+    // The sizes of one folder are read side by side: one by one a 100k-file tree on a slow (9p) disk took ~12 minutes.
+    for (let i = 0; i < files.length; i += 32) {
+      await Promise.all(files.slice(i, i + 32).map(async (child) => {
+        try { if ((await stat(join(root, ...child.split('/')))).size === row.size) sameSize.push(child) } catch { /* gone meanwhile */ }
+      }))
     }
   }
   // Beside its old place first; the whole tree only if it is not there.

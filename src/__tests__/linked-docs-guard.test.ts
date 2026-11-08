@@ -98,6 +98,25 @@ describe('#873 linked document guard', () => {
     expect(Object.values(readMissingState())[0]!.ignored).toBe(true)
   })
 
+  it('a file already searched for and not found is not searched again every sweep, only after the retry time', async () => {
+    const hold = abs('Család/Anna/hold.bin')
+    renameSync(abs(CERT), hold) // not inside the depot walk: dot-less name, so move it out of the depot tree first
+    const outside = join(depot, '..', `marveen-hold-${Date.now()}.pdf`)
+    renameSync(hold, outside)
+    await sweepLinkedDocs(deps)
+    expect(Object.keys(readMissingState()).length).toBe(1)
+    expect(typeof Object.values(readMissingState())[0]!.searchedAt).toBe('number')
+    renameSync(outside, abs('Család/Anna/Archívum-uj.pdf'))
+    const r2 = await sweepLinkedDocs(deps)
+    expect([r2.followed, r2.missing]).toEqual([0, 1]) // searched a moment ago: not again
+    const st = readMissingState()
+    for (const e of Object.values(st)) e.searchedAt = 0
+    writeFileSync(join(store, 'linked-docs-missing.json'), JSON.stringify(st))
+    const r3 = await sweepLinkedDocs(deps)
+    expect(r3.followed).toBe(1)
+    expect(readMissingState()).toEqual({})
+  })
+
   it('a linked FILE (left-behind link) follows an outside rename; its target is repointed', async () => {
     const left = 'Projektek/Wohngeld/Antrag/antrag.pdf'
     mkdirSync(join(abs('Projektek/Wohngeld/Antrag')), { recursive: true })

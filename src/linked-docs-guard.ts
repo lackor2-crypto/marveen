@@ -124,6 +124,7 @@ export const defaultDeps: SweepDeps = {
   },
 }
 
+const RESEARCH_MS = 30 * 60_000
 let running = false
 
 /** One pass over every linked document. Safe to call at any time; a second call while one runs is skipped. */
@@ -149,7 +150,10 @@ export async function sweepLinkedDocs(deps: SweepDeps = defaultDeps): Promise<Sw
           place = v.doc.rel
           if (!v.doc.sha256 && budget > 0) { budget--; if (await hashDocument(docId)) res.hashed++ }
         } else if (v) {
-          const to = await relocateDocument(docId).catch(() => null)
+          const known = state[t.key]
+          // Already searched for and not found: not again on every sweep (a search walks the whole tree). Back at its old place is seen above, cheaply.
+          const again = !known || (!known.ignored && Date.now() - (known.searchedAt ?? 0) > RESEARCH_MS)
+          const to = again ? await relocateDocument(docId).catch(() => null) : null
           if (to) {
             res.followed++
             place = to
@@ -162,6 +166,7 @@ export async function sweepLinkedDocs(deps: SweepDeps = defaultDeps): Promise<Sw
       res.missing++
       const entry: MissingEntry = state[t.key] ?? { rel: place || t.rel, uses: t.uses, since: new Date().toISOString() }
       entry.uses = t.uses
+      if (!state[t.key] || (!entry.ignored && Date.now() - (entry.searchedAt ?? 0) > RESEARCH_MS)) entry.searchedAt = Date.now()
       next[t.key] = entry
       if (!state[t.key]) { res.newlyMissing++; fresh.push(entry) }
       else if (entry.ignored) res.missing--
