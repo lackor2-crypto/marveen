@@ -9089,6 +9089,7 @@ window._i18n.en = {
   "workbench.tw.hide": "Hide translation",
   "workbench.tw.toggle_hint": "Shows its translation next to the page, section by section. The original (left) stays editable. The tool panel on the far left closes to make room for the two columns; any button on the left rail opens it again.",
   "workbench.tw.panel_label": "Translation",
+  "workbench.tw.band_label": "Scroll together",
   "workbench.tw.lang": "Language:",
   "workbench.tw.run": "Translate",
   "workbench.tw.again": "Translate again",

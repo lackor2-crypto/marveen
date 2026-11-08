@@ -16931,6 +16931,12 @@
     // A column taller than that box was pushed up at the end of the document and its controls box sat above / below where it belongs.
     // The limit is the scrolling box's own height (in the column's zoomed pixels).
     var fr = typeof panel.closest === 'function' ? panel.closest('.wb-fr-scroll') : null
+    // #857: side by side, the two columns are as high as the visible frame (each scrolls on its own inside); the annexes below are reached by scrolling the frame.
+    var twc = fr ? fr.querySelector('.wb-sh-doc-body > .wb-tw-cols') : null
+    if (twc) {
+      var offTop = twc.getBoundingClientRect().top - fr.getBoundingClientRect().top + fr.scrollTop
+      twc.style.height = window.innerWidth > 1100 && fr.clientHeight ? Math.max(240, Math.floor(fr.clientHeight - offTop - 14)) + 'px' : ''
+    }
     var cols = document.querySelectorAll('.wb-tp-right')
     for (var ci = 0; ci < cols.length; ci++) cols[ci].style.maxHeight = fr && fr.clientHeight ? Math.max(120, Math.floor((fr.clientHeight - 16) / scale)) + 'px' : ''
     if (fr && typeof ResizeObserver === 'function' && !fr.getAttribute('data-tw-ro')) {
@@ -16939,9 +16945,49 @@
     }
     top.style.marginTop = off > 0 ? off + 'px' : ''
     top.style.minHeight = bar ? bar.offsetHeight + 'px' : ''
+    twBandSetup()
     if (bar && typeof ResizeObserver === 'function' && !bar.getAttribute('data-tw-ro')) {
       bar.setAttribute('data-tw-ro', '1')
       new ResizeObserver(function () { twAlignTop() }).observe(bar)
+    }
+  }
+  /** #857 (Boss TG 5348): the middle band of the side-by-side view (left page's right margin + gap + right page's left margin) scrolls BOTH
+   *  columns together and is drawn as a marked strip; everywhere else the column under the mouse scrolls alone (native). Measured from the
+   *  real pages (margins are the pages' own padding, scaled by the zoom), re-measured when anything resizes. */
+  function twBandRect(cols) {
+    var lp = cols.querySelector('.wb-tw-left .wb-dp-page'), rp = cols.querySelector('.wb-tw-right .wb-tw-page')
+    if (!lp || !rp) return null
+    var l = lp.getBoundingClientRect(), r = rp.getBoundingClientRect(), c = cols.getBoundingClientRect()
+    var ls = lp.offsetWidth ? l.width / lp.offsetWidth : 1, rs = rp.offsetWidth ? r.width / rp.offsetWidth : 1
+    var pr = parseFloat(getComputedStyle(lp).paddingRight) || 0, pl = parseFloat(getComputedStyle(rp).paddingLeft) || 0
+    var x0 = l.right - pr * ls, x1 = r.left + pl * rs
+    if (!(x1 > x0)) return null
+    return { x0: x0, x1: x1, left: x0 - c.left, width: x1 - x0 }
+  }
+  function twBandSetup() {
+    var cols = document.querySelector('.wb-fr-scroll .wb-sh-doc-body > .wb-tw-cols')
+    var old = document.getElementById('wbTwBand')
+    if (!cols || window.innerWidth <= 1100) { if (old) old.remove(); return }
+    var band = old || document.createElement('div')
+    if (!old) { band.id = 'wbTwBand'; cols.appendChild(band) }
+    band.setAttribute('data-label', t('workbench.tw.band_label'))
+    var m = twBandRect(cols)
+    band.style.display = m ? '' : 'none'
+    if (m) { band.style.left = m.left + 'px'; band.style.width = m.width + 'px' }
+    if (!cols.getAttribute('data-tw-wheel')) {
+      cols.setAttribute('data-tw-wheel', '1')
+      cols.addEventListener('wheel', function (e) {
+        if (window.innerWidth <= 1100 || e.ctrlKey) return
+        var mm = twBandRect(cols)
+        if (!mm || e.clientX < mm.x0 || e.clientX > mm.x1) return
+        var a = cols.querySelector('.wb-tw-left'), b = cols.querySelector('.wb-tw-right')
+        if (!a || !b) return
+        var dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * a.clientHeight : e.deltaY
+        e.preventDefault()
+        a.scrollTop += dy; b.scrollTop += dy
+      }, { passive: false })
+      if (typeof ResizeObserver === 'function') new ResizeObserver(function () { twBandSetup() }).observe(cols)
+      window.addEventListener('resize', function () { twBandSetup() })
     }
   }
   function twRefresh() {
