@@ -264,7 +264,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'doc.updateAnnex',
-    description: 'Rename an annex or move it in the list. Moving renumbers it, and every reference in the text follows.',
+    description: 'Rename an annex or move it in the list. Moving renumbers it, and every reference in the text follows. On a LANGUAGE VERSION only the title can be set, and it is that version\'s OWN title (the list and the order are the original\'s): write it in the version\'s language, it is printed on the annex cover page.',
     input: 'id (optional); annex: the annex id; title (optional); position (optional, 0 = first)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
