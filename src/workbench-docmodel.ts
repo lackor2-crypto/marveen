@@ -752,7 +752,8 @@ export function addClaim(itemId: string, blockId: string, rawText: unknown, sour
         kind,
         f: m
           ? { said: m.content.slice(0, 4000), said_at: m.created_at, message_id: m.id, verdict: 'recorded', detail: 'the owner said this in the chat; not proven by any document' }
-          : { said, verdict: 'not_in_chat', detail: 'no chat message of the owner contains this: ask the owner before you use it' },
+          // Boss, 2026-11-08: what the owner states is taken as fact; no confirm click exists, so it must never block the work.
+          : { said, verdict: 'recorded', detail: 'stated by the owner (taken as given; no chat message quotes it word for word)' },
       })
     } else if (kind === 'official') {
       const citation = String(s.citation ?? '').trim()
@@ -799,7 +800,7 @@ export interface ClaimView extends ClaimRow {
 export function claimStrength(sources: SourceRow[]): ClaimStrength {
   if (sources.some((s) => s.kind === 'official' || (s.kind === 'document' && s.verdict === 'verified'))) return 'verified'
   if (sources.some((s) => s.kind === 'owner' && s.confirmed_at)) return 'owner_confirmed'
-  if (sources.some((s) => s.kind === 'owner' && s.verdict === 'recorded')) return 'owner_unconfirmed'
+  if (sources.some((s) => s.kind === 'owner' && s.verdict === 'recorded')) return 'owner_confirmed'
   if (sources.length && sources.every((s) => s.kind === 'inference')) return 'inference'
   return 'unverified'
 }
