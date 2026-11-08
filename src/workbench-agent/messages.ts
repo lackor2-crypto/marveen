@@ -17,8 +17,8 @@ export interface Message { hu: string; en: string }
 export const MESSAGES = {
   // --- a szolgaltato allapota ---------------------------------------------
   no_provider: {
-    hu: 'Ezen a gépen most nincs beállítva AI-szolgáltató a Munkapadhoz: nincs bejelentkezett Claude-fiók, és nincs helyi modell sem. Jelentkezz be egy Claude-fiókkal, vagy indíts helyi modellt — addig a Munkapad többi része működik, csak az ágens hallgat.',
-    en: 'No AI provider is set up for the Workbench on this machine right now: there is no signed-in Claude account and no local model either. Sign in with a Claude account or start a local model — until then the rest of the Workbench works, only the agent stays silent.',
+    hu: 'Nincs bejelentkezett Claude-fiók. Jelentkezz be egy Claude-fiókkal a Fiókok oldalon — addig a Munkapad többi része működik, csak az asszisztens hallgat.',
+    en: 'No Claude account is signed in. Sign in with a Claude account on the Accounts page — until then the rest of the Workbench works, only the assistant stays silent.',
   },
   // #455: a chosen GLM / DeepSeek / OpenRouter model whose key is missing is NOT
   // "no Claude account signed in" -- that sentence sends the owner to the wrong page.
@@ -169,8 +169,8 @@ export const MESSAGES = {
 
   // --- a kozos 5 oras keret ------------------------------------------------
   limit_critical: {
-    hu: 'A közös 5 órás Claude-keret most betelt ({pct}%), ezért a Munkapad nem indít új hívást — különben elvenné a keretet a többi ágenstől. {reset}',
-    en: 'The shared 5-hour Claude limit is used up right now ({pct}%), so the Workbench starts no new call — it would take the frame from the other agents. {reset}',
+    hu: 'A kereted kifogyott ({pct}%), ezért a Munkapad most nem indít új hívást. {reset}',
+    en: 'Your quota is used up ({pct}%), so the Workbench starts no new call right now. {reset}',
   },
   limit_reset_known: {
     hu: 'A keret {when} körül áll vissza.',

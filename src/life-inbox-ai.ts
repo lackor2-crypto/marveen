@@ -74,7 +74,7 @@ export interface ClaudeAccount {
  * the weekly number is display only). Several agents may share one login --
  * each login is tried once. Pure: the caller gathers the live data.
  */
-export function orderClaudeAccounts(cands: ClaudeAccount[], now: number = Date.now()): ClaudeAccount[] {
+export function orderClaudeAccounts(cands: ClaudeAccount[], now: number = Date.now(), blockAtPct?: number): ClaudeAccount[] {
   const seen = new Set<string>()
   return cands
     .filter((c) => rankModelTier(c.model) >= 200)
@@ -82,6 +82,9 @@ export function orderClaudeAccounts(cands: ClaudeAccount[], now: number = Date.n
       if (c.usageAt !== null && now - c.usageAt > STALE_AFTER_MS) return true
       if (c.sevenDayPct != null && c.sevenDayPct >= 100) return false
       if (c.fiveHourPct === null) return true
+      // `blockAtPct` (#878): a caller that only stops at a fully used frame (the Workbench chat: red at 100%,
+      // yellow from 95%) passes 100; everyone else keeps the fleet's own critical tier.
+      if (blockAtPct !== undefined) return c.fiveHourPct < blockAtPct
       return tierForPct(c.fiveHourPct) !== 'critical'
     })
     .sort((a, b) => {

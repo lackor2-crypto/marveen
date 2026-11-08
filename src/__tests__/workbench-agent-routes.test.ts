@@ -132,7 +132,7 @@ describe('GET /api/workbench/agent/status', () => {
     expect(r.body.provider.available).toBe(false)
     expect(r.body.provider.id).toBeNull()
     expect(r.body.provider.model).toBeNull()
-    expect(r.body.provider.message).toMatch(/nincs beállítva AI-szolgáltató/i)
+    expect(r.body.provider.message).toMatch(/nincs bejelentkezett Claude-fiók/i)
     // ...es ettol a Munkapad tobbi resze meg mukodik: a valasz 200, nem hiba.
     expect(r.body.tools.length).toBeGreaterThan(0)
   })
@@ -162,7 +162,7 @@ describe('GET /api/workbench/agent/status', () => {
   })
 
   it('betelt keret: allowed false, megnevezett okkal', async () => {
-    setUsageSnapshotReader(() => ({ fiveHour: { usedPct: 99, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now() }))
+    setUsageSnapshotReader(() => ({ fiveHour: { usedPct: 100, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now() }))
     const r = await call('/api/workbench/agent/status', 'GET')
     expect(r.body.allowed).toBe(false)
     expect(r.body.blockedReason).toBe('limit_critical')
@@ -225,13 +225,13 @@ describe('POST /api/workbench/agent/message -- a streamelt valasz', () => {
     const evs = sseEvents(r.raw)
     const notice = evs.find((e) => e.event === 'notice')
     expect(notice?.data.code).toBe('no_provider')
-    expect(notice?.data.message).toMatch(/nincs beállítva AI-szolgáltató/i)
+    expect(notice?.data.message).toMatch(/nincs bejelentkezett Claude-fiók/i)
     expect(evs.at(-1)?.event).toBe('done')
   })
 
   it('betelt kozos keret: a stream megmondja, nem inditunk hivast', async () => {
     registerAIProvider(fakeProvider('soha'))
-    setUsageSnapshotReader(() => ({ fiveHour: { usedPct: 99, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now() }))
+    setUsageSnapshotReader(() => ({ fiveHour: { usedPct: 100, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now() }))
     const r = await call('/api/workbench/agent/message', 'POST', {
       project_id: projectId, work_item_id: workItemId, message: 'Szia',
     })

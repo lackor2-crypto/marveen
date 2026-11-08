@@ -15,7 +15,12 @@
  * listAgentNames), a fiok-azonosito az agens neve -- sosem token, sosem email.
  */
 import { listClaudeAccountCandidates, orderClaudeAccounts, type ClaudeAccount } from '../life-inbox-ai.js'
-import { tierForPct, STALE_AFTER_MS } from '../rate-limit-status.js'
+import { STALE_AFTER_MS, CRITICAL_THRESHOLD_PCT } from '../rate-limit-status.js'
+
+/** #878 (Boss, TG 5512/5517): the Workbench chat turns RED only when the 5-hour frame is used up (100%).
+ *  From the fleet's critical mark (95%) it is YELLOW: still answers, with a warning. */
+export const WORKBENCH_LIMIT_PCT = 100
+export const WORKBENCH_WARN_PCT = CRITICAL_THRESHOLD_PCT
 import { rankModelTier } from '../web/smartest-worker.js'
 import { liveUsageForAccount, readAccountAccessToken } from '../web/claude-usage-api.js'
 
@@ -193,7 +198,7 @@ export function setWorkbenchAccountListerForTest(l: Lister | null): void {
  */
 export function workbenchAccounts(now: number = Date.now()): string[] {
   const cands = listAccounts(now)
-  const ordered = orderClaudeAccounts(cands.map((c) => ({ ...c, sevenDayPct: null })), now)
+  const ordered = orderClaudeAccounts(cands.map((c) => ({ ...c, sevenDayPct: null })), now, WORKBENCH_LIMIT_PCT)
   // A heti 100% nem szur ki, de a sor VEGERE kerul (#434, 2026-09-28): a
   // Munkapad kivalasztott egy 0%-os 5 oras, de heti limites fiokot, es az
   // elo munkamenet "weekly limit"-tel megszakadt, mikozben ket zold fiok volt.
@@ -205,13 +210,13 @@ export function workbenchAccounts(now: number = Date.now()): string[] {
 }
 
 /** Egy fiok ELO allapota a valasztohoz (kanban #426). */
-export type WorkbenchAccountState = 'online' | 'limited' | 'unknown'
+export type WorkbenchAccountState = 'online' | 'caution' | 'limited' | 'unknown'
 
 export interface WorkbenchAccountStatus {
   agent: string
   model: string
   /** online = tud most valaszolni; limited = a heti/5 oras kerete elfogyott;
-   *  unknown = nincs friss meres (nem 0, hanem "nem latunk oda"). */
+   *  caution = 95-99% (sarga: valaszol, de figyelmeztet); unknown = nincs friss meres (nem 0, hanem "nem latunk oda"). */
   status: WorkbenchAccountState
   fiveHourPct: number | null
   sevenDayPct: number | null
@@ -235,17 +240,18 @@ export function workbenchAccountStatuses(now: number = Date.now()): WorkbenchAcc
   // hivas elhasalna.
   const rows: WorkbenchAccountStatus[] = cands.filter((c) => rankModelTier(c.model) >= 200).map((c) => {
     const weeklyDead = c.sevenDayPct != null && c.sevenDayPct >= 100
-    const fiveCritical = c.fiveHourPct != null && tierForPct(c.fiveHourPct) === 'critical'
+    const fiveCritical = c.fiveHourPct != null && c.fiveHourPct >= WORKBENCH_LIMIT_PCT
+    const fiveWarn = c.fiveHourPct != null && c.fiveHourPct >= WORKBENCH_WARN_PCT
     const noMeasure = c.fiveHourPct == null && (c.sevenDayPct == null)
     // An old reading is not a green light: the numbers only refresh while that
     // agent works in its own terminal, while the Workbench keeps spending the
     // same login (#434: 83% at 01:45, out of limit by 02:11, still green).
     const stale = c.usageAt != null && now - c.usageAt > STALE_AFTER_MS
     const status: WorkbenchAccountState =
-      weeklyDead || fiveCritical ? 'limited' : noMeasure || stale ? 'unknown' : 'online'
+      weeklyDead || fiveCritical ? 'limited' : noMeasure || stale ? 'unknown' : fiveWarn ? 'caution' : 'online'
     return { agent: c.agent, model: c.model, status, fiveHourPct: c.fiveHourPct, sevenDayPct: c.sevenDayPct ?? null }
   })
-  const rank = (s: WorkbenchAccountState): number => (s === 'online' ? 0 : s === 'unknown' ? 1 : 2)
+  const rank = (s: WorkbenchAccountState): number => (s === 'online' ? 0 : s === 'caution' ? 1 : s === 'unknown' ? 2 : 3)
   rows.sort((a, b) =>
     rank(a.status) - rank(b.status)
     || (a.fiveHourPct ?? Number.POSITIVE_INFINITY) - (b.fiveHourPct ?? Number.POSITIVE_INFINITY)

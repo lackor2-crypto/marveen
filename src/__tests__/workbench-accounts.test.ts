@@ -25,9 +25,9 @@ describe('workbenchAccounts', () => {
     expect(workbenchAccounts(now)).toEqual(['b', 'a'])
   })
 
-  it('a kritikus 5 oras keretu fiok kimarad', () => {
-    setWorkbenchAccountListerForTest(() => [acc('a', 99, 0), acc('b', 10, 0)])
-    expect(workbenchAccounts(now)).toEqual(['b'])
+  it('a 100%-os 5 oras keretu fiok kimarad, a 95-99% (sarga) NEM (#878)', () => {
+    setWorkbenchAccountListerForTest(() => [acc('a', 100, 0), acc('b', 10, 0), acc('c', 97, 0)])
+    expect(workbenchAccounts(now)).toEqual(['b', 'c'])
   })
 
   it('a meretlen keretu fiok a mert fiokok MOGE kerul, nem ele', () => {
@@ -47,12 +47,13 @@ describe('workbenchAccountStatuses', () => {
     setWorkbenchAccountListerForTest(() => [
       acc('online5h', 20, 10),
       acc('weeklydead', 0, 100),
-      acc('fivecrit', 98, 0),
+      acc('fivecrit', 100, 0),
+      acc('fivewarn', 97, 0),
       acc('nomeasure', null, null),
     ])
     const byId: Record<string, string> = {}
     for (const r of workbenchAccountStatuses()) byId[r.agent] = r.status
-    expect(byId).toEqual({ online5h: 'online', weeklydead: 'limited', fivecrit: 'limited', nomeasure: 'unknown' })
+    expect(byId).toEqual({ online5h: 'online', weeklydead: 'limited', fivecrit: 'limited', fivewarn: 'caution', nomeasure: 'unknown' })
   })
 
   it('az ELO (zold) fiokok elol, a limitelt hatul -- de EGY sem esik ki', () => {
