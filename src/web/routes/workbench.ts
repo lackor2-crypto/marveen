@@ -91,6 +91,7 @@ import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, set
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { itemMarks, type ItemMark } from '../../workbench-item-marks.js'
 import { fileOfficialCopy, listSent, markSentManually, recordSent, removeSent, sentStatus, SENT_METHODS, unmarkSentManually } from '../../workbench-docsent.js'
+import '../../workbench-sent-context.js'
 import { addProjectPlace, removeProjectPlace } from '../../project-places.js'
 import { projectPlacesView } from '../../project-places-auto.js'
 import { projectItemFiles } from '../../project-item-files.js'

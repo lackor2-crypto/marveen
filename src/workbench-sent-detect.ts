@@ -16,6 +16,7 @@ import { basename } from 'node:path'
 import { getDb } from './db.js'
 import { listFinals, finalState } from './workbench-docfinal.js'
 import { markSentManually, recordSent, sentStatus, sentVersionIds } from './workbench-docsent.js'
+import './workbench-sent-context.js'
 import { getWorkItem } from './workbench.js'
 
 export interface SentMailInfo { id: string; date: string; to: string; messageId: string; attachments: string[] }
