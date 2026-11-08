@@ -16,6 +16,8 @@ export interface MissingEntry {
   since: string
   /** The owner said: take the state as it is now. The entry stays, but nothing reports or marks it. */
   ignored?: boolean
+  /** When the guard last searched the whole tree for it by content (ms). A known-missing file is not searched again every sweep. */
+  searchedAt?: number
 }
 export type MissingState = Record<string, MissingEntry>
 
