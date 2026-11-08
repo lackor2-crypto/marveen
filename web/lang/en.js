@@ -9123,6 +9123,8 @@ window._i18n.en = {
   "workbench.tw.pic_del": "Delete picture",
   "workbench.tw.not_yet": "Not translated yet. Press Translate.",
   "workbench.tw.loaded_saved": "Saved translation loaded: {n} sections from the \"{title}\" version.",
+  "workbench.tw.conflict_confirm": "The saved translation changed meanwhile (the assistant or another tab corrected it), and you edited this page too: {n} section(s). OK = your page overwrites the saved text, Cancel = the newest saved text is loaded into the page.",
+  "workbench.tw.newer_taken": "The translation was updated meanwhile: the newest text of {n} section(s) was loaded, nothing was overwritten.",
   "workbench.tw.resynced": "The saved translation changed meanwhile; the right column was refreshed: {n} sections.",
   "workbench.tw.load_failed": "The saved translation could not be loaded: {why} Reload the page, or press Translate and a new one is made.",
   "workbench.tw.load_failed_unknown": "The saved translation could not be loaded, and the server gave no reason.",
