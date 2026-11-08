@@ -5115,7 +5115,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         const have = await uploadPackageView(item.id)
         if (have && have.exists) { const o = await openInFileManager(have.dir); json(res, { ok: true, package: have, opened: o.ok }); return true }
       }
-      const made = await prepareUploadPackage(item, lang === 'en' ? 'en' : 'hu')
+      const made = await prepareUploadPackage(item, lang === 'en' ? 'en' : 'hu', body && body['purpose'] === 'print' ? 'print' : 'upload')
       if (!made.ok) return failDetail(res, 400, 'upload_package_failed', lang, made.code + (made.label ? ' (' + made.label + ')' : '') + (made.detail ? ': ' + made.detail : ''))
       let opened = false
       if (!body || body['open'] !== false) opened = (await openInFileManager(made.package.dir)).ok

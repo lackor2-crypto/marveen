@@ -1758,18 +1758,22 @@
     }).join(' ')
   }
   /** Boss, 2026-11-08 (#876): the temporary folder for an online upload (final letter + annexes, clean names, under Downloads). */
-  function uploadPackageHtml(it) {
+  /** The one folder (the letter + every annex, clean names, in the Windows Downloads folder). `kind` 'print' = for printing (the "In person"
+   *  tab), anything else = for an online upload form. The same folder, the same open / delete buttons. */
+  function uploadPackageHtml(it, kind) {
+    var print = kind === 'print'
     var o = WB.detail && WB.detail.item && WB.detail.item.id === it.id ? (WB.detail.outline || null) : null
     var pkg = o && o.upload_package
-    var btn = function (act, key) { return '<button type="button" class="btn-secondary btn-compact" data-wb-act="' + act + '" data-wb-id="' + escA(it.id) + '">' + esc(t(key)) + '</button>' }
-    if (!o) return btn('item-upload-package', 'workbench.upload.make')
+    var btn = function (act, key) { return '<button type="button" class="btn-secondary btn-compact" data-wb-act="' + act + '" data-wb-id="' + escA(it.id) + '"' + (print ? ' data-wb-purpose="print"' : '') + '>' + esc(t(key)) + '</button>' }
+    var makeKey = print ? 'workbench.upload.make_print' : 'workbench.upload.make'
+    if (!o) return btn('item-upload-package', makeKey)
     if (pkg && pkg.exists) {
-      return '<div class="wb-upload-package" style="flex-basis:100%;margin-top:6px"><strong>' + esc(t('workbench.upload.ready')) + '</strong> <code>' + esc(pkg.win_dir || pkg.dir) + '</code> '
+      return '<div class="wb-upload-package" style="flex-basis:100%;margin-top:6px"><strong>' + esc(t(print ? 'workbench.upload.ready_print' : 'workbench.upload.ready')) + '</strong> <code>' + esc(pkg.win_dir || pkg.dir) + '</code> '
         + '<span class="wb-muted">(' + esc(t('workbench.upload.files', { n: pkg.files.length })) + ')</span> '
         + btn('item-upload-package-open', 'workbench.upload.open') + ' ' + btn('item-upload-package-remove', 'workbench.upload.remove')
-        + '<div class="wb-hint">' + esc(t('workbench.upload.hint')) + '</div></div>'
+        + '<div class="wb-hint">' + esc(t(print ? 'workbench.upload.pkg_hint_print' : 'workbench.upload.pkg_hint')) + '</div></div>'
     }
-    return ' ' + btn('item-upload-package', 'workbench.upload.make')
+    return ' ' + btn('item-upload-package', makeKey)
   }
   function sentBannerHtml(it) {
     var m = markOf(it.id)
@@ -13957,6 +13961,7 @@
         + receiptBoxHtml(it, 'portal') + sendMarkButton(it, 'portal')
     } else {
       body = '<div class="wb-send-pane"><h5>' + esc(t('workbench.send.person_title')) + '</h5>'
+        + '<p class="wb-hint">' + esc(t('workbench.send.person_pkg_hint')) + '</p><p>' + (uploadPackageHtml(it, 'print') || '') + '</p>'
         + '<ol class="wb-send-steps"><li>' + esc(t('workbench.send.person_s1')) + '</li><li>' + esc(t('workbench.send.person_s2')) + '</li><li>' + esc(t('workbench.send.person_s3')) + '</li></ol></div>'
         + receiptBoxHtml(it, 'person') + sendMarkButton(it, 'in_person')
     }
@@ -22291,7 +22296,7 @@
     else if (a === 'files-view') { setFilesView(act.getAttribute('data-wb-fv')) }
     else if (a === 'item-upload-package' || a === 'item-upload-package-open') {
       var uid = act.getAttribute('data-wb-id')
-      api('POST', '/api/workbench/items/' + encodeURIComponent(uid) + '/upload-package', a === 'item-upload-package-open' ? { reuse: true } : {}).then(function (r) {
+      api('POST', '/api/workbench/items/' + encodeURIComponent(uid) + '/upload-package', a === 'item-upload-package-open' ? { reuse: true } : (act.getAttribute('data-wb-purpose') === 'print' ? { purpose: 'print' } : {})).then(function (r) {
         if (!r.ok) { window.showToast((r.message || t('workbench.lifemove.failed')) + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : '')); return }
         var pk = r.data && r.data.package
         window.showToast(t(r.data && r.data.opened ? 'workbench.upload.done_opened' : 'workbench.upload.done', { dir: pk ? (pk.win_dir || pk.dir) : '' }))

@@ -63,13 +63,55 @@ export function packageNames(files: { name: string; kind: string }[], annexes: {
   })
 }
 
-/** The Downloads folder of the person using this machine (the Windows one from WSL). */
+/**
+ * Windows programs by their full path: a service started by systemd has no Windows folder on its PATH, so a bare
+ * "cmd.exe" is "not found" there (found by the owner 2026-11-08: the folder landed in the Linux home, out of sight).
+ */
+export function windowsExe(name: string): string {
+  const abs = `/mnt/c/Windows/System32/${name}`
+  return existsSync(abs) ? abs : name
+}
+
+/** Windows keeps these profile folders for itself; the person using the machine is none of them. */
+const SYSTEM_PROFILES = new Set(['public', 'default', 'default user', 'all users', 'defaultuser0', 'defaultuser100000', 'wsiaccount'])
+
+/**
+ * Pure: out of the "Downloads" folders found under /mnt/<drive>/Users, the one of the person using this machine --
+ * system profiles never, and of the real ones the folder touched most recently (the one the owner actually uses).
+ */
+export function pickWindowsDownloads(cands: { dir: string; user: string; mtimeMs: number }[]): string | null {
+  const real = cands.filter((c) => !SYSTEM_PROFILES.has(c.user.toLowerCase()))
+  if (!real.length) return null
+  return real.slice().sort((a, b) => b.mtimeMs - a.mtimeMs)[0]!.dir
+}
+
+/** Every Windows "Downloads" folder visible from WSL (/mnt/c/Users/<name>/Downloads and the same on other drives). */
+function scanWindowsDownloads(): { dir: string; user: string; mtimeMs: number }[] {
+  const out: { dir: string; user: string; mtimeMs: number }[] = []
+  let drives: string[] = []
+  try { drives = readdirSync('/mnt').filter((d) => /^[a-z]$/i.test(d)) } catch { return out }
+  for (const d of drives) {
+    let users: string[] = []
+    try { users = readdirSync(`/mnt/${d}/Users`) } catch { continue }
+    for (const u of users) {
+      const dir = `/mnt/${d}/Users/${u}/Downloads`
+      try { if (statSync(dir).isDirectory()) out.push({ dir, user: u, mtimeMs: statSync(dir).mtimeMs }) } catch { /* not a profile with Downloads */ }
+    }
+  }
+  return out
+}
+
+/**
+ * The Downloads folder of the person using this machine -- the WINDOWS one when this runs in WSL, so the folder can be opened
+ * from Explorer (owner, 2026-11-08: it must not hide in the Linux home). Order: the override variable; the Windows profile asked
+ * from cmd.exe (full path, UTF-8 console, so "László" stays "László"); the folders found under /mnt/<drive>/Users; the Linux home.
+ */
 export async function downloadsRoot(): Promise<string> {
   const env = process.env['MARVEEN_UPLOAD_PACKAGE_ROOT']
   if (env) return env
   if (isWsl()) {
     const profile = await new Promise<string>((resolve) => {
-      execFile('cmd.exe', ['/c', 'echo %USERPROFILE%'], { timeout: 10_000 }, (err, stdout) => resolve(err ? '' : String(stdout ?? '').replace(/\r|\n/g, '').trim()))
+      execFile(windowsExe('cmd.exe'), ['/c', 'chcp 65001>nul&&echo %USERPROFILE%'], { timeout: 10_000, cwd: '/mnt/c', encoding: 'utf8' }, (err, stdout) => resolve(err ? '' : String(stdout ?? '').replace(/[\r\n]/g, '').trim()))
     })
     if (profile && !profile.includes('%')) {
       const unix = await new Promise<string>((resolve) => {
@@ -77,6 +119,8 @@ export async function downloadsRoot(): Promise<string> {
       })
       if (unix && existsSync(join(unix, 'Downloads'))) return join(unix, 'Downloads')
     }
+    const found = pickWindowsDownloads(scanWindowsDownloads())
+    if (found) return found
   }
   const dl = join(homedir(), 'Downloads')
   return existsSync(dl) ? dl : homedir()
@@ -132,8 +176,10 @@ export async function uploadPackageView(itemId: string): Promise<UploadPackageVi
 
 export type PrepareOutcome = { ok: true; package: UploadPackageView } | { ok: false; code: string; detail: string | null; label?: string }
 
-/** Gathers the final letter and the annexes as copies with clean names into a fresh folder under Downloads. */
-export async function prepareUploadPackage(item: WorkItemRow, ui: 'hu' | 'en'): Promise<PrepareOutcome> {
+/** Gathers the final letter and the annexes as copies with clean names into a fresh folder under Downloads (to upload online, or to print). */
+export type PackagePurpose = 'upload' | 'print'
+
+export async function prepareUploadPackage(item: WorkItemRow, ui: 'hu' | 'en', purpose: PackagePurpose = 'upload'): Promise<PrepareOutcome> {
   const got = await collectAttachments(item, ui)
   if (!got.ok) return { ok: false, code: got.code, detail: got.detail, label: got.label }
   if (!got.files.length) return { ok: false, code: 'nothing_to_package', detail: null }
@@ -141,7 +187,8 @@ export async function prepareUploadPackage(item: WorkItemRow, ui: 'hu' | 'en'): 
   const names = packageNames(got.files, annexes)
   removeUploadPackage(item.id)
   const root = await downloadsRoot()
-  const dir = join(root, `Upload_${stampOf(new Date())}_${safeName(item.title, 40)}_${item.id.slice(0, 6)}`)
+  const prefix = purpose === 'print' ? (ui === 'en' ? 'Print' : 'Nyomtatas') : 'Upload'
+  const dir = join(root, `${prefix}_${stampOf(new Date())}_${safeName(item.title, 40)}_${item.id.slice(0, 6)}`)
   try {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, PACKAGE_MARKER), JSON.stringify({ item_id: item.id, created_at: Date.now(), by: 'marveen' }))

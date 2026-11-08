@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
-import { safeName, packageNames, removeUploadPackage, uploadPackageInfo, sweepOldUploadPackages, PACKAGE_MARKER } from '../workbench-upload-package.js'
+import { safeName, packageNames, removeUploadPackage, uploadPackageInfo, sweepOldUploadPackages, PACKAGE_MARKER, pickWindowsDownloads, windowsExe } from '../workbench-upload-package.js'
+import { readFileSync } from 'node:fs'
 import { markSentManually } from '../workbench-docsent.js'
 
 describe('clean names', () => {
@@ -61,5 +62,47 @@ describe('the folder lives and dies with the sending', () => {
     expect(sweepOldUploadPackages()).toBe(1)
     expect(existsSync(old)).toBe(false)
     expect(existsSync(fresh)).toBe(true)
+  })
+})
+
+
+// Owner, 2026-11-08: the folder landed in the Linux home, out of sight of Windows Explorer. cmd.exe was "not found" from a service
+// (no Windows PATH) and, when found, wrote "László" in the OEM code page, so the profile path was garbage and the code fell back to the Linux home.
+describe('the folder is made in the WINDOWS Downloads folder, not in the Linux home', () => {
+  it('system profiles are never chosen; of the real ones the most recently used Downloads wins', () => {
+    const c = [
+      { dir: '/mnt/c/Users/Default/Downloads', user: 'Default', mtimeMs: 9e12 },
+      { dir: '/mnt/c/Users/Public/Downloads', user: 'Public', mtimeMs: 9e12 },
+      { dir: '/mnt/c/Users/Default User/Downloads', user: 'Default User', mtimeMs: 9e12 },
+      { dir: '/mnt/c/Users/Régi/Downloads', user: 'Régi', mtimeMs: 100 },
+      { dir: '/mnt/c/Users/László/Downloads', user: 'László', mtimeMs: 500 },
+    ]
+    expect(pickWindowsDownloads(c)).toBe('/mnt/c/Users/László/Downloads')
+    expect(pickWindowsDownloads(c.slice(0, 3))).toBeNull()
+    expect(pickWindowsDownloads([])).toBeNull()
+  })
+  it('cmd.exe is asked by its full path, with a UTF-8 console, and the Users folders are scanned when it gives nothing', () => {
+    const src = readFileSync(join(__dirname, '..', 'workbench-upload-package.ts'), 'utf8')
+    expect(src).toContain('/mnt/c/Windows/System32/')
+    expect(src).toContain('chcp 65001>nul&&echo %USERPROFILE%')
+    expect(src).toContain("encoding: 'utf8'")
+    expect(src.indexOf('pickWindowsDownloads(scanWindowsDownloads())')).toBeLessThan(src.indexOf("join(homedir(), 'Downloads')"))
+    expect(windowsExe('cmd.exe')).toMatch(/cmd\.exe$/)
+  })
+  it('the "In person" tab has the same button (and the same open / delete), for printing', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const tabs = js.slice(js.indexOf('function sendTabsHtml('), js.indexOf('function receiptSave('))
+    expect(tabs).toContain("uploadPackageHtml(it, 'print')")
+    expect(tabs).toContain("uploadPackageHtml(it) ")
+    const fn = js.slice(js.indexOf('function uploadPackageHtml('), js.indexOf('function sentBannerHtml('))
+    expect(fn).toContain("data-wb-purpose=\"print\"")
+    expect(fn).toContain("'item-upload-package-remove'")
+    expect(js).toContain("act.getAttribute('data-wb-purpose') === 'print' ? { purpose: 'print' }")
+    const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf8')
+    expect(route).toContain("body['purpose'] === 'print' ? 'print' : 'upload'")
+    for (const lang of ['hu', 'en']) {
+      const dict = readFileSync(join(__dirname, '..', '..', 'web', 'lang', lang + '.js'), 'utf8')
+      for (const k of ['workbench.upload.make_print', 'workbench.upload.ready_print', 'workbench.upload.pkg_hint', 'workbench.upload.pkg_hint_print', 'workbench.send.person_pkg_hint']) expect(dict).toContain('"' + k + '"')
+    }
   })
 })
