@@ -156,7 +156,7 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   'upstream-measure.pid', 'limit-wake-alive.json', 'code-bot-offset', 'code-bot-stt',
   'agent-parity-alert.json', 'command-task-health.json', 'commit-push-dispatch.json',
   'context-broker.json', /^context-guard-last-pane-/, 'context-restart-gate.json',
-  'context-restart-gate-status.json', 'drive-delete-queue.json', 'external-ops-last-run',
+  'context-restart-gate-status.json', 'drive-delete-queue.json', 'linked-docs-missing.json', 'external-ops-last-run',
   'pr-ledger-status.json', 'agent-availability.json',
   // #772: the last OpenRouter 402 the self-check shows -- the next chat call measures it again.
   'openrouter-credit.json',

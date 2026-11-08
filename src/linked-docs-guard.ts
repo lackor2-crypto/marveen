@@ -115,7 +115,8 @@ function desktopScript(title: string, text: string): string {
 export const defaultDeps: SweepDeps = {
   async notify(entries) {
     const text = missingNoticeText(entries)
-    await notifyChannel(`${tr('title')}\n\n${text}`).catch((err) => logger.warn({ err }, '[link-guard] channel notice failed'))
+    const message = `${tr('title')}\n\n${text}`
+    await notifyChannel(message).catch((err) => logger.warn({ err }, '[link-guard] channel notice failed'))
     if (isWsl() && process.env.MARVEEN_LINK_GUARD_DESKTOP !== '0') {
       await runScriptViaTaskScheduler('MarveenLinkedMissing', 'marveen-linked-missing', desktopScript(tr('title'), text))
         .catch((err) => logger.warn({ err }, '[link-guard] desktop notice failed'))
