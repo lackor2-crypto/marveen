@@ -153,6 +153,7 @@ export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: un
   const id = randomUUID().slice(0, 12)
   db.prepare('INSERT INTO wb_doc_sent (id, work_item_id, version_id, sent_date, sent_time, recipient, method, reference, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, item.id, fin.version_id, date, time, recipient, method, reference, note, Math.floor(Date.now() / 1000), by)
+  emitSent({ itemId: item.id, date, recipient, how: 'recorded', by })
   return { ok: true, id }
 }
 
@@ -255,9 +256,23 @@ export function sentVersionIds(itemId: string): Set<string> {
   return new Set(rows.map((r) => r.version_id))
 }
 
+/**
+ * Boss, 2026-11-08: the day a document went out must be readable from the item's context file (an agent that opens the
+ * item sees it at once). The context module registers itself here; this file stays free of that import (no cycle).
+ */
+export interface SentEvent { itemId: string; date: string; recipient: string; how: 'recorded' | 'manual'; by: string | null }
+let sentListener: ((e: SentEvent) => void) | null = null
+export function onSentEvent(fn: ((e: SentEvent) => void) | null): void { sentListener = fn }
+function emitSent(e: SentEvent): void {
+  if (!sentListener) return
+  try { sentListener(e) } catch (err) { logger.warn({ err: String((err as Error)?.message || err), itemId: e.itemId }, '[docsent] the sent listener failed') }
+}
+const todayLocal = (): string => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+
 export function markSentManually(itemId: string, by: string | null): void {
   ensureSentMarkTable()
   getDb().prepare('INSERT OR REPLACE INTO wb_item_sent_mark (work_item_id, marked_at, marked_by) VALUES (?, ?, ?)').run(itemId, Math.floor(Date.now() / 1000), by)
+  emitSent({ itemId, date: todayLocal(), recipient: '', how: 'manual', by })
 }
 
 export function unmarkSentManually(itemId: string): void {
