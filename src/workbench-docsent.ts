@@ -266,11 +266,16 @@ export function sentVersionIds(itemId: string): Set<string> {
  * item sees it at once). The context module registers itself here; this file stays free of that import (no cycle).
  */
 export interface SentEvent { itemId: string; date: string; recipient: string; how: 'recorded' | 'manual'; by: string | null; method?: string; reference?: string; note?: string }
-let sentListener: ((e: SentEvent) => void) | null = null
-export function onSentEvent(fn: ((e: SentEvent) => void) | null): void { sentListener = fn }
+const sentListeners: ((e: SentEvent) => void)[] = []
+/** Adds a listener (several modules listen: the context log, the upload package); `null` removes them all (tests). */
+export function onSentEvent(fn: ((e: SentEvent) => void) | null): void {
+  if (fn === null) { sentListeners.length = 0; return }
+  if (!sentListeners.includes(fn)) sentListeners.push(fn)
+}
 function emitSent(e: SentEvent): void {
-  if (!sentListener) return
-  try { sentListener(e) } catch (err) { logger.warn({ err: String((err as Error)?.message || err), itemId: e.itemId }, '[docsent] the sent listener failed') }
+  for (const l of sentListeners.slice()) {
+    try { l(e) } catch (err) { logger.warn({ err: String((err as Error)?.message || err), itemId: e.itemId }, '[docsent] a sent listener failed') }
+  }
 }
 const todayLocal = (): string => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 

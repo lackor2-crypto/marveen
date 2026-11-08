@@ -38,6 +38,7 @@ import { startStoreWatcher, stopStoreWatcher, isBenignWatchError } from './store
 import { startWorkbenchSnapshots, stopWorkbenchSnapshots } from './workbench-snapshot.js'
 import { startWorkbenchRelocate, stopWorkbenchRelocate } from './workbench-relocate.js'
 import { startItemContexts, stopItemContexts } from './workbench-item-context.js'
+import { startUploadPackageSweep } from './workbench-upload-package.js'
 import { startLegacyReportRelocation } from './debate-export-doc.js'
 import { startLifeFolderIds, stopLifeFolderIds } from './life-folder-ids.js'
 import { AGENTS_BASE_DIR } from './web/agent-config.js'
@@ -680,6 +681,7 @@ async function main(): Promise<void> {
   // warn on a drop into a non-project folder, flag a copy that appears in two projects.
   startWorkbenchRelocate()
   startItemContexts()
+  startUploadPackageSweep()
   startLegacyReportRelocation()
 
   // #510: folders a registry knows by path (link target, backup rule, project folder, Drive backup pair) get a
