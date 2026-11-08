@@ -812,15 +812,18 @@ function parseImapFlags(imapFlags: Set<string> | string[] | undefined | null): A
     .map(f => ({ raw: f, iana: mapping[f] }))
 }
 
-function buildImapSearchCriteria(query: string): Record<string, string | string[]> {
+export function buildImapSearchCriteria(query: string): Record<string, string | string[]> {
   // The normalized query from routes/email.ts is already in a simple format:
   // "from:foo subject:bar to:baz date:2024-01-01 content:qux"
   // Parse into IMAP SEARCH criteria object for imapflow
   const criteria: Record<string, string | string[]> = {}
   const parts = query.split(' ').filter(Boolean)
+  // Boss, 2026-11-08: a plain word ("Statusfeststellungsverfahren", an address) has no "field:" prefix; it used to be
+  // dropped, the criteria came out empty and the search answered [] for a mail that was right there. Plain words are a TEXT search.
+  const plain: string[] = []
   for (const part of parts) {
     const colon = part.indexOf(':')
-    if (colon <= 0) continue
+    if (colon <= 0) { plain.push(part); continue }
     const field = part.slice(0, colon).toLowerCase()
     const value = part.slice(colon + 1)
     if (!value) continue
@@ -852,6 +855,7 @@ function buildImapSearchCriteria(query: string): Record<string, string | string[
         criteria.text = value
     }
   }
+  if (plain.length && criteria.text === undefined) criteria.text = plain.join(' ')
   return criteria
 }
 
