@@ -1479,6 +1479,20 @@
    sticks, at the top of the scrolling box, exactly like the original's toolbar. */
 #wbTwPanel.wb-tw-right { position: static; max-height: none; overflow: visible; align-self: stretch; }
 #wbTwPanel > .wb-tw-top { position: sticky; top: 0; z-index: 3; }
+/* #857 (Boss TG 5348): side by side, each column scrolls on its own (the #866 link made them move only together). The columns are as high as the
+   frame's visible box; the controls box / toolbar stick to the top of their own column. Only the band
+   in the middle (left page's right margin + gap + right page's left margin, #wbTwBand) scrolls both together: see twBandSetup(). */
+@media (min-width: 1101px) {
+  /* the columns are as high as the visible frame (twAlignTop sets the height); what lies below them (annexes, language versions) is reached by scrolling the frame */
+  .wb-sh-doc-body > .wb-tw-cols { position: relative; align-items: stretch; }
+  .wb-sh-doc-body > .wb-tw-cols > .wb-tw-left, .wb-sh-doc-body > .wb-tw-cols > #wbTwPanel.wb-tw-right { min-height: 0; max-height: 100%; overflow-y: auto; overflow-x: hidden; }
+  /* the zoom sits on the content, not on the scroller: a zoomed scroller breaks its own percentage height */
+  .wb-fr-scroll .wb-sh-doc-body > .wb-tw-cols > #wbTwPanel.wb-tw-right { zoom: 1; }
+  .wb-fr-scroll .wb-sh-doc-body > .wb-tw-cols > #wbTwPanel.wb-tw-right > * { zoom: var(--wb-zoom, 1); }
+}
+#wbTwBand { position: absolute; top: 0; bottom: 0; z-index: 5; pointer-events: none; background: rgba(60, 120, 220, 0.10); border-left: 1px dashed rgba(60, 120, 220, 0.55); border-right: 1px dashed rgba(60, 120, 220, 0.55); box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#wbTwBand::after { content: attr(data-label); writing-mode: vertical-rl; transform: rotate(180deg); font-size: 11px; letter-spacing: 0.04em; color: rgba(40, 80, 160, 0.9); white-space: nowrap; }
+@media (max-width: 1100px) { #wbTwBand { display: none; } }
 .wb-tw-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .wb-tw-sec h4 { margin: 12px 0 4px; font-size: 15px; }
 .wb-tw-block { margin: 0 0 8px; white-space: pre-wrap; line-height: var(--wb-lh, 1.6); }
