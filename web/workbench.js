@@ -17044,7 +17044,15 @@
         if (!a || !b) return
         var dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * a.clientHeight : e.deltaY
         e.preventDefault()
-        a.scrollTop += dy; b.scrollTop += dy
+        // Boss TG 5491: the two pages must stay on one line. The step is the most BOTH columns can take; when one of them
+        // has run out (top / bottom) the rest goes to the whole view (the attachments below), never to one page alone.
+        // Columns that already differ (older state) are first brought to the same offset.
+        var room = function (el, d) { return d < 0 ? el.scrollTop : Math.max(0, el.scrollHeight - el.clientHeight - el.scrollTop) }
+        var step = dy < 0 ? -Math.min(-dy, room(a, dy), room(b, dy)) : Math.min(dy, room(a, dy), room(b, dy))
+        if (step) { a.scrollTop += step; b.scrollTop += step }
+        var rest = dy - step
+        var outer = cols.closest('.wb-fr-scroll')
+        if (rest && outer) outer.scrollTop += rest
       }, { passive: false })
       if (typeof ResizeObserver === 'function') new ResizeObserver(function () { twBandSetup() }).observe(cols)
       // the sticky boxes settle after the first layout and when a column scrolls: the band's top follows them

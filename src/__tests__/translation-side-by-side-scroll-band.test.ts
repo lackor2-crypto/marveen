@@ -18,7 +18,11 @@ describe('side-by-side translation scroll (#857)', () => {
     expect(css).toContain('#wbTwBand {')
     expect(js).toContain("cols.addEventListener('wheel'")
     expect(js).toMatch(/e\.clientX < mm\.x0 \|\| e\.clientX > mm\.x1 \|\| e\.clientY < mm\.y0\) return/)
-    expect(js).toContain('a.scrollTop += dy; b.scrollTop += dy')
+    // Boss TG 5491: both move by the same step (what both can take); the rest goes to the whole view, never to one page alone
+    expect(js).toContain('a.scrollTop += step; b.scrollTop += step')
+    expect(js).toContain("cols.closest('.wb-fr-scroll')")
+    expect(js).toContain('outer.scrollTop += rest')
+    expect(js).not.toContain('a.scrollTop += dy')
   })
   it('the band label is in both languages', () => {
     expect(hu).toContain('"workbench.tw.band_label"')
