@@ -70,7 +70,7 @@ describe('#794 attachment fallback for owner-said claims', () => {
     expect(r.claim.sources[0]).toMatchObject({ kind: 'document', verdict: 'verified', path: 'Level/idezes.pdf', page: 2 })
   })
 
-  it('words that are in no attachment stay not_in_chat', () => {
+  it('words that are in no attachment are still taken as an owner statement', () => {
     const s = addSection(itemId, '2. T')
     if (!s.ok) throw new Error('fejezet')
     const b = addBlock(itemId, s.section.id, { text: 'Ez sehol nincs leirva.', author: 'agent' })
@@ -78,6 +78,6 @@ describe('#794 attachment fallback for owner-said claims', () => {
     const r = addClaim(itemId, b.block.id, 'Ez sehol nincs leirva.', [{ kind: 'owner', said: 'Ez sehol nincs leirva' }], world(), null)
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.claim.sources[0]).toMatchObject({ kind: 'owner', verdict: 'not_in_chat' })
+    expect(r.claim.sources[0]).toMatchObject({ kind: 'owner', verdict: 'recorded' })
   })
 })

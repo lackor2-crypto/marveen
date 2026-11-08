@@ -100,7 +100,7 @@ describe('forrasrendszer', () => {
     const r = addClaim(itemId, b.id, 'A tárgyalás márciusban volt.', [{ kind: 'owner', said: 'A tárgyalás márciusban volt' }], world(), null)
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.claim.strength).toBe('owner_unconfirmed')
+    expect(r.claim.strength).toBe('owner_confirmed')
     expect(r.claim.sources[0]).toMatchObject({ verdict: 'recorded', message_id: 'm1', said_at: 1_790_000_000 })
     updateSection(itemId, section.id, { status: 'done' })
     // Boss TG 3443/3445: the owner's own statement in the letter holds nothing back; no confirmation is asked for.
@@ -119,11 +119,11 @@ describe('forrasrendszer', () => {
     expect(documentCheck(itemId).ready).toBe(true)
   })
 
-  it('a chatben el nem hangzott "kozles" nem rogzul tulajdonosi szokent', () => {
+  it('a tulajdonos allitasa teny akkor is, ha a chatben nem szo szerint hangzott el (nincs megerosites-gomb)', () => {
     const { block: b } = block('A felperes elismerte a tartozást.')
     const r = addClaim(itemId, b.id, 'A felperes elismerte a tartozást.', [{ kind: 'owner', said: 'A felperes elismerte a tartozást' }], world(), null)
-    expect(r.ok && r.claim.sources[0].verdict).toBe('not_in_chat')
-    expect(r.ok && r.claim.strength).toBe('unverified')
+    expect(r.ok && r.claim.sources[0].verdict).toBe('recorded')
+    expect(r.ok && r.claim.strength).toBe('owner_confirmed')
   })
 
   it('K-1.8/K-1.11: a kovetkeztetes nem teny; a hivatalos forras tenykent elfogadott (nincs megerosites)', () => {
