@@ -3515,6 +3515,7 @@ window._i18n.hu = {
   'email.compose_attach_too_big': 'A csatolmányok együtt legfeljebb 25 MB-osak lehetnek.',
   'email.btn.save_draft': 'Mentés piszkozatként',
   'email.draft_saved_toast': 'A piszkozat elmentve a Piszkozatok mappába.',
+  'email.draft_not_removed_toast': 'A levél elment, de a piszkozatot nem sikerült a Kukába tenni: a Piszkozatok listában még látszhat.',
   'email.draft_save_error': 'A piszkozatot nem sikerült elmenteni.',
   'email.draft_save_empty': 'Üres levelet nem érdemes piszkozatként menteni: írj bele valamit.',
   'email.compose_life_hint': "A levél csak akkor megy el, ha megnyomod a Küldés gombot. A mappákból küldéskor készül a ZIP.",

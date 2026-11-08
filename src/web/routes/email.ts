@@ -585,7 +585,13 @@ const envelopeListCache = new Map<string, CacheEntry<unknown[]>>()
 // Envelope list is paginated (`-p`) -- a mutation doesn't know which page(s)
 // the frontend currently has open, so every cached page for this
 // (account, mailbox) is dropped rather than tracking pages individually.
+const envelopeGeneration = new Map<string, number>()
+function envelopeGenOf(account: string, mailbox: string): number { return envelopeGeneration.get(`${account}::${mailbox}`) || 0 }
+
 function invalidateEnvelopeCache(account: string, mailbox: string): void {
+  // Bump the generation too: a list read that STARTED before this change must neither be joined by the next
+  // request (singleFlight) nor be written back into the cache when it lands (the old rows would come back).
+  envelopeGeneration.set(`${account}::${mailbox}`, (envelopeGeneration.get(`${account}::${mailbox}`) || 0) + 1)
   const prefix = `${account}::${mailbox}::`
   for (const key of envelopeListCache.keys()) {
     if (key.startsWith(prefix)) envelopeListCache.delete(key)
@@ -717,7 +723,7 @@ async function fetchEnvelopeList(
   query: string,
   promoOnly: boolean,
 ): Promise<EnvelopeFetch> {
-  const key = `envelope-list::${envelopeCacheKeyFor(account, mailbox, page, query, promoOnly)}::${pageSize}`
+  const key = `envelope-list::${envelopeCacheKeyFor(account, mailbox, page, query, promoOnly)}::${pageSize}::g${envelopeGenOf(account, mailbox)}`
   return singleFlight(key, () => fetchEnvelopeListOnce(account, mailbox, page, pageSize, query, promoOnly))
 }
 
@@ -1222,14 +1228,16 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (staleEnvelopes) {
       json(res, staleEnvelopes, 200, { 'X-Marveen-Stale': '1' })
       refreshInBackground(`envelopes::${envelopeCacheKey}`, async () => {
+        const gen = envelopeGenOf(account as string, mailbox)
         const fresh = await fetchEnvelopeList(account as string, mailbox, page, pageSize, query, promoOnly)
-        if (fresh.ok) cacheSet(envelopeListCache, envelopeCacheKey, fresh.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
+        if (fresh.ok && gen === envelopeGenOf(account as string, mailbox)) cacheSet(envelopeListCache, envelopeCacheKey, fresh.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
       })
       return true
     }
+    const genBefore = envelopeGenOf(account as string, mailbox)
     const fetched = await fetchEnvelopeList(account as string, mailbox, page, pageSize, query, promoOnly)
     if (!fetched.ok) { json(res, { error: fetched.error }, 502); return true }
-    cacheSet(envelopeListCache, envelopeCacheKey, fetched.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
+    if (genBefore === envelopeGenOf(account as string, mailbox)) cacheSet(envelopeListCache, envelopeCacheKey, fetched.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
     json(res, fetched.envelopes)
     return true
   }
@@ -1848,8 +1856,9 @@ export async function warmEmailCaches(): Promise<void> {
       if (mailboxes.ok) cacheSet(mailboxListCache, acc.id, mailboxes.mailboxes, MAILBOX_LIST_TTL_MS, MAILBOX_STALE_MAX_MS)
       const query = normalizeEmailSearchQuery(null)
       const key = envelopeCacheKeyFor(acc.id, 'Inbox', 1, query, false)
+      const genBefore = envelopeGenOf(acc.id, 'Inbox')
       const envelopes = await fetchEnvelopeList(acc.id, 'Inbox', 1, 50, query, false)
-      if (envelopes.ok) cacheSet(envelopeListCache, key, envelopes.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
+      if (envelopes.ok && genBefore === envelopeGenOf(acc.id, 'Inbox')) cacheSet(envelopeListCache, key, envelopes.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
       // A lista MELLE kert ket kiegeszites (Fontos-jelzok, Sent-testverek) --
       // ezek nelkul a lista ugyan megjelenik, de a csillagok es a valasz-sorok
       // csak masodpercekkel kesobb.
