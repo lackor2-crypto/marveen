@@ -1726,6 +1726,20 @@
       return '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-sent-via" data-wb-method="' + k + '" data-wb-id="' + escA(itemId) + '">' + esc(t('workbench.sent.via.' + k)) + '</button>'
     }).join(' ')
   }
+  /** Boss, 2026-11-08 (#876): the temporary folder for an online upload (final letter + annexes, clean names, under Downloads). */
+  function uploadPackageHtml(it) {
+    var o = WB.detail && WB.detail.item && WB.detail.item.id === it.id ? (WB.detail.outline || null) : null
+    var pkg = o && o.upload_package
+    var btn = function (act, key) { return '<button type="button" class="btn-secondary btn-compact" data-wb-act="' + act + '" data-wb-id="' + escA(it.id) + '">' + esc(t(key)) + '</button>' }
+    if (!o) return ''
+    if (pkg && pkg.exists) {
+      return '<div class="wb-upload-package" style="flex-basis:100%;margin-top:6px"><strong>' + esc(t('workbench.upload.ready')) + '</strong> <code>' + esc(pkg.win_dir || pkg.dir) + '</code> '
+        + '<span class="wb-muted">(' + esc(t('workbench.upload.files', { n: pkg.files.length })) + ')</span> '
+        + btn('item-upload-package-open', 'workbench.upload.open') + ' ' + btn('item-upload-package-remove', 'workbench.upload.remove')
+        + '<div class="wb-hint">' + esc(t('workbench.upload.hint')) + '</div></div>'
+    }
+    return ' ' + btn('item-upload-package', 'workbench.upload.make')
+  }
   function sentBannerHtml(it) {
     var m = markOf(it.id)
     if (m.sent) {
@@ -1735,7 +1749,7 @@
     }
     if (it.status === 'done' && !archived()) {
       return '<div class="wb-sent-banner wb-sent-banner-no" role="status"><span class="wb-sent-mark wb-sent-no" aria-hidden="true"></span> '
-        + esc(t('workbench.sent.banner_unsent')) + ' ' + sentViaButtons(it.id) + '</div>'
+        + esc(t('workbench.sent.banner_unsent')) + ' ' + sentViaButtons(it.id) + uploadPackageHtml(it) + '</div>'
     }
     return ''
   }
@@ -22119,6 +22133,23 @@
     }
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'files-view') { setFilesView(act.getAttribute('data-wb-fv')) }
+    else if (a === 'item-upload-package' || a === 'item-upload-package-open') {
+      var uid = act.getAttribute('data-wb-id')
+      api('POST', '/api/workbench/items/' + encodeURIComponent(uid) + '/upload-package', a === 'item-upload-package-open' ? { reuse: true } : {}).then(function (r) {
+        if (!r.ok) { window.showToast((r.message || t('workbench.lifemove.failed')) + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : '')); return }
+        var pk = r.data && r.data.package
+        window.showToast(t(r.data && r.data.opened ? 'workbench.upload.done_opened' : 'workbench.upload.done', { dir: pk ? (pk.win_dir || pk.dir) : '' }))
+        if (WB.open && WB.selectedId === uid) loadDetail(uid)
+      })
+    }
+    else if (a === 'item-upload-package-remove') {
+      var rid = act.getAttribute('data-wb-id')
+      api('DELETE', '/api/workbench/items/' + encodeURIComponent(rid) + '/upload-package').then(function (r) {
+        if (!r.ok) { window.showToast(r.message || t('workbench.lifemove.failed')); return }
+        window.showToast(t('workbench.upload.removed'))
+        if (WB.open && WB.selectedId === rid) loadDetail(rid)
+      })
+    }
     else if (a === 'mail-find-address') {
       var hd0 = WB.detail && (WB.detail.outline || WB.detail)
       var hd = hd0 && Array.isArray(hd0.recipient_head) ? hd0.recipient_head : []

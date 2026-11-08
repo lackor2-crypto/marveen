@@ -42,6 +42,7 @@ import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
+import { prepareUploadPackage, removeUploadPackage, uploadPackageInfo, uploadPackageView } from '../../workbench-upload-package.js'
 import { findCapcut, openInCapcut } from '../../open-in-capcut.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { linkResearch, readProjectResearch, researchForItem, unlinkResearch } from '../../workbench-research.js'
@@ -809,6 +810,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   life_move_no_folder: {
     hu: 'Ennek a munkadarabnak még nincs mappája, így nincs mit az Életfába költöztetni.',
     en: 'This work item has no folder yet, so there is nothing to move into the Life tree.',
+  },
+  upload_package_failed: {
+    hu: 'Az online feltöltéshez nem sikerült összeállítani a csomagot (a végleges levél vagy egy melléklet hiányzik, vagy nem olvasható).',
+    en: 'The package for the online upload could not be made (the final letter or an annex is missing or unreadable).',
   },
   life_move_bad_input: {
     hu: 'Nincs kijelölt fájl és célmappa. Válassz legalább egy sorhoz célmappát.',
@@ -2351,6 +2356,8 @@ type OutlineOut = ReturnType<typeof documentOutline> & {
   mail_prefill: ReturnType<typeof mailPrefill>
   /** Boss, 2026-11-08: the letter head has a recipient but no e-mail address of it is known; `recipient_head` are the lines of that block. */
   recipient_needs_email: boolean
+  /** Boss, 2026-11-08 (#876): the temporary folder gathered for an online upload, or null. */
+  upload_package: ReturnType<typeof uploadPackageInfo>
   recipient_head: string[]
   check: ReturnType<typeof documentCheck>
   /** #751: set when the check changed the to-do list, so the page reloads its to-dos. */
@@ -2418,6 +2425,7 @@ function outlineOut(itemId: string): OutlineOut | null {
     mail_draft: item ? mailDraftView(item) : null,
     mail_prefill: item ? mailPrefill(item) : null,
     // Boss, 2026-11-08: no e-mail address of the letter head's recipient is known -> the page offers post / online / in person and asks the assistant to look the address up.
+    upload_package: item ? uploadPackageInfo(item.id) : null,
     recipient_needs_email: item ? letterNeedsRecipientEmail(item) : false,
     recipient_head: item ? (letterHead(item)?.lines ?? []) : [],
     ...checkWithTodos(itemId, resolve),
@@ -5091,6 +5099,28 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     else markSentManually(item.id, actor(ctx), body ? { method: body['method'], date: body['date'], recipient: body['recipient'], reference: body['reference'], note: body['note'] } : undefined)
     json(res, { ok: true, sent: sentStatus(item.id) })
     return true
+  }
+  // Boss, 2026-11-08 (kanban #876): one temporary folder with the final letter and every annex, for an online upload form.
+  if (segs.length === 2 && segs[1] === 'upload-package') {
+    if (method === 'GET') { json(res, { ok: true, package: await uploadPackageView(item.id) }); return true }
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    if (!(isOwnerClick(ctx) || isBrowserPageClick(ctx))) return fail(res, 403, 'outline_owner_only', lang)
+    if (method === 'DELETE') { const removed = removeUploadPackage(item.id); json(res, { ok: true, removed }); return true }
+    if (method === 'POST') {
+      const body = await readJson(req)
+      // "Open again": the folder is there already, only show it (the files are not made again).
+      if (body && body['reuse'] === true) {
+        const have = await uploadPackageView(item.id)
+        if (have && have.exists) { const o = await openInFileManager(have.dir); json(res, { ok: true, package: have, opened: o.ok }); return true }
+      }
+      const made = await prepareUploadPackage(item, lang === 'en' ? 'en' : 'hu')
+      if (!made.ok) return failDetail(res, 400, 'upload_package_failed', lang, made.code + (made.label ? ' (' + made.label + ')' : '') + (made.detail ? ': ' + made.detail : ''))
+      let opened = false
+      if (!body || body['open'] !== false) opened = (await openInFileManager(made.package.dir)).ok
+      json(res, { ok: true, package: made.package, opened }, 201)
+      return true
+    }
   }
   if (segs.length === 2 && segs[1] === 'tidy' && method === 'POST') {
     const owner = getProject(item.project_id)
