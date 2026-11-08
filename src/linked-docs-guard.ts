@@ -42,10 +42,10 @@ interface Tracked {
 }
 
 const T = {
-  title: { hu: 'Hiányzó linkelt dokumentum', en: 'Linked document is missing' },
+  title: { hu: 'Belinkelt dokumentum nincs a helyén', en: 'A linked document is not at its place' },
   intro: {
-    hu: 'Egy projektbe belinkelt dokumentum eltűnt az Életfából (törölték, vagy olyan helyre vitték, ahol nem találom):',
-    en: 'A document linked into a project is gone from the Life tree (deleted, or moved somewhere I cannot find):',
+    hu: 'Egy projektbe belinkelt dokumentum nincs ott, ahova a link mutat. Lehet, hogy átnevezték vagy máshová vitték (és nem találom egyértelműen), lehet, hogy törölték:',
+    en: 'A document linked into a project is not where the link points. It may have been renamed or moved (and I cannot find it unambiguously), or it may have been deleted:',
   },
   usedIn: { hu: 'Itt használod:', en: 'Used in:' },
   restore: {
@@ -164,6 +164,7 @@ export async function sweepLinkedDocs(deps: SweepDeps = defaultDeps): Promise<Sw
       entry.uses = t.uses
       next[t.key] = entry
       if (!state[t.key]) { res.newlyMissing++; fresh.push(entry) }
+      else if (entry.ignored) res.missing--
     }
     writeMissingState(next)
     if (fresh.length) await deps.notify(fresh)

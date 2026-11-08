@@ -336,7 +336,7 @@ export async function runScriptViaTaskScheduler(taskName: string, fileName: stri
   const launcher = [
     '$ErrorActionPreference = "Stop"',
     '$id = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name',
-    `$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-NoProfile -ExecutionPolicy Bypass -File ${winPath}'`,
+    `$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ${winPath}'`,
     '$principal = New-ScheduledTaskPrincipal -UserId $id -LogonType Interactive',
     `Register-ScheduledTask -TaskName '${taskName}' -Action $action -Principal $principal -Force | Out-Null`,
     `Start-ScheduledTask -TaskName '${taskName}'`,

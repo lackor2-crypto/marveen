@@ -14,6 +14,8 @@ export interface MissingEntry {
   /** Where it is used, for the message: `Project / item (role)` lines. */
   uses: string[]
   since: string
+  /** The owner said: take the state as it is now. The entry stays, but nothing reports or marks it. */
+  ignored?: boolean
 }
 export type MissingState = Record<string, MissingEntry>
 
@@ -26,5 +28,6 @@ export function writeMissingState(s: MissingState): void {
 
 /** Did the guard already conclude, after looking for it, that this linked document is gone for good (until it is back)? */
 export function isMarkedMissing(docId: string): boolean {
-  return Boolean(readMissingState()[`doc:${docId}`])
+  const e = readMissingState()[`doc:${docId}`]
+  return Boolean(e && !e.ignored)
 }

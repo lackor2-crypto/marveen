@@ -86,6 +86,18 @@ describe('#873 linked document guard', () => {
     expect(readMissingState()).toEqual({})
   })
 
+  it('an entry the owner set to ignored stays quiet: not counted, not marked, not reported again', async () => {
+    rmSync(abs(CERT))
+    await sweepLinkedDocs(deps)
+    const st = readMissingState()
+    for (const e of Object.values(st)) e.ignored = true
+    writeFileSync(join(store, 'linked-docs-missing.json'), JSON.stringify(st))
+    const r = await sweepLinkedDocs(deps)
+    expect([r.missing, r.newlyMissing]).toEqual([0, 0])
+    expect(notices.length).toBe(1)
+    expect(Object.values(readMissingState())[0]!.ignored).toBe(true)
+  })
+
   it('a linked FILE (left-behind link) follows an outside rename; its target is repointed', async () => {
     const left = 'Projektek/Wohngeld/Antrag/antrag.pdf'
     mkdirSync(join(abs('Projektek/Wohngeld/Antrag')), { recursive: true })
@@ -109,5 +121,18 @@ describe('#873 linked document guard', () => {
     expect(txt).toContain('Wohngeld')
     expect(existsSync(join(store, 'linked-docs-missing.json'))).toBe(true)
     expect(readFileSync(join(store, 'linked-docs-missing.json'), 'utf-8')).toContain(CERT)
+  })
+
+  // #874: the notice must not claim "deleted" (it can be a rename the guard could not follow), and the
+  // scheduled PowerShell host must not open a visible console window behind the MessageBox.
+  it('the missing notice does not claim a deletion as fact', async () => {
+    const { missingNoticeText } = await import('../linked-docs-guard.js')
+    const txt = missingNoticeText([{ rel: 'a/b.pdf', uses: ['P'], since: '2026-11-08T00:00:00Z' }])
+    expect(txt).not.toMatch(/eltűnt az Életfából|is gone from the Life tree/)
+    expect(txt).toMatch(/átnevezték|renamed/)
+  })
+  it('the scheduled task runs PowerShell with a hidden window', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'windows-settings.ts'), 'utf-8')
+    expect(src).toContain('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File')
   })
 })
