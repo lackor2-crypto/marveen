@@ -25,6 +25,7 @@
 #  Telegram nyelvetol:
 #    sima uzenetmezo:  class Ui::InputField::Inner -> class Ui::InputField
 #                      -> class HistoryWidget          (merve 2026-10-07, 7.2.9)
+#                      -> class HistoryView::ChatWidget (merve 2026-11-08, ujabb Telegram)
 #    kepalairas:       ... Ui::InputField -> SendFilesBox  (a forrasban a mezo
 #                      szuloje a SendFilesBox: `_caption(this, ...)`)
 #  Ha nem biztos (nincs UI Automation, ismeretlen mezo, nem olvashato a szoveg),
@@ -46,7 +47,8 @@ function Get-TgFieldKind {
   $list = @($Classes | ForEach-Object { [string]$_ })
   if ($list.Count -eq 0 -or $list[0] -notmatch 'InputField') { return 'other' }
   foreach ($c in $list) { if ($c -match '\bSendFilesBox\b') { return 'caption' } }
-  foreach ($c in $list) { if ($c -match '\bHistoryWidget\b') { return 'message' } }
+  # Old Telegram: HistoryWidget. Newer builds (measured 2026-11-08): HistoryView::ChatWidget. Both are the chat's message field.
+  foreach ($c in $list) { if ($c -match '\b(?:HistoryWidget|ChatWidget)\b') { return 'message' } }
   return 'other'
 }
 

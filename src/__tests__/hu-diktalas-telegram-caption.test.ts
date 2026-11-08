@@ -174,6 +174,8 @@ $all['oldway'] = @{ caption = $script:TG.caption.Length }
 
 $all['kinds'] = @{
   measured = Get-TgFieldKind -Classes @('class Ui::InputField::Inner', 'class Ui::InputField', 'class HistoryWidget', 'class MainWidget', 'class Ui::RpWidget', 'class Ui::RpWidget', 'class MainWindow', '#32769')
+  measuredNew = Get-TgFieldKind -Classes @('class Ui::InputField::Inner', 'class Ui::InputField', 'class Ui::RpWidget', 'class HistoryView::ChatWidget', 'class MainWidget', 'class Ui::RpWidget', 'class Ui::RpWidget', 'class MainWindow', '#32769')
+  searchNew = Get-TgFieldKind -Classes @('class Ui::InputField::Inner', 'class Ui::InputField', 'class Ui::RpWidget', 'class Dialogs::Widget', 'class MainWidget', 'class Ui::RpWidget', 'class Ui::RpWidget', 'class MainWindow', '#32769')
   caption  = Get-TgFieldKind -Classes @('class Ui::InputField::Inner', 'class Ui::InputField', 'class SendFilesBox', 'class Ui::BoxLayerWidget', 'class MainWindow')
   button   = Get-TgFieldKind -Classes @('class Ui::IconButton', 'class HistoryWidget', 'class MainWidget')
   search   = Get-TgFieldKind -Classes @('class Ui::InputField::Inner', 'class Ui::InputField', 'class Dialogs::Widget', 'class MainWidget')
@@ -285,7 +287,7 @@ describe.skipIf(!RUNNER)(`caption -> plain message under ${RUNNER ?? 'PowerShell
   })
 
   it('field kinds come from the class chain, not from the (localised) field name', () => {
-    expect(out.kinds).toEqual({ measured: 'message', caption: 'caption', button: 'other', search: 'other', none: 'other' })
+    expect(out.kinds).toEqual({ measured: 'message', measuredNew: 'message', searchNew: 'other', caption: 'caption', button: 'other', search: 'other', none: 'other' })
   })
 
   it('texts are joined with one space; every failure has a warning', () => {
