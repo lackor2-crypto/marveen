@@ -32813,6 +32813,23 @@ document.getElementById('emailSelectAllCheckbox')?.addEventListener('change', (e
 // still needed because a case here can't be patched in cleanly (deleting a
 // thread's anchor row while replies remain nested under it -- promoting
 // the next one to anchor needs a real re-render).
+// After the opened mail leaves the list (delete / archive), the mail that
+// takes its place must open by itself (Boss, 2026-11-08, #881): the next row
+// below the removed ones, or the one above when the removed row was the last.
+// Must be called BEFORE removeEmailRowsLocally(); `gone` is every row leaving.
+function emailNeighbourAfterRemoval(gone) {
+  const key = (id, mailbox) => `${mailbox}\u0000${id}`
+  const goneKeys = new Set(gone.map(g => key(g.id, g.mailbox)))
+  const rows = Array.from(document.querySelectorAll('.email-envelope-item, .email-envelope-subrow'))
+    .map(el => ({ id: el.dataset.id, mailbox: el.dataset.mailbox }))
+  const at = rows.findIndex(r => goneKeys.has(key(r.id, r.mailbox)))
+  if (at < 0) return null
+  const after = rows.slice(at + 1).find(r => !goneKeys.has(key(r.id, r.mailbox)))
+  if (after) return after
+  const before = rows.slice(0, at).reverse().find(r => !goneKeys.has(key(r.id, r.mailbox)))
+  return before || null
+}
+
 function removeEmailRowsLocally(deleted) {
   let needsFullReload = false
   for (const { id, mailbox } of deleted) {
@@ -32877,17 +32894,23 @@ document.getElementById('emailBulkDeleteBtn')?.addEventListener('click', async (
     if (failedKeys.size) showToast(t('email.bulk_delete_partial_fail'))
     const deleted = entries.filter(([id, mailbox]) => !failedKeys.has(`${mailbox}\u0000${id}`)).map(([id, mailbox]) => ({ id, mailbox }))
     const ids = deleted.map(d => d.id)
+    let bulkNext = null
     if (ids.includes(emailActiveId)) {
-      clearEmailReaderPane()
-      emailActiveId = null
-      emailActiveMailbox = null
+      bulkNext = emailNeighbourAfterRemoval(deleted)
+      if (bulkNext) { emailActiveId = bulkNext.id; emailActiveMailbox = bulkNext.mailbox } else {
+        clearEmailReaderPane()
+        emailActiveId = null
+        emailActiveMailbox = null
+      }
       saveEmailUiState()
     }
     // What failed stays selected (its checkbox is still ticked on screen), so
     // the next Törlés click retries exactly those -- the selection used to be
     // emptied while the tick stayed, and the button then did nothing.
     emailSelectedIds = new Map(entries.filter(([id, mailbox]) => failedKeys.has(`${mailbox}\u0000${id}`)))
-    if (removeEmailRowsLocally(deleted)) loadEmailEnvelopes()
+    const bulkReload = removeEmailRowsLocally(deleted)
+    if (bulkNext) loadEmailMessage(bulkNext.id, bulkNext.mailbox)
+    if (bulkReload) loadEmailEnvelopes()
     else emailUpdateBulkDeleteUI()
   } finally {
     if (btn) btn.disabled = false
@@ -33900,11 +33923,16 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
       archiveBtn.disabled = false
       return
     }
-    clearEmailReaderPane()
-    emailActiveId = null
-    emailActiveMailbox = null
+    const nextMail = emailNeighbourAfterRemoval([{ id, mailbox }])
+    if (nextMail) { emailActiveId = nextMail.id; emailActiveMailbox = nextMail.mailbox } else {
+      clearEmailReaderPane()
+      emailActiveId = null
+      emailActiveMailbox = null
+    }
     saveEmailUiState()
-    if (removeEmailRowsLocally([{ id, mailbox }])) loadEmailEnvelopes()
+    const reload = removeEmailRowsLocally([{ id, mailbox }])
+    if (nextMail) loadEmailMessage(nextMail.id, nextMail.mailbox)
+    if (reload) loadEmailEnvelopes()
   })
   const deleteBtn = document.getElementById('emailDeleteBtn')
   if (deleteBtn) deleteBtn.addEventListener('click', async () => {
@@ -33916,11 +33944,16 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
       deleteBtn.disabled = false
       return
     }
-    clearEmailReaderPane()
-    emailActiveId = null
-    emailActiveMailbox = null
+    const nextMail = emailNeighbourAfterRemoval([{ id, mailbox }])
+    if (nextMail) { emailActiveId = nextMail.id; emailActiveMailbox = nextMail.mailbox } else {
+      clearEmailReaderPane()
+      emailActiveId = null
+      emailActiveMailbox = null
+    }
     saveEmailUiState()
-    if (removeEmailRowsLocally([{ id, mailbox }])) loadEmailEnvelopes()
+    const reload = removeEmailRowsLocally([{ id, mailbox }])
+    if (nextMail) loadEmailMessage(nextMail.id, nextMail.mailbox)
+    if (reload) loadEmailEnvelopes()
   })
   const draftEditBtn = document.getElementById('emailDraftEditBtn')
   if (draftEditBtn) draftEditBtn.addEventListener('click', () => emailShowComposeFromDraft(id, envelope, mailbox, msg))
