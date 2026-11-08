@@ -86,6 +86,18 @@ describe('#873 linked document guard', () => {
     expect(readMissingState()).toEqual({})
   })
 
+  it('an entry the owner set to ignored stays quiet: not counted, not marked, not reported again', async () => {
+    rmSync(abs(CERT))
+    await sweepLinkedDocs(deps)
+    const st = readMissingState()
+    for (const e of Object.values(st)) e.ignored = true
+    writeFileSync(join(store, 'linked-docs-missing.json'), JSON.stringify(st))
+    const r = await sweepLinkedDocs(deps)
+    expect([r.missing, r.newlyMissing]).toEqual([0, 0])
+    expect(notices.length).toBe(1)
+    expect(Object.values(readMissingState())[0]!.ignored).toBe(true)
+  })
+
   it('a linked FILE (left-behind link) follows an outside rename; its target is repointed', async () => {
     const left = 'Projektek/Wohngeld/Antrag/antrag.pdf'
     mkdirSync(join(abs('Projektek/Wohngeld/Antrag')), { recursive: true })

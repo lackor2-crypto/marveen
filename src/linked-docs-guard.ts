@@ -164,6 +164,7 @@ export async function sweepLinkedDocs(deps: SweepDeps = defaultDeps): Promise<Sw
       entry.uses = t.uses
       next[t.key] = entry
       if (!state[t.key]) { res.newlyMissing++; fresh.push(entry) }
+      else if (entry.ignored) res.missing--
     }
     writeMissingState(next)
     if (fresh.length) await deps.notify(fresh)
