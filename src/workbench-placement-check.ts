@@ -4,7 +4,7 @@
 // the Debate folder) is not a mistake and is not reported here.
 import { getProject, type ProjectRow } from './projects.js'
 import type { WorkItemRow } from './workbench.js'
-import { listWorkFolders } from './workbench-assets.js'
+import { listWorkFoldersYielding } from './workbench-assets.js'
 import { misplacedFor, roleOfFolderName, type MisplacedCode } from './workbench-misplaced.js'
 import { addAgentMessageOnce, openSessionForWorkItem } from './workbench-agent/sessions.js'
 
@@ -36,10 +36,11 @@ const EVENT: Record<PlacementEvent, { hu: string; en: string }> = {
 }
 
 /** The hard verdicts for the files in the work item's own folder (and its subfolders), as the tree marks them. */
-export function placementIssues(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>): PlacementIssue[] {
+export async function placementIssues(project: ProjectRow, item: Pick<WorkItemRow, 'folder'>): Promise<PlacementIssue[]> {
   const own = String(item.folder ?? '').replace(/^\/+|\/+$/g, '')
   if (!own) return []
-  const listed = listWorkFolders(project, { outside: false })
+  // Yielding: the walk over the depot (9p mount) gives the event loop back between steps (Boss TG 5526: 3.4 s freeze).
+  const listed = await listWorkFoldersYielding(project, { outside: false })
   const out: PlacementIssue[] = []
   for (const [folder, files] of Object.entries(listed.files)) {
     if (folder !== own && !folder.startsWith(own + '/')) continue
@@ -87,12 +88,12 @@ export interface PlacementCheck { issues: number; note: string | null; item_id: 
  * written twice within an hour). Never throws: a check that cannot run says nothing rather than breaking the action
  * it follows; `issues: -1` tells the caller it could not look.
  */
-export function checkPlacementAfter(item: WorkItemRow, event: PlacementEvent, lang: 'hu' | 'en', extra: PlacementIssue[] = []): PlacementCheck {
+export async function checkPlacementAfter(item: WorkItemRow, event: PlacementEvent, lang: 'hu' | 'en', extra: PlacementIssue[] = []): Promise<PlacementCheck> {
   try {
     const project = getProject(item.project_id)
     if (!project) return { issues: -1, note: null, item_id: item.id }
     const seen = new Set<string>()
-    const issues = [...extra, ...placementIssues(project, item)].filter((i) => {
+    const issues = [...extra, ...(await placementIssues(project, item))].filter((i) => {
       const k = `${i.folder}/${i.name}`
       if (seen.has(k)) return false
       seen.add(k)

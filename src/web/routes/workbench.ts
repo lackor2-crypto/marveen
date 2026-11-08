@@ -3093,7 +3093,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         const up = linkLifeFileAsUpload(sub.item, target, actor(ctx))
         if (!up.ok) return fail(res, up.code === 'not_found' ? 404 : 400, up.code === 'not_found' ? 'plink_not_found' : 'plink_' + up.code, lang)
       }
-      json(res, { ok: true, rel: target, name: target.slice(target.lastIndexOf('/') + 1), item: sub.item.id, work_folders: listWorkFolders(project) }, 201)
+      json(res, { ok: true, rel: target, name: target.slice(target.lastIndexOf('/') + 1), item: sub.item.id, work_folders: await listWorkFoldersYielding(project) }, 201)
       return true
     }
     const name = safeLifeName(target.slice(target.lastIndexOf('/') + 1)) || 'Fajl'
@@ -3102,7 +3102,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (listMounts().some((m) => m.rel === rel) || (abs2 && existsSync(abs2))) return fail(res, 409, 'plink_exists', lang)
     const r = addMount({ rel, target, kind: 'local', label: target, file: true })
     if (!r.ok) return fail(res, 400, 'plink_failed', lang)
-    json(res, { ok: true, rel, name, work_folders: listWorkFolders(project) }, 201)
+    json(res, { ok: true, rel, name, work_folders: await listWorkFoldersYielding(project) }, 201)
     return true
   }
 
@@ -3647,7 +3647,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = makeWorkFolder(project, body.parent, body.name)
     if (!r.ok) return failDetail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'folder_name' ? 'bad_folder_name' : r.code, lang, r.message || null)
-    json(res, { ok: true, folder: r.folder, created: r.created, work_folders: listWorkFolders(project) }, 201)
+    json(res, { ok: true, folder: r.folder, created: r.created, work_folders: await listWorkFoldersYielding(project) }, 201)
     return true
   }
 
@@ -3663,7 +3663,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = r.code === 'folder_name' ? 'bad_folder_name' : r.code === 'folder_is_box' ? 'folder_box_rename' : r.code === 'no_box' ? 'folder_gone' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'folder_exists' || r.code === 'folder_has_canvas' ? 409 : 400, code, lang, r.message || null)
     }
-    json(res, { ok: true, folder: r.folder, renamed: r.renamed, item: r.item ?? null, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, folder: r.folder, renamed: r.renamed, item: r.item ?? null, items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
   }
 
@@ -3680,7 +3680,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'folder_is_box' ? 'folder_box_move' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'folder_exists' ? 409 : 400, code, lang, r.message || null)
     }
-    json(res, { ok: true, folder: r.folder, moved: r.moved, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, folder: r.folder, moved: r.moved, items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
   }
 
@@ -3716,7 +3716,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       }
       return fail(res, r.code === 'write_failed' ? 500 : 400, r.code === 'no_box' ? 'folder_gone' : r.code, lang)
     }
-    json(res, { ok: true, folder: r.folder, trashed: r.trashed ?? null, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, folder: r.folder, trashed: r.trashed ?? null, items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
   }
 
@@ -3743,7 +3743,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'no_files' ? 'files_no_files' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, null)
     }
-    json(res, { ok: true, moved: r.moved, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, moved: r.moved, skipped: r.skipped, items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
   }
 
@@ -3759,7 +3759,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'no_files' ? 'files_no_files' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, null)
     }
-    json(res, { ok: true, copied: r.copied, skipped: r.skipped, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, copied: r.copied, skipped: r.skipped, items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
   }
 
@@ -3772,7 +3772,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = deleteLooseFiles(project, body['rels'])
     if (!r.ok) return failDetail(res, 400, r.code === 'no_box' ? 'folder_gone' : 'files_delete_none', lang, null)
-    json(res, { ok: true, deleted: r.deleted, skipped: r.skipped, trash: r.trash, file_trash: listFileTrash(project.id), items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, deleted: r.deleted, skipped: r.skipped, trash: r.trash, file_trash: listFileTrash(project.id), items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
   }
 
@@ -3804,7 +3804,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = ids.length === 1 ? failed[0].code : 'file_trash_none'
       return failDetail(res, code === 'file_trash_failed' ? 500 : 409, code, lang, failed[0].detail)
     }
-    json(res, { ok: true, restored, failed: failed.map((f) => ({ id: f.id, message: f.message })), file_trash: listFileTrash(project.id), items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, restored, failed: failed.map((f) => ({ id: f.id, message: f.message })), file_trash: listFileTrash(project.id), items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
   }
 
@@ -3839,7 +3839,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = r.code === 'no_box' ? 'folder_gone' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'file_name_taken' ? 409 : 400, code, lang, r.message ?? null)
     }
-    json(res, { ok: true, name: r.name, renamed: r.renamed, items: listWorkItems(project.id), work_folders: listWorkFolders(project) })
+    json(res, { ok: true, name: r.name, renamed: r.renamed, items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
   }
 
@@ -4562,7 +4562,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       try { finalizeWorkItem(item.id, { by: actor(ctx) || 'dashboard' }) } catch { /* the PDF is made; the status is best effort */ }
       // #794: a draft text nobody edited belonged to the previous final (maybe another language): start it again from this one.
       try { resetUntouchedMailText(item) } catch { /* best effort: the draft is rebuilt from the final when it is saved */ }
-      json(res, { ok: true, final: r.final, file: r.asset_path, reused: r.reused === true, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id), placement: checkPlacementAfter(item, 'finalize', lang) })
+      json(res, { ok: true, final: r.final, file: r.asset_path, reused: r.reused === true, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id), placement: await checkPlacementAfter(item, 'finalize', lang) })
       return true
     }
     // #533: undo / redo on the page. The history is the server's (snapshots of the outline tables), so it
@@ -4870,7 +4870,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       ok: true, asset: r.asset, folder: r.folder, folder_created: r.folderCreated,
       renamed: r.renamed, name: r.asset.name, assets: assetsOut(item.id),
       // #758 (3A): the machine self-check of the item's folders; a note goes into the chat when something is off.
-      placement: checkPlacementAfter(getWorkItem(item.id) || item, 'upload', lang),
+      placement: await checkPlacementAfter(getWorkItem(item.id) || item, 'upload', lang),
     }, 201)
     return true
   }
@@ -5044,7 +5044,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = r.code === 'no_box' ? 'folder_gone' : r.code
       return failDetail(res, r.code === 'move_failed' ? 500 : 400, code, lang, r.message || null)
     }
-    json(res, { ok: true, moved: r.moved, reason: r.reason ?? null, folder: r.folder, item: getWorkItem(item.id), work_folders: listWorkFolders(owner as NonNullable<typeof owner>), items: listWorkItems(item.project_id) })
+    json(res, { ok: true, moved: r.moved, reason: r.reason ?? null, folder: r.folder, item: getWorkItem(item.id), work_folders: await listWorkFoldersYielding(owner as NonNullable<typeof owner>), items: listWorkItems(item.project_id) })
     return true
   }
   // #624: new files in the root of the item's folder wait for the owner's yes / no (GET the questions, POST the answers).
@@ -5085,7 +5085,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!r.ok) return fail(res, r.code === 'no_folder' ? 404 : 400, r.code === 'no_folder' ? 'life_move_no_folder' : 'life_move_bad_input', lang)
     // #716: an annex that stood on the old place becomes a link to the document in the Life tree.
     const relinked = await relinkMovedAnnexes(owner, movedPairs(r.results)).catch(() => 0)
-    const placement = checkPlacementAfter(getWorkItem(item.id) || item, 'life_move', lang, lifeMoveIssues(movedPairs(r.results)))
+    const placement = await checkPlacementAfter(getWorkItem(item.id) || item, 'life_move', lang, lifeMoveIssues(movedPairs(r.results)))
     json(res, { ok: true, results: r.results, relinked, assets: assetsOut(item.id), placement })
     return true
   }
@@ -5231,13 +5231,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
           void alertKeyFunctionFailure('table_finalize', tf.code, tfStatus, tf.detail)
           return failDetail(res, tfStatus, tf.code, lang, tf.detail)
         }
-        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name, pdf_name: tf.pdf_name, pdf_note: tf.pdf_note }, placement: checkPlacementAfter(item, 'finalize', lang) })
+        json(res, { item: tf.item, approval: workItemApprovalState(item.id), final: { path: tf.asset_path, name: tf.asset_name, pdf_name: tf.pdf_name, pdf_note: tf.pdf_note }, placement: await checkPlacementAfter(item, 'finalize', lang) })
         return true
       }
       r = action === 'finalize' ? finalizeWorkItem(item.id, { by: who || 'dashboard' }) : reopenWorkItem(item.id, { by: who || 'dashboard', lang })
     } else return fail(res, 400, 'approval_bad_action', lang)
     if (!r.ok) return fail(res, r.code === 'reason_too_long' ? 400 : 409, 'approval_' + r.code, lang)
-    json(res, { item: r.item, approval: r.approval, ...(action === 'reopen' ? { versions: listWorkItemVersionsView(item.id) } : { placement: checkPlacementAfter(item, 'finalize', lang) }) })
+    json(res, { item: r.item, approval: r.approval, ...(action === 'reopen' ? { versions: listWorkItemVersionsView(item.id) } : { placement: await checkPlacementAfter(item, 'finalize', lang) }) })
     return true
   }
 
