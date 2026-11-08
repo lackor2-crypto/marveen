@@ -1762,7 +1762,7 @@
     var o = WB.detail && WB.detail.item && WB.detail.item.id === it.id ? (WB.detail.outline || null) : null
     var pkg = o && o.upload_package
     var btn = function (act, key) { return '<button type="button" class="btn-secondary btn-compact" data-wb-act="' + act + '" data-wb-id="' + escA(it.id) + '">' + esc(t(key)) + '</button>' }
-    if (!o) return ''
+    if (!o) return btn('item-upload-package', 'workbench.upload.make')
     if (pkg && pkg.exists) {
       return '<div class="wb-upload-package" style="flex-basis:100%;margin-top:6px"><strong>' + esc(t('workbench.upload.ready')) + '</strong> <code>' + esc(pkg.win_dir || pkg.dir) + '</code> '
         + '<span class="wb-muted">(' + esc(t('workbench.upload.files', { n: pkg.files.length })) + ')</span> '
@@ -1780,7 +1780,9 @@
     }
     if (it.status === 'done' && !archived()) {
       return '<div class="wb-sent-banner wb-sent-banner-no" role="status"><span class="wb-sent-mark wb-sent-no" aria-hidden="true"></span> '
-        + esc(t('workbench.sent.banner_unsent')) + ' ' + sentViaButtons(it.id) + uploadPackageHtml(it) + '</div>'
+        + esc(t('workbench.sent.banner_unsent'))
+        + (isMailDoneItem(it) && WB.docxMailFor !== it.id ? ' <button type="button" class="btn-secondary btn-compact" data-wb-act="docx-mail-open">\u2709 ' + esc(t('workbench.docxfinal.mail_button')) + '</button>' : '')
+        + '</div>'
     }
     return ''
   }
@@ -10834,7 +10836,7 @@
       var who = (opts.head && opts.head[0]) || ''
       noAddr = '<div class="wb-doc-low" role="status"><p>\u26a0 ' + esc(t('workbench.mail.no_address', { who: who })) + '</p><p>'
         + '<button type="button" class="btn-secondary btn-compact" data-wb-act="mail-find-address">' + esc(t('workbench.mail.find_address')) + '</button> '
-        + ['post', 'portal', 'in_person'].map(function (k) { return '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-sent-via" data-wb-method="' + k + '" data-wb-id="' + escA(WB.selectedId || '') + '">' + esc(t('workbench.sent.via.' + k)) + '</button>' }).join(' ')
+        + ['post', 'portal', 'in_person'].map(function (k) { return '<button type="button" class="btn-secondary btn-compact" data-wb-act="send-tab" data-wb-tab="' + k + '">' + esc(t('workbench.send.tab.' + k)) + '</button>' }).join(' ')
         + '</p><p class="wb-hint">' + esc(t('workbench.mail.no_address_hint')) + '</p></div>'
     }
     return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
@@ -10871,7 +10873,7 @@
       + '<p class="subtitle" style="margin:0 0 10px"></p>'
       + '<label style="display:block;margin-bottom:8px">' + esc(t('workbench.sent.date')) + ' <input type="date" id="wbSentViaDate" value="' + escA(iso) + '" required></label>'
       + '<label style="display:block;margin-bottom:8px">' + esc(t('workbench.sent.recipient')) + ' <input type="text" id="wbSentViaTo" maxlength="300" style="width:100%" value="' + escA(head.slice(0, 2).join(', ')) + '"></label>'
-      + '<label style="display:block;margin-bottom:8px">' + esc(t('workbench.sent.via_ref.' + method)) + ' <input type="text" id="wbSentViaRef" maxlength="300" style="width:100%"></label>'
+      + '<label style="display:block;margin-bottom:8px">' + esc(t('workbench.sent.via_ref.' + method)) + ' <input type="text" id="wbSentViaRef" maxlength="300" style="width:100%" value="' + escA((function () { rcptKeep(); return (WB.rcpt && WB.rcpt.no) || '' })()) + '"></label>'
       + '<label style="display:block;margin-bottom:12px">' + esc(t('workbench.sent.via_note')) + ' <input type="text" id="wbSentViaNote" maxlength="500" style="width:100%"></label>'
       + '<button type="submit" class="btn-primary btn-compact">' + esc(t('workbench.sent.via_save')) + '</button> '
       + '<button type="button" class="btn-secondary btn-compact" id="wbSentViaCancel">' + esc(t('workbench.sent.via_cancel')) + '</button>'
@@ -13916,12 +13918,72 @@
     return i > 0 ? p.slice(0, i) : t('workbench.docxfinal.folder_root')
   }
 
+  /** Boss, 2026-11-08 (#879): the Send panel is ONE panel with Excel-like tabs (E-mail, Post, Online upload, In person).
+   *  A click on a tab opens that way at once, no going back to the Send button. Each way marks "sent" on its own panel. */
+  function sendTabNow() { return SENT_VIA.indexOf(WB.sendTab) >= 0 ? WB.sendTab : 'email' }
+  function rcptKeep() {
+    var no = document.getElementById('wbRcptNo'), fo = document.getElementById('wbRcptFolder')
+    if (no || fo) WB.rcpt = { no: no ? no.value : ((WB.rcpt && WB.rcpt.no) || ''), folder: fo ? fo.value : ((WB.rcpt && WB.rcpt.folder) || '') }
+  }
+  function receiptBoxHtml(it, kind) {
+    var r = WB.rcpt || {}
+    return '<div class="wb-send-receipt"><h5>' + esc(t('workbench.send.receipt_title')) + '</h5>'
+      + '<p class="wb-hint">' + esc(t('workbench.send.receipt_hint_' + kind)) + '</p>'
+      + '<label class="wb-label" for="wbRcptNo">' + esc(t('workbench.send.receipt_no')) + '</label>'
+      + '<input class="wb-input" id="wbRcptNo" type="text" maxlength="300" value="' + escA(r.no || '') + '" placeholder="' + escA(t('workbench.send.receipt_no_ph')) + '">'
+      + '<label class="wb-label" for="wbRcptFile">' + esc(t('workbench.send.receipt_file')) + '</label>'
+      + '<input class="wb-input" id="wbRcptFile" type="file">'
+      + '<label class="wb-label" for="wbRcptFolder">' + esc(t('workbench.send.receipt_folder')) + '</label>'
+      + '<input class="wb-input" id="wbRcptFolder" type="text" maxlength="120" value="' + escA(r.folder != null && r.folder !== '' ? r.folder : t('workbench.send.receipt_folder_default')) + '">'
+      + '<p class="wb-hint">' + esc(t('workbench.send.receipt_folder_hint')) + '</p>'
+      + '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="receipt-save" data-wb-id="' + escA(it.id) + '"' + (WB.rcptBusy ? ' disabled' : '') + '>' + esc(t(WB.rcptBusy ? 'workbench.send.receipt_saving' : 'workbench.send.receipt_save')) + '</button></p></div>'
+  }
+  function sendMarkButton(it, k) {
+    return '<p class="wb-send-mark"><button type="button" class="btn-primary btn-compact" data-wb-act="item-sent-via" data-wb-method="' + k + '" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.sent.via.' + k)) + '</button></p>'
+  }
+  function sendTabsHtml(it, emailHtml) {
+    var cur = sendTabNow()
+    var bar = '<div class="wb-send-tabs" role="tablist" aria-label="' + escA(t('workbench.send.tabs')) + '">' + SENT_VIA.map(function (k) {
+      return '<button type="button" class="wb-send-tab' + (cur === k ? ' active' : '') + '" role="tab" aria-selected="' + (cur === k) + '" data-wb-act="send-tab" data-wb-tab="' + k + '">' + esc(t('workbench.send.tab.' + k)) + '</button>'
+    }).join('') + '</div>'
+    var body
+    if (cur === 'email') body = emailHtml + sendMarkButton(it, 'email')
+    else if (cur === 'post') {
+      body = '<div class="wb-send-pane"><h5>' + esc(t('workbench.send.post_title')) + '</h5>'
+        + '<ol class="wb-send-steps"><li>' + esc(t('workbench.send.post_s1')) + '</li><li>' + esc(t('workbench.send.post_s2')) + '</li><li>' + esc(t('workbench.send.post_s3')) + '</li><li>' + esc(t('workbench.send.post_s4')) + '</li></ol></div>'
+        + sendMarkButton(it, 'post')
+    } else if (cur === 'portal') {
+      body = '<div class="wb-send-pane"><h5>' + esc(t('workbench.send.portal_title')) + '</h5><p class="wb-hint">' + esc(t('workbench.send.portal_hint')) + '</p><p>' + (uploadPackageHtml(it) || '') + '</p></div>'
+        + receiptBoxHtml(it, 'portal') + sendMarkButton(it, 'portal')
+    } else {
+      body = '<div class="wb-send-pane"><h5>' + esc(t('workbench.send.person_title')) + '</h5>'
+        + '<ol class="wb-send-steps"><li>' + esc(t('workbench.send.person_s1')) + '</li><li>' + esc(t('workbench.send.person_s2')) + '</li><li>' + esc(t('workbench.send.person_s3')) + '</li></ol></div>'
+        + receiptBoxHtml(it, 'person') + sendMarkButton(it, 'in_person')
+    }
+    return '<div class="wb-send-panel" id="wbSendTabs">' + bar + '<div class="wb-send-body" role="tabpanel">' + body + '</div></div>'
+  }
+  function receiptSave(itemId) {
+    var fi = document.getElementById('wbRcptFile')
+    var f = fi && fi.files && fi.files[0]
+    rcptKeep()
+    if (!f) { window.showToast(t('workbench.send.receipt_nofile')); return }
+    var folder = (WB.rcpt && WB.rcpt.folder) || t('workbench.send.receipt_folder_default')
+    WB.rcptBusy = true; render()
+    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/receipt-file?name=' + encodeURIComponent(f.name || 'bizonylat') + '&folder=' + encodeURIComponent(folder) + '&lang=' + (window._lang || 'hu')
+    postFile(url, f).then(function (r) {
+      WB.rcptBusy = false
+      if (!r.ok) { window.showToast(r.message || t('workbench.send.receipt_failed')); render(); return }
+      window.showToast(t('workbench.send.receipt_saved', { path: (r.data && r.data.rel) || '' }))
+      render()
+    })
+  }
+
   /** #719 / #723: the e-mail draft of a finalized Word item -- the same box and code as a court document's, the final PDF attached. */
   function docxMailPanelHtml(it) {
     var close = '<p class="wb-note-final-btns"><button type="button" class="btn-secondary" data-wb-act="docx-mail-close"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t('workbench.docxfinal.mail_close')) + '</button></p>'
     return '<div class="wb-note-final wb-docx-mail" role="region" aria-label="' + escA(t('workbench.mail.title')) + '">'
-      + mailBoxHtml((WB.detail && (WB.detail.mail_draft || (WB.detail.outline && WB.detail.outline.mail_draft))) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: close, needsEmail: !!(WB.detail && WB.detail.outline && WB.detail.outline.recipient_needs_email), head: (WB.detail && WB.detail.outline && WB.detail.outline.recipient_head) || [], prefill: (WB.detail && (WB.detail.mail_prefill || (WB.detail.outline && WB.detail.outline.mail_prefill))) || null })
-      + '</div>'
+      + sendTabsHtml(it, mailBoxHtml((WB.detail && (WB.detail.mail_draft || (WB.detail.outline && WB.detail.outline.mail_draft))) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: '', needsEmail: !!(WB.detail && WB.detail.outline && WB.detail.outline.recipient_needs_email), head: (WB.detail && WB.detail.outline && WB.detail.outline.recipient_head) || [], prefill: (WB.detail && (WB.detail.mail_prefill || (WB.detail.outline && WB.detail.outline.mail_prefill))) || null }))
+      + close + '</div>'
   }
 
   /** #674: finalize a spreadsheet item: the server puts the workbook (and a PDF, when LibreOffice is there) into Finished materials. */
@@ -22424,6 +22486,8 @@
     else if (a === 'note-final-close') { WB.noteFinal = null; render() }
     else if (a === 'docx-mail-open') { WB.docxMailFor = WB.docxMailFor === (WB.detail && WB.detail.item.id) ? null : (WB.detail && WB.detail.item.id); render() }
     else if (a === 'docx-mail-close') { WB.docxMailFor = null; render() }
+    else if (a === 'send-tab') { rcptKeep(); WB.sendTab = act.getAttribute('data-wb-tab') || 'email'; var sit = WB.detail && WB.detail.item; if (sit && isMailDoneItem(sit) && WB.docxMailFor !== sit.id) WB.docxMailFor = sit.id; render() }
+    else if (a === 'receipt-save') receiptSave(act.getAttribute('data-wb-id'))
     else if (a === 'item-reopen') approvalAction('reopen')
     else if (a === 'approval-withdraw') approvalAction('withdraw')
     else if (a === 'approval-approve') approvalAction('approve')
