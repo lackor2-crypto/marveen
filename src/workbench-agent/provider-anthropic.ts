@@ -30,7 +30,7 @@ import { getEffectiveSettingValue } from '../settings-store.js'
 import { tryResolveFromPath } from '../platform.js'
 import { resolveAgentConfigDir } from '../web/claude-plans.js'
 import { detectsUsageLimit } from '../model-fallback.js'
-import { workbenchAccounts } from './accounts.js'
+import { workbenchAccounts, workbenchAccountStatuses } from './accounts.js'
 import { getSecret } from '../web/vault.js'
 import { GLM_BASE_URL, GLM_FAST_MODEL, GLM_TIMEOUT_MS, GLM_VAULT_KEY, isGlmModel } from '../web/glm-models.js'
 import { resolveOpenRouterModel } from '../web/openrouter-models.js'
@@ -432,7 +432,8 @@ export const anthropicProvider: AIProvider = {
         : { available: false, reason: 'not_configured', detail: `no ${ROUTE_SPECS[route].detail} key in the vault`, keyFor: l.keyFor }
     }
     const dir = loggedInConfigDir()
-    if (dir || workbenchAccounts().length) return { available: true, detail: 'signed-in Claude account' }
+    // #878: a signed-in account at its limit is still a signed-in account (the limit sentence says so); only NO login is "no account".
+    if (dir || workbenchAccounts().length || workbenchAccountStatuses().length) return { available: true, detail: 'signed-in Claude account' }
     return { available: false, reason: 'not_configured', detail: 'no signed-in Claude account' }
   },
 

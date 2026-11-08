@@ -443,7 +443,7 @@ describe('friss telepites es keret-hatar', () => {
     const evs = await turn('Szia', fakeProvider([], { available: false }))
     const notice = evs.find((e) => e.type === 'notice') as any
     expect(notice.code).toBe('no_provider')
-    expect(notice.message).toMatch(/nincs beállítva AI-szolgáltató/i)
+    expect(notice.message).toMatch(/nincs bejelentkezett Claude-fiók/i)
     expect(evs.at(-1)).toMatchObject({ type: 'done', model: null })
     // A kozles a beszelgetesbe is bekerul, hogy kesobb is latszodjon.
     const session = openSessionForWorkItem(projectId, workItemId, 'hu')
@@ -456,16 +456,16 @@ describe('friss telepites es keret-hatar', () => {
       fakeProvider([], { available: false }),
     ))
     const notice = evs.find((e) => e.type === 'notice') as any
-    expect(notice.message).toMatch(/No AI provider is set up/i)
+    expect(notice.message).toMatch(/No Claude account is signed in/i)
   })
 
   it('a kozos 5 oras keret betelt: nem indul hivas', async () => {
-    setUsageSnapshotReader(() => ({ fiveHour: { usedPct: 99, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now() }))
+    setUsageSnapshotReader(() => ({ fiveHour: { usedPct: 100, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now() }))
     const p = fakeProvider(['Ez sosem hangzik el'])
     const evs = await turn('Szia', p)
     const notice = evs.find((e) => e.type === 'notice') as any
     expect(notice.code).toBe('limit_critical')
-    expect(notice.message).toMatch(/5 órás/i)
+    expect(notice.message).toMatch(/kereted kifogyott/i)
     // A modellt MEG SEM hivtuk.
     expect(p.seen).toHaveLength(0)
   })
@@ -573,7 +573,7 @@ describe('fiokvaltas (#402)', () => {
 
   it('a kapu a VALASZTOTT fiok 5 oras keretet nezi: a kritikus fiokot meg sem hivja', async () => {
     setUsageSnapshotReader((agent) => ({
-      fiveHour: { usedPct: agent === 'tele' ? 99 : 20, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now(),
+      fiveHour: { usedPct: agent === 'tele' ? 100 : 20, resetsAt: null }, measuredAt: Date.now(), updatedAt: Date.now(),
     }))
     const p = accountProvider(['tele', 'szabad'], [])
     const evs = await turn('Szia', p)

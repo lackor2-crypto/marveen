@@ -12604,8 +12604,13 @@
         ? esc(t('workbench.chat.usage', { pct: s.usage.usedPct }))
         : esc(s.usage.message || t('workbench.chat.usage_unknown')))
     }
-    if (s.allowed === false && s.blockedReason) {
-      bits.push('<span class="wb-chat-state-bad">' + esc(s.blockedReason) + '</span>')
+    // #878 (Boss): two states only. 100% = red "your quota is used up"; 95-99% = yellow warning. No machine codes on screen.
+    if (s.allowed === false && s.blockedReason === 'limit_critical') {
+      bits.push('<span class="wb-chat-state-bad">' + esc(t('workbench.chat.quota_out')) + '</span>')
+    } else if (s.allowed === false && s.blockedReason) {
+      bits.push('<span class="wb-chat-state-bad">' + esc(t('workbench.chat.busy_blocked')) + '</span>')
+    } else if (s.usage && s.usage.measured && s.usage.usedPct >= 95) {
+      bits.push('<span class="wb-chat-state-warn">' + esc(t('workbench.chat.quota_warn', { pct: Math.round(s.usage.usedPct) })) + '</span>')
     }
     return '<span class="wb-chat-state">' + bits.join(' · ') + '</span>'
   }
@@ -13004,11 +13009,12 @@
     var accs = (WB.chatStatus && WB.chatStatus.accounts) || []
     if (!accs.length) return ''
     var cur = WB.chatAccount || 'auto'
-    var dot = function (s) { return s === 'online' ? '🟢' : s === 'limited' ? '🔴' : '⚪' }
+    var dot = function (s) { return s === 'online' ? '🟢' : s === 'caution' ? '🟡' : s === 'limited' ? '🔴' : '⚪' }
     var opts = ['<option value="auto"' + (cur === 'auto' ? ' selected' : '') + '>' + esc(t('workbench.chat.account_auto')) + '</option>']
     for (var i = 0; i < accs.length; i++) {
       var a = accs[i]
       var suffix = a.status === 'limited' ? ' ' + t('workbench.chat.account_limited_suffix')
+        : a.status === 'caution' ? ' ' + t('workbench.chat.account_caution_suffix')
         : a.status === 'unknown' ? ' ' + t('workbench.chat.account_unknown_suffix') : ''
       var label = dot(a.status) + ' ' + a.agent + (a.model ? ' · ' + a.model : '') + suffix
       opts.push('<option value="' + escA(a.agent) + '"' + (cur === a.agent ? ' selected' : '') + '>' + esc(label) + '</option>')

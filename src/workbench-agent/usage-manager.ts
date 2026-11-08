@@ -159,14 +159,15 @@ export function getUsage(agent = defaultAgent(), now = Date.now()): UsageInfo {
 /**
  * Szabad-e most hivast inditani.
  *
- * Blokkol, ha (1) az 5 oras keret KRITIKUS (a flotta sajat kuszobe), vagy
+ * Blokkol, ha (1) az 5 oras keret elfogyott (100%; 95-99% csak sarga figyelmeztetes), vagy
  * (2) mar tul sok sajat hivas van a levegoben. Elavult meres NEM blokkol --
  * egy regi szam nem bizonyitek arra, hogy most is tele van.
  */
 export function getRemaining(agent = defaultAgent(), now = Date.now()): RemainingInfo {
   const usage = getUsage(agent, now)
-  const remainingPct = usage.usedPct === null ? null : Math.max(0, CRITICAL_THRESHOLD_PCT - usage.usedPct)
-  if (usage.usedPct !== null && !usage.stale && usage.tier === 'critical') {
+  // #878 (Boss): the Workbench stops only at a fully used frame; 95-99% is yellow (it answers, with a warning).
+  const remainingPct = usage.usedPct === null ? null : Math.max(0, 100 - usage.usedPct)
+  if (usage.usedPct !== null && !usage.stale && usage.usedPct >= 100) {
     return { allowed: false, reason: 'limit_critical', remainingPct, usage }
   }
   if (usage.inFlight >= MAX_CONCURRENT) {

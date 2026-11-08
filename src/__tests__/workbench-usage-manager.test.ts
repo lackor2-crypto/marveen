@@ -68,7 +68,7 @@ describe('getRemaining -- szabad-e MOST hivni', () => {
     setUsageSnapshotReader(snapshot(40))
     const r = getRemaining('a', NOW)
     expect(r.allowed).toBe(true)
-    expect(r.remainingPct).toBe(55) // 95 (kritikus kuszob) - 40
+    expect(r.remainingPct).toBe(60) // 100 - 40 (#878: a Munkapad csak 100%-nal all meg)
   })
 
   it('90% (figyelmeztetes) meg nem blokkol', () => {
@@ -76,8 +76,15 @@ describe('getRemaining -- szabad-e MOST hivni', () => {
     expect(getRemaining('a', NOW).allowed).toBe(true)
   })
 
-  it('95% felett (kritikus) NEM indit uj hivast', () => {
+  it('95-99% (sarga) meg valaszol: csak figyelmeztet (#878)', () => {
     setUsageSnapshotReader(snapshot(96))
+    expect(getRemaining('a', NOW).allowed).toBe(true)
+    setUsageSnapshotReader(snapshot(99))
+    expect(getRemaining('a', NOW).allowed).toBe(true)
+  })
+
+  it('100%-nal (piros) NEM indit uj hivast', () => {
+    setUsageSnapshotReader(snapshot(100))
     const r = getRemaining('a', NOW)
     expect(r.allowed).toBe(false)
     expect(r.reason).toBe('limit_critical')
@@ -151,8 +158,8 @@ describe('reserve / release / record', () => {
     expect(recentCalls()).toHaveLength(RECENT_KEEP)
   })
 
-  it('kritikus keretnel a foglalas MEG SEM adja ki a helyet', () => {
-    setUsageSnapshotReader(snapshot(99))
+  it('betelt keretnel (100%) a foglalas MEG SEM adja ki a helyet', () => {
+    setUsageSnapshotReader(snapshot(100))
     const r = reserve('a', NOW)
     expect(r.ok).toBe(false)
     if (r.ok) throw new Error('nem szabadott volna')

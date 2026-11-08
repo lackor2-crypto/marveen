@@ -345,6 +345,7 @@
 .wb-chat-statusline { flex: 1 0 100%; line-height: 1.25; }
 .wb-chat-state { font-size: 0.8rem; color: var(--muted, #6b7280); }
 .wb-chat-state-bad { color: var(--danger, #d33); }
+.wb-chat-state-warn { color: var(--warn, #b7791f); }
 .wb-chat-setup-btn { font-size: 0.72rem; padding: 1px 8px; }
 .wb-chat-setup { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 /* #426: fiokvalaszto sor -- cimke + select, telefonon is tordelheto. */
