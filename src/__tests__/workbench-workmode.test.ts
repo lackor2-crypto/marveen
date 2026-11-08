@@ -128,7 +128,7 @@ describe('the assistant reads the sheet and only proposes', () => {
 })
 
 describe('the machine placement check (3A)', () => {
-  it('reports the hard verdicts of the item\'s own folder in its chat, once, and moves nothing', () => {
+  it('reports the hard verdicts of the item\'s own folder in its chat, once, and moves nothing', async () => {
     const w = createWorkItem({ project_id: pid, title: 'Wohngeld 2026', type: 'document' })
     if (!w.ok) throw new Error('item')
     const f = ensureWorkItemFolder(w.item)
@@ -137,7 +137,7 @@ describe('the machine placement check (3A)', () => {
     const put = (rel: string, name: string) => { mkdirSync(join(base, rel), { recursive: true }); const p = join(base, rel, name); writeFileSync(p, 'x'); return p }
     const files = [put('Elkészített anyagok', 'K7_Mietvertrag.pdf'), put('Elkészített anyagok', 'Kérelem.pdf'), put('Agent', 'minta.png')]
     const item = { ...w.item, folder: f.folder }
-    const r = P.checkPlacementAfter(item, 'upload', 'hu')
+    const r = await P.checkPlacementAfter(item, 'upload', 'hu')
     expect(r.issues).toBe(1)
     expect(r.note).toContain('K7_Mietvertrag.pdf')
     expect(r.note).not.toContain('minta.png')
@@ -145,17 +145,17 @@ describe('the machine placement check (3A)', () => {
     const s = openSessionForWorkItem(pid, w.item.id, 'hu')
     const count = () => listMessages(s.id).filter((m: any) => m.role === 'assistant' && String(m.content).includes('K7_Mietvertrag.pdf')).length
     expect(count()).toBe(1)
-    P.checkPlacementAfter(item, 'upload', 'hu')
+    await P.checkPlacementAfter(item, 'upload', 'hu')
     expect(count()).toBe(1)
     for (const x of files) expect(existsSync(x)).toBe(true)
   })
-  it('a clean item says nothing; an item without a folder is not an error', () => {
+  it('a clean item says nothing; an item without a folder is not an error', async () => {
     const w = createWorkItem({ project_id: pid, title: 'Tiszta', type: 'document' })
     if (!w.ok) throw new Error('item')
     const f = ensureWorkItemFolder(w.item)
     if (!f.ok) throw new Error('folder')
-    expect(P.checkPlacementAfter({ ...w.item, folder: f.folder }, 'finalize', 'en')).toMatchObject({ issues: 0, note: null })
-    expect(P.checkPlacementAfter({ ...w.item, project_id: 'nincs' }, 'finalize', 'en').issues).toBe(-1)
+    expect(await P.checkPlacementAfter({ ...w.item, folder: f.folder }, 'finalize', 'en')).toMatchObject({ issues: 0, note: null })
+    expect((await P.checkPlacementAfter({ ...w.item, project_id: 'nincs' }, 'finalize', 'en')).issues).toBe(-1)
   })
   it('a Life-tree move of an attachment into the Finished materials is flagged by the target folder', () => {
     const got = P.lifeMoveIssues([
