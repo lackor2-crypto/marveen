@@ -6,14 +6,14 @@
 // 7 days. A sent item shows no deadline: sending it answered the trigger document.
 
 import { getDb } from './db.js'
-import { sentStatus } from './workbench-docsent.js'
+import { sentMarkOf, sentStatus } from './workbench-docsent.js'
 import { ensureTodoTable } from './workbench-todos.js'
 import { listWorkItems } from './workbench.js'
 import { ensureDocLangTables } from './workbench-doclang.js'
 
 export type DueLevel = 'overdue' | 'today' | 'soon' | 'later'
 export interface ItemDue { date: string; days: number; level: DueLevel }
-export interface ItemMark { /** one WORK in several languages counts as one: any language version sent = all of them sent (owner TG 4219) */ sent: boolean; /** sent AND some language version of the work is finalized: the hide switch treats the whole group as finished */ finished: boolean; /** YYYY-MM-DD the owner gave (or marked), when known */ sent_on: string | null; due: ItemDue | null }
+export interface ItemMark { /** one WORK in several languages counts as one: any language version sent = all of them sent (owner TG 4219) */ sent: boolean; /** sent AND some language version of the work is finalized: the hide switch treats the whole group as finished */ finished: boolean; /** YYYY-MM-DD the owner gave (or marked), when known */ sent_on: string | null; /** how it went out (email, post, portal, in_person, ...), when known */ sent_via?: string | null; due: ItemDue | null }
 
 export const SOON_DAYS = 7
 
@@ -32,11 +32,20 @@ export function daysUntil(date: string, now: Date = new Date()): number | null {
   return Math.round((due - today) / 86400000)
 }
 
+function sentVia(itemId: string): string | null {
+  const db = getDb()
+  const rec = db.prepare('SELECT method FROM wb_doc_sent WHERE work_item_id = ? ORDER BY created_at DESC, id LIMIT 1').get(itemId) as { method: string } | undefined
+  if (rec && rec.method) return rec.method
+  const man = sentMarkOf(itemId)
+  return man && man.method ? man.method : null
+}
+
 function sentDate(itemId: string): string | null {
   const db = getDb()
   const rec = db.prepare('SELECT sent_date FROM wb_doc_sent WHERE work_item_id = ? ORDER BY created_at DESC, id LIMIT 1').get(itemId) as { sent_date: string } | undefined
   if (rec && /^\d{4}-\d{2}-\d{2}/.test(rec.sent_date)) return rec.sent_date.slice(0, 10)
-  const man = db.prepare('SELECT marked_at FROM wb_item_sent_mark WHERE work_item_id = ?').get(itemId) as { marked_at: number } | undefined
+  const man = db.prepare('SELECT marked_at, sent_date FROM wb_item_sent_mark WHERE work_item_id = ?').get(itemId) as { marked_at: number; sent_date?: string | null } | undefined
+  if (man && man.sent_date && /^\d{4}-\d{2}-\d{2}$/.test(man.sent_date)) return man.sent_date
   if (man && man.marked_at > 0) { const d = new Date(man.marked_at * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
   return null
 }
@@ -81,7 +90,7 @@ export function itemMarks(projectId: string, now: Date = new Date()): Record<str
       const days = daysUntil(d, now)
       if (days != null) due = { date: d, days, level: dueLevel(days) }
     }
-    out[w.id] = { sent, finished: sent && groupDone.has(k), sent_on: sentOn, due }
+    out[w.id] = { sent, finished: sent && groupDone.has(k), sent_on: sentOn, sent_via: g ? sentVia(g.id) : null, due }
   }
   return out
 }
