@@ -42,6 +42,7 @@ import { rootStrays, resolveRootStrays } from '../../workbench-root-guard.js'
 import { findOrphanJsons, trashOrphanJsons } from '../../workbench-json-orphans.js'
 import { createHash } from 'node:crypto'
 import { fileManagerKind, openInFileManager } from '../../open-in-file-manager.js'
+import { saveReceiptFile, defaultReceiptFolder } from '../../workbench-receipt.js'
 import { prepareUploadPackage, removeUploadPackage, uploadPackageInfo, uploadPackageView } from '../../workbench-upload-package.js'
 import { findCapcut, openInCapcut } from '../../open-in-capcut.js'
 import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
@@ -5119,6 +5120,35 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       let opened = false
       if (!body || body['open'] !== false) opened = (await openInFileManager(made.package.dir)).ok
       json(res, { ok: true, package: made.package, opened }, 201)
+      return true
+    }
+  }
+  // Boss, 2026-11-08 (#879): the proof an online portal gave back goes into the project's own subfolder (default
+  // "Feladási bizonylatok"), never into the work item folder. GET: the default folder name; POST ?name=&folder=: the file bytes.
+  if (segs.length === 2 && segs[1] === 'receipt-file') {
+    if (method === 'GET') { json(res, { ok: true, folder: defaultReceiptFolder() }); return true }
+    if (method === 'POST') {
+      const owner = getProject(item.project_id)
+      if (!owner) return fail(res, 404, 'project_not_found', lang)
+      if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+      if (!(isOwnerClick(ctx) || isBrowserPageClick(ctx))) return fail(res, 403, 'outline_owner_only', lang)
+      if (uploadExceeds(Number(req.headers['content-length'] || 0))) return fail(res, 413, 'upload_too_large', lang)
+      let data: StagedUpload
+      try {
+        data = await streamBodyToStage(req)
+      } catch (e) {
+        if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'upload_too_large', lang)
+        if (e instanceof UploadDiskError) return fail(res, 507, e.full ? 'upload_disk_full' : 'upload_disk_error', lang)
+        throw e
+      }
+      res.on('close', () => data.discard())
+      if (!data.bytes) return fail(res, 400, 'upload_empty', lang)
+      const r = saveReceiptFile(item, url.searchParams.get('folder'), url.searchParams.get('name'), data)
+      if (!r.ok) {
+        const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code === 'folder_name' ? 'life_move_bad_input' : r.code
+        return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, r.message || null)
+      }
+      json(res, { ok: true, folder: r.folder, rel: r.rel, name: r.name, renamed: r.renamed }, 201)
       return true
     }
   }

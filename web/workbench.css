@@ -2480,3 +2480,11 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-pin-acts .wb-new-btn { width: auto; padding: 4px 9px; }
 .wb-pin-slot.wb-pin-clipped .wb-blk-top, .wb-pin-slot.wb-pin-open .wb-blk-top { padding-right: 34px; }
 .wb-panel-items .wb-pin .wb-blk-top { background-color: var(--bg-card); background-image: linear-gradient(rgba(127, 127, 127, 0.1), rgba(127, 127, 127, 0.1)); }
+
+/* #879: the Send panel's Excel-like tabs */
+.wb-send-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border, #d0d0d0); margin: 6px 0 0; flex-wrap: wrap; }
+.wb-send-tab { border: 1px solid var(--border, #d0d0d0); border-bottom: none; background: var(--bg-soft, #f2f2f2); color: inherit; padding: 6px 14px; border-radius: 6px 6px 0 0; cursor: pointer; font: inherit; }
+.wb-send-tab.active { background: var(--bg, #fff); font-weight: 600; position: relative; top: 1px; }
+.wb-send-body { border: 1px solid var(--border, #d0d0d0); border-top: none; padding: 10px 12px; }
+.wb-send-steps { margin: 4px 0 8px 18px; }
+.wb-send-receipt { border-top: 1px dashed var(--border, #d0d0d0); margin-top: 10px; padding-top: 8px; }
