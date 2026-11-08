@@ -97,3 +97,14 @@ describe('indulas utani elomelegites', () => {
     expect(line.includes('unref()'), 'fuggo elomelegites nem tarthatja eletben a folyamatot').toBe(true)
   })
 })
+
+// Boss, 2026-11-08 (TG 5564): a sent draft stayed in the Drafts list. A list read that started BEFORE a mutation
+// must not be joined by the read after it, and must not be cached when it lands.
+describe('a valtozas utan nem a regi lekeres adja a listat', () => {
+  it('az ervenytelenites generaciot leptet, a kulcs es a cache-iras ehhez kot', () => {
+    expect(EMAIL_SRC).toContain('envelopeGeneration.set(')
+    expect(EMAIL_SRC).toMatch(/::\$\{pageSize\}::g\$\{envelopeGenOf\(account, mailbox\)\}/)
+    expect(EMAIL_SRC).toContain('gen === envelopeGenOf(account as string, mailbox)')
+    expect(EMAIL_SRC).toContain('genBefore === envelopeGenOf(account as string, mailbox)')
+  })
+})

@@ -34528,7 +34528,7 @@ async function emailComposeNewSubmit(asDraft) {
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) { showToast(data.message || data.error || t(asDraft ? 'email.draft_save_error' : 'email.send_error')); return }
-    showToast(t(asDraft ? 'email.draft_saved_toast' : 'email.new_message_sent_toast'))
+    showToast(t(asDraft ? 'email.draft_saved_toast' : (draft && data.draft_moved === false ? 'email.draft_not_removed_toast' : 'email.new_message_sent_toast')))
     _emailComposeLife = null
     _emailComposeFiles = []
     _emailComposeDraft = null

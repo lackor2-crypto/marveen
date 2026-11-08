@@ -2655,6 +2655,7 @@ window._i18n.en = {
   'email.compose_attach_too_big': 'The attachments can be at most 25 MB together.',
   'email.btn.save_draft': 'Save as draft',
   'email.draft_saved_toast': 'The draft was saved to the Drafts folder.',
+  'email.draft_not_removed_toast': 'The letter was sent, but the draft could not be moved to Trash: it may still show in the Drafts list.',
   'email.draft_save_error': 'Could not save the draft.',
   'email.draft_save_empty': 'There is nothing to save: write something first.',
   'email.compose_life_hint': "The message only goes out when you press Send. Folders are zipped at that moment.",
