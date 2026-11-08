@@ -376,7 +376,76 @@ export function contextRecipient(item: WorkItemRow): string {
   } catch { return '' }
 }
 
+/**
+ * Boss, 2026-11-08: the recipient of the mail is the one in the letter head's "Címzett:" block -- never another authority's
+ * address that happens to stand in the chat or the context file (the DRV Clearingstelle letter once got the Minijob-Zentrale's
+ * address). `lines` are the block's text lines, `names` its distinctive words (length >= 7, no generic words) and `email` an
+ * address written IN the block itself.
+ */
+export interface RecipientHead { lines: string[]; names: string[]; email: string }
+const GENERIC_WORDS = new Set(['deutsche', 'deutscher', 'bundesamt', 'behörde', 'behorde', 'verwaltung', 'stadtverwaltung', 'landesamt', 'ministerium', 'hivatal', 'bíróság', 'birosag', 'sozialgericht', 'amtsgericht'])
+export function recipientHeadOf(text: string): RecipientHead | null {
+  const all = String(text ?? '').split(/\r\n|\r|\n/).map((l) => l.replace(/\u200b/g, '').trim())
+  const at = all.findIndex((l) => /^(címzett|cimzett|empf[aä]nger|recipient)\s*:\s*$/i.test(l))
+  if (at < 0) return null
+  const lines: string[] = []
+  for (const l of all.slice(at + 1)) {
+    if (!l) { if (lines.length) break; continue }
+    if (/^(feladó|absender|sender)\s*:/i.test(l)) break
+    lines.push(l)
+  }
+  if (!lines.length) return null
+  const nameLines = lines.filter((l) => !/\d{4,5}\s+\S/.test(l) && !/(str\.|straße|strasse|utca|platz|weg|postfach)\b/i.test(l))
+  // The words of the FIRST line that has any (the authority's name): a department on the second line ("Clearingstelle") also
+  // stands in lines about a sister authority, so it would match the wrong address.
+  const wordsOf = (l: string): string[] => l.split(/[^A-Za-zÀ-ž]+/).filter((w) => w.length >= 7 && !GENERIC_WORDS.has(w.toLowerCase())).map((w) => w.toLowerCase())
+  let names: string[] = []
+  for (const l of nameLines) { names = Array.from(new Set(wordsOf(l))); if (names.length) break }
+  return { lines, names, email: firstForeignAddress(lines.join('\n')) }
+}
+
+/** An address on a line of a text that also names the recipient (one of the head's distinctive words) -- else ''. */
+function addressNamingRecipient(text: string, head: RecipientHead): string {
+  if (!head.names.length) return ''
+  for (const l of String(text ?? '').split(/\r\n|\r|\n/)) {
+    const low = l.toLowerCase()
+    if (!head.names.some((n) => low.includes(n))) continue
+    const a = firstForeignAddress(l)
+    if (a) return a
+  }
+  return ''
+}
+
+export function letterHead(item: WorkItemRow): RecipientHead | null {
+  try {
+    if (hasDocModel(item.id)) {
+      const h = recipientHeadOf(listBlocks(item.id).map((b) => String(b.text ?? '')).join('\n'))
+      if (h) return h
+    }
+    const v = variantOf(item.id)
+    if (v && v.source_item_id && hasDocModel(v.source_item_id)) return recipientHeadOf(listBlocks(v.source_item_id).map((b) => String(b.text ?? '')).join('\n'))
+  } catch { /* no head known */ }
+  return null
+}
+
 export function knownRecipient(item: WorkItemRow): string {
+  const head = letterHead(item)
+  if (head) {
+    // A letter with a labelled recipient block: the address of THAT recipient, from the block or from a line that names it.
+    if (head.email) return head.email
+    const ownerSaid = (): string => {
+      try {
+        for (const se of listAgentSessions(item.id).slice().reverse()) {
+          for (const m of listAgentMessages(se.id, 400)) { if (m.role === 'user') { const a = addressNamingRecipient(String(m.content ?? ''), head); if (a) return a } }
+        }
+      } catch { /* no chat tables yet */ }
+      return ''
+    }
+    const fromChat = ownerSaid()
+    if (fromChat) return fromChat
+    try { const ctx = readItemContext(item); const a = ctx ? addressNamingRecipient(ctx.text, head) : ''; if (a) return a } catch { /* no context file */ }
+    return ''
+  }
   const chat = chatRecipient(item)
   if (chat) return chat
   const fromContext = contextRecipient(item)

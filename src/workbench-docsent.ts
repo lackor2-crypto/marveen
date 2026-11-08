@@ -153,7 +153,7 @@ export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: un
   const id = randomUUID().slice(0, 12)
   db.prepare('INSERT INTO wb_doc_sent (id, work_item_id, version_id, sent_date, sent_time, recipient, method, reference, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, item.id, fin.version_id, date, time, recipient, method, reference, note, Math.floor(Date.now() / 1000), by)
-  emitSent({ itemId: item.id, date, recipient, how: 'recorded', by })
+  emitSent({ itemId: item.id, date, recipient, how: 'recorded', by, method, reference: reference || undefined, note: note || undefined })
   return { ok: true, id }
 }
 
@@ -228,6 +228,11 @@ function ensureSentMarkTable(): void {
     marked_at INTEGER NOT NULL,
     marked_by TEXT
   )`)
+  // Boss, 2026-11-08: HOW (and to whom, when) a hand-marked sending went out: e-mail, post, online upload, in person.
+  const have = new Set((db.prepare('PRAGMA table_info(wb_item_sent_mark)').all() as { name: string }[]).map((c) => c.name))
+  for (const col of ['method', 'sent_date', 'recipient', 'reference', 'note']) {
+    if (!have.has(col)) db.exec(`ALTER TABLE wb_item_sent_mark ADD COLUMN ${col} TEXT`)
+  }
   markDb = db
 }
 
@@ -260,7 +265,7 @@ export function sentVersionIds(itemId: string): Set<string> {
  * Boss, 2026-11-08: the day a document went out must be readable from the item's context file (an agent that opens the
  * item sees it at once). The context module registers itself here; this file stays free of that import (no cycle).
  */
-export interface SentEvent { itemId: string; date: string; recipient: string; how: 'recorded' | 'manual'; by: string | null }
+export interface SentEvent { itemId: string; date: string; recipient: string; how: 'recorded' | 'manual'; by: string | null; method?: string; reference?: string; note?: string }
 let sentListener: ((e: SentEvent) => void) | null = null
 export function onSentEvent(fn: ((e: SentEvent) => void) | null): void { sentListener = fn }
 function emitSent(e: SentEvent): void {
@@ -269,10 +274,31 @@ function emitSent(e: SentEvent): void {
 }
 const todayLocal = (): string => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
-export function markSentManually(itemId: string, by: string | null): void {
+export interface SentMarkDetails { method?: unknown; date?: unknown; recipient?: unknown; reference?: unknown; note?: unknown }
+const cut = (v: unknown, n = 300): string => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
+const realDay = (d: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d + 'T00:00:00Z')) && new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d
+
+/** The details the owner gave when marking by hand; a bad method or day is dropped (the plain mark still stands). */
+export function cleanSentDetails(d: SentMarkDetails | undefined): { method: string; date: string; recipient: string; reference: string; note: string } {
+  const x = d || {}
+  const method = isSentMethod(x.method) ? x.method : ''
+  const date = cut(x.date, 10)
+  return { method, date: realDay(date) ? date : '', recipient: cut(x.recipient), reference: cut(x.reference), note: cut(x.note, 500) }
+}
+
+export function markSentManually(itemId: string, by: string | null, details?: SentMarkDetails): void {
   ensureSentMarkTable()
-  getDb().prepare('INSERT OR REPLACE INTO wb_item_sent_mark (work_item_id, marked_at, marked_by) VALUES (?, ?, ?)').run(itemId, Math.floor(Date.now() / 1000), by)
-  emitSent({ itemId, date: todayLocal(), recipient: '', how: 'manual', by })
+  const c = cleanSentDetails(details)
+  getDb().prepare('INSERT OR REPLACE INTO wb_item_sent_mark (work_item_id, marked_at, marked_by, method, sent_date, recipient, reference, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(itemId, Math.floor(Date.now() / 1000), by, c.method || null, c.date || null, c.recipient || null, c.reference || null, c.note || null)
+  emitSent({ itemId, date: c.date || todayLocal(), recipient: c.recipient, how: 'manual', by, method: c.method || undefined, reference: c.reference || undefined, note: c.note || undefined })
+}
+
+/** How a hand-marked item went out ('' when the owner gave no details). */
+export function sentMarkOf(itemId: string): { method: string; date: string; recipient: string; reference: string; note: string } | null {
+  ensureSentMarkTable()
+  const r = getDb().prepare('SELECT method, sent_date, recipient, reference, note FROM wb_item_sent_mark WHERE work_item_id = ?').get(itemId) as { method: string | null; sent_date: string | null; recipient: string | null; reference: string | null; note: string | null } | undefined
+  return r ? { method: r.method || '', date: r.sent_date || '', recipient: r.recipient || '', reference: r.reference || '', note: r.note || '' } : null
 }
 
 export function unmarkSentManually(itemId: string): void {

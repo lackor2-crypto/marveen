@@ -8,7 +8,8 @@ describe('Boss TG 4885: the recipient comes from the context file too', () => {
   it('knownRecipient looks at chat, then the context file, then the letter', () => {
     const src = read('src/workbench-maildraft.ts')
     const at = src.indexOf('export function knownRecipient')
-    const chunk = src.slice(at, at + 700)
+    // Boss, 2026-11-08: a letter with a labelled recipient block is handled first (its own address only); the order below is the one for a text without such a block.
+    const chunk = src.slice(src.indexOf('const chat = chatRecipient(item)', at), at + 4000)
     expect(chunk.indexOf('chatRecipient')).toBeLessThan(chunk.indexOf('contextRecipient'))
     expect(chunk.indexOf('contextRecipient')).toBeLessThan(chunk.indexOf('inText'))
   })

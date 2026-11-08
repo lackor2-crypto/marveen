@@ -72,7 +72,7 @@ import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryT
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
-import { forgetMailDraft, letterNeedsRecipientEmail, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
+import { forgetMailDraft, letterHead, letterNeedsRecipientEmail, mailDraftView, mailPrefill, resetUntouchedMailText, saveDraftToMailbox, saveMailDraft } from '../../workbench-maildraft.js'
 // The mail routes register the shared sender's mailbox engine (src/mail-send.ts, #797) when they load.
 import './email.js'
 import { kukaRel, listFileTrash, purgeFileTrash, restoreFileTrash } from '../../workbench-file-trash.js'
@@ -2349,6 +2349,9 @@ type OutlineOut = ReturnType<typeof documentOutline> & {
   mail_draft: ReturnType<typeof mailDraftView> | null
   /** #794: the subject and text the form starts with when no draft is stored yet. */
   mail_prefill: ReturnType<typeof mailPrefill>
+  /** Boss, 2026-11-08: the letter head has a recipient but no e-mail address of it is known; `recipient_head` are the lines of that block. */
+  recipient_needs_email: boolean
+  recipient_head: string[]
   check: ReturnType<typeof documentCheck>
   /** #751: set when the check changed the to-do list, so the page reloads its to-dos. */
   check_todos_at?: number
@@ -2414,6 +2417,9 @@ function outlineOut(itemId: string): OutlineOut | null {
     sent_methods: SENT_METHODS,
     mail_draft: item ? mailDraftView(item) : null,
     mail_prefill: item ? mailPrefill(item) : null,
+    // Boss, 2026-11-08: no e-mail address of the letter head's recipient is known -> the page offers post / online / in person and asks the assistant to look the address up.
+    recipient_needs_email: item ? letterNeedsRecipientEmail(item) : false,
+    recipient_head: item ? (letterHead(item)?.lines ?? []) : [],
     ...checkWithTodos(itemId, resolve),
     consistency: consistencyIssues(itemId),
     annexes: listAnnexes(itemId, resolve),
@@ -5082,7 +5088,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!(isOwnerClick(ctx) || isBrowserPageClick(ctx))) return fail(res, 403, 'outline_owner_only', lang)
     const body = await readJson(req)
     if (body && body['sent'] === false) unmarkSentManually(item.id)
-    else markSentManually(item.id, actor(ctx))
+    else markSentManually(item.id, actor(ctx), body ? { method: body['method'], date: body['date'], recipient: body['recipient'], reference: body['reference'], note: body['note'] } : undefined)
     json(res, { ok: true, sent: sentStatus(item.id) })
     return true
   }

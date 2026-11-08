@@ -12,11 +12,22 @@ import { getWorkItem } from './workbench.js'
 import { onSentEvent, type SentEvent } from './workbench-docsent.js'
 import { appendItemContext, contextOwner, readItemContext } from './workbench-item-context.js'
 
-export function sentLogLine(title: string, e: Pick<SentEvent, 'date' | 'recipient' | 'how'>): string {
+const METHOD_LABEL: Record<string, [string, string]> = {
+  email: ['e-mailben', 'by e-mail'], post: ['postán', 'by post'], registered_post: ['ajánlott levélben', 'by registered post'],
+  in_person: ['személyesen leadva', 'handed in person'], portal: ['online felületen feltöltve', 'uploaded on an online portal'],
+  fax: ['faxon', 'by fax'], other: ['egyéb módon', 'another way'],
+}
+
+/** Boss, 2026-11-08: the line says HOW it went out (so nobody searches the mailbox for a letter that went by post or online). */
+export function sentLogLine(title: string, e: Pick<SentEvent, 'date' | 'recipient' | 'how'> & { method?: string; reference?: string; note?: string }): string {
   const how = e.how === 'recorded' ? ol('küldés rögzítve', 'sending recorded') : ol('„elküldve" jelölés', 'marked as sent')
+  const m = e.method ? METHOD_LABEL[e.method] : undefined
+  const via = m ? ` ${ol(m[0], m[1])}` : ''
   const to = e.recipient ? ` → ${e.recipient}` : ''
+  const ref = e.reference ? ` ${ol('Hivatkozás/visszaigazolás', 'Reference/confirmation')}: ${e.reference}.` : ''
+  const note = e.note ? ` ${e.note}.` : ''
   const answered = ol('A kiváltó irat ezzel megválaszolva.', 'This answers the trigger document.')
-  return `- ${e.date}: ${ol('ELKÜLDVE', 'SENT')} (${how}) – ${title}${to}. ${answered}`
+  return `- ${e.date}: ${ol('ELKÜLDVE', 'SENT')}${via} (${how}) – ${title}${to}.${ref}${note} ${answered}`
 }
 
 export function noteSentInContext(e: SentEvent): boolean {

@@ -1720,15 +1720,22 @@
   }
   /** The big strip at the top of an item: green "Sent" with the date once it went out (the trigger document is answered);
    *  a finalized item that did not go out yet says so and offers the one click that records it (the owner's own mark). */
+  var SENT_VIA = ['email', 'post', 'portal', 'in_person']
+  function sentViaButtons(itemId) {
+    return SENT_VIA.map(function (k) {
+      return '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-sent-via" data-wb-method="' + k + '" data-wb-id="' + escA(itemId) + '">' + esc(t('workbench.sent.via.' + k)) + '</button>'
+    }).join(' ')
+  }
   function sentBannerHtml(it) {
     var m = markOf(it.id)
     if (m.sent) {
       return '<div class="wb-sent-banner wb-sent-banner-yes" role="status"><span class="wb-sent-mark wb-sent-yes" aria-hidden="true">\u2714</span> '
-        + '<strong>' + esc(t('workbench.sent.banner')) + '</strong>' + (m.sent_on ? ' \u00b7 ' + esc(m.sent_on) : '') + ' \u00b7 ' + esc(t('workbench.sent.banner_answered')) + '</div>'
+        + '<strong>' + esc(t('workbench.sent.banner')) + '</strong>' + (m.sent_on ? ' \u00b7 ' + esc(m.sent_on) : '')
+        + (m.sent_via ? ' \u00b7 ' + esc(t('workbench.sent.method.' + m.sent_via)) : '') + ' \u00b7 ' + esc(t('workbench.sent.banner_answered')) + '</div>'
     }
     if (it.status === 'done' && !archived()) {
       return '<div class="wb-sent-banner wb-sent-banner-no" role="status"><span class="wb-sent-mark wb-sent-no" aria-hidden="true"></span> '
-        + esc(t('workbench.sent.banner_unsent')) + ' <button type="button" class="btn-secondary btn-compact" data-wb-act="item-sent-ask" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.sent.mark_btn')) + '</button></div>'
+        + esc(t('workbench.sent.banner_unsent')) + ' ' + sentViaButtons(it.id) + '</div>'
     }
     return ''
   }
@@ -10736,7 +10743,7 @@
   function mailDraftBoxHtml(o, ro, finalCurrent) {
     if (ro && !o.mail_draft) return ''
     if (!o.sections || !o.sections.length) return ''
-    return mailBoxHtml(o.mail_draft, ro, { hint: t('workbench.mail.hint'), stale: !finalCurrent, prefill: o.mail_prefill || null })
+    return mailBoxHtml(o.mail_draft, ro, { hint: t('workbench.mail.hint'), stale: !finalCurrent, prefill: o.mail_prefill || null, needsEmail: !!o.recipient_needs_email, head: o.recipient_head || [] })
   }
   /**
    * #723 (Boss TG 3935: "egy kodsort hasznaljunk csak"): the ONE e-mail draft box -- sender account, recipients, text, and
@@ -10775,8 +10782,18 @@
       + '<label>' + esc(t('workbench.mail.body')) + ' <textarea id="wbMailBody" rows="6" maxlength="20000" placeholder="' + escA(t('workbench.mail.body_ph')) + '">' + esc(v('body')) + '</textarea></label>'
       + '<p class="wb-hint">' + esc(t('workbench.mail.to_drafts_hint')) + '</p>'
       + '<p><button type="submit" class="wb-btn"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t(WB.mailBusy ? 'workbench.mail.making' : d ? 'workbench.mail.update' : 'workbench.mail.make')) + '</button></p></form>'
+    // Boss, 2026-11-08: the letter head names a recipient but no e-mail address of it is known: say so, offer the assistant's
+    // lookup, and the other ways (post, online, in person) -- never an address that belongs to somebody else.
+    var noAddr = ''
+    if (opts && opts.needsEmail && !ro) {
+      var who = (opts.head && opts.head[0]) || ''
+      noAddr = '<div class="wb-doc-low" role="status"><p>\u26a0 ' + esc(t('workbench.mail.no_address', { who: who })) + '</p><p>'
+        + '<button type="button" class="btn-secondary btn-compact" data-wb-act="mail-find-address">' + esc(t('workbench.mail.find_address')) + '</button> '
+        + ['post', 'portal', 'in_person'].map(function (k) { return '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-sent-via" data-wb-method="' + k + '" data-wb-id="' + escA(WB.selectedId || '') + '">' + esc(t('workbench.sent.via.' + k)) + '</button>' }).join(' ')
+        + '</p><p class="wb-hint">' + esc(t('workbench.mail.no_address_hint')) + '</p></div>'
+    }
     return '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4>'
-      + '<p class="wb-hint">' + esc(opts.hint) + '</p>' + (finalLangThisLabel(WB.detail && WB.detail.outline) ? '<p class="wb-hint"><strong>' + esc(t('workbench.finalpick.mail_lang', { lang: finalLangThisLabel(WB.detail && WB.detail.outline) })) + '</strong></p>' : '') + (opts.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>' : '') + status + list + form + (opts.extra || '') + '</div>'
+      + noAddr + '<p class="wb-hint">' + esc(opts.hint) + '</p>' + (finalLangThisLabel(WB.detail && WB.detail.outline) ? '<p class="wb-hint"><strong>' + esc(t('workbench.finalpick.mail_lang', { lang: finalLangThisLabel(WB.detail && WB.detail.outline) })) + '</strong></p>' : '') + (opts.stale ? '<p class="wb-doc-low">⚠ ' + esc(t('workbench.mail.final_stale')) + '</p>' : '') + status + list + form + (opts.extra || '') + '</div>'
   }
   /** #797: the accounts a mail can go from (the shared list: the Iroda accounts, then the connected Google account) -- the
    *  same for the mail draft and the export's Send. Loaded once, then the box is drawn again. */
@@ -10788,6 +10805,49 @@
         return { id: String(a.id), label: a.kind === 'google' ? t('workbench.mail.from_google', { address: a.address || 'Google' }) : addr }
       }) : []
       if (WB.open) render()
+    })
+  }
+  /**
+   * Boss, 2026-11-08: "Sent" must say HOW it went out (e-mail, post, online upload, in person), so nobody searches the mailbox
+   * for a letter that went another way. A small form: the day (today), to whom (the letter head's recipient), a confirmation
+   * number or a note. It marks the item sent with these details.
+   */
+  function sentViaDialog(item, method, done) {
+    if (!item || !document.body) return
+    var old = document.getElementById('wbSentVia'); if (old && old.parentNode) old.parentNode.removeChild(old)
+    var d = new Date()
+    var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2)
+    var ol0 = WB.detail && WB.detail.item && WB.detail.item.id === item.id ? (WB.detail.outline || WB.detail) : null
+    var head = ol0 && Array.isArray(ol0.recipient_head) ? ol0.recipient_head : []
+    var overlay = document.createElement('div')
+    overlay.className = 'modal-overlay active'; overlay.id = 'wbSentVia'
+    overlay.innerHTML = '<div class="modal-content" style="max-width:520px;padding:18px"><form id="wbSentViaForm">'
+      + '<h3 style="margin:0 0 6px">' + esc(t('workbench.sent.via_title', { how: t('workbench.sent.via.' + method) })) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 10px"></p>'
+      + '<label style="display:block;margin-bottom:8px">' + esc(t('workbench.sent.date')) + ' <input type="date" id="wbSentViaDate" value="' + escA(iso) + '" required></label>'
+      + '<label style="display:block;margin-bottom:8px">' + esc(t('workbench.sent.recipient')) + ' <input type="text" id="wbSentViaTo" maxlength="300" style="width:100%" value="' + escA(head.slice(0, 2).join(', ')) + '"></label>'
+      + '<label style="display:block;margin-bottom:8px">' + esc(t('workbench.sent.via_ref.' + method)) + ' <input type="text" id="wbSentViaRef" maxlength="300" style="width:100%"></label>'
+      + '<label style="display:block;margin-bottom:12px">' + esc(t('workbench.sent.via_note')) + ' <input type="text" id="wbSentViaNote" maxlength="500" style="width:100%"></label>'
+      + '<button type="submit" class="btn-primary btn-compact">' + esc(t('workbench.sent.via_save')) + '</button> '
+      + '<button type="button" class="btn-secondary btn-compact" id="wbSentViaCancel">' + esc(t('workbench.sent.via_cancel')) + '</button>'
+      + '</form></div>'
+    document.body.appendChild(overlay)
+    overlay.querySelector('.subtitle').textContent = item.title || ''
+    var close = function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) }
+    overlay.querySelector('#wbSentViaCancel').addEventListener('click', close)
+    overlay.querySelector('#wbSentViaForm').addEventListener('submit', function (ev) {
+      ev.preventDefault()
+      var val = function (id) { var x = document.getElementById(id); return x ? String(x.value).trim() : '' }
+      api('POST', '/api/workbench/items/' + encodeURIComponent(item.id) + '/sent-mark', {
+        sent: true, method: method, date: val('wbSentViaDate'), recipient: val('wbSentViaTo'), reference: val('wbSentViaRef'), note: val('wbSentViaNote'),
+      }).then(function (r) {
+        if (!r.ok) { window.showToast(r.status === 403 ? t('workbench.sentask.login_needed') : (r.message || t('workbench.lifemove.failed'))); return }
+        close()
+        window.showToast(t('workbench.lifemove.gate_marked'))
+        refreshTree()
+        if (WB.open && WB.selectedId === item.id) loadDetail(item.id)
+        if (done) done()
+      })
     })
   }
   /**
@@ -10822,46 +10882,27 @@
       var name = document.createElement('div')
       name.style.cssText = 'font-weight:600;margin-bottom:6px'
       name.textContent = it.title
-      var yes = document.createElement('button')
-      yes.type = 'button'; yes.className = 'btn-primary btn-compact'; yes.textContent = t('workbench.sentask.yes')
       var no = document.createElement('button')
       no.type = 'button'; no.className = 'btn-secondary btn-compact'; no.style.marginLeft = '8px'; no.textContent = t('workbench.sentask.no')
-      yes.addEventListener('click', function () {
-        yes.disabled = true; no.disabled = true
-        api('POST', '/api/workbench/items/' + encodeURIComponent(it.id) + '/sent-mark', { sent: true }).then(function (r) {
-          if (!r.ok) {
-            yes.disabled = false; no.disabled = false
-            // 403 = this browser has no login session (it calls with the dashboard token only), so the answer cannot be
-            // recorded. Say so, and offer the one way out: close the window (it is asked again at the next visit).
-            if (r.status === 403) {
-              window.showToast(t('workbench.sentask.login_needed'))
-              if (!overlay.querySelector('.wb-sentask-close')) {
-                var hint = document.createElement('p')
-                hint.className = 'wb-hint'; hint.style.cssText = 'color:var(--danger,#b00020);margin:10px 0 6px'
-                hint.textContent = t('workbench.sentask.login_needed')
-                var close = document.createElement('button')
-                close.type = 'button'; close.className = 'btn-secondary btn-compact wb-sentask-close'; close.textContent = t('workbench.sentask.close')
-                close.addEventListener('click', function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay) })
-                var box = overlay.querySelector('.modal-content')
-                box.appendChild(hint); box.appendChild(close)
-              }
-              return
-            }
-            window.showToast(r.message || t('workbench.lifemove.failed')); return
-          }
-          window.showToast(t('workbench.lifemove.gate_marked'))
-          refreshTree()
-          if (row.parentNode) row.parentNode.removeChild(row)
-          finish()
-          if (WB.open && WB.selectedId === it.id) loadDetail(it.id)
+      var viaBox = document.createElement('div')
+      viaBox.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px'
+      SENT_VIA.forEach(function (k) {
+        var b = document.createElement('button')
+        b.type = 'button'; b.className = 'btn-primary btn-compact'; b.textContent = t('workbench.sent.via.' + k)
+        b.addEventListener('click', function () {
+          sentViaDialog(it, k, function () {
+            if (row.parentNode) row.parentNode.removeChild(row)
+            finish()
+          })
         })
+        viaBox.appendChild(b)
       })
       no.addEventListener('click', function () {
         window.showToast(t('workbench.sentask.no_done'))
         if (row.parentNode) row.parentNode.removeChild(row)
         finish()
       })
-      row.appendChild(name); row.appendChild(yes); row.appendChild(no)
+      row.appendChild(name); row.appendChild(viaBox); row.appendChild(no)
       rows.appendChild(row)
     })
   }
@@ -13826,7 +13867,7 @@
   function docxMailPanelHtml(it) {
     var close = '<p class="wb-note-final-btns"><button type="button" class="btn-secondary" data-wb-act="docx-mail-close"' + (WB.mailBusy ? ' disabled' : '') + '>' + esc(t('workbench.docxfinal.mail_close')) + '</button></p>'
     return '<div class="wb-note-final wb-docx-mail" role="region" aria-label="' + escA(t('workbench.mail.title')) + '">'
-      + mailBoxHtml((WB.detail && (WB.detail.mail_draft || (WB.detail.outline && WB.detail.outline.mail_draft))) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: close, prefill: (WB.detail && (WB.detail.mail_prefill || (WB.detail.outline && WB.detail.outline.mail_prefill))) || null })
+      + mailBoxHtml((WB.detail && (WB.detail.mail_draft || (WB.detail.outline && WB.detail.outline.mail_draft))) || null, false, { hint: t('workbench.docxfinal.mail_intro', { folder: docxFolderLabel(it) }), stale: false, extra: close, needsEmail: !!(WB.detail && WB.detail.outline && WB.detail.outline.recipient_needs_email), head: (WB.detail && WB.detail.outline && WB.detail.outline.recipient_head) || [], prefill: (WB.detail && (WB.detail.mail_prefill || (WB.detail.outline && WB.detail.outline.mail_prefill))) || null })
       + '</div>'
   }
 
@@ -22078,6 +22119,12 @@
     }
     else if (a === 'folder-rename') { renameFolder(act.getAttribute('data-wb-folder')) }
     else if (a === 'files-view') { setFilesView(act.getAttribute('data-wb-fv')) }
+    else if (a === 'mail-find-address') {
+      var hd0 = WB.detail && (WB.detail.outline || WB.detail)
+      var hd = hd0 && Array.isArray(hd0.recipient_head) ? hd0.recipient_head : []
+      if (hd.length) askAgent(t('workbench.mail.find_address_text', { recipient: hd.join(', ') }))
+    }
+    else if (a === 'item-sent-via') { var vid = act.getAttribute('data-wb-id'); var vit = (WB.items || []).filter(function (x) { return x.id === vid })[0]; if (vit) sentViaDialog({ id: vit.id, title: vit.title }, act.getAttribute('data-wb-method') || 'email') }
     else if (a === 'item-sent-ask') { var sid = act.getAttribute('data-wb-id'); var sit = (WB.items || []).filter(function (x) { return x.id === sid })[0]; if (sit) sentAsk([{ id: sit.id, title: sit.title }], t('workbench.sent.ask_intro')) }
     else if (a === 'pin-more') {
       var pslot = document.querySelector('.wb-pin-slot'); var pbox = pslot && pslot.querySelector('.wb-blk-top')
