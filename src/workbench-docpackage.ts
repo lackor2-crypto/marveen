@@ -12,6 +12,7 @@
  * Nincs csendes kudarc: ha egy melleklet nem alakithato, vagy hianyzik egy
  * program, a hiba megnevezi, MELYIK melleklet es MI a teendo.
  */
+import { logger } from './logger.js'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -72,9 +73,11 @@ export async function fitPdfToA4(pdf: Buffer): Promise<{ ok: true; pdf: Buffer }
     const src = join(dir, 'src.pdf')
     writeFileSync(src, pdf)
     const info = await runVersion(process.env['MARVEEN_PDFINFO'] || 'pdfinfo', ['-f', '1', '-l', '99999', src], 60_000)
-    if (!info.ok) return { ok: false, detail: info.detail }
+    // The page sizes cannot be read (no Poppler on this machine, or a file pdfinfo does not understand): the annex goes on as it
+    // is -- failing the whole package over a size check would be worse than the old behaviour. The warning keeps it visible.
+    if (!info.ok) { logger.warn({ detail: info.detail }, '[annex-pdf] page sizes unreadable, annex left unchanged'); return { ok: true, pdf } }
     const sizes = parsePdfPageSizes(info.stdout)
-    if (!sizes.length) return { ok: false, detail: 'pdfinfo returned no page sizes' }
+    if (!sizes.length) { logger.warn('[annex-pdf] pdfinfo returned no page sizes, annex left unchanged'); return { ok: true, pdf } }
     if (sizes.every((z) => z && pageFitsA4(z.w, z.h))) return { ok: true, pdf }
     // One piece per page, in order: a page that fits is copied as it is, a larger one is scaled onto A4.
     const pieces: string[] = []

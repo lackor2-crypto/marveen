@@ -60,4 +60,11 @@ describe('#882 PDF annex pages are fitted to A4', () => {
     const r = await fitPdfToA4(src)
     expect(r.ok && r.pdf === src).toBe(true)
   })
+
+  it('leaves a file whose page sizes cannot be read unchanged (the package is not failed by the size check)', async () => {
+    const odd = Buffer.from('%PDF-1.4 not a real pdf')
+    const r = await fitPdfToA4(odd)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.pdf.equals(odd)).toBe(true)
+  })
 })
