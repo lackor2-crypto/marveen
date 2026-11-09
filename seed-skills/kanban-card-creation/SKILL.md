@@ -43,10 +43,11 @@ a megépítéséhez. Lásd lent a döntési szempontokat.
      kártyára (`POST /api/kanban/<id>/comments`), vagy alfeladatként vedd fel
      (`parent_id`). A szerver ki is kényszeríti: ilyen kártyához kapcsolódó új
      kártyára `409 same_project` a válasz.
-   - `waiting` -> **A VÁRAKOZÓBA KERÜLT KÁRTYÁT NEM BŐVÍTJÜK** (2026-10-10,
-     {{OWNER_NAME}}): az új munka ÚJ kártyát kap, a leírásában a régi számával
-     (`Kapcsolódik: #N (várakozóban)`); a régi kártyára legfeljebb egy mutató
-     komment megy. A szerver ezt indok nélkül átengedi.
+   - `waiting` -> **A VÁRAKOZÓBA KERÜLT KÁRTYA AZ ELSŐ ELLENŐRZÉSIG BŐVÍTHETŐ**
+     (2026-11-09, {{OWNER_NAME}}): amíg peer-ellenőrzés nem volt rajta, komment
+     vagy alfeladat kerülhet rá (és vissza is nyitható); az első ellenőrzés után
+     az új munka ÚJ kártyát kap, a leírásában a régi számával
+     (`Kapcsolódik: #N (várakozóban)`). A szerver az új kártyát átengedi.
    - `done` -> új kártya, a régit belinkelve.
    Részletek: `one-card-one-fix` skill, 5-7. pont.
 1. Állítsd össze a kártya adatait (title, description, priority, project).

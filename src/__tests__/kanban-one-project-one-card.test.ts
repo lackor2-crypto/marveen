@@ -39,7 +39,7 @@ describe('egy projekt = egy kartya', () => {
     if (!r.ok) expect(r.code).toBe('same_project')
   })
 
-  // A VARAKOZOBA KERULT KARTYAT NEM BOVITJUK (#538): az uj munka uj kartyat kap, a szerver nem allja utjat.
+  // Waiting-card rule (#538, relaxed #889): the server never blocks new cards.
   it('VARAKOZO kartyahoz kapcsolodo uj munka indok nelkul is letrejon (related es leirasbeli hivatkozas)', () => {
     createKanbanCard({ id: 'f0f0f001', title: 'Kesz, jovahagyasra var', status: 'waiting' } as any)
     applyCardLabels('f0f0f001', ['aaaa1111'])
