@@ -1595,7 +1595,7 @@ function provisionStandardFolders(project: ProjectRow, item: WorkItemRow, folder
   // clear. Only a report filed inside a debate folder shares that folder. Topped up on every pass (existing items too);
   // onceFolderFor makes only EMPTY folders and a folder the owner deleted stays deleted.
   if (!inDebate) {
-    try { if (sub || letter) ensureLetterFolders(project, folder); else triggerFolderFor(project, folder) } catch { /* made with its first file instead */ }
+    try { if (sub || letter) ensureLetterFolders(project, folder); else { triggerFolderFor(project, folder); receiptFolderFor(project, folder) } } catch { /* made with its first file instead */ }
   }
   if (db.prepare('SELECT 1 FROM work_item_std_folders WHERE work_item_id = ?').get(item.id)) return
   if (!letter && !sub) ensureItemStandardFolders(project, folder)
@@ -1619,8 +1619,6 @@ function* ensureAllAttachmentsFolderSteps(): Generator<void, { items: number }, 
     for (const key of ['workItems', 'moreMaterial', 'knowledgeBase'] as const) {
       for (const lang of ['hu', 'en'] as const) { const n = lifeName(key, lang); if (projectFileTarget(p, n).ok) noteFolderMade(p, n) }
     }
-    // #890: the empty proof-of-submission folder of every active project (once; a deleted one stays deleted).
-    if (p.archived_at == null) { yield; try { receiptFolderFor(p) } catch { /* made with the first receipt instead */ } }
     const rows = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(p.id) as { id: string }[]
     for (const { id } of rows) {
       yield
@@ -1646,6 +1644,7 @@ function* ensureAllAttachmentsFolderSteps(): Generator<void, { items: number }, 
         if (hasStd) {
           yield
           triggerFolderFor(p, cf)
+          receiptFolderFor(p, cf)
           for (const n of itemStandardFolderNames()) { yield; noteOneStandardFolder(p, cf, n) }
           items++
         }
