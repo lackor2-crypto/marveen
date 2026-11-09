@@ -2509,8 +2509,9 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
    same size, single line pitch, 0.08 cm padding), so what is on one PDF page takes about one paper's height on the screen. */
 .wb-dp-page { font-family: "Liberation Serif", "Times New Roman", Times, serif; }
 .wb-dp-page .wb-dp-tbl table { font-size: .9167em; table-layout: fixed; } /* PDF: 11 pt cells (body 12 pt), equal column widths */
-.wb-dp-page .wb-dp-tbl th, .wb-dp-page .wb-dp-tbl td { padding: 2px 3px; line-height: 1.12; overflow-wrap: anywhere; }
-@media (min-width: 901px) {
-  /* The paper margins of the PDF (top/bottom 1.5 cm, left 2.5 cm, right 2 cm) at 794 px = 21 cm. */
-  .wb-dp-page { --pg-pt: 57px; --pg-pr: 76px; --pg-pb: 57px; --pg-pl: 95px; }
-}
+.wb-dp-page .wb-dp-tbl th, .wb-dp-page .wb-dp-tbl td { padding: .125em .19em; line-height: 1.12; overflow-wrap: anywhere; }
+/* The paper margins of the PDF (1.5 / 2 / 1.5 / 2.5 cm) at 794 px = 21 cm; workbench.js sets them as a share of the sheet's width. */
+.wb-dp-page, .wb-tw-page { --pg-pt: 57px; --pg-pr: 76px; --pg-pb: 57px; --pg-pl: 95px; }
+.wb-tw-page { font-family: "Liberation Serif", "Times New Roman", Times, serif; }
+.wb-tw-page .wb-tw-tbl { font-size: .9167em; table-layout: fixed; }
+.wb-tw-page .wb-tw-tbl th, .wb-tw-page .wb-tw-tbl td { padding: .125em .19em; line-height: 1.12; overflow-wrap: anywhere; }

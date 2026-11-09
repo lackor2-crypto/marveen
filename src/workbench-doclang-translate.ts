@@ -528,7 +528,8 @@ async function callModel(req: { system: string; user: string; lang: Lang }): Pro
 }
 
 /** A page-break line on the translation page: before / after block number `idx` of source chapter `sec` (idx -1 = the chapter heading). */
-export interface TranslationPageMark { sec: string; idx: number; page: number; inside: boolean }
+/** `row`: the page begins at this row INSIDE the table block (a table row mark, id `<block id>#r<row>`). */
+export interface TranslationPageMark { sec: string; idx: number; page: number; inside: boolean; row?: number }
 export type TranslationPageBreaks =
   | { ok: true; found: false }
   | { ok: true; found: true; hash: string; pages: number; marks: TranslationPageMark[]; fit: FitResult | null }
@@ -564,8 +565,9 @@ export async function translationPageBreaks(source: WorkItemRow, targetLang: str
   for (const m of r.marks) {
     const sec = srcOfSection.get(m.id)
     if (sec) { marks.push({ sec, idx: -1, page: m.page, inside: m.inside }); continue }
-    const pl = place.get(m.id)
-    if (pl) marks.push({ sec: pl.sec, idx: pl.idx, page: m.page, inside: m.inside })
+    const tr = /^(.+)#r(\d+)$/.exec(m.id)
+    const pl = place.get(tr ? (tr[1] as string) : m.id)
+    if (pl) marks.push(tr ? { sec: pl.sec, idx: pl.idx, page: m.page, inside: m.inside, row: Number(tr[2]) } : { sec: pl.sec, idx: pl.idx, page: m.page, inside: m.inside })
   }
   return { ok: true, found: true, hash: contentHash(live.item), pages: r.pages, marks, fit }
 }
