@@ -262,12 +262,21 @@ export function resolveLifePath(rel: string): string | null {
   if (!root) return null
   const key = String(rel || '')
   const hit = lifePathCacheGet(key, root)
-  if (hit) return hit.value
-  // A path behind a mount link is never remembered: whether a real file stands at a file link's own place changes
-  // the answer the moment an upload lands (#716), so that case is always measured fresh.
-  const behindMount = resolveMount(String(key).replace(/\\/g, '/').replace(/^\/+/, '')) !== null
+  if (hit) {
+    // A FILE link's answer changes the moment a real file lands at the link's own place (#716), and that can happen
+    // outside this program: so a remembered answer for a file link is only used after one cheap lstat says there is
+    // still no real file there (#893: the full measurement is three 9p calls per path, and the asset list asked for
+    // every linked file on every request -- a ~2.7 s freeze).
+    const m = resolveMount(key.replace(/\\/g, '/').replace(/^\/+/, ''))
+    if (!(m && m.mount.file)) return hit.value
+    try {
+      const realRoot = realRootCached(root, (r) => realpathSync(r))
+      if (!isRealFile(resolve(realRoot, key.replace(/\\/g, '/').replace(/^\/+/, '')))) return hit.value
+    } catch { /* measure it fresh below */ }
+  }
+  // Remembered like any other path; a mount save clears the cache (life-mounts.ts).
   const value = resolveLifePathUncached(key, root)
-  if (value !== null && !behindMount) lifePathCachePut(key, root, value)
+  if (value !== null) lifePathCachePut(key, root, value)
   return value
 }
 

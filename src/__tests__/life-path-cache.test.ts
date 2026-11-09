@@ -30,3 +30,15 @@ describe('life path cache (dashboard stall fix)', () => {
     expect(realRootCached('/gone', f, 301)).toBe('/gone/real')
   })
 })
+
+describe('#893: paths behind a mount link are remembered, a file link is revalidated by one lstat', () => {
+  it('resolveLifePath has no blanket mount exemption and revalidates file links', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const ex = fs.readFileSync(path.join(__dirname, '..', 'life-explorer.ts'), 'utf8')
+    const fn = ex.slice(ex.indexOf('export function resolveLifePath('), ex.indexOf('function resolveLifePathUncached'))
+    expect(fn).not.toContain('behindMount')
+    expect(fn).toContain('lifePathCachePut(key, root, value)')
+    expect(fn).toContain('isRealFile(resolve(realRoot')
+  })
+})
