@@ -32479,7 +32479,8 @@ async function renderEmailRulesList(overlay) {
 document.getElementById('emailSearchForm')?.addEventListener('submit', (e) => {
   e.preventDefault()
   const input = document.getElementById('emailSearchInput')
-  if (emailCurrentSearchScope() === 'content') emailRunContentSearch(input?.value)
+  // Typing narrows the already loaded newest mails instantly; Enter / "Keresés" searches the WHOLE archive on the server.
+  emailRunContentSearch(input?.value)
 })
 
 document.getElementById('emailSearchScope')?.addEventListener('change', () => {
@@ -32562,7 +32563,8 @@ async function emailFetchMailboxEnvelopes(mailboxName) {
   let list
   try { list = await (await fetch(`/api/email/envelopes?${params}`)).json() } catch { list = null }
   const result = Array.isArray(list) ? list : []
-  emailScopedMailboxCache[cacheKey] = result
+  // A failed read must not be remembered as "this mailbox is empty": that made later searches say "no matches".
+  if (Array.isArray(list)) emailScopedMailboxCache[cacheKey] = result
   return result
 }
 
@@ -32637,7 +32639,7 @@ function emailRenderSearchDropdown(list, defaultMailbox) {
   const dropdown = document.getElementById('emailSearchResultsDropdown')
   if (!dropdown) return
   if (!list.length) {
-    dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('email.search_empty'))}</div>`
+    dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('email.search_empty'))}<br>${escapeHtml(t('email.search_full_hint'))}</div>`
     return
   }
   dropdown.innerHTML = list.map(e => {
@@ -32722,17 +32724,39 @@ async function emailRunContentSearch(rawValue) {
   const dropdown = document.getElementById('emailSearchResultsDropdown')
   const token = ++emailSearchDropdownToken
   if (!query || !dropdown || !emailAccount) { emailCloseSearchDropdown(); return }
-  dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('common.loading'))}</div>`
-  const names = await emailGetAllMailboxNames()
+  dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('email.search_full_running'))}</div>`
+  // The whole archive lives in the account's "all mail" folder: ONE request there instead of one per label (each
+  // takes ~20 s on a big Gmail account, and dozens in parallel froze the dashboard). Accounts without such a
+  // folder keep the per-mailbox search, a few at a time.
+  let boxes = []
+  try { boxes = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json() } catch { boxes = [] }
   if (token !== emailSearchDropdownToken) return
-  const lists = await Promise.all(names.map(async name => {
-    const params = new URLSearchParams({ account: emailAccount, mailbox: name, q: query })
-    let list
-    try { list = await (await fetch(`/api/email/envelopes?${params}`)).json() } catch { list = null }
-    return Array.isArray(list) ? list.map(e => ({ ...e, mailbox: name })) : []
-  }))
+  const allBox = Array.isArray(boxes) ? boxes.find(m => emailMailboxRole(m) === 'all') : null
+  const names = allBox ? [allBox.name] : await emailGetAllMailboxNames()
   if (token !== emailSearchDropdownToken) return
-  emailRenderSearchDropdown(lists.flat(), null)
+  let failed = 0
+  const results = new Array(names.length)
+  let next = 0
+  const worker = async () => {
+    while (next < names.length) {
+      const k = next++
+      const params = new URLSearchParams({ account: emailAccount, mailbox: names[k], q: query })
+      try {
+        const res = await fetch(`/api/email/envelopes?${params}`)
+        const list = await res.json()
+        if (!Array.isArray(list)) throw new Error('bad answer')
+        results[k] = list.map(e => ({ ...e, mailbox: names[k] }))
+      } catch { failed++; results[k] = [] }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, names.length) }, worker))
+  if (token !== emailSearchDropdownToken) return
+  const merged = results.flat()
+  if (!merged.length && failed) {
+    dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('email.search_failed', { n: failed }))}</div>`
+    return
+  }
+  emailRenderSearchDropdown(merged, null)
 }
 
 function emailUpdateBulkDeleteUI() {
