@@ -2,7 +2,12 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { summarizeOllamaModels, type OllamaTag } from '../../ollama-model-list.js'
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
-import { execSync } from 'node:child_process'
+import { exec } from 'node:child_process'
+import { promisify } from 'node:util'
+
+// Async exec: a sync exec of `claude mcp ...` / unzip / cp blocks the whole
+// dashboard event loop for the duration of the child (up to 30 s).
+const execAsync = promisify(exec)
 import { PROJECT_ROOT, OLLAMA_URL } from '../../config.js'
 import { logger } from '../../logger.js'
 import {
@@ -480,7 +485,7 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
       if ((data.type === 'http' || data.type === 'sse') && data.url) {
         const transport = data.type === 'sse' ? 'sse' : 'http'
-        execSync(`claude mcp add --transport ${transport} ${scopeFlag} ${shellEscape(sanitizedName)} ${shellEscape(data.url)} 2>&1`, { timeout: 15000, encoding: 'utf-8' })
+        await execAsync(`claude mcp add --transport ${transport} ${scopeFlag} ${shellEscape(sanitizedName)} ${shellEscape(data.url)} 2>&1`, { timeout: 15000, encoding: 'utf-8' })
         catalogEntry.type = 'remote'
         catalogEntry.url = data.url
         catalogEntry.transport = transport
@@ -491,7 +496,7 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
           Object.entries(data.env || {}).filter(([, v]) => v !== ''),
         ) as Record<string, string>
         const argsStr = data.args ? data.args.split(/\s+/).filter(Boolean).map(a => shellEscape(a)).join(' ') : ''
-        execSync(`claude mcp add ${scopeFlag} ${shellEscape(sanitizedName)} -- ${shellEscape(data.command)} ${argsStr} 2>&1`, { timeout: 15000, encoding: 'utf-8' })
+        await execAsync(`claude mcp add ${scopeFlag} ${shellEscape(sanitizedName)} -- ${shellEscape(data.command)} ${argsStr} 2>&1`, { timeout: 15000, encoding: 'utf-8' })
         catalogEntry.type = 'local'
         catalogEntry.command = data.command
         catalogEntry.args = data.args ? data.args.split(/\s+/).filter(Boolean) : []
@@ -720,7 +725,7 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
         const argsStr = (item.args || []).map((a: string) => shellEscape(a)).join(' ')
         const cmd = `claude mcp add --scope user ${shellEscape(cliName)} ${envFlags} -- ${shellEscape(item.command)} ${argsStr} 2>&1`
-        execSync(cmd, { timeout: 30000, encoding: 'utf-8' })
+        await execAsync(cmd, { timeout: 30000, encoding: 'utf-8' })
         if (Object.keys(userSecrets).length) {
           vaultAndBindEnvSecrets(cliName, join(homedir(), '.claude.json'), userSecrets)
         }
@@ -730,7 +735,7 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
         // Respect the catalog item's transport (http/sse) instead of forcing sse,
         // so one-click remote installs can use streamable-http (e.g. n8n).
         const transport = item.transport === 'http' ? 'http' : 'sse'
-        execSync(`claude mcp add --transport ${transport} --scope user ${shellEscape(cliName)} ${shellEscape(url)} 2>&1`, { timeout: 30000, encoding: 'utf-8' })
+        await execAsync(`claude mcp add --transport ${transport} --scope user ${shellEscape(cliName)} ${shellEscape(url)} 2>&1`, { timeout: 30000, encoding: 'utf-8' })
       }
 
       let message = 'Telepítve'
@@ -756,10 +761,10 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
       const cliName = item.id
       try {
-        execSync(`claude mcp remove ${shellEscape(cliName)} -s user 2>&1`, { timeout: 15000 })
+        await execAsync(`claude mcp remove ${shellEscape(cliName)} -s user 2>&1`, { timeout: 15000 })
       } catch {
         try {
-          execSync(`claude mcp remove ${shellEscape(cliName)} -s project 2>&1`, { timeout: 15000 })
+          await execAsync(`claude mcp remove ${shellEscape(cliName)} -s project 2>&1`, { timeout: 15000 })
         } catch { /* ignore if not found anywhere */ }
       }
 
