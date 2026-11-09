@@ -45,7 +45,7 @@ import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
 import { annotateMisplaced, adviseUpload, type Misplaced, type UploadAdvice } from './workbench-misplaced.js'
-import { folderWasMade, noteFolderMade, noteItemStandardFoldersSeen, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { folderWasMade, noteFolderMade, noteOneStandardFolder, itemStandardFolderNames, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -1624,7 +1624,14 @@ function* ensureAllAttachmentsFolderSteps(): Generator<void, { items: number }, 
       yield
       const folder = workItemFolder(id)
       if (!folder) continue
-      try { const it = getWorkItem(id); if (it) provisionStandardFolders(p, it, folder); noteItemStandardFoldersSeen(p, folder); items++ } catch { /* one unreadable folder never stops the rest */ }
+      // #887: one item's folder probes are ~20 stat-heavy calls; yield between them, not only between items.
+      try {
+        const it = getWorkItem(id)
+        yield
+        if (it) provisionStandardFolders(p, it, folder)
+        for (const n of itemStandardFolderNames()) { yield; noteOneStandardFolder(p, folder, n) }
+        items++
+      } catch { /* one unreadable folder never stops the rest */ }
     }
     // #794: an own-file item has no folder of its own (folder IS NULL), its files sit in a container folder that already
     // got the other standard folders. The sixth ("Kiváltó irat") is topped up there too; a deleted one stays deleted.
@@ -1634,7 +1641,12 @@ function* ensureAllAttachmentsFolderSteps(): Generator<void, { items: number }, 
       if (cf === PROJECT_ROOT_PLACE) continue
       try {
         const hasStd = ['Mellékletek', 'Attachments'].some(n => projectFileTarget(p, `${cf}/${n}`).ok)
-        if (hasStd) { triggerFolderFor(p, cf); noteItemStandardFoldersSeen(p, cf); items++ }
+        if (hasStd) {
+          yield
+          triggerFolderFor(p, cf)
+          for (const n of itemStandardFolderNames()) { yield; noteOneStandardFolder(p, cf, n) }
+          items++
+        }
       } catch { /* best effort */ }
     }
   }

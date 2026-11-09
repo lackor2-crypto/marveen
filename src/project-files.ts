@@ -577,7 +577,16 @@ export function ensureLetterFolders(p: ProjectRow, letterFolder: string | null |
 export function noteItemStandardFoldersSeen(p: ProjectRow, itemFolder: string | null | undefined): void {
   const base = String(itemFolder ?? '').trim()
   if (!base) return
-  const names = ['Verzi\u00f3k', 'Versions', 'Mell\u00e9kletek', 'Attachments', FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES,
+  for (const n of itemStandardFolderNames()) noteOneStandardFolder(p, base, n)
+}
+
+/** #887: ONE probe of the pass above. The startup pass calls it per name and hands the event loop back in between, because
+ *  every probe is several stat calls and on a cold Windows drive one item's ~20 probes held the loop for 1-2 s. */
+export function noteOneStandardFolder(p: ProjectRow, base: string, name: string): void {
+  if (projectFileTarget(p, `${base}/${name}`).ok) noteFolderMade(p, `${base}/${name}`)
+}
+
+export function itemStandardFolderNames(): string[] {
+  return ['Verzi\u00f3k', 'Versions', 'Mell\u00e9kletek', 'Attachments', FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES,
     'Feltöltések', 'Uploads', AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES, DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en]
-  for (const n of names) if (projectFileTarget(p, `${base}/${n}`).ok) noteFolderMade(p, `${base}/${n}`)
 }
