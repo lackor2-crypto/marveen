@@ -47,13 +47,22 @@ describe('matchPages', () => {
 })
 
 describe('pageUnitsOf', () => {
-  it('lists the chapter titles and the blocks in reading order; a picture is not looked up, a table by its first cell', () => {
+  it('lists the chapter titles and the blocks in reading order; a picture is not looked up, a table row by row (first filled cell of each row)', () => {
     const u = pageUnitsOf([{ id: 's1', title: 'Tényállás', blocks: [{ id: 'b1', kind: 'paragraph', text: 'Szöveg.' }, { id: 'b2', kind: 'image', text: 'a/k.png#w=40&a=l' }, { id: 'b3', kind: 'table', text: 'Tétel | Összeg\nLakbér | 5\n#w=40&a=l' }] }])
-    expect(u.map((x) => [x.id, x.text])).toEqual([['s1', 'Tényállás'], ['b1', 'Szöveg.'], ['b3', 'Tétel']])
+    expect(u.map((x) => [x.id, x.text])).toEqual([['s1', 'Tényállás'], ['b1', 'Szöveg.'], ['b3', 'Tétel'], ['b3#r1', 'Lakbér']])
   })
   it('the program\'s placeholder chapter title is not a title on the page', () => {
     const u = pageUnitsOf([{ id: 's1', title: 'Új fejezet', blocks: [{ id: 'b1', kind: 'paragraph', text: 'Szöveg.' }] }])
     expect(u.map((x) => x.id)).toEqual(['b1'])
+  })
+})
+
+describe('table rows carry the page lines', () => {
+  it('a table that runs over three pages gets a mark before the first row of each new page', () => {
+    const rows = ['A1 elso sor', 'B2 masodik sor', 'C3 harmadik sor', 'D4 negyedik sor']
+    const pages = ['Bevezeto szoveg ' + rows[0] + ' ' + rows[1], rows[2], rows[3] + ' Zaro szoveg']
+    const u = pageUnitsOf([{ id: 's', title: 'Cim', blocks: [{ id: 'p', kind: 'paragraph', text: 'Bevezeto szoveg' }, { id: 't', kind: 'table', text: rows.join('\n') }, { id: 'z', kind: 'paragraph', text: 'Zaro szoveg' }] }])
+    expect(matchPages(pages, u)).toEqual([{ id: 't#r2', page: 2, inside: false }, { id: 't#r3', page: 3, inside: false }])
   })
 })
 

@@ -74,7 +74,7 @@ export function matchPages(pages: string[], units: PageUnit[]): PageMark[] {
   return marks
 }
 
-/** The units of a rendered outline, in reading order: a chapter title, then its blocks (a table by its first cells, a picture not at all). */
+/** The units of a rendered outline, in reading order: a chapter title, then its blocks (a table by the first cell of each row, a picture not at all). */
 export function pageUnitsOf(sections: { id: string; title: string; blocks: { id: string; kind: string; text: string }[] }[]): PageUnit[] {
   const out: PageUnit[] = []
   for (const s of sections) {
@@ -82,8 +82,14 @@ export function pageUnitsOf(sections: { id: string; title: string; blocks: { id:
     for (const b of s.blocks) {
       if (b.kind === 'image') continue
       if (b.kind === 'table') {
-        const first = tableBlockParts(b.text).text.split('\n')[0] || ''
-        out.push({ id: b.id, text: (first.split('|')[0] || '').trim(), kind: 'block' })
+        // Every ROW is a unit of its own (owner report 2026-11-09: a table that runs over several PDF pages showed no page
+        // lines inside it, so the sheet's pages came out wrong). The first row carries the block's id, the later rows
+        // `<block id>#r<row index>`; a row is looked up by its first filled cell.
+        const rows = tableBlockParts(b.text).text.split('\n')
+        rows.forEach((row, r) => {
+          const cell = row.split('|').map((c) => c.trim()).find((c) => c) || ''
+          if (r === 0 || cell) out.push({ id: r === 0 ? b.id : `${b.id}#r${r}`, text: cell, kind: 'block' })
+        })
         continue
       }
       out.push({ id: b.id, text: b.text, kind: 'block' })
