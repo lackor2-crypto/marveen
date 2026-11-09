@@ -2471,7 +2471,7 @@ window._i18n.hu = {
   'conversation.send.failed':       'Nem sikerült elküldeni: {msg}',
   'conversation.send.network':      'A kérés el sem jutott a szerverig, ezért az utasítás nem indult el. Nézd meg a kapcsolatot, és küldd el újra — a szöveg megmarad.',
   'conversation.send.empty':        'Írd le, mit csináljon.',
-  'conversation.send.too_long':     '{n} / 12000 karakter — ennyit a másik oldal nem vesz át.',
+  'conversation.send.too_long':     '{n} / {max} karakter — ennyit a másik oldal nem vesz át.',
   'mobile_login.no_token':       'Nincs eltárolt token. Előbb lépj be itt.',
   'mobile_login.cdn_error':      'A QR-generátor nem töltött be (CDN). Hálózat?',
   'mobile_login.generating':     'QR készítése...',
