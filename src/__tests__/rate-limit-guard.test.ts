@@ -10,7 +10,7 @@
 // with a fake PROJECT_ROOT (a temp dir mirroring the real layout) so the test
 // never touches the live install's store/rate-limit-status/.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -128,5 +128,27 @@ describe('rate-limit-guard hook (behavioural)', () => {
     expect(out).toContain('KERET-FIGYELMEZTETES')
     expect(out).toContain('97%')
     expect(out.toLowerCase()).toContain('ne vegezz kodolast')
+  })
+
+  it('says when and from where the number was measured, orders a re-read, and keeps a trace (TG 5605)', () => {
+    writeSnapshot({
+      fiveHour: { usedPct: 100, resetsAt: Date.now() + 60 * 60_000 },
+      updatedAt: Date.now(),
+    })
+    const out = runHook()
+    expect(out).toContain('store/rate-limit-status/testagent.json')
+    expect(out).toMatch(/merve: \d\d:\d\d:\d\d/)
+    expect(out.toLowerCase()).toContain('olvasd ujra')
+    const log = readFileSync(join(fakeRoot, 'store', 'rate-limit-guard.log'), 'utf-8').trim().split('\n')
+    const entry = JSON.parse(log[log.length - 1] as string)
+    expect(entry.agent).toBe('testagent')
+    expect(entry.five).toBe(100)
+    expect(entry.snapshot.fiveHour.usedPct).toBe(100)
+  })
+
+  it('writes no trace and no output below the caution threshold', () => {
+    writeSnapshot({ fiveHour: { usedPct: 33, resetsAt: Date.now() + 60 * 60_000 }, updatedAt: Date.now() })
+    expect(runHook()).toBe('')
+    expect(existsSync(join(fakeRoot, 'store', 'rate-limit-guard.log'))).toBe(false)
   })
 })
