@@ -187,7 +187,7 @@ import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, 
 import {
   makeFreshFolder, itemSubfolderOf, linkLifeFileAsUpload, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset, attachChatReference,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
-  unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, renameWorkItem,
+  unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, listWorkItemAssetsSyncedYielding, renameWorkItem,
   workFolderTarget, adviseUploadPlaces, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder, findWorkItemsBox,
   renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, reconcileFolderMarkersYielding, listWorkFoldersYielding, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
@@ -2346,6 +2346,13 @@ function assetsOut(itemId: string): ReturnType<typeof withDocState> {
   return withDocState(list)
 }
 
+/** #893: assetsOut for the hot GET routes: gives the loop back between rows of a long list. */
+async function assetsOutYielding(itemId: string): Promise<ReturnType<typeof withDocState>> {
+  const list = await listWorkItemAssetsSyncedYielding(itemId)
+  try { startPendingDocReads(list) } catch { /* a lista akkor is jojjon */ }
+  return withDocState(list)
+}
+
 /** A munkadarab dokumentummodellje a veglegesites elotti ellenorzessel, vagy null, ha nincs. */
 type OutlineOut = ReturnType<typeof documentOutline> & {
   /** #533: can the page's last step be undone / redone, and what it is. */
@@ -4197,7 +4204,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
 
   if (segs.length === 1 && method === 'GET') {
     const project = getProject(item.project_id)
-    const assets = assetsOut(item.id)
+    const assets = await assetsOutYielding(item.id)
     json(res, {
       item,
       versions: listWorkItemVersionsView(item.id),
@@ -4836,7 +4843,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //   POST   .../tidy              -- az omlesztett forrasfajl a munkadarab mappajaba
   if (segs.length === 2 && segs[1] === 'assets' && method === 'GET') {
     ensureAssetTables()
-    json(res, { assets: assetsOut(item.id), folder: getWorkItem(item.id)?.folder ?? null })
+    json(res, { assets: await assetsOutYielding(item.id), folder: getWorkItem(item.id)?.folder ?? null })
     return true
   }
   if (segs.length === 2 && segs[1] === 'assets' && method === 'POST') {
