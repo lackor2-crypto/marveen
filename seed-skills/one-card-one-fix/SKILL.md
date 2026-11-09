@@ -44,22 +44,25 @@ is a javítását."
    **komment arra a kártyára** (vagy alfeladat `parent_id`-val), SOHA új felső
    szintű kártya. A valós eset: a Munkapad (#336) hét kártyára szabdalva állt,
    {{OWNER_NAME}}-nak kellett összeszednie.
-7. **A VÁRAKOZÓBA KERÜLT KÁRTYÁT NEM BŐVÍTJÜK (2026-10-10, {{OWNER_NAME}}).**
-   „Amennyiben belekerült a várakozó oszlopba, onnantól kezdve már nem adunk
-   hozzá újat [...] hanem egy másik kártyán kell felvenni. És az új kártyán kell
-   megmagyarázni, hogy ehhez tartozik." Új kérés, következő rész, újonnan talált
-   hiba egy `waiting` kártyához: **ÚJ kártya**, a leírásában a régi száma (`#N`).
-   A régi kártyára legfeljebb egy mutató komment megy („folytatás: #N"). A valós
-   eset: egy délelőtt alatt négy várakozó kártyára (#527, #529, #521, #530) gyűlt
-   új munka kommentként, és az egyikre jóváhagyás-kérés érkezett, miközben négy
-   pontja nyitva volt -- a tulajdonos majdnem lezárt egy félkész kártyát.
+7. **A VÁRAKOZÓBA KERÜLT KÁRTYA AZ ELSŐ ELLENŐRZÉSIG BŐVÍTHETŐ (2026-11-09, {{OWNER_NAME}}; felváltja a 2026-10-10-i tiltást).**
+   Amíg egy másik ágens (peer-ellenőrzés, `kanban_done` verify-result) a `waiting`
+   kártyát MÉG NEM ELLENŐRIZTE, rá szabad új munkát írni (komment, alfeladat), és
+   vissza is lehet nyitni (`waiting` -> `in_progress`) kérdés nélkül. AZ ELSŐ
+   ELLENŐRZÉS UTÁN a kártya zárolt: új munka (új kérés, következő rész, újonnan
+   talált hiba) ÚJ kártyát kap, és az új kártya LEÍRÁSA mondja meg, melyik
+   kártyához tartozik (`#N`); a régire legfeljebb egy mutató komment megy
+   („folytatás: #N"). Miért: a tulajdonos a várakozóból hagy jóvá; amíg senki nem
+   ellenőrizte, a kártya még munkaanyag, és a sok új kártya csak szétszórja a
+   munkát. A szerver az új kártyát mindkét esetben átengedi. Munkát másnak kiadni
+   a kártya számával kell.
 
    Hogyan döntsd el, melyik pont áll:
    - a kártya `planned` / `in_progress` -> 6. pont: komment vagy alfeladat;
    - a kártya `waiting`, és a hiány a kártya EREDETI vállalásából való (amit a
      kártya ígért, de nem készült el) -> 5. pont: befejezed, mozgatás nélkül;
    - a kártya `waiting`, és ez ÚJ dolog (a tulajdonos most kérte, vagy most
-     derült ki) -> 7. pont: új kártya;
+     derült ki): ha MÉG NEM ellenőrizte senki -> komment vagy alfeladat, szükség
+     esetén visszanyitod; ha már volt peer-ellenőrzés -> 7. pont: új kártya;
    - a kártya `done` -> új kártya, a régit belinkelve.
 
 ## Gép is kikényszeríti
