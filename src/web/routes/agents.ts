@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync, copyFileSync, renameSync } from 'node:fs'
 import { join, extname, dirname } from 'node:path'
 import { homedir, platform, tmpdir } from 'node:os'
-import { execSync } from 'node:child_process'
+import { exec } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execAsync = promisify(exec)
 import { logger } from '../../logger.js'
 import { isModelProfileId, MODEL_PROFILE_IDS } from '../../model-profiles.js'
 import { isValidModelId, InvalidModelIdError } from '../../model-id.js'
@@ -1440,7 +1443,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       return true
     }
     try {
-      const output = execSync(`bash "${scriptPath}" "${name}"`, {
+      const { stdout: output } = await execAsync(`bash "${scriptPath}" "${name}"`, {
         timeout: 60000,
         encoding: 'utf-8',
         env: { ...process.env, SLACK_SMOKE_TEST_ALLOWED: 'true' },
@@ -1743,7 +1746,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         if (gcWasRunning) {
           const stopRes = stopAgentProcess(name)
           if (stopRes.ok) {
-            try { execSync('sleep 2', { timeout: 4000 }) } catch {}
+            try { await new Promise<void>(r => setTimeout(r, 2000)) } catch {}
             gcRestarted = startAgentProcess(name).ok
           }
         }
@@ -1826,7 +1829,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       if (wasRunning) {
         const stopRes = stopAgentProcess(name)
         if (stopRes.ok) {
-          try { execSync('sleep 2', { timeout: 4000 }) } catch {}
+          try { await new Promise<void>(r => setTimeout(r, 2000)) } catch {}
           const startRes = startAgentProcess(name)
           restarted = startRes.ok
         }
@@ -2459,7 +2462,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       let extracted: ExtractedAuthUrl | null = null
       let sawPane = false
       for (let i = 0; i < 12; i++) {
-        execSync('sleep 1', { timeout: 3000 })
+        await new Promise<void>(r => setTimeout(r, 1000))
         const pane = capturePane(session, host)
         if (!pane) continue
         sawPane = true
@@ -2545,7 +2548,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
 
       let after = before
       for (let i = 0; i < 20; i++) {
-        execSync('sleep 1', { timeout: 3000 })
+        await new Promise<void>(r => setTimeout(r, 1000))
         after = readCredentialFreshness(configDir)
         if (written(after)) break
       }
