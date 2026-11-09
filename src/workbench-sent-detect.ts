@@ -19,7 +19,7 @@ import { markSentManually, recordSent, sentStatus, sentVersionIds } from './work
 import './workbench-sent-context.js'
 import { getWorkItem } from './workbench.js'
 
-export interface SentMailInfo { id: string; date: string; to: string; messageId: string; attachments: string[] }
+export interface SentMailInfo { id: string; date: string; to: string; messageId: string; attachments: string[]; from?: string; subject?: string }
 export interface SentMailPort {
   /** The ids of the mail accounts that can be looked into. */
   accounts(): string[]
@@ -123,7 +123,7 @@ export async function detectSentByMail(itemIds: string[]): Promise<string[]> {
       const to = hit.info.to || hit.account
       for (const versionId of finalsCarriedBy(finals, hit.info.attachments, hit.info.date)) {
         if (!item || done.has(versionId)) continue
-        if (recordSent(item, { date: day, recipient: to, method: 'email', reference: hit.info.messageId, note: 'found in the Sent mailbox' }, 'sent-mailbox', versionId).ok) { done.add(versionId); ok = true }
+        if (recordSent(item, { date: day, recipient: to, method: 'email', reference: hit.info.messageId, note: 'found in the Sent mailbox', mail: { from: hit.info.from, subject: hit.info.subject, attachments: hit.info.attachments } }, 'sent-mailbox', versionId).ok) { done.add(versionId); ok = true }
       }
     }
     // No final to hang the sending on (the mail carried a draft attachment only, or an old document): the same honest

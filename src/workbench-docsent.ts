@@ -30,6 +30,7 @@ import { logger } from './logger.js'
 import { fileStem, finalState, listFinals, resolverFor } from './workbench-docfinal.js'
 import { ensureProjectDocTables } from './workbench-doc-links.js'
 import type { WorkItemRow } from './workbench.js'
+import { writeEmailProof } from './workbench-email-proof.js'
 
 export const SENT_METHODS = ['email', 'post', 'registered_post', 'in_person', 'portal', 'fax', 'other'] as const
 export type SentMethod = typeof SENT_METHODS[number]
@@ -131,7 +132,7 @@ export function listSent(itemId: string): SentView[] {
  * #750: `versionId` names the final that really went out (the one whose file a sent mail carried); it need not be the
  * newest or an unchanged one -- that version was sent whatever happened to the document afterwards.
  */
-export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: unknown; recipient?: unknown; method?: unknown; reference?: unknown; note?: unknown }, by: string | null, versionId?: string): SentResult<{ id: string }> {
+export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: unknown; recipient?: unknown; method?: unknown; reference?: unknown; note?: unknown; mail?: { from?: string; subject?: string; attachments?: string[] } }, by: string | null, versionId?: string): SentResult<{ id: string }> {
   ensureDocSentTables()
   const fin = versionId ? listFinals(item.id).find((f) => f.version_id === versionId) : finalState(item)
   if (!fin) return { ok: false, code: 'no_final', detail: versionId ? 'no such final version for this document' : 'the document has no final version yet' }
@@ -154,6 +155,8 @@ export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: un
   db.prepare('INSERT INTO wb_doc_sent (id, work_item_id, version_id, sent_date, sent_time, recipient, method, reference, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, item.id, fin.version_id, date, time, recipient, method, reference, note, Math.floor(Date.now() / 1000), by)
   emitSent({ itemId: item.id, date, recipient, how: 'recorded', by, method, reference: reference || undefined, note: note || undefined })
+  // #890: a sending by e-mail leaves a small text proof in the item's own "Feladási bizonylatok" folder.
+  if (method === 'email') writeEmailProof(item, { date, time, to: recipient, from: input.mail?.from, subject: input.mail?.subject, attachments: input.mail?.attachments, messageId: input.mail ? reference : undefined, byHand: !input.mail })
   return { ok: true, id }
 }
 

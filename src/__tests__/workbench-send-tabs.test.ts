@@ -1,5 +1,5 @@
-// Boss, 2026-11-08 (#879): the "Send" panel is one panel with four Excel-like tabs, and the proof an online portal
-// returns goes into ONE project-level folder (never the work item's own folder).
+// Boss, 2026-11-08 (#879): the "Send" panel is one panel with four Excel-like tabs. #890: the proof an online portal returns
+// goes into the work item's own "Feladási bizonylatok" folder (a project-level folder only for an item with no folder or a typed name).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
