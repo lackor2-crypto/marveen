@@ -89,7 +89,7 @@ import { checkPlacementAfter, lifeMoveIssues } from '../../workbench-placement-c
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
 import { contentHash, docxFileName, draftFileName, documentTrail, finalizationState, finalizeDocument, listFinals, recheckFinal, recordReview, renderDocx, renderDraft, resolverFor } from '../../workbench-docfinal.js'
 import { syncCheckTodos } from '../../workbench-check-todos.js'
-import { acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
+import { warmCourtTools, acceptProposal, itemCourtState, markProfileChecked, rejectProposal, setItemProfile, setMaxAgeDays } from '../../workbench-courtprofile.js'
 import { addAnnex, docSettings, listAnnexes, removeAnnex, setAnnexPath, setDocSettings, updateAnnex, ANNEX_SCHEMES, ANNEX_MODES } from '../../workbench-docannex.js'
 import { itemMarks, type ItemMark } from '../../workbench-item-marks.js'
 import { fileOfficialCopy, listSent, markSentManually, recordSent, removeSent, sentStatus, SENT_METHODS, unmarkSentManually } from '../../workbench-docsent.js'
@@ -4199,6 +4199,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 1 && method === 'GET') {
     const project = getProject(item.project_id)
     const assets = await assetsOutYielding(item.id)
+    await warmCourtTools()
     json(res, {
       item,
       versions: listWorkItemVersionsView(item.id),
