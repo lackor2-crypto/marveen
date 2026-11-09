@@ -17,7 +17,9 @@ export class SessionListCache {
   private value: string | null = null
   private at = 0
 
-  constructor(private readonly ttlMs: number) {}
+  private refreshing = false
+
+  constructor(private readonly ttlMs: number, private readonly maxStaleMs: number = 60_000) {}
 
   /**
    * Fresh-enough cached listing, or `fetch()` once and cache it. A throwing
@@ -25,8 +27,23 @@ export class SessionListCache {
    * and propagates: callers already classify that exit status, and caching an
    * error would keep reporting "stopped" for a whole TTL after tmux comes back.
    */
-  get(nowMs: number, fetch: () => string): string {
+  get(nowMs: number, fetch: () => string, refresh?: () => Promise<string>): string {
     if (this.value !== null && nowMs - this.at < this.ttlMs) return this.value
+    // Stale-while-revalidate (2026-11-09, Boss TG 5615: the dashboard froze 6.5 s and 16.5 s while a tsc/Playwright job held
+    // the machine -- the stall samples ended in execFileSync("tmux list-sessions"), a spawn on the one event loop). With a
+    // value in hand and an async `refresh`, the expired value is served at once and the listing is re-read in the
+    // background, so a starved machine slows the refresh, not the whole server. Only the very first call (or the first
+    // after invalidate()/a failed refresh) still pays the synchronous fetch.
+    if (this.value !== null && refresh && nowMs - this.at < this.maxStaleMs) {
+      if (!this.refreshing) {
+        this.refreshing = true
+        refresh().then(
+          (v) => { this.value = v; this.at = Date.now() },
+          () => { this.value = null; this.at = 0 },   // an error is never cached: the next call asks tmux itself
+        ).finally(() => { this.refreshing = false })
+      }
+      return this.value
+    }
     const value = fetch()
     this.value = value
     this.at = nowMs
@@ -37,5 +54,6 @@ export class SessionListCache {
   invalidate(): void {
     this.value = null
     this.at = 0
+    this.refreshing = false
   }
 }

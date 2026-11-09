@@ -1097,7 +1097,15 @@ export function invalidateLocalSessionCache(): void {
 }
 
 function listLocalSessions(): string {
-  return localSessions.get(Date.now(), () => captureTmux(null, ['list-sessions', '-F', '#{session_name}']))
+  return localSessions.get(Date.now(), () => captureTmux(null, ['list-sessions', '-F', '#{session_name}']), captureTmuxAsync)
+}
+
+/** The same `tmux list-sessions` as captureTmux(null, ...), but off the event loop (see SessionListCache.get). */
+function captureTmuxAsync(): Promise<string> {
+  const inv = buildTmuxInvocation(null, tmuxBin(), ['list-sessions', '-F', '#{session_name}'])
+  return new Promise((resolve, reject) => {
+    execFile(inv.file, inv.args, { timeout: 3000, encoding: 'utf-8' }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))))
+  })
 }
 
 export function agentRunState(name: string): AgentRunState {

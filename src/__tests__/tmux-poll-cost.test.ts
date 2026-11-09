@@ -54,6 +54,48 @@ describe('SessionListCache', () => {
   })
 })
 
+describe('SessionListCache stale-while-revalidate', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 5))
+
+  it('serves the expired listing at once and refreshes in the background, never a synchronous spawn', async () => {
+    const cache = new SessionListCache(1500)
+    let syncCalls = 0
+    const fetch = () => { syncCalls++; return 'agent-a' }
+    let asyncCalls = 0
+    const refresh = async () => { asyncCalls++; return 'agent-a\nagent-b' }
+    expect(cache.get(1000, fetch, refresh)).toBe('agent-a')   // first call: synchronous
+    expect(cache.get(5000, fetch, refresh)).toBe('agent-a')   // expired: stale value, no sync spawn
+    expect(syncCalls).toBe(1)
+    await tick()
+    expect(asyncCalls).toBe(1)
+    expect(cache.get(Date.now(), fetch, refresh)).toContain('agent-b')   // the refresh landed
+    expect(syncCalls).toBe(1)
+  })
+
+  it('runs one refresh at a time and drops the value when the refresh fails', async () => {
+    const cache = new SessionListCache(1500)
+    let asyncCalls = 0
+    const refresh = () => { asyncCalls++; return Promise.reject(new Error('no server running')) }
+    cache.get(1000, () => 'agent-a', refresh)
+    cache.get(5000, () => 'agent-a', refresh)
+    cache.get(5001, () => 'agent-a', refresh)
+    expect(asyncCalls).toBe(1)
+    await tick()
+    let syncCalls = 0
+    expect(cache.get(5002, () => { syncCalls++; return 'agent-b' }, refresh)).toBe('agent-b')   // failure was not cached
+    expect(syncCalls).toBe(1)
+  })
+
+  it('does not serve a listing older than the stale limit', () => {
+    const cache = new SessionListCache(1500, 10_000)
+    let syncCalls = 0
+    const fetch = () => { syncCalls++; return 'agent-a' }
+    cache.get(1000, fetch, async () => 'x')
+    cache.get(20_000, fetch, async () => 'x')
+    expect(syncCalls).toBe(2)
+  })
+})
+
 describe('BackgroundCache', () => {
   const tick = () => new Promise((r) => setTimeout(r, 5))
 
