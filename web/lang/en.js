@@ -5677,6 +5677,7 @@ window._i18n.en = {
   "projects.next.due": "due: {date}",
   "projects.next.overdue": "overdue: {date}",
   "projects.next.answered": "Answered ({n}) — sent, not open",
+  "projects.next.all_current": "Every open work item is in Current work; nothing else is left.",
   "projects.next.more": "+ {n} more — open in Kanban",
   "projects.activity.title": "Recent activity",
   "projects.activity.hint": "Card moves, comments, approvals, code tasks and the folder's files — newest first.",
