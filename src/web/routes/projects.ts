@@ -75,6 +75,7 @@ import {
 } from '../../project-scope.js'
 import { researchFilePath } from './research.js'
 import { listDebateSessions, findProject, projectContext } from '../../project-context.js'
+import { receiptFolderFor } from '../../project-files.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
   const v = url.searchParams.get('lang')
@@ -454,6 +455,8 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
       return fail(res, 500, 'create_failed', lang)
     }
     if (!made.ok) return fail(res, 400, made.code, lang)
+    // #890: the empty proof-of-submission folder is there from the start.
+    try { receiptFolderFor(made.project) } catch { /* made with the first receipt instead */ }
     json(res, { ok: true, project: made.project, starterCardId })
     return true
   }

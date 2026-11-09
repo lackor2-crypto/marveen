@@ -8,10 +8,10 @@ import { ol } from './owner-lang.js'
 import { getProject } from './projects.js'
 import { getWorkItem, type WorkItemRow } from './workbench.js'
 import { appendItemContext, contextOwner } from './workbench-item-context.js'
-import { makeProjectFolder, writeProjectFile, type FileErrorCode } from './project-files.js'
+import { makeProjectFolder, writeProjectFile, RECEIPT_FOLDER_NAMES, type FileErrorCode } from './project-files.js'
 import type { UploadData } from './upload-stream.js'
 
-export const RECEIPT_FOLDER_NAMES = { hu: 'Feladási bizonylatok', en: 'Proofs of submission' } as const
+export { RECEIPT_FOLDER_NAMES }
 
 /** The default folder name in the owner's language. */
 export function defaultReceiptFolder(): string { return ol(RECEIPT_FOLDER_NAMES.hu, RECEIPT_FOLDER_NAMES.en) }
