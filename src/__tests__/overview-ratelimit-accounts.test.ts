@@ -131,10 +131,10 @@ describe('usage-limit widget: server payload', () => {
   it('a plan falls back to an old snapshot rather than to no row at all', () => {
     // Order matters: live (eager) scrape -> fresh snapshot -> cached pane
     // scrape -> stale snapshot.
-    const eager = OVERVIEW.indexOf('const eagerScrape = measureNow ? scrapeClaudeAccountUsage(plan.id) : null')
+    const eager = OVERVIEW.indexOf('const eagerScrape = measureNow ? await scrapeClaudeAccountUsage(plan.id) : null')
     expect(eager).toBeGreaterThan(-1)
     const fresh = OVERVIEW.indexOf('if (snapFresh && snap.fiveHour?.usedPct != null)')
-    const scrape = OVERVIEW.indexOf('const scraped = eagerScrape ?? scrapeClaudeAccountUsage(plan.id)')
+    const scrape = OVERVIEW.indexOf('const scraped = eagerScrape ?? await scrapeClaudeAccountUsage(plan.id)')
     expect(fresh).toBeGreaterThan(eager)
     const staleFallback = OVERVIEW.indexOf('fiveHourPct: snap?.fiveHour?.usedPct ?? null')
     expect(fresh).toBeGreaterThan(-1)
