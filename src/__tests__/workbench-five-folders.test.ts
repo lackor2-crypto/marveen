@@ -12,7 +12,7 @@ import { ensureWorkItemFolder, ensureAllAttachmentsFolders } from '../workbench-
 import { createReportDocument } from '../debate-export-doc.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
-const FIVE = ['Elkészített anyagok', 'Mellékletek', 'Feltöltések', 'Agent', 'Vitáztatás', 'Kiváltó irat'] // #794: the sixth is the trigger document folder
+const FIVE = ['Elkészített anyagok', 'Mellékletek', 'Feltöltések', 'Agent', 'Vitáztatás', 'Kiváltó irat', 'Feladási bizonylatok'] // #794: the trigger document folder; #890: the proof-of-submission folder
 
 describe('the five standard folders of a work item', () => {
   let depot = ''

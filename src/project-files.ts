@@ -95,7 +95,6 @@ export function ensureProjectHasFolder(p: ProjectRow): void {
   if (up.ok) {
     p.folder_path = up.project.folder_path
     for (const key of ['knowledgeBase', 'moreMaterial', 'workItems'] as const) noteFolderMade(p, lifeName(key))
-    try { receiptFolderFor(p) } catch { /* made with the first receipt instead */ }
   }
 }
 
@@ -207,11 +206,14 @@ function onceFolderFor(p: ProjectRow, base: string, names: readonly string[], ma
   return r.sub
 }
 
-/** #890 (Boss TG 5744/5748): the project-level proof-of-submission folder (see workbench-receipt.ts, #879) is there from the
- *  start, EMPTY, in every project. Made ONCE: when the owner deletes or moves it, it is not made again (#681). */
+/** #890 (Boss TG 5754): the proof-of-submission folder belongs to the WORK ITEM, next to its Trigger document, Attachments and
+ *  Finished materials: what was sent where stays with the item it belongs to, not in one shared pile per project.
+ *  Made EMPTY with the other standard folders, ONCE (a deleted one stays deleted, #681). */
 export const RECEIPT_FOLDER_NAMES = { hu: 'Feladási bizonylatok', en: 'Proofs of submission' } as const
-export function receiptFolderFor(p: ProjectRow): string | null {
-  return onceFolderFor(p, '', [RECEIPT_FOLDER_NAMES.hu, RECEIPT_FOLDER_NAMES.en], ol(RECEIPT_FOLDER_NAMES.hu, RECEIPT_FOLDER_NAMES.en))
+export function receiptFolderFor(p: ProjectRow, itemFolder: string | null | undefined, lang?: string, remake?: boolean): string | null {
+  const base = String(itemFolder ?? '').trim()
+  if (!base) return null
+  return onceFolderFor(p, base, [RECEIPT_FOLDER_NAMES.hu, RECEIPT_FOLDER_NAMES.en], lang === 'en' ? RECEIPT_FOLDER_NAMES.en : ol(RECEIPT_FOLDER_NAMES.hu, RECEIPT_FOLDER_NAMES.en), remake)
 }
 
 /** Biztonsagos fajlnev: a Windows tiltott jelei nelkul, a kiterjesztes marad. */
@@ -565,7 +567,7 @@ export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | nu
   // inside "Debate") there would only be clutter.
   const last = String(itemFolder ?? '').split('/').pop() ?? ''
   if ([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, DEBATE_REPORT_SUB_NAMES.hu, DEBATE_REPORT_SUB_NAMES.en].some(n => n === last)) return
-  for (const f of [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor, triggerFolderFor]) {
+  for (const f of [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor, triggerFolderFor, receiptFolderFor]) {
     try { f(p, itemFolder) } catch { /* the folder is made on demand with its first file instead */ }
   }
 }
@@ -576,7 +578,7 @@ export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | nu
  *  document (that letter), the finished materials (the answer to it) and the attachments (only for it). Same rules as
  *  the other standard folders: made once, existing ones (either name) reused, a deleted one stays deleted. */
 export function ensureLetterFolders(p: ProjectRow, letterFolder: string | null | undefined): void {
-  for (const f of [triggerFolderFor, finishedFolderFor, attachmentsFolderFor]) {
+  for (const f of [triggerFolderFor, finishedFolderFor, attachmentsFolderFor, receiptFolderFor]) {
     try { f(p, letterFolder) } catch { /* made on demand with its first file instead */ }
   }
 }
@@ -597,5 +599,5 @@ export function noteOneStandardFolder(p: ProjectRow, base: string, name: string)
 
 export function itemStandardFolderNames(): string[] {
   return ['Verzi\u00f3k', 'Versions', 'Mell\u00e9kletek', 'Attachments', FINISHED_FOLDER_NAMES.hu, FINISHED_FOLDER_NAMES.en, ...FINISHED_FOLDER_OLD_NAMES,
-    'Feltöltések', 'Uploads', AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES, DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en]
+    'Feltöltések', 'Uploads', AGENT_REFS_FOLDER_NAMES.hu, ...AGENT_REFS_FOLDER_OLD_NAMES, DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en, RECEIPT_FOLDER_NAMES.hu, RECEIPT_FOLDER_NAMES.en]
 }

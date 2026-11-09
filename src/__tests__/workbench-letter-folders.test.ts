@@ -52,7 +52,7 @@ describe('letter folders inside a case folder', () => {
   it('the second letter gets exactly its own three folders; the case keeps the shared ones', () => {
     const { caseFolder } = caseWith('2. levél')
     ensureAllAttachmentsFolders()
-    expect(subs(`${caseFolder}/2. levél`)).toEqual(['Elkészített anyagok', 'Kiváltó irat', 'Mellékletek'])
+    expect(subs(`${caseFolder}/2. levél`)).toEqual(['Elkészített anyagok', 'Feladási bizonylatok', 'Kiváltó irat', 'Mellékletek'])
     expect(subs(caseFolder)).toEqual(expect.arrayContaining(['Feltöltések', 'Agent', 'Mellékletek', 'Kiváltó irat', 'Elkészített anyagok']))
   })
 
@@ -61,7 +61,7 @@ describe('letter folders inside a case folder', () => {
     ensureAllAttachmentsFolders()
     rmSync(join(projDir(), caseFolder, '2. levél', 'Mellékletek'), { recursive: true })
     ensureAllAttachmentsFolders()
-    expect(subs(`${caseFolder}/2. levél`)).toEqual(['Elkészített anyagok', 'Kiváltó irat'])
+    expect(subs(`${caseFolder}/2. levél`)).toEqual(['Elkészített anyagok', 'Feladási bizonylatok', 'Kiváltó irat'])
   })
 
   it('a sub-document provisioned earlier (with no folders) is topped up once; a deleted one stays deleted (Boss TG 4561)', () => {
@@ -69,16 +69,16 @@ describe('letter folders inside a case folder', () => {
     getDb().prepare('INSERT OR IGNORE INTO work_item_std_folders (work_item_id, done_at) VALUES (?, ?)').run(childId, Date.now())
     expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual([])
     ensureAllAttachmentsFolders()
-    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Kiváltó irat', 'Mellékletek'])
+    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Feladási bizonylatok', 'Kiváltó irat', 'Mellékletek'])
     rmSync(join(projDir(), caseFolder, 'Mellékletek', 'valami', 'Mellékletek'), { recursive: true })
     ensureAllAttachmentsFolders()
-    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Kiváltó irat'])
+    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Feladási bizonylatok', 'Kiváltó irat'])
   })
 
   it('an item inside a standard folder of the case is a sub-document: it gets its own three folders (Boss TG 4561)', () => {
     const { caseFolder } = caseWith('Mellékletek/valami')
     ensureAllAttachmentsFolders()
-    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Kiváltó irat', 'Mellékletek'])
+    expect(subs(`${caseFolder}/Mellékletek/valami`)).toEqual(['Elkészített anyagok', 'Feladási bizonylatok', 'Kiváltó irat', 'Mellékletek'])
     expect(getWorkItem).toBeTruthy()
   })
 })
