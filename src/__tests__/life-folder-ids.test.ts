@@ -131,6 +131,23 @@ describe('life folder ids (#510)', () => {
     expect(listLifeFolderIds()).toEqual([])
   })
 
+  it('#893: the anchored-folder check gives the loop back between folders (a 3.4 s stall with ~20 of them)', async () => {
+    for (const n of ['A1', 'A2', 'A3', 'A4']) {
+      mkdirSync(join(depot, 'Cegek', n), { recursive: true })
+      setBackupRule({ path: `Cegek/${n}`, action: 'none' })
+    }
+    let ticks = 0
+    const t = setInterval(() => { ticks++ }, 0)
+    const immediates: number[] = []
+    const probe = (): void => { immediates.push(ticks); if (immediates.length < 50) setImmediate(probe) }
+    setImmediate(probe)
+    const list = await anchoredFolders()
+    clearInterval(t)
+    expect(list.sort()).toEqual(['Cegek/A1', 'Cegek/A2', 'Cegek/A3', 'Cegek/A4'])
+    // the probe ran while the check was still going, i.e. the check did not hold the loop for its whole length
+    expect(immediates.length).toBeGreaterThan(1)
+  })
+
   it('nothing is written into a git repository or through a link', async () => {
     mkdirSync(join(depot, 'Repo', '.git'), { recursive: true })
     mkdirSync(join(depot, 'Fa'), { recursive: true })
