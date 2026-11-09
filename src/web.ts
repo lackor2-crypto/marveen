@@ -1192,7 +1192,7 @@ export function startWebServer(port = 3420): http.Server {
   }
 
   try {
-    sweepOrphanedBackgroundTasks()
+    void sweepOrphanedBackgroundTasks()
   } catch (err) {
     logger.warn({ err }, 'Background task sweep skipped')
   }
