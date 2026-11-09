@@ -35272,7 +35272,29 @@ function initTerminalModalDrag() {
   document.addEventListener('mouseup', () => { dragging = false })
 }
 
+// #891: the xterm terminal and the QR generator come from a CDN. They used to be render-blocking <script> tags in the
+// <head>, so a slow or unreachable CDN left the dashboard an empty window after every refresh. They load on first use.
+const CDN_ASSETS = {
+  terminal: { css: ['https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css'], js: ['https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.js', 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/lib/addon-fit.js'], ready: () => !!(window.Terminal && window.FitAddon) },
+  qr: { css: [], js: ['https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.js'], ready: () => typeof window.qrcode === 'function' },
+}
+const cdnLoading = {}
+function loadCdnAssets(kind) {
+  const spec = CDN_ASSETS[kind]
+  if (spec.ready()) return Promise.resolve()
+  if (cdnLoading[kind]) return cdnLoading[kind]
+  spec.css.forEach(href => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = href; document.head.appendChild(l) })
+  // In order: the fit addon needs xterm.js first.
+  cdnLoading[kind] = spec.js.reduce((p, src) => p.then(() => new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = src; s.onload = () => res(); s.onerror = () => rej(new Error('load failed: ' + src)); document.head.appendChild(s)
+  })), Promise.resolve()).catch(e => { delete cdnLoading[kind]; throw e })
+  return cdnLoading[kind]
+}
+
 function openTerminalModal(agentName) {
+  loadCdnAssets('terminal').then(() => openTerminalModalNow(agentName)).catch(() => showToast(t('terminal.cdn_failed')))
+}
+function openTerminalModalNow(agentName) {
   const overlay = document.getElementById('terminalOverlay')
   const container = document.getElementById('terminalContainer')
   const title = document.getElementById('terminalModalTitle')
@@ -36917,6 +36939,7 @@ async function openResearchDoc(agent, name) {
       qrBox.innerHTML = `<p class="muted">${t('mobile_login.no_token')}</p>`
       return
     }
+    try { await loadCdnAssets('qr') } catch (e) { /* the guard below shows the CDN message */ }
     if (typeof qrcode !== 'function') {
       qrBox.innerHTML = `<p class="muted">${t('mobile_login.cdn_error')}</p>`
       return

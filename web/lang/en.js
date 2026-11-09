@@ -3712,6 +3712,7 @@ window._i18n.en = {
   'migrate.type.schedule':			'Schedule',
   'mobile_login.cdn_error':			'QR generator failed to load (CDN). Network issue?',
   'mobile_login.generating':			'Generating QR...',
+  'terminal.cdn_failed':         'The terminal cannot load: the external terminal library (cdn.jsdelivr.net) is unreachable. Check the internet connection.',
   'mobile_login.lan_error':			'Could not fetch machine LAN IP. Open the dashboard on your local IP address.',
   'mobile_login.no_token':			'No stored token. Please log in first.',
   'mobile_login.qr_error':			'Failed to generate QR: {msg}',

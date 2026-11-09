@@ -2475,6 +2475,7 @@ window._i18n.hu = {
   'mobile_login.no_token':       'Nincs eltárolt token. Előbb lépj be itt.',
   'mobile_login.cdn_error':      'A QR-generátor nem töltött be (CDN). Hálózat?',
   'mobile_login.generating':     'QR készítése...',
+  'terminal.cdn_failed':         'A terminál nem tölthető be: a külső terminál-könyvtár (cdn.jsdelivr.net) nem érhető el. Ellenőrizd az internetet.',
   'mobile_login.lan_error':      'Nem sikerült lekérdezni a gép LAN-IP-jét. Nyisd meg a dashboardot a helyi IP-den.',
   'mobile_login.qr_error':       'Nem sikerült QR-t generálni: {msg}',
   'mobile_login.title':          'Mobil belépés',
