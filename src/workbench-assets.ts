@@ -1698,6 +1698,20 @@ export function migrateAllWorkItemFolders(): { projects: number; moved: number; 
   return { projects, moved, skipped }
 }
 
+/** Same pass as migrateAllWorkItemFolders, but the event loop gets a turn after every project (startup stall: 6 s measured). */
+export async function migrateAllWorkItemFoldersAsync(): Promise<{ projects: number; moved: number; skipped: number }> {
+  let projects = 0, moved = 0, skipped = 0
+  for (const p of listProjects({ includeArchived: true })) {
+    if (!p.folder_path) continue
+    const r = migrateWorkItemFolders(p)
+    if (r.container) projects++
+    moved += r.moved
+    skipped += r.skipped
+    await new Promise<void>((res) => setImmediate(res))
+  }
+  return { projects, moved, skipped }
+}
+
 /**
  * Makes sure the project has its "Munkadarabok" folder and moves the work item
  * folders that still sit elsewhere under it (registry paths follow). Items

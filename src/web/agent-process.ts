@@ -70,6 +70,22 @@ const claudeBin = makeLazyBinResolver('claude')
 // context-size convenience must never be able to take the fleet down. Cached
 // for the process lifetime -- the binary does not change under us.
 let _autocompactSupported: boolean | null = null
+// `claude --help` can take many seconds on a loaded machine, and the sync probe
+// blocked the whole event loop on the first agent start after a restart (the
+// stall sampler showed autocompactFlag -> execFileSync, stuck 2-16 s). The probe
+// is therefore warmed in the background at load time; the sync fallback below
+// only runs if an agent starts before the warm-up has answered.
+function warmAutocompactProbe(): void {
+  if (AUTOCOMPACT_TOKENS <= 0 || _autocompactSupported !== null) return
+  try {
+    execFile(claudeBin(), ['--help'], { encoding: 'utf-8', timeout: 20_000 }, (err, stdout) => {
+      if (_autocompactSupported !== null) return
+      _autocompactSupported = err ? false : String(stdout).includes('--autocompact')
+    })
+  } catch { /* the sync fallback in autocompactFlag() decides */ }
+}
+warmAutocompactProbe()
+
 function autocompactFlag(): string {
   if (AUTOCOMPACT_TOKENS <= 0) return ''
   if (_autocompactSupported === null) {
@@ -1101,6 +1117,16 @@ function listLocalSessions(): string {
 }
 
 /** The same `tmux list-sessions` as captureTmux(null, ...), but off the event loop (see SessionListCache.get). */
+// Async twin of captureTmux for pane reads on the prompt-injection path: the
+// event loop keeps serving requests while tmux answers.
+function captureTmuxAsyncArgs(host: string | null, tmuxArgs: string[], opts: { timeout?: number } = {}): Promise<string> {
+  if (host) ensureControlDir()
+  const inv = buildTmuxInvocation(host, tmuxBin(), tmuxArgs)
+  return new Promise((resolve, reject) => {
+    execFile(inv.file, inv.args, { timeout: opts.timeout ?? (host ? 8000 : 3000), encoding: 'utf-8' }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))))
+  })
+}
+
 function captureTmuxAsync(): Promise<string> {
   const inv = buildTmuxInvocation(null, tmuxBin(), ['list-sessions', '-F', '#{session_name}'])
   return new Promise((resolve, reject) => {
@@ -1892,7 +1918,7 @@ const RESUME_SUMMARY_MODAL_RX = /Resume from summary/
 
 export async function dismissResumeSummaryModalIfPresent(session: string, host: string | null = null): Promise<void> {
   try {
-    const pane = captureTmux(host, ['capture-pane', '-t', session, '-p'])
+    const pane = await captureTmuxAsyncArgs(host, ['capture-pane', '-t', session, '-p'])
     if (!RESUME_SUMMARY_MODAL_RX.test(pane)) return
     runTmux(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
     await delay(100)
