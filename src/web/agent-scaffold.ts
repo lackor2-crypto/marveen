@@ -3385,6 +3385,83 @@ export function ensureGlobalNoHiddenLimitsRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+const SANDBOX_BEGIN = '<!-- BEGIN GENERATED: test-sandbox-rule (auto-generated, do not edit by hand) -->'
+const SANDBOX_END = '<!-- END GENERATED: test-sandbox-rule -->'
+const SANDBOX_BLOCK_RE = new RegExp(
+  `${SANDBOX_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${SANDBOX_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildTestSandboxBody(): string {
+  return [
+    '## TESZTELES A PROBA-PROJEKTBEN -- ITT NEM LEHET ELRONTANI SEMMIT',
+    '',
+    'Ha valamit ki kell probalni (dokumentum letrehozasa, torlese, linkelese, mappa, melleklet,',
+    'fajl-muvelet, import, forditas, level), a probat a PROBA-PROJEKTBEN csinald: a `sandbox` slugu',
+    'projektben (GET /api/projects; ahol ez nincs, a "PROBA"/"proba" nevu projekt). NEM valodi',
+    'ugyfel- vagy hivatali projektben. Ott barmit letrehozhatsz, torolhetsz, linkelhetsz; egy-ket',
+    'proba-dokumentum bent is maradhat. A rendszer minden projektben ugyanugy mukodik, ezert a proba',
+    'itt hiteles. KIVETEL: a bongeszos kattintas (Playwright) es a dashboard kezelese oda kattint,',
+    'ahova kell. Ha a proba-projekt nincs meg, nyiss egyet `sandbox` slugkent, ne valodi projektben probalj.',
+    'Reszletek: `test-in-sandbox-project` skill.',
+  ].join('\n')
+}
+
+/** Bevisz egy agens sajat CLAUDE.md-jebe: probalni a PROBA-projektben kell. */
+export function ensureTestSandboxSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${SANDBOX_BEGIN}\n${buildTestSandboxBody()}\n${SANDBOX_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = SANDBOX_BLOCK_RE.test(existing)
+    ? existing.replace(SANDBOX_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalTestSandboxRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${SANDBOX_BEGIN}\n${buildTestSandboxBody()}\n${SANDBOX_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = SANDBOX_BLOCK_RE.test(existing)
+    ? existing.replace(SANDBOX_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 const ROOTFIX_BEGIN = '<!-- BEGIN GENERATED: root-cause-fix-rule (auto-generated, do not edit by hand) -->'
 const ROOTFIX_END = '<!-- END GENERATED: root-cause-fix-rule -->'
 const ROOTFIX_BLOCK_RE = new RegExp(

@@ -20,6 +20,8 @@ import { createProject, ensureProjectTables } from './projects.js'
 
 export const SYSTEM_DEV_SLUG = 'system-dev'
 export const OFFICE_DEV_SLUG = 'office-dev'
+/** #895: the sandbox project agents test in (create/delete/link documents, nothing real to break). */
+export const SANDBOX_SLUG = 'sandbox'
 
 const TEXT = {
   hu: {
@@ -31,6 +33,10 @@ const TEXT = {
       name: 'Iroda fejlesztése',
       description: 'Minden, ami az Iroda alatti menüpontokat (Intéző, Projektek, Raktár, Drive, Fotók, ...) fejleszti vagy javítja.',
     }),
+    sandbox: () => ({
+      name: 'PRÓBA projekt',
+      description: 'Tesztterep: itt próbálnak az ágensek (dokumentum létrehozás, törlés, linkelés). Itt nem lehet elrontani semmit, pár próba-dokumentum bent maradhat.',
+    }),
   },
   en: {
     system: (brand: string) => ({
@@ -41,13 +47,17 @@ const TEXT = {
       name: 'Office development',
       description: 'Everything that builds or fixes the menus under Office (Explorer, Projects, Depot, Drive, Photos, ...).',
     }),
+    sandbox: () => ({
+      name: 'TEST project',
+      description: 'Test ground: agents try things here (create, delete, link documents). Nothing here can be broken for real; a few test documents may stay.',
+    }),
   },
 } as const
 
 export interface SeedResult { seeded: string[]; reason: 'seeded' | 'already_seeded' | 'has_projects' }
 
 /**
- * A ket alap-projekt letrehozasa egy friss telepitesen. `markerDir` a store
+ * A harom alap-projekt (rendszer, iroda, proba) letrehozasa egy friss telepitesen. `markerDir` a store
  * mappa (tesztben ideiglenes). Soha nem dob: a hivo csak naploz.
  */
 export function seedDefaultProjects(opts: { markerDir: string; brand: string; lang: string }): SeedResult {
@@ -62,7 +72,7 @@ export function seedDefaultProjects(opts: { markerDir: string; brand: string; la
   const t = opts.lang === 'en' ? TEXT.en : TEXT.hu
   const brand = opts.brand.trim() || 'Marveen'
   const seeded: string[] = []
-  for (const [slug, text] of [[SYSTEM_DEV_SLUG, t.system(brand)], [OFFICE_DEV_SLUG, t.office()]] as const) {
+  for (const [slug, text] of [[SYSTEM_DEV_SLUG, t.system(brand)], [OFFICE_DEV_SLUG, t.office()], [SANDBOX_SLUG, t.sandbox()]] as const) {
     const r = createProject({ ...text, slug })
     if (r.ok) seeded.push(r.project.id)
   }
