@@ -68,4 +68,11 @@ describe('e-mail proof of submission', () => {
     expect(readFileSync(join(root, 'src', 'web', 'routes', 'email.ts'), 'utf8')).toContain('subject: String(e.subject')
     expect(readFileSync(join(root, 'src', 'workbench-sent-detect.ts'), 'utf8')).toContain('mail: { from: hit.info.from')
   })
+
+  it('wiring: the owner\'s hand mark (sent-mark route, e-mail) writes the proof too, in markSentManually', () => {
+    const docsent = readFileSync(join(__dirname, '..', '..', 'src', 'workbench-docsent.ts'), 'utf8')
+    const fn = docsent.slice(docsent.indexOf('export function markSentManually'), docsent.indexOf('export function sentMarkOf') > 0 ? docsent.indexOf('/** How a hand-marked item') : undefined)
+    expect(fn).toContain("c.method === 'email'")
+    expect(fn).toContain('writeEmailProof(item')
+  })
 })

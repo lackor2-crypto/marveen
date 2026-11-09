@@ -300,6 +300,14 @@ export function markSentManually(itemId: string, by: string | null, details?: Se
   getDb().prepare('INSERT OR REPLACE INTO wb_item_sent_mark (work_item_id, marked_at, marked_by, method, sent_date, recipient, reference, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(itemId, Math.floor(Date.now() / 1000), by, c.method || null, c.date || null, c.recipient || null, c.reference || null, c.note || null)
   emitSent({ itemId, date: c.date || todayLocal(), recipient: c.recipient, how: 'manual', by, method: c.method || undefined, reference: c.reference || undefined, note: c.note || undefined })
+  // #890: the owner's "sent by e-mail" click leaves the same text proof as a recorded sending (one common place for
+  // every caller of the hand mark).
+  if (c.method === 'email') {
+    try {
+      const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(itemId) as WorkItemRow | undefined
+      if (item) writeEmailProof(item, { date: c.date || todayLocal(), to: c.recipient, byHand: true })
+    } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e), item: itemId }, 'e-mail proof for the hand mark failed') }
+  }
 }
 
 /** How a hand-marked item went out ('' when the owner gave no details). */
