@@ -22,3 +22,9 @@ describe('e-mail full archive search', () => {
     expect(app).toContain('if (Array.isArray(list)) emailScopedMailboxCache[cacheKey] = result')
   })
 })
+
+describe('reader header for a search hit deep in the opened folder', () => {
+  it('falls back to the sibling / hint envelope when the open list lacks the mail', () => {
+    expect(app).toContain('emailEnvelopes.find(e => String(e.id) === id) : null) || emailSiblingEnvelopes[id] || envelopeHint')
+  })
+})
