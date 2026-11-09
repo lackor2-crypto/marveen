@@ -57,4 +57,12 @@ describe('receiptFolderFor (per work item)', () => {
     expect(readFileSync(join(root, 'src', 'web', 'routes', 'projects.ts'), 'utf8')).not.toContain('receiptFolderFor')
     expect(readFileSync(join(root, 'src', 'workbench-receipt.ts'), 'utf8')).toContain('workItemFolder(item.id)')
   })
+
+  it('both language files still compile (an unescaped quote in the proof-folder hints broke en.js once)', async () => {
+    const { Script } = await import('node:vm')
+    const root = join(__dirname, '..', '..')
+    for (const f of ['en.js', 'hu.js']) {
+      expect(() => new Script(readFileSync(join(root, 'web', 'lang', f), 'utf8'), { filename: f })).not.toThrow()
+    }
+  })
 })
