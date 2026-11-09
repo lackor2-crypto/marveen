@@ -153,7 +153,7 @@ import { tryHandleWorkbench } from './web/routes/workbench.js'
 import { tryHandleBackup } from './web/routes/backup.js'
 import { tryHandleBackupRestore } from './web/routes/backup-restore.js'
 import { tryHandleWorkbenchAgent, resumeInterruptedWorkbenchTurns } from './web/routes/workbench-agent.js'
-import { migrateAllWorkItemFolders, ensureAllAttachmentsFoldersAsync } from './workbench-assets.js'
+import { migrateAllWorkItemFoldersAsync, ensureAllAttachmentsFoldersAsync } from './workbench-assets.js'
 import { tryHandleEmail, warmEmailCaches } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
 import { tryHandleSpans } from './web/routes/spans.js'
@@ -821,10 +821,9 @@ export function startWebServer(port = 3420): http.Server {
   // #441 (Boss, 2026-09-29: 1A, 2A): every project gets its "Munkadarabok"
   // folder and the work item folders lying loose in the project root move under
   // it. Idempotent: a finished project costs one directory check.
-  try {
-    const wi = migrateAllWorkItemFolders()
-    if (wi.moved || wi.skipped) logger.info(wi, '[workbench] work item folders moved under Munkadarabok')
-  } catch (err) { logger.warn({ err }, '[workbench] work item folder migration failed') }
+  migrateAllWorkItemFoldersAsync()
+    .then((wi) => { if (wi.moved || wi.skipped) logger.info(wi, '[workbench] work item folders moved under Munkadarabok') })
+    .catch((err) => logger.warn({ err }, '[workbench] work item folder migration failed'))
 
   // #618 (Boss TG 3515): every work item folder always has its "Mellekletek" / "Attachments" subfolder.
   ensureAllAttachmentsFoldersAsync().catch((err) => logger.warn({ err }, '[workbench] attachments folders backfill failed'))
