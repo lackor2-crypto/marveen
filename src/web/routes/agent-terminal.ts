@@ -1,4 +1,7 @@
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsyncT = promisify(execFile)
 import { existsSync } from 'node:fs'
 import { makeLazyBinResolver } from '../../platform.js'
 import { logger } from '../../logger.js'
@@ -28,20 +31,20 @@ function sleep(ms: number): Promise<void> {
 // A panel egyszeri kiolvasasa. A /login folyamat ezzel nezi meg, kiirta-e mar
 // a CLI a bejelentkezesi URL-t: az ugynok FEJ NELKULI session-ben fut, ott
 // bongeszo sosem nyilik meg, tehat az URL a panelen jelenik meg vagy sehol.
-function capturePaneFor(session: string): string | null {
+async function capturePaneFor(session: string): Promise<string | null> {
   try {
-    return execFileSync(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-p'], {
+    return (await execFileAsyncT(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-p'], {
       timeout: 5000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024,
-    })
+    })).stdout
   } catch {
     // "Nem latok oda" -- NEM azonos azzal, hogy nincs URL.
     return null
   }
 }
 
-function isTmuxSessionAlive(session: string): boolean {
+async function isTmuxSessionAlive(session: string): Promise<boolean> {
   try {
-    execFileSync(TMUX(), ['has-session', '-t', exactTmuxTarget(session)], { timeout: 3000, stdio: 'ignore' })
+    await execFileAsyncT(TMUX(), ['has-session', '-t', exactTmuxTarget(session)], { timeout: 3000 })
     return true
   } catch {
     return false
@@ -53,9 +56,9 @@ function isTmuxSessionAlive(session: string): boolean {
 // `agent-<name>` -- so the sub-agent assumptions (existsSync(agentDir) +
 // agentSessionName) 404 it (Zara hit this, 871005b). Branch on the main agent.
 interface SessionTarget { exists: boolean; running: boolean; session: string }
-function resolveTarget(name: string): SessionTarget {
+async function resolveTarget(name: string): Promise<SessionTarget> {
   if (isMainChannelsAgent(name)) {
-    return { exists: true, running: isTmuxSessionAlive(MAIN_CHANNELS_SESSION), session: MAIN_CHANNELS_SESSION }
+    return { exists: true, running: await isTmuxSessionAlive(MAIN_CHANNELS_SESSION), session: MAIN_CHANNELS_SESSION }
   }
   return { exists: existsSync(agentDir(name)), running: isAgentRunning(name), session: agentSessionName(name) }
 }
@@ -146,7 +149,7 @@ export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean
   const streamMatch = path.match(/^\/api\/agents\/([^/]+)\/pane\/stream$/)
   if (streamMatch && method === 'GET') {
     const name = decodeURIComponent(streamMatch[1])
-    const target = resolveTarget(name)
+    const target = await resolveTarget(name)
     if (!target.exists) { json(res, { error: 'Agent not found' }, 404); return true }
     const session = target.session
 
@@ -170,13 +173,13 @@ export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean
       // the visible pane) so the frontend can offer scroll-back; the frontend
       // repaints the full snapshot (clear-scrollback + clear + home) each changed
       // frame and only when the user is at the bottom, so scrolling up is stable.
-      execFile(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-S', '-2000', '-e', '-p'], { timeout: 3000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      execFile(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-S', '-2000', '-e', '-p'], { timeout: 3000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024 }, async (err, stdout) => {
         inFlight = false
         if (closed) return
         const pane = err ? '' : (stdout ?? '')
         // A successful capture proves the session is alive; only re-probe on
         // capture failure (cheap, and avoids a has-session call every tick).
-        const running = err ? isTmuxSessionAlive(session) : true
+        const running = err ? await isTmuxSessionAlive(session) : true
         try {
           res.write(`data: ${JSON.stringify({ pane, running })}\n\n`)
         } catch {
@@ -220,7 +223,7 @@ export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean
       json(res, { error: 'Terminal input is disabled. Enable it in the dashboard first.' }, 403)
       return true
     }
-    const target = resolveTarget(name)
+    const target = await resolveTarget(name)
     if (!target.exists) { json(res, { error: 'Agent not found' }, 404); return true }
     if (!target.running) { json(res, { error: 'Agent is not running' }, 400); return true }
     const session = target.session
@@ -259,7 +262,7 @@ export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean
   const loginMatch = path.match(/^\/api\/agents\/([^/]+)\/login$/)
   if (loginMatch && method === 'POST') {
     const name = decodeURIComponent(loginMatch[1])
-    const target = resolveTarget(name)
+    const target = await resolveTarget(name)
     if (!target.exists) { json(res, { error: 'Agent not found' }, 404); return true }
     if (!target.running) { json(res, { error: 'Agent is not running' }, 400); return true }
     const session = target.session
@@ -298,7 +301,7 @@ export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean
         let extracted: ExtractedAuthUrl | null = null
         for (let i = 0; i < 12; i++) {
           await sleep(1000)
-          const pane = capturePaneFor(session)
+          const pane = await capturePaneFor(session)
           if (!pane) continue
           extracted = extractAuthUrl(pane)
           if (extracted) break
