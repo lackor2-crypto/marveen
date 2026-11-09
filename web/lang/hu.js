@@ -5750,6 +5750,7 @@ window._i18n.hu = {
   "projects.next.empty": "Nincs nyitott kártya vagy munkadarab ebben a projektben. Újat a jobb felső „+ Új” gombbal hozhatsz létre -- az magától ide kerül. Egy meglévő kártyát úgy teszel ide, hogy a Kanbanban megnyitod, a „Szerkesztés”-ben a „Projekt” listából kiválasztod ezt a projektet.",
   "projects.next.due": "határidő: {date}",
   "projects.next.overdue": "lejárt: {date}",
+  "projects.next.answered": "Megválaszolva ({n}) — elküldve, nem nyitott",
   "projects.next.more": "+ még {n} — megnyitás a Kanbanban",
   "projects.activity.title": "Legutóbbi aktivitás",
   "projects.activity.hint": "Kártya-mozgások, kommentek, jóváhagyások, kódfeladatok és a mappa fájljai — időrendben.",

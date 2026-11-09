@@ -135,6 +135,12 @@ export interface ProjectOverview {
   nextStepsTotal: number
   /** The project's open work items (draft / in progress / review), newest first. */
   workItems: OverviewWorkItem[]
+  /** Open-status work items that were already SENT ("Megvalaszolva"): closed in
+   *  practice, so they are not open items and not next steps (Boss, TG 5878). */
+  answeredWorkItems: OverviewWorkItem[]
+  /** Unsent work items being worked on right now: in progress, or due today /
+   *  overdue, or touched in the last CURRENT_WORK_HOURS hours (Boss, TG 5878). */
+  currentWorkItems: OverviewWorkItem[]
   /** Work items finished in the last RECENT_DONE_DAYS days, newest first. */
   doneWorkItems: OverviewWorkItem[]
   activity: ActivityItem[]
@@ -183,6 +189,16 @@ export function sortNextSteps(cards: OverviewCard[]): OverviewCard[] {
 }
 
 const OPEN_WORK_STATUSES = ['draft', 'in_progress', 'review']
+const CURRENT_WORK_HOURS = 24
+
+/** An unsent work item counts as current work when it is in progress, its
+ *  deadline is today or past, or it was touched recently. */
+export function isCurrentWorkItem(w: OverviewWorkItem, now: number): boolean {
+  if (w.sent) return false
+  if (w.status === 'in_progress') return true
+  if (w.due && w.due.days <= 0) return true
+  return w.updatedAt > 0 && w.updatedAt >= now - CURRENT_WORK_HOURS * 3600_000
+}
 
 /** Every live work item of the project, newest first -- the finished ones too:
  *  a project whose work is all done still has work to show. A fresh install has
@@ -463,7 +479,11 @@ export async function buildProjectOverview(projectId: string, opts: { now?: numb
   for (const t of cardless) currentWork.push({ card: null, claims: [], codeTasks: [t] })
 
   const allWorkItems = loadWorkItems(project.id)
-  const workItems = allWorkItems.filter((w) => OPEN_WORK_STATUSES.includes(w.status))
+  const openStatusItems = allWorkItems.filter((w) => OPEN_WORK_STATUSES.includes(w.status))
+  // A sent item is answered, i.e. closed in practice: it is not an open item.
+  const workItems = openStatusItems.filter((w) => !w.sent)
+  const answeredWorkItems = openStatusItems.filter((w) => w.sent)
+  const currentWorkItems = workItems.filter((w) => isCurrentWorkItem(w, now))
   // The same cut the Kanban tab's Done column makes (`listBoardWorkItems`).
   const doneCut = now - RECENT_DONE_DAYS * 86400_000
   const doneWorkItems = allWorkItems.filter((w) => w.status === 'done' && w.updatedAt >= doneCut)
@@ -489,6 +509,8 @@ export async function buildProjectOverview(projectId: string, opts: { now?: numb
     nextSteps: next.slice(0, 10),
     nextStepsTotal: next.length,
     workItems,
+    answeredWorkItems,
+    currentWorkItems,
     doneWorkItems,
     activity,
     folder: { state: folderScan.state, path: project.folder_path, recentFiles: folderScan.files.length },
@@ -496,14 +518,14 @@ export async function buildProjectOverview(projectId: string, opts: { now?: numb
       // Cards AND work items: the Kanban tab shows both, so the numbers must too.
       openCards: open.length + workItems.length,
       inProgress: cards.filter((c) => c.status === 'in_progress' || c.status === 'testing').length
-        + workItems.filter((w) => w.status === 'in_progress').length,
+        + currentWorkItems.length,
       waiting: cards.filter((c) => c.status === 'waiting').length
         + workItems.filter((w) => w.status === 'review').length,
       overdue: open.filter((c) => c.dueAt != null && c.dueAt < now).length,
       pendingApprovals: approvals.length,
       done: cards.filter((c) => c.status === 'done').length + doneWorkItems.length,
       activeWork: currentWork.filter((w) => w.claims.length || w.codeTasks.length).length
-        + workItems.filter((w) => w.status === 'in_progress').length,
+        + currentWorkItems.length,
       staleOpenCards: open.filter((c) => c.updatedAt > 0 && c.updatedAt < staleCut).length
         + workItems.filter((w) => w.updatedAt > 0 && w.updatedAt < staleCut).length,
     },

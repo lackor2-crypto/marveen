@@ -5676,6 +5676,7 @@ window._i18n.en = {
   "projects.next.empty": "There are no open cards or work items in this project. Make a new one with the \"+ New\" button at the top right -- it lands here by itself. To move an existing card here, open it in the Kanban, click \"Edit\" and choose this project from the \"Project\" list.",
   "projects.next.due": "due: {date}",
   "projects.next.overdue": "overdue: {date}",
+  "projects.next.answered": "Answered ({n}) — sent, not open",
   "projects.next.more": "+ {n} more — open in Kanban",
   "projects.activity.title": "Recent activity",
   "projects.activity.hint": "Card moves, comments, approvals, code tasks and the folder's files — newest first.",
