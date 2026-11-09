@@ -49669,7 +49669,7 @@ function _prjWorkLink(ov, w) {
 
 function _prjCurrentHtml(ov) {
   const list = ov.currentWork || []
-  const running = (ov.workItems || []).filter((w) => w.status === 'in_progress')
+  const running = ov.currentWorkItems || []
   if (!list.length && !running.length) return _prjEmptyLine('projects.current.empty')
   const runningHtml = running.map((w) => _prjWorkRowHtml(ov, w)).join('')
   if (!list.length) return runningHtml
@@ -49718,11 +49718,16 @@ function _prjApprovalsHtml(ov) {
 function _prjNextHtml(ov) {
   const list = ov.nextSteps || []
   const works = ov.workItems || []
-  if (!list.length && !works.length) return _prjEmptyLine('projects.next.empty')
+  const answered = ov.answeredWorkItems || []
+  if (!list.length && !works.length && !answered.length) return _prjEmptyLine('projects.next.empty')
   const more = (ov.nextStepsTotal || 0) - list.length
   const worksHtml = works.map((w) => _prjWorkRowHtml(ov, w)).join('')
-  if (!list.length) return worksHtml
-  return `${worksHtml}<ul class="prj-list">${list.map((c) => {
+  // Sent (answered) work items are closed in practice: one collapsed line, not next steps.
+  const answeredHtml = answered.length
+    ? `<details class="prj-answered"><summary>${escapeHtml(t('projects.next.answered', { n: answered.length }))}</summary>${answered.map((w) => _prjWorkRowHtml(ov, w)).join('')}</details>`
+    : ''
+  if (!list.length) return worksHtml + answeredHtml
+  return `${worksHtml}${answeredHtml}<ul class="prj-list">${list.map((c) => {
     const bits = [escapeHtml(_prjT('kanban.priority.' + c.priority, null, c.priority))]
     if (c.dueAt) bits.push(escapeHtml(t(c.dueAt < Date.now() ? 'projects.next.overdue' : 'projects.next.due', { date: _prjDate(c.dueAt) })))
     if (c.assignee) bits.push(escapeHtml(c.assignee))

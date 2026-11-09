@@ -148,11 +148,26 @@ describe('attekintes', () => {
     const ov = (await buildProjectOverview(p.id))!
     // a kartya (1) + draft + in_progress + review; a kesz es az idegen nem szamit
     expect(ov.facts.openCards).toBe(4)
-    expect(ov.facts.inProgress).toBe(1)
+    expect(ov.facts.inProgress).toBe(3)
     expect(ov.facts.waiting).toBe(1)
-    expect(ov.facts.activeWork).toBe(1)
+    // fresh (just touched) unsent items are current work: draft + running + review
+    expect(ov.facts.activeWork).toBe(3)
+    expect(ov.currentWorkItems.map((w) => w.title).sort()).toEqual(['Atnezesre var', 'Fut', 'Tervezet'])
+    expect(ov.answeredWorkItems).toEqual([])
     expect(ov.workItems.map((w) => w.title).sort()).toEqual(['Atnezesre var', 'Fut', 'Tervezet'])
     expect(ov.workItems.find((w) => w.id === running.id)?.status).toBe('in_progress')
+  })
+
+  it('elkuldott munkadarab nem nyitott; az Aktualis munkaba a mai hatarideju / friss vazlat kerul', async () => {
+    const { isCurrentWorkItem } = await import('../project-overview.js')
+    const now = Date.now()
+    const base = { id: 'x', seq: 1, title: 't', status: 'draft', updatedAt: now - 5 * 86400_000, sent: false, due: null }
+    expect(isCurrentWorkItem(base, now)).toBe(false)
+    expect(isCurrentWorkItem({ ...base, status: 'in_progress' }, now)).toBe(true)
+    expect(isCurrentWorkItem({ ...base, due: { date: 'd', days: 0, level: 'today' } }, now)).toBe(true)
+    expect(isCurrentWorkItem({ ...base, due: { date: 'd', days: -2, level: 'overdue' } }, now)).toBe(true)
+    expect(isCurrentWorkItem({ ...base, updatedAt: now - 3600_000 }, now)).toBe(true)
+    expect(isCurrentWorkItem({ ...base, sent: true, status: 'in_progress', updatedAt: now }, now)).toBe(false)
   })
 
   it('munkadarab nelkuli (friss) projekten a munkadarab-lista ures, nem hiba', async () => {
