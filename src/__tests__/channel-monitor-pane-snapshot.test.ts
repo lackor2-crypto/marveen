@@ -25,3 +25,13 @@ describe('periodic watchers read panes async', () => {
     })
   }
 })
+
+describe('health monitor and reauth healer read panes async', () => {
+  for (const f of ['channel-health-monitor.ts', 'reauth-healer.ts']) {
+    it(`${f}: no sync capturePane() in the periodic tick`, () => {
+      const s = readFileSync(join(__dirname, '..', 'web', f), 'utf-8')
+      expect(s).not.toMatch(/[^a-zA-Z.]capturePane\(session\)/)
+      expect(s).toContain('await capturePaneAsync(session)')
+    })
+  }
+})
