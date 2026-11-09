@@ -11972,8 +11972,11 @@
       if (WB.selectedId !== id || !WB.detail) return
       api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/assets').then(function (r) {
         if (!r.ok || WB.selectedId !== id || !WB.detail) return
+        // A full redraw every 3 s while a file is being read made the page flicker and jump under the reader's
+        // hands (owner report 2026-11-09): redraw only when the list really changed.
+        var before = JSON.stringify(WB.detail.assets || [])
         WB.detail.assets = r.data.assets || []
-        render()
+        if (JSON.stringify(WB.detail.assets) !== before) render()
         // Az irat elolvasva: a hataridok es idopontok is frissulnek (K-1.17).
         if (!WB.detail.assets.some(docBusy)) refreshDeadlines(id)
         scheduleDocPoll(id, round + 1)

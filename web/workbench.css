@@ -2488,3 +2488,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-send-body { border: 1px solid var(--border, #d0d0d0); border-top: none; padding: 10px 12px; }
 .wb-send-steps { margin: 4px 0 8px 18px; }
 .wb-send-receipt { border-top: 1px dashed var(--border, #d0d0d0); margin-top: 10px; padding-top: 8px; }
+
+/* Scroll anchoring off in the Workbench (owner report 2026-11-09: the document "jumps up and down" while reading).
+   The whole root is redrawn (innerHTML) on every poll/stream tick; the scroll position is put back, but the page
+   then grows above the viewport (pagination, panels) and Chrome's scroll anchoring moves scrollTop again by the
+   growth, so each redraw drifted the view further down. With the anchor off the restored position stays. */
+#projectsRoot, #projectsRoot * { overflow-anchor: none; }
+html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overflow-anchor: none; }
