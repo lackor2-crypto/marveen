@@ -4516,6 +4516,29 @@ function openModal(overlay) {
   overlay.classList.add('active')
   document.body.style.overflow = 'hidden'
 }
+// #896: the page scroll lock (body overflow hidden) is set by openModal / the self-check overlays / the onboarding,
+// but not every close path (direct class removal, a re-render dropping the overlay, a page switch) lets it go. One
+// stuck lock made a project overview impossible to scroll until a reload. This guard RELEASES the lock whenever no
+// modal is really showing, whoever forgot to; it never sets it.
+function modalOverlayShowing() {
+  const list = document.querySelectorAll('.modal-overlay.active')
+  for (const ov of list) {
+    if (ov.closest('[hidden]')) continue
+    const cs = getComputedStyle(ov)
+    if (cs.display === 'none' || cs.visibility === 'hidden') continue
+    return true
+  }
+  return false
+}
+function releaseBodyScrollLockIfIdle() {
+  if (document.body.style.overflow !== 'hidden') return
+  if (modalOverlayShowing()) return
+  document.body.style.overflow = ''
+}
+try {
+  new MutationObserver(releaseBodyScrollLockIfIdle).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'hidden', 'style'] })
+  window.addEventListener('hashchange', releaseBodyScrollLockIfIdle)
+} catch { /* very old browser: the explicit closers still work */ }
 function closeModal(overlay) {
   overlay.classList.remove('active')
   document.body.style.overflow = ''
