@@ -32,9 +32,9 @@ let lastSevereAlertAt = 0
 export type Stall = { at: number; lagMs: number; inflight: string[] }
 
 /** How often the watcher thread looks at the main thread's heartbeat. */
-export const SAMPLER_POLL_MS = 500
-/** The main thread must be silent this long before its stack is sampled (1.2 s: the 2.2-2.8 s stalls of 2026-11-06 left no stack at 3 s). */
-export const SAMPLE_AFTER_MS = 1200
+export const SAMPLER_POLL_MS = 250
+/** The main thread must be silent this long before its stack is sampled (0.5 s, #893: after the realpath fix the remaining 1.1-1.2 s stalls of 2026-11-09 left no stack at the old 1.2 s; the 2.2-2.8 s stalls of 2026-11-06 had left none at 3 s). */
+export const SAMPLE_AFTER_MS = 500
 /** No answer from the main thread this long after asking: write what the operating system shows meanwhile. */
 export const BLIND_AFTER_MS = 10_000
 /** A stall that goes on is sampled again this often, at most SAMPLE_MAX times. */
