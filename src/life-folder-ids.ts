@@ -85,13 +85,15 @@ export function listLifeFolderIds(): Rec[] {
  * there would be an untracked file in somebody's working tree).
  */
 export async function anchoredFolders(): Promise<string[]> {
-  const out = new Set<string>()
+  // #893: writeBlockReason walks up looking for a .git (several 9p calls per folder, a 3.4 s stall measured in
+  // /api/perf/stalls with ~20 anchored folders). The candidates are gathered first, then checked one at a time with the
+  // loop given back in between.
+  const candidates = new Set<string>()
   const add = (rel: unknown): void => {
     const r = norm(String(rel ?? ''))
     if (!r) return
     if (resolveMount(r)) return
-    try { if (writeBlockReason(r)) return } catch { return }
-    out.add(r)
+    candidates.add(r)
   }
   for (const r of loadBackupRules().rules) add(r.path)
   for (const m of listMounts()) add(m.target)
@@ -103,7 +105,13 @@ export async function anchoredFolders(): Promise<string[]> {
     const { loadSyncConfig } = await import('./web/routes/drive-sync.js')
     for (const p of loadSyncConfig().pairs) if (p.backup) add(p.localPath)
   } catch { /* the sync module could not be loaded: skip its pairs this round */ }
-  return [...out]
+  const out: string[] = []
+  for (const r of candidates) {
+    try { if (writeBlockReason(r)) continue } catch { continue }
+    out.push(r)
+    await new Promise<void>((res) => setImmediate(res))
+  }
+  return out
 }
 
 async function isDir(abs: string): Promise<boolean> {
