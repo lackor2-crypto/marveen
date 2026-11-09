@@ -31,6 +31,9 @@ import { createProject, updateProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { attachAsset } from '../workbench-assets.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
+import { setBackupRule } from '../backup-rules.js'
+import { reconcileLifeFolderIds, anchoredFolders } from '../life-folder-ids.js'
+import { listWorkFoldersYielding } from '../workbench-assets.js'
 
 /** Longest time the event loop was NOT given back while `run` was going on. */
 async function longestHold<T>(run: () => Promise<T>): Promise<{ ms: number; value: T }> {
@@ -70,6 +73,8 @@ describe('#894: no request holds the loop on a slow (9p-like) depot', () => {
     itemId = w.item.id
     // an item with many materials (the real one holds 163)
     for (let i = 0; i < 160; i++) { const r = attachAsset(w.item, `anyag-${i}.md`, Buffer.from(String(i))); if (!r.ok) throw new Error('anyag') }
+    // ~25 folders some registry knows by path (the real depot has about that many)
+    for (let i = 0; i < 25; i++) { mkdirSync(join(depot, 'Cegek', `K${i}`), { recursive: true }); setBackupRule({ path: `Cegek/K${i}`, action: 'none' }) }
     ;(globalThis as any).__guardProject = p.project.id
   })
   afterAll(() => { slow.on = false; rmSync(depot, { recursive: true, force: true }); delete process.env['MARVEEN_DEPOT'] })
@@ -87,6 +92,22 @@ describe('#894: no request holds the loop on a slow (9p-like) depot', () => {
       slow.on = false
       expect(r.value.status).toBe(200)
       expect(slow.calls).toBeGreaterThan(50) // the simulation really was in the path
+      expect(r.ms).toBeLessThan(LIMIT_MS)
+    }, 60_000)
+  }
+
+  // Timer passes (no request in flight): the warnings that said "nem futott kérés".
+  const timers: Array<[string, () => Promise<unknown>]> = [
+    ['the life folder id pass (anchoredFolders > git check)', () => reconcileLifeFolderIds()],
+    ['the anchored folder check', () => anchoredFolders()],
+    ['the work folder list of a project', async () => { const { getProject } = await import('../projects.js'); const pr = getProject((globalThis as any).__guardProject); return pr ? listWorkFoldersYielding(pr) : null }],
+  ]
+  for (const [name, run] of timers) {
+    it(`${name} gives the loop back within ${LIMIT_MS} ms`, async () => {
+      slow.on = true
+      slow.calls = 0
+      const r = await longestHold(run)
+      slow.on = false
       expect(r.ms).toBeLessThan(LIMIT_MS)
     }, 60_000)
   }

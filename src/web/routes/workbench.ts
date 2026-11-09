@@ -187,7 +187,7 @@ import { translateEmailContent, resolveTargetLang, SUPPORTED_TRANSLATION_LANGS, 
 import {
   makeFreshFolder, itemSubfolderOf, linkLifeFileAsUpload, ensureWorkItemFolder, ensureItemUploadsFolder, assignWorkItemFolder, projectMaterialsFolder, registerAsset, sha256Of, attachAsset, attachChatReference,
   listSharedFiles, uploadSharedFile, linkSharedAsset, withDocState, startPendingDocReads,
-  unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSynced, listWorkItemAssetsSyncedYielding, renameWorkItem,
+  unlinkAsset, deleteAssetFile, workbenchPlace, tidyWorkItemIntoFolder, ensureAssetTables, listWorkItemAssetsSyncedYielding, renameWorkItem,
   workFolderTarget, adviseUploadPlaces, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder, findWorkItemsBox,
   renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, reconcileFolderMarkersYielding, listWorkFoldersYielding, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
@@ -2340,13 +2340,7 @@ function optionalBaseIsStale(itemId: string, base: unknown): boolean {
  * iratok (PDF, irodai fajl, fotozott irat, e-mail) olvasasi allapotaval. A meg
  * nem olvasott iratok feldolgozasa itt indul el, a hatterben (1/A, K-1.1).
  */
-function assetsOut(itemId: string): ReturnType<typeof withDocState> {
-  const list = listWorkItemAssetsSynced(itemId)
-  try { startPendingDocReads(list) } catch { /* a lista akkor is jojjon */ }
-  return withDocState(list)
-}
-
-/** #893: assetsOut for the hot GET routes: gives the loop back between rows of a long list. */
+/** #893/#894: the materials of a work item for the screen; gives the loop back between rows of a long list (the only variant, so no route can hold the loop again). */
 async function assetsOutYielding(itemId: string): Promise<ReturnType<typeof withDocState>> {
   const list = await listWorkItemAssetsSyncedYielding(itemId)
   try { startPendingDocReads(list) } catch { /* a lista akkor is jojjon */ }
@@ -4337,7 +4331,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const newPath = relDir ? `${relDir}/${r.name}` : r.name
       const set = setAnnexPath(item.id, a.id, newPath, resolve)
       if (!set.ok) return failDetail(res, 500, 'searchable_failed', lang, set.detail)
-      json(res, { ok: true, annex_id: a.id, path: newPath, court: courtOut(item.id), outline: outlineOut(item.id), assets: assetsOut(item.id) }, 201)
+      json(res, { ok: true, annex_id: a.id, path: newPath, court: courtOut(item.id), outline: outlineOut(item.id), assets: await assetsOutYielding(item.id) }, 201)
       return true
     }
     return fail(res, 404, 'court_bad_input', lang)
@@ -4367,7 +4361,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   //   POST   .../deadlines/<key>/todo {due?}        -- teendo lesz belole
   //   POST/DELETE .../deadlines/<key>/dismiss       -- "nem vonatkozik ram" / visszahozas
   if (segs[1] === 'deadlines') {
-    const assets = listWorkItemAssetsSynced(item.id)
+    const assets = (await listWorkItemAssetsSyncedYielding(item.id))
     if (segs.length === 2 && method === 'GET') {
       json(res, { deadlines: itemDeadlines(item.id, assets) })
       return true
@@ -4537,7 +4531,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (up.ok) lifeRel = up.asset.path
       else if (up.code === 'asset_duplicate') {
         // The very same content is already a material of this item: no second copy.
-        lifeRel = listWorkItemAssetsSynced(item.id).find((a) => a.id === up.existing.id)?.path || ''
+        lifeRel = (await listWorkItemAssetsSyncedYielding(item.id)).find((a) => a.id === up.existing.id)?.path || ''
       } else {
         const code = MESSAGES['upload_' + up.code] ? 'upload_' + up.code : up.code
         return failDetail(res, up.code === 'write_failed' ? 500 : up.code === 'not_found' ? 404 : 400, code, lang, 'message' in up ? (up.message || null) : null)
@@ -4545,16 +4539,16 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const resolve = resolverFor(item)
       if (!resolve) return fail(res, 404, 'project_not_found', lang)
       if (annexNeedsLifeMove(owner, projectRelative(owner, lifeRel))) {
-        json(res, { ok: true, needs_move: true, rel: lifeRel, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, 201)
+        json(res, { ok: true, needs_move: true, rel: lifeRel, outline: outlineOrEmpty(item.id), assets: await assetsOutYielding(item.id) }, 201)
         return true
       }
       const linked = await linkLifeFileAsAnnex(item.id, lifeRel, { title: url.searchParams.get('title') || '' }, resolve, actor(ctx))
       if (!linked.ok) {
-        json(res, { error: 'outline_' + linked.code, message: msg('outline_' + linked.code, lang), detail: linked.detail, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, linked.code === 'file_missing' ? 404 : 400)
+        json(res, { error: 'outline_' + linked.code, message: msg('outline_' + linked.code, lang), detail: linked.detail, outline: outlineOrEmpty(item.id), assets: await assetsOutYielding(item.id) }, linked.code === 'file_missing' ? 404 : 400)
         return true
       }
       scheduleOutlineMirror(item.id)
-      json(res, { ok: true, annex: linked.annex, rel: lifeRel, outline: outlineOrEmpty(item.id), assets: assetsOut(item.id) }, 201)
+      json(res, { ok: true, annex: linked.annex, rel: lifeRel, outline: outlineOrEmpty(item.id), assets: await assetsOutYielding(item.id) }, 201)
       return true
     }
     // VEGLEGESITES (K-1.22, K-1.23): csak a tulajdonos sajat kattintasa, ellenorzes +
@@ -4574,7 +4568,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       try { finalizeWorkItem(item.id, { by: actor(ctx) || 'dashboard' }) } catch { /* the PDF is made; the status is best effort */ }
       // #794: a draft text nobody edited belonged to the previous final (maybe another language): start it again from this one.
       try { resetUntouchedMailText(item) } catch { /* best effort: the draft is rebuilt from the final when it is saved */ }
-      json(res, { ok: true, final: r.final, file: r.asset_path, reused: r.reused === true, outline: outlineOut(item.id), assets: assetsOut(item.id), court: courtOut(item.id), placement: await checkPlacementAfter(item, 'finalize', lang) })
+      json(res, { ok: true, final: r.final, file: r.asset_path, reused: r.reused === true, outline: outlineOut(item.id), assets: await assetsOutYielding(item.id), court: courtOut(item.id), placement: await checkPlacementAfter(item, 'finalize', lang) })
       return true
     }
     // #533: undo / redo on the page. The history is the server's (snapshots of the outline tables), so it
@@ -4880,7 +4874,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     json(res, {
       ok: true, asset: r.asset, folder: r.folder, folder_created: r.folderCreated,
-      renamed: r.renamed, name: r.asset.name, assets: assetsOut(item.id),
+      renamed: r.renamed, name: r.asset.name, assets: await assetsOutYielding(item.id),
       // #758 (3A): the machine self-check of the item's folders; a note goes into the chat when something is off.
       placement: await checkPlacementAfter(getWorkItem(item.id) || item, 'upload', lang),
     }, 201)
@@ -4975,7 +4969,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!r.ok) return redactFail(r)
       json(res, {
         ok: true, name: r.name, path: parts.length ? `${parts.join('/')}/${r.name}` : r.name,
-        redacted: r.redacted, pages: r.pages, searchable: r.searchable, unreadable_pages: r.unreadable_pages, assets: assetsOut(item.id),
+        redacted: r.redacted, pages: r.pages, searchable: r.searchable, unreadable_pages: r.unreadable_pages, assets: await assetsOutYielding(item.id),
       }, 201)
       return true
     }
@@ -4986,7 +4980,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const dest = freeFileName(target.dirAbs, searchableName(name, lang))
       const r = await makeSearchableCopy(real, joinPath(target.dirAbs, dest))
       if (!r.ok) return failDetail(res, 500, 'searchable_failed', lang, r.detail)
-      json(res, { ok: true, name: r.name, path: parts.length ? `${parts.join('/')}/${r.name}` : r.name, assets: assetsOut(item.id) }, 201)
+      json(res, { ok: true, name: r.name, path: parts.length ? `${parts.join('/')}/${r.name}` : r.name, assets: await assetsOutYielding(item.id) }, 201)
       return true
     }
     const retry = url.searchParams.get('retry') === '1'
@@ -5011,7 +5005,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const r = linkSharedAsset(item, body['path'], actor(ctx))
     if (!r.ok) return fail(res, r.code === 'not_found' ? 404 : 400, r.code === 'not_found' ? 'asset_not_found' : r.code, lang)
-    json(res, { ok: true, asset: r.asset, already: r.already, assets: assetsOut(item.id) }, r.already ? 200 : 201)
+    json(res, { ok: true, asset: r.asset, already: r.already, assets: await assetsOutYielding(item.id) }, r.already ? 200 : 201)
     return true
   }
   if (segs.length === 3 && segs[1] === 'assets' && method === 'DELETE') {
@@ -5028,11 +5022,11 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         }
         return fail(res, d.code === 'asset_not_found' ? 404 : d.code === 'delete_failed' ? 500 : 400, d.code, lang)
       }
-      json(res, { ok: true, deleted: true, assets: assetsOut(item.id) })
+      json(res, { ok: true, deleted: true, assets: await assetsOutYielding(item.id) })
       return true
     }
     if (!unlinkAsset(item.id, segs[2] || '')) return fail(res, 404, 'asset_not_found', lang)
-    json(res, { ok: true, assets: assetsOut(item.id) })
+    json(res, { ok: true, assets: await assetsOutYielding(item.id) })
     return true
   }
   // ATNEVEZES (#441, #478, #709): a munkadarab uj neve; ha a mappa ELSO munkadarabja, a mappa es a fajlok is kovetik.
@@ -5043,7 +5037,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const r = renameItemTogether(item, body['title'])
     if (!r.ok) return fail(res, 400, r.code, lang)
-    json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: assetsOut(item.id) })
+    json(res, { ok: true, item: r.item, folder_rename: r.folder, items: listWorkItems(item.project_id), assets: await assetsOutYielding(item.id) })
     return true
   }
   // Files an existing item (and its folder) into another folder of the box.
@@ -5070,7 +5064,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const r = resolveRootStrays(owner, item, body['decisions'], lang)
     if (!r.ok) return fail(res, r.code === 'no_folder' ? 404 : 400, r.code === 'no_folder' ? 'life_move_no_folder' : 'life_move_bad_input', lang)
-    json(res, { ok: true, results: r.results, files: rootStrays(owner, item), assets: assetsOut(item.id) })
+    json(res, { ok: true, results: r.results, files: rootStrays(owner, item), assets: await assetsOutYielding(item.id) })
     return true
   }
   // #618: the owner's "move to the Life tree" list (GET) and the approved move (POST {moves:[{rel,target}]}).
@@ -5098,7 +5092,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     // #716: an annex that stood on the old place becomes a link to the document in the Life tree.
     const relinked = await relinkMovedAnnexes(owner, movedPairs(r.results)).catch(() => 0)
     const placement = await checkPlacementAfter(getWorkItem(item.id) || item, 'life_move', lang, lifeMoveIssues(movedPairs(r.results)))
-    json(res, { ok: true, results: r.results, relinked, assets: assetsOut(item.id), placement })
+    json(res, { ok: true, results: r.results, relinked, assets: await assetsOutYielding(item.id), placement })
     return true
   }
   // Boss TG 4068 (5A): an old document that was sent before the app knew is marked "sent" by hand, so it may move.
@@ -5174,7 +5168,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     json(res, {
       ok: true, folder: r.folder, moved: r.moved, skipped: r.skipped,
-      item: getWorkItem(item.id), versions: listWorkItemVersionsView(item.id), assets: assetsOut(item.id),
+      item: getWorkItem(item.id), versions: listWorkItemVersionsView(item.id), assets: await assetsOutYielding(item.id),
     })
     return true
   }
