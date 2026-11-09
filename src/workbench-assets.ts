@@ -27,7 +27,7 @@
  * A regi fajl SOSE VESZ EL: a Marveen tovabbra sem ir felul semmit
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
-import { drainSteps, drainStepsYielding } from './yielding.js'
+import { drainSteps, drainStepsYielding, type Steps } from './yielding.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, sep } from 'node:path'
@@ -1931,21 +1931,34 @@ export function projectRelative(project: ProjectRow, depotRel: string): string {
   return depotRel.startsWith(base + '/') ? depotRel.slice(base.length + 1) : ''
 }
 
-export function listWorkItemAssets(itemId: string): WorkItemAssetView[] {
+/**
+ * #893: one row costs a few 9p calls (resolveLifePath + stat), and a work item can hold 160+ rows: one synchronous pass
+ * held the loop for seconds (measured in /api/perf/stalls: listWorkItemAssets > resolveLifePath > realpathSync). The pass is
+ * a stepping generator that gives the loop back between rows; the sync wrapper drains it at once (same answer as before).
+ */
+export function* listWorkItemAssetsSteps(itemId: string): Steps<WorkItemAssetView[]> {
   ensureAssetTables()
   const rows = getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL ORDER BY created_at, rowid').all(itemId) as WorkItemAssetRow[]
   const item = getWorkItem(itemId)
   const project = item ? getProject(item.project_id) : undefined
   const sf = project && rows.length ? projectSharedFolder(project) : null
   const sharedPrefix = sf && sf.ok ? sf.dirRel + '/' : null
-  return rows.map((r) => {
+  const out: WorkItemAssetView[] = []
+  for (const r of rows) {
     const abs = resolveLifePath(r.path)
     let present = false
-    try { present = !!abs && existsSync(abs) && statSync(abs).isFile() } catch { present = false }
+    // One stat answers both "is there anything" and "is it a file".
+    try { present = !!abs && statSync(abs).isFile() } catch { present = false }
     const shared = !!sharedPrefix && r.path.startsWith(sharedPrefix) && !r.path.slice(sharedPrefix.length).includes('/')
     // A tamogatasi allapot a fajl nevebol jon: egy regebben felvett sor is a mai tudast mutatja.
-    return { ...r, support: assetSupport(r.name), project_path: project ? projectRelative(project, r.path) : '', present, shared }
-  })
+    out.push({ ...r, support: assetSupport(r.name), project_path: project ? projectRelative(project, r.path) : '', present, shared })
+    yield
+  }
+  return out
+}
+
+export function listWorkItemAssets(itemId: string): WorkItemAssetView[] {
+  return drainSteps(listWorkItemAssetsSteps(itemId))
 }
 
 export function findAssetByHash(itemId: string, sha: string): WorkItemAssetRow | undefined {
@@ -2357,6 +2370,12 @@ export function syncFolderAssets(itemId: string): number {
 export function listWorkItemAssetsSynced(itemId: string): WorkItemAssetView[] {
   try { syncFolderAssets(itemId) } catch { /* a lista akkor is jojjon */ }
   return listWorkItemAssets(itemId)
+}
+
+/** #893: the same list, but the loop is given back every few ms (hot GET routes and the chat prompt use this one). */
+export async function listWorkItemAssetsSyncedYielding(itemId: string): Promise<WorkItemAssetView[]> {
+  try { syncFolderAssets(itemId) } catch { /* a lista akkor is jojjon */ }
+  return drainStepsYielding(listWorkItemAssetsSteps(itemId))
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@
 //   tesseract                       -> OCR for scans and photos
 import { execFile, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { stat as statAsync } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
@@ -39,6 +40,24 @@ export function which(bin: string): string | null {
   }
   whichCache.set(bin, found)
   return found
+}
+
+/**
+ * #894: fills the `which` cache WITHOUT holding the event loop. The first sync `which` walks every PATH entry
+ * (on WSL these are Windows folders on a 9p drive, ~7 ms per probe), so a cold lookup of four tools held the
+ * loop for ~250 ms inside a request. Async probes first, then `which` is a cache hit.
+ */
+export async function warmWhich(bins: string[]): Promise<void> {
+  for (const bin of bins) {
+    if (whichCache.has(bin)) continue
+    let found: string | null = null
+    for (const dir of (process.env.PATH || '').split(delimiter)) {
+      if (!dir) continue
+      const p = join(dir, bin)
+      try { if ((await statAsync(p)).isFile()) { found = p; break } } catch { /* not here */ }
+    }
+    whichCache.set(bin, found)
+  }
 }
 
 /** Tests only: forget the PATH lookups (a test may change PATH). */

@@ -54,7 +54,7 @@ import {
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
-import { listWorkItemAssetsSynced, withDocState } from '../../workbench-assets.js'
+import { listWorkItemAssetsSyncedYielding, withDocState, type WorkItemAssetView } from '../../workbench-assets.js'
 import { docKind } from '../../workbench-docread.js'
 import { DASHBOARD_TOKEN_PATH } from '../dashboard-auth.js'
 import type { WorkItemRow } from '../../workbench.js'
@@ -104,11 +104,11 @@ function recordLiveTool(sessionId: string, open: LiveOpenTool[], ev: { name?: st
 
 /** A kod-hid promptjanak munkadarab-resze: nev, fajta, sajat mappa, anyagok (#441),
  *  es ha van kozottuk irat, hogyan kerje le az oldalak szoveget (1/A). */
-function codeBridgeWorkItem(item: WorkItemRow): { title: string; type: string; file: string | null; folder: string | null; materials: string[]; documentsHint: string | null; family: string[] } {
+function codeBridgeWorkItem(item: WorkItemRow, assets: WorkItemAssetView[]): { title: string; type: string; file: string | null; folder: string | null; materials: string[]; documentsHint: string | null; family: string[] } {
   let materials: string[] = []
   let hasDoc = false
   try {
-    materials = withDocState(listWorkItemAssetsSynced(item.id)).map((a) => {
+    materials = withDocState(assets).map((a) => {
       if (docKind(a.name)) hasDoc = true
       const d = a.doc
       const docNote = !d ? ''
@@ -982,6 +982,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         // ut (a masik fiokkal folytato, helyi munkamenet) eddig egy fordulo utan
         // megallt. Egy fordulo akkor KESZ, ha a vegen ott a jel, a szoveg nem
         // mond hatralevo munkat, vagy nem is dolgozott (sima valasz).
+        const bridgeAssets = item ? await listWorkItemAssetsSyncedYielding(item.id).catch(() => []) : []
         let rounds = 0
         let lastStatusKey = ''
         let toolsThisRound = 0
@@ -996,7 +997,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               ? liveInstallNote() + buildCodeBridgePrompt({
                 projectName: project.name || project.id,
                 projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
-                workItem: item ? codeBridgeWorkItem(item) : null,
+                workItem: item ? codeBridgeWorkItem(item, bridgeAssets) : null,
                 history,
                 message: turnText,
                 lang,
@@ -1161,11 +1162,12 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             const bridgeOpenTools: LiveOpenTool[] = []
             const turnStartSec = Math.floor(Date.now() / 1000)
             const folder = projectFileTarget(project, '')
+            const bridgeAssets = item ? await listWorkItemAssetsSyncedYielding(item.id).catch(() => []) : []
             const history = listAgentMessages(session.id)
             const prompt = buildCodeBridgePrompt({
               projectName: project.name || project.id,
               projectFolder: folder.ok ? folder.dirAbs : null,
-              workItem: item ? codeBridgeWorkItem(item) : null,
+              workItem: item ? codeBridgeWorkItem(item, bridgeAssets) : null,
               history,
               message: triggerDirective ? `${input.message.trim()}\n\n${triggerDirective}` : input.message.trim(),
               lang,

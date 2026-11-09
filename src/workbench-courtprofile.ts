@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { getDb } from './db.js'
 import { STORE_DIR } from './config.js'
-import { which } from './life-inbox-systools.js'
+import { which, warmWhich } from './life-inbox-systools.js'
 import { meaningfulChars } from './workbench-docread.js'
 
 // ---------------------------------------------------------------------------
@@ -835,6 +835,11 @@ function run(bin: string, args: string[]): Promise<{ ok: true; out: string } | {
       else resolve({ ok: true, out: stdout })
     })
   })
+}
+
+/** #894: probe the PDF tools without blocking the loop, so the sync courtCheckAvailable() below is a cache hit. */
+export function warmCourtTools(): Promise<void> {
+  return warmWhich(['pdfinfo', 'pdffonts', 'pdftotext', 'pdfdetach'])
 }
 
 export function courtCheckAvailable(): boolean {
