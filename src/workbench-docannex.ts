@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
 import { ensureDocModelTables } from './workbench-docmodel.js'
 import { officeExt } from './office-convert.js'
+import { detectTextLanguage } from './workbench-letterinfo.js'
 
 export const ANNEX_SCHEMES = ['k', 'anlage', 'exhibit'] as const
 export type AnnexScheme = typeof ANNEX_SCHEMES[number]
@@ -58,6 +59,9 @@ export function ensureAnnexTables(): void {
     )
   `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_doc_annexes_item ON wb_doc_annexes(work_item_id, position)')
+  // Owner, 2026-11-08 (a German letter's annex cover read "Anlage K1" over a HUNGARIAN title): a language variant shares the
+  // annex list of its original, but each variant has its OWN title per annex, written in the variant's language.
+  db.exec('CREATE TABLE IF NOT EXISTS wb_doc_annex_titles (annex_id TEXT NOT NULL, work_item_id TEXT NOT NULL, title TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (annex_id, work_item_id))')
   // #530: a LINKED annex is a document of the Life tree, not a copy in the project folder. Its
   // `path` is `doc:<document id>`; `life_rel` is where the file was when it was last seen (shown
   // to the owner, and the only thing left to show when the file cannot be found).
@@ -274,7 +278,11 @@ const INHERITED = { ok: false, code: 'bad_input', detail: 'a language variant us
 
 function listAnnexRows(itemId: string): AnnexRow[] {
   ensureAnnexTables()
-  return getDb().prepare('SELECT * FROM wb_doc_annexes WHERE work_item_id = ? ORDER BY position, created_at').all(annexOwnerId(itemId)) as AnnexRow[]
+  const rows = getDb().prepare('SELECT * FROM wb_doc_annexes WHERE work_item_id = ? ORDER BY position, created_at').all(annexOwnerId(itemId)) as AnnexRow[]
+  // A variant shows its own title of an annex where it has one (the original's title is only the fallback).
+  if (annexOwnerId(itemId) === itemId) return rows
+  const own = new Map((getDb().prepare('SELECT annex_id, title FROM wb_doc_annex_titles WHERE work_item_id = ?').all(itemId) as { annex_id: string; title: string }[]).map((r) => [r.annex_id, r.title]))
+  return rows.map((r) => (own.has(r.id) ? { ...r, title: own.get(r.id) as string } : r))
 }
 
 /** A projekt fajljainak feloldasa (a hivo adja, hogy a modul tesztelheto maradjon). */
@@ -365,7 +373,16 @@ export function addAnnex(itemId: string, input: { path?: unknown; title?: unknow
 }
 
 export function updateAnnex(itemId: string, id: string, patch: { title?: unknown; position?: unknown }): AnnexResult<{ annex: AnnexRow; rewritten: number }> {
-  if (annexOwnerId(itemId) !== itemId) return INHERITED
+  if (annexOwnerId(itemId) !== itemId) {
+    // A language variant: the list (files, order) is the original's, but the TITLE is the variant's own, in its language.
+    const a = listAnnexRows(itemId).find((r) => r.id === String(id || ''))
+    if (!a) return { ok: false, code: 'not_found', detail: 'no annex with this id in this document' }
+    if (patch.position !== undefined && patch.position !== null && patch.position !== '') return INHERITED
+    const title = String(patch.title ?? '').trim()
+    if (!title || title.length > ANNEX_TITLE_MAX) return { ok: false, code: 'bad_input', detail: `the title must be 1 to ${ANNEX_TITLE_MAX} characters` }
+    getDb().prepare('INSERT INTO wb_doc_annex_titles (annex_id, work_item_id, title, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(annex_id, work_item_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at').run(a.id, itemId, title, now())
+    return { ok: true, annex: { ...a, title }, rewritten: 0 }
+  }
   const rows = listAnnexRows(itemId)
   const a = rows.find((r) => r.id === String(id || ''))
   if (!a) return { ok: false, code: 'not_found', detail: 'no annex with this id in this document' }
@@ -502,4 +519,60 @@ export function annexCheck(itemId: string, resolve?: FileResolver): AnnexCheck {
   // finalizing back (the owner should not have to write the references by hand).
   const ok = list.filter((a) => a.exists !== false && annexPdfKind(a.name)).length
   return { total: list.length, ok, dangling, unreferenced, missing_files: missing, unsupported }
+}
+
+
+// ---------------------------------------------------------------------------
+// Owner, 2026-11-08: the title of an annex is written on its COVER page, and the cover speaks the document's language. A title in
+// another language (a Hungarian title under "Anlage K1" in a German letter) must never be printed or sent.
+// ---------------------------------------------------------------------------
+
+export type TitleLang = 'hu' | 'de' | 'en'
+
+// Whole-word markers that belong to ONE language only (words shared with another language, names and numbers are left out).
+const W = (words: string[]): RegExp => new RegExp(`(?<![\\p{L}])(?:${words.join('|')})(?![\\p{L}])`, 'giu')
+const TITLE_WORDS: Record<TitleLang, RegExp> = {
+  hu: W(['kivonat', 'számlakivonat', 'kifizetés', 'kifizetések', 'kifizetést', 'átutalás', 'átutalások', 'melléklet', 'határozat', 'értesítés', 'igazolás', 'szerződés', 'levél', 'számla', 'nyilatkozat', 'kérelem', 'beadvány', 'bírósági', 'hatósági', 'végzés', 'ítélet', 'jegyzőkönyv', 'bejelentés', 'január', 'február', 'március', 'május', 'június', 'július', 'augusztus', 'szeptember', 'október', 'és', 'az', 'egy', 'nem', 'vagy', 'hogy', 'részére', 'felé', 'időszak', 'melléklete']),
+  de: W(['kontoauszug', 'kontoauszüge', 'überweisung', 'überweisungen', 'zahlung', 'zahlungen', 'bescheid', 'schriftsatz', 'anlage', 'vertrag', 'bescheinigung', 'antrag', 'beschluss', 'urteil', 'rechnung', 'erklärung', 'schreiben', 'nachweis', 'vom', 'der', 'die', 'das', 'und', 'für', 'an', 'mit', 'von', 'zum', 'zur', 'januar', 'februar', 'märz', 'mai', 'juni', 'juli', 'oktober', 'dezember', 'bis']),
+  en: W(['statement', 'statements', 'payment', 'payments', 'transfer', 'transfers', 'decision', 'letter', 'invoice', 'certificate', 'application', 'contract', 'notice', 'the', 'and', 'of', 'to', 'for', 'with', 'from', 'january', 'february', 'march', 'june', 'july', 'october']),
+}
+
+/** The language an annex title is written in, null when it cannot be told (no marker word, or a tie). */
+export function detectTitleLanguage(title: string): TitleLang | null {
+  const t = String(title ?? '')
+  const sc = (['hu', 'de', 'en'] as TitleLang[]).map((l) => [l, (t.match(TITLE_WORDS[l]) || []).length] as const).sort((a, b) => b[1] - a[1])
+  return sc[0][1] >= 1 && sc[0][1] > sc[1][1] ? sc[0][0] : null
+}
+
+export interface AnnexTitleIssue { label: string; title: string; found: TitleLang; expected: TitleLang }
+
+/** The annexes whose title is written in another language than the document (`lang`). Empty = fine. */
+export function annexTitleLanguageIssues(itemId: string, lang: TitleLang): AnnexTitleIssue[] {
+  const s = docSettings(itemId)
+  const out: AnnexTitleIssue[] = []
+  listAnnexRows(itemId).forEach((a, i) => {
+    const found = detectTitleLanguage(a.title)
+    if (found && found !== lang) out.push({ label: annexLabel(s, i + 1), title: a.title, found, expected: lang })
+  })
+  return out
+}
+
+/** The language of a document for this check: a variant's own language, else the language its text is written in (null: unknown, no check). */
+export function annexTitleDocLang(itemId: string, textLang: (id: string) => TitleLang | null): TitleLang | null {
+  try {
+    const r = getDb().prepare('SELECT lang FROM wb_doc_variants WHERE work_item_id = ?').get(itemId) as { lang: string } | undefined
+    if (r && (r.lang === 'hu' || r.lang === 'de' || r.lang === 'en')) return r.lang
+  } catch { /* the variants table may not exist yet */ }
+  return textLang(itemId)
+}
+
+/**
+ * The issues of an item, with the document's language taken ONLY from what is certain: a language version's own language, or the language
+ * its text is plainly written in. When it cannot be told (short text, the dashboard language is only a guess) nothing is judged.
+ */
+export function annexTitleIssuesAuto(itemId: string): AnnexTitleIssue[] {
+  try {
+    const lang = annexTitleDocLang(itemId, (id) => detectTextLanguage(allTexts(id).join('\n')))
+    return lang ? annexTitleLanguageIssues(itemId, lang) : []
+  } catch { return [] }
 }

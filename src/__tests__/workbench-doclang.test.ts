@@ -11,7 +11,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { createWorkItem, getWorkItem, purgeWorkItem, setWorkItemDeleted, type WorkItemRow } from '../workbench.js'
 import { addSection, addBlock, addClaim, documentOutline, documentCheck, updateBlock, removeSection, type SourceWorld } from '../workbench-docmodel.js'
-import { addAnnex, annexListTitle, listAnnexes, removeAnnex, setDocSettings, docSettings } from '../workbench-docannex.js'
+import { addAnnex, annexListTitle, listAnnexes, removeAnnex, setDocSettings, docSettings, updateAnnex, detectTitleLanguage, annexTitleLanguageIssues } from '../workbench-docannex.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
 import {
   createVariant, variantInfo, variantsSummary, translateSection, addGlossaryTerm, removeGlossaryTerm, listGlossary,
@@ -19,7 +19,7 @@ import {
 } from '../workbench-doclang.js'
 import { docLangFor } from '../workbench-docfinal.js'
 import { buildCoverFodt, buildFodt } from '../workbench-docrender.js'
-import { coverText } from '../workbench-docpackage.js'
+import { coverText, annexPdfs } from '../workbench-docpackage.js'
 import { executeTool } from '../workbench-agent/execute.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody } from './helpers/workbench-harness.js'
@@ -105,6 +105,52 @@ describe('nyelvi valtozatok a dokumentummodellben', () => {
     if (a.ok) expect(removeAnnex(v.id, a.annex.id).ok).toBe(false)
     expect(listAnnexes(src.id, resolve)).toHaveLength(1)
     expect(listAnnexes(v.id, resolve)).toHaveLength(1)
+  })
+
+  // Owner, 2026-11-08: a German letter's annex cover read "Anlage K1" over a HUNGARIAN title, and the owner almost sent it.
+  describe('the annex title is in the document\'s language (cover page)', () => {
+    const resolve = (p: string) => (p === 'Level/idezes.pdf' ? { abs: join(projDir(), 'Level', 'idezes.pdf'), name: 'idezes.pdf' } : null)
+    const HU_TITLE = 'Postbank-kivonat, Bakos Éva: kifizetések Botond Péternek, 2024. július - 2025. december (18 átutalás)'
+    const DE_TITLE = 'Postbank-Kontoauszug von Bakos Éva: Überweisungen an Botond Péter, Juli 2024 bis Dezember 2025 (18 Überweisungen)'
+
+    it('the language of a title is read from words that belong to one language only; names and no-marker titles stay unjudged', () => {
+      expect(detectTitleLanguage(HU_TITLE)).toBe('hu')
+      expect(detectTitleLanguage(DE_TITLE)).toBe('de')
+      expect(detectTitleLanguage('Bank statement of Eva: payments to Peter, July 2024 and the transfers')).toBe('en')
+      expect(detectTitleLanguage('Abgabenbescheid')).toBeNull()
+      expect(detectTitleLanguage('Korpás László Péter')).toBeNull()
+      expect(detectTitleLanguage('')).toBeNull()
+    })
+
+    it('a variant has its OWN title per annex (the original keeps its own); the list and the order stay the original\'s', () => {
+      const a = addAnnex(src.id, { path: 'Level/idezes.pdf', title: HU_TITLE }, resolve, 'teszt')
+      if (!a.ok) throw new Error(a.detail)
+      const v = makeDe()
+      expect(listAnnexes(v.id, resolve)[0]!.title).toBe(HU_TITLE) // not yet translated: the original's title is the fallback
+      const r = updateAnnex(v.id, a.annex.id, { title: DE_TITLE })
+      expect(r.ok).toBe(true)
+      expect(listAnnexes(v.id, resolve)[0]!.title).toBe(DE_TITLE)
+      expect(listAnnexes(src.id, resolve)[0]!.title).toBe(HU_TITLE)
+      // the variant may not move or add annexes: only the title is its own
+      expect(updateAnnex(v.id, a.annex.id, { position: 0 }).ok).toBe(false)
+    })
+
+    it('a Hungarian title in a German letter is a finding, the German title is not, and no cover page is made until it is fixed', async () => {
+      const a = addAnnex(src.id, { path: 'Level/idezes.pdf', title: HU_TITLE }, resolve, 'teszt')
+      if (!a.ok) throw new Error(a.detail)
+      const v = makeDe()
+      expect(annexTitleLanguageIssues(v.id, 'de').map((x) => [x.label, x.found, x.expected])).toEqual([['K1', 'hu', 'de']])
+      expect(annexTitleLanguageIssues(src.id, 'hu')).toEqual([])
+      const chk = documentCheck(v.id, resolve)
+      const item = chk.items.find((i) => i.key === 'annex_title_language')
+      expect(item && item.ok).toBe(false)
+      const gate = await annexPdfs(v.id, resolve, { lang: 'de' })
+      expect(gate.ok).toBe(false)
+      if (!gate.ok) { expect(gate.code).toBe('annex_title_language'); expect(gate.label).toBe('K1') }
+      updateAnnex(v.id, a.annex.id, { title: DE_TITLE })
+      expect(annexTitleLanguageIssues(v.id, 'de')).toEqual([])
+      expect(documentCheck(v.id, resolve).items.find((i) => i.key === 'annex_title_language')).toBeUndefined()
+    })
   })
 
   it('a valtozat az eredeti mappajaba kerul: nincs uj mappa, nincs almappa (Boss TG 3049/3060)', async () => {

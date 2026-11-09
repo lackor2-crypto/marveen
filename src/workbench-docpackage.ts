@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runVersion } from './capability-probe.js'
 import { convertOfficeToPdf, renderCacheDir } from './office-convert.js'
-import { annexPdfKind, docSettings, listAnnexes, type AnnexScheme, type FileResolver } from './workbench-docannex.js'
+import { annexPdfKind, annexTitleIssuesAuto, docSettings, listAnnexes, type AnnexScheme, type FileResolver } from './workbench-docannex.js'
 import { buildCoverFodt, buildTextFodt, renderFodtPdf, PDF_FILTER_DRAFT, type DocLang } from './workbench-docrender.js'
 
 export interface AnnexPdf { label: string; title: string; pdf: Buffer; fileName: string }
@@ -32,6 +32,7 @@ export function annexAttachmentName(fileName: string): string {
 
 export type PackageError =
   | { code: 'annex_missing'; label: string; detail: string | null }
+  | { code: 'annex_title_language'; label: string; detail: string | null }
   | { code: 'annex_unsupported'; label: string; detail: string | null }
   | { code: 'annex_convert_failed'; label: string; detail: string | null; convert?: string }
   | { code: 'merge_not_installed'; detail: string | null }
@@ -90,6 +91,10 @@ export function coverText(scheme: AnnexScheme, label: string, lang: DocLang = 'h
 export async function annexPdfs(itemId: string, resolve: FileResolver, opts: { lang: DocLang; skipBroken?: boolean }): Promise<Out<{ annexes: AnnexPdf[] }>> {
   const s = docSettings(itemId)
   const out: AnnexPdf[] = []
+  // Owner, 2026-11-08: the cover page speaks the document's language -- a Hungarian title under "Anlage K1" in a German letter
+  // must never be printed or sent. Nothing is made until every title is in the document's language.
+  const bad = annexTitleIssuesAuto(itemId)
+  if (bad.length) return { ok: false, code: 'annex_title_language', label: bad.map((b) => b.label).join(', '), detail: bad.map((b) => `${b.label}: "${b.title}" (${b.found} / ${b.expected})`).join(' | ') }
   for (const a of listAnnexes(itemId, resolve)) {
     const f = resolve(a.path)
     // #751: `skipBroken` -- the owner ticked "finalize anyway": an annex that is gone or cannot be read is left out.

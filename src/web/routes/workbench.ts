@@ -1862,6 +1862,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ennek a mellékletnek a fájlja nincs meg a projekt mappájában: {label}. Tedd vissza a fájlt, vagy vedd le a mellékletek közül.',
     en: 'The file of this annex is not in the project folder: {label}. Put the file back, or remove it from the annexes.',
   },
+  docpdf_annex_title_language: {
+    hu: 'A melléklet címe más nyelven van, mint maga a levél: {label}. A melléklet külső lapjára ez a cím kerülne, ezért addig nem készítek PDF-et. Írd át a címet a levél nyelvén (a Mellékletek listában a cím átnevezhető; nyelvi változatnál a változat saját címe).',
+    en: 'The title of the annex is written in a different language than the letter itself: {label}. That title would be printed on the annex cover page, so no PDF is made until it is fixed. Rename the title in the letter\'s language (in the Annexes list the title can be renamed; a language version has its own title).',
+  },
   docpdf_annex_unsupported: {
     hu: 'Ebből a mellékletből nem tudok PDF-et készíteni, mert ez a fájlfajta nem alakítható át: {label}. Melléklet lehet PDF, Word- vagy LibreOffice-dokumentum, kép (JPG, PNG) vagy szövegfájl.',
     en: 'No PDF can be made from this annex, because this kind of file cannot be converted: {label}. An annex can be a PDF, a Word or LibreOffice document, an image (JPG, PNG) or a text file.',
@@ -2488,7 +2492,7 @@ function outlineOrEmpty(itemId: string): NonNullable<ReturnType<typeof outlineOu
 
 /** Egy PDF-keszitesi hiba kodja a felhasznalonak (a LibreOffice-hiany kulon mondat). */
 function docPdfCode(code: string): string {
-  if (/^(annex_missing|annex_unsupported|annex_convert_failed|merge_not_installed|merge_failed)$/.test(code)) return 'docpdf_' + code
+  if (/^(annex_missing|annex_unsupported|annex_title_language|annex_convert_failed|merge_not_installed|merge_failed)$/.test(code)) return 'docpdf_' + code
   if (code === 'folder_unreachable') return 'docpdf_folder_unreachable'
   return code === 'not_installed' ? 'docpdf_not_installed'
     : code === 'check_failed' ? 'docpdf_check_failed'
@@ -2498,7 +2502,7 @@ function docPdfCode(code: string): string {
 function docPdfStatus(code: string): number {
   return code === 'docpdf_not_installed' || code === 'docpdf_check_failed' || code === 'docpdf_merge_not_installed' ? 501
     : code === 'docpdf_timeout' ? 504
-    : code === 'docpdf_annex_missing' || code === 'docpdf_annex_unsupported' || code === 'docpdf_folder_unreachable' ? 409 : 500
+    : code === 'docpdf_annex_missing' || code === 'docpdf_annex_unsupported' || code === 'docpdf_annex_title_language' || code === 'docpdf_folder_unreachable' ? 409 : 500
 }
 
 /** PDF-keszitesi hiba valasza: emberi mondat (a melleklet jelevel, ha arrol szol) + a valodi hibauzenet. */

@@ -29,7 +29,7 @@ import { existsSync } from 'node:fs'
 import { resolveLifePath } from './life-explorer.js'
 import { getDb } from './db.js'
 import { verifyQuote, normalizeForMatch, bestFuzzyMatch } from './workbench-docread.js'
-import { annexCheck, type FileResolver } from './workbench-docannex.js'
+import { annexCheck, annexTitleIssuesAuto, type FileResolver } from './workbench-docannex.js'
 import { consistencyIssues } from './workbench-doccheck.js'
 import { variantCheckItems } from './workbench-doclang.js'
 import { SIGNATURE_TERMS } from './workbench-signatures.js'
@@ -1033,6 +1033,9 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
     if (ax.missing_files.length) items.push({ key: 'annex_missing_file', ok: false, count: ax.missing_files.length, detail: ax.missing_files })
     if (ax.unsupported.length) items.push({ key: 'annex_unsupported', ok: false, count: ax.unsupported.length, detail: ax.unsupported })
   }
+  // ANNEX TITLE LANGUAGE (owner, 2026-11-08): the cover page of an annex carries its title in the document's language.
+  const titleBad = annexTitleIssuesAuto(itemId)
+  if (titleBad.length) items.push({ key: 'annex_title_language', ok: false, count: titleBad.length, detail: titleBad.map((b) => `${b.label}: ${b.title}`) })
   // PICTURES (Boss TG 2901): a picture block whose file is gone would end up as a warning line in the final PDF.
   const pics = blocks.filter((b) => b.kind === 'image')
   if (pics.length) {
