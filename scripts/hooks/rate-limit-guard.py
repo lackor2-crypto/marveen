@@ -127,15 +127,33 @@ def main():
     if worst is None:
         return
 
+    if worst < CAUTION_THRESHOLD_PCT:
+        return
+
+    # A hook line is a MEASUREMENT, not a fact to repeat (Boss, 2026-11-09, TG 5605: the hook said 100%, Boss saw 32%,
+    # the agent passed the 100% on unchecked). So say when and from where it was measured, tell the agent to re-read
+    # the file before it states the number, and keep a trace of what this hook saw for later diagnosis.
+    measured = time.strftime('%H:%M:%S', time.localtime(updated_at / 1000))
+    source = os.path.relpath(snapshot_path, project_root)
+    note = (
+        f" (merve: {measured}, forras: {source}.) Mielott ezt a szamot barkinek kimondod (Telegram is), "
+        f"olvasd ujra a fajlt (cat {source}); ha mast mutat, a friss adat nyer."
+    )
+    try:
+        with open(os.path.join(project_root, 'store', 'rate-limit-guard.log'), 'a') as lf:
+            lf.write(json.dumps({'at': int(now_ms), 'agent': agent_id, 'five': five, 'snapshot': snap}, ensure_ascii=False) + '\n')
+    except OSError:
+        pass
+
     if worst >= CRITICAL_THRESHOLD_PCT:
         print(
-            f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CRITICAL_THRESHOLD_PCT}%). "
+            f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CRITICAL_THRESHOLD_PCT}%).{note} "
             "A tulajdonos szabalya: most NE vegezz kodolast/programozast -- csak info, kereses, egyeztetes. "
             "Ha kodolasi feladatot kernek, jelezd hogy a keret miatt most csak arra van mod hogy megbeszeljetek/felkesziljetek ra."
         )
-    elif worst >= CAUTION_THRESHOLD_PCT:
+    else:
         print(
-            f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CAUTION_THRESHOLD_PCT}%). "
+            f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CAUTION_THRESHOLD_PCT}%).{note} "
             "A tulajdonos szabalya: csak kisebb, gyors feladatokba fogj bele, nagy/hosszu munkat most ne kezdj el."
         )
 
