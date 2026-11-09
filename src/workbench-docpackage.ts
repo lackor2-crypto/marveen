@@ -40,12 +40,78 @@ export type PackageError =
 
 type Out<T> = ({ ok: true } & T) | ({ ok: false } & PackageError)
 
+/** A4 in PDF points, and how far a page may be off before it counts as "not A4" (rounding in the page boxes). */
+const A4_W = 595.28
+const A4_H = 841.89
+const A4_TOLERANCE = 3
+
+/** Parse `pdfinfo -f 1 -l 99999` output: the size of every page, in points, in page order. */
+export function parsePdfPageSizes(stdout: string): Array<{ w: number; h: number }> {
+  const sizes: Array<{ w: number; h: number }> = []
+  for (const m of stdout.matchAll(/^Page\s+(\d+)\s+size:\s+([\d.]+)\s*x\s*([\d.]+)\s*pts/gim)) {
+    sizes[Number(m[1]) - 1] = { w: Number(m[2]), h: Number(m[3]) }
+  }
+  return sizes
+}
+
+/** True when the page already fits an A4 sheet in either orientation (smaller pages are left alone). */
+export function pageFitsA4(w: number, h: number): boolean {
+  const [short, long] = w <= h ? [w, h] : [h, w]
+  return short <= A4_W + A4_TOLERANCE && long <= A4_H + A4_TOLERANCE
+}
+
+/**
+ * #882 (Boss TG 5595): a PDF annex used to go out unchanged, so a bank statement made of A3 pages came out of an A4 printer
+ * with its right third cut off. Every page larger than A4 is scaled down to A4 (same orientation, whole page, nothing cropped,
+ * still vector text). Pages that already fit stay byte-for-byte; a PDF with only such pages comes back unchanged.
+ */
+export async function fitPdfToA4(pdf: Buffer): Promise<{ ok: true; pdf: Buffer } | { ok: false; detail: string }> {
+  const dir = join(renderCacheDir(), `fit-${randomUUID().slice(0, 12)}`)
+  try {
+    mkdirSync(dir, { recursive: true })
+    const src = join(dir, 'src.pdf')
+    writeFileSync(src, pdf)
+    const info = await runVersion(process.env['MARVEEN_PDFINFO'] || 'pdfinfo', ['-f', '1', '-l', '99999', src], 60_000)
+    if (!info.ok) return { ok: false, detail: info.detail }
+    const sizes = parsePdfPageSizes(info.stdout)
+    if (!sizes.length) return { ok: false, detail: 'pdfinfo returned no page sizes' }
+    if (sizes.every((z) => z && pageFitsA4(z.w, z.h))) return { ok: true, pdf }
+    // One piece per page, in order: a page that fits is copied as it is, a larger one is scaled onto A4.
+    const pieces: string[] = []
+    for (let i = 0; i < sizes.length; i++) {
+      const n = i + 1
+      const z = sizes[i]
+      const piece = join(dir, `p${String(n).padStart(5, '0')}.pdf`)
+      const sep = await runVersion(process.env['MARVEEN_PDFSEPARATE'] || 'pdfseparate', ['-f', String(n), '-l', String(n), src, piece], 60_000)
+      if (!sep.ok) return { ok: false, detail: sep.detail }
+      if (z && !pageFitsA4(z.w, z.h)) {
+        const scaled = join(dir, `s${String(n).padStart(5, '0')}.pdf`)
+        // `-paper A4` follows the page's own orientation (measured: landscape in, 842 x 595 out); -paperw/-paperh did not.
+        const r = await runVersion(process.env['MARVEEN_PDFTOCAIRO'] || 'pdftocairo', ['-pdf', '-paper', 'A4', piece, scaled], 120_000)
+        if (!r.ok) return { ok: false, detail: r.detail }
+        pieces.push(scaled)
+      } else pieces.push(piece)
+    }
+    const out = join(dir, 'out.pdf')
+    const u = await runVersion(process.env['MARVEEN_PDFUNITE'] || 'pdfunite', [...pieces, out], 120_000)
+    if (!u.ok) return { ok: false, detail: u.detail }
+    return { ok: true, pdf: readFileSync(out) }
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : String(e) }
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }) } catch { /* cleanup failure is not the user's problem */ }
+  }
+}
+
 /** Egy melleklet tartalma PDF-kent (boritolap nelkul). */
 export async function annexContentPdf(abs: string, name: string): Promise<{ ok: true; pdf: Buffer } | { ok: false; code: 'annex_unsupported' | 'annex_convert_failed'; detail: string | null; convert?: string }> {
   const kind = annexPdfKind(name)
   if (!kind) return { ok: false, code: 'annex_unsupported', detail: name }
   try {
-    if (kind === 'pdf') return { ok: true, pdf: readFileSync(abs) }
+    if (kind === 'pdf') {
+      const fit = await fitPdfToA4(readFileSync(abs))
+      return fit.ok ? { ok: true, pdf: fit.pdf } : { ok: false, code: 'annex_convert_failed', detail: fit.detail }
+    }
     if (kind === 'text') {
       const r = await renderFodtPdf(buildTextFodt(readFileSync(abs, 'utf-8'), name), PDF_FILTER_DRAFT)
       return r.ok ? { ok: true, pdf: r.pdf } : { ok: false, code: 'annex_convert_failed', detail: r.detail, convert: r.code }
