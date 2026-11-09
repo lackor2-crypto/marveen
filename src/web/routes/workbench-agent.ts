@@ -38,7 +38,7 @@ import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
 import { decideWorkbenchBackend, isWindowsDriveBridgePath } from '../../workbench-agent/backend-router.js'
-import { runCodeBridgeTurn, incompleteAnswerText, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, claimsBackgroundWait, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
+import { runCodeBridgeTurn, incompleteAnswerText, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, claimsOutsideWait, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
 import {
   setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
 } from '../../workbench-agent/bridge-continuation.js'
@@ -1057,7 +1057,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         // waits for the outside, and a round that merely repeats the previous status adds nothing (Boss TG 5068:
         // five identical "CI-futás tart" rounds, then "nem tudtam tovább haladni").
         const statusKey = answer.replace(COMPLETION_MARKER, '').replace(/\s+/g, ' ').trim().slice(0, 160)
-        if (claimsBackgroundWait(answer)) break outer
+        if (claimsOutsideWait(answer)) break outer
         const repeated = rounds > 0 && !!statusKey && statusKey === lastStatusKey
         lastStatusKey = statusKey
         if (rounds > 0 && (!worked || repeated)) {

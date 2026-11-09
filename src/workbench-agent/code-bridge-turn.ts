@@ -306,6 +306,31 @@ export function claimsBackgroundWait(text: string): boolean {
   return BACKGROUND_WAIT_CUES.test(before.slice(-PENDING_TAIL_CHARS))
 }
 
+/**
+ * The answer says the NEXT step is the owner's ("azt csak te tudod megnyomni", "szólj, ha megvan", "küldd el a fotót").
+ * Another round cannot move it: the agent has nothing left to do until the owner writes, so the next prompt only makes it
+ * repeat the same status (Boss TG 5054; chats c9619cb2 and 587d5895 of 2026-11-08: two "folytatom" lines, then "nem tudtam
+ * tovább haladni"). Asking WHICH part to start with is a different thing and stays "continue" (Boss, 2026-10-02).
+ */
+const OWNER_WAIT_CUES = new RegExp([
+  'csak te (?:tudod|nyomhatod|tudsz|teheted)', 'azt csak te', 'te (?:tudod|nyomod|kell)\\b[^.\\n]{0,40}(?:megnyomni|elkészíteni|megcsinálni|elküldeni|megnyom)',
+  'szólj,? (?:ha|amint) (?:megvan|kész|elkészült|megnyomtad|megcsináltad)', 'szólj,? és', 'írj egy sort', 'ha (?:megvan|kész|elkészült|megnyomtad)[^.\\n]{0,80}szólj',
+  'küldd el (?:a |az )?(?:képernyő|fot|screenshot)', 'ha az .{0,60}küldd el', 'ezt kell csinálnod', 'ezt kell tenned',
+  'only you can', 'tell me (?:when|once)', 'once you(?:\'ve)? ', 'send me (?:a |the )?(?:screenshot|photo)',
+].join('|'), 'i')
+const WHICH_PART_CUES = /melyik(?:kel|et)? (?:kezdjem|csináljam|folytassam)|folytassam|kezdjem(?: el)?\?|which (?:one )?(?:should|shall) i|shall i (?:continue|proceed|start)|do you want me to/i
+
+export function claimsOwnerWait(text: string): boolean {
+  const at = text.lastIndexOf(COMPLETION_MARKER)
+  const tail = (at >= 0 ? text.slice(0, at) : text).slice(-PENDING_TAIL_CHARS)
+  return OWNER_WAIT_CUES.test(tail) && !WHICH_PART_CUES.test(tail)
+}
+
+/** Waiting for something outside the chat: a CI run / watcher, or the owner's own step. No continue round helps either. */
+export function claimsOutsideWait(text: string): boolean {
+  return claimsBackgroundWait(text) || claimsOwnerWait(text)
+}
+
 /** The answer text of a finished task that did NOT carry the whole-work marker, marker removed
  *  ('' when there is none). It is shown to the owner even though the work is continued. */
 export function incompleteAnswerText(task: CodeBridgeTaskView): string {
@@ -317,6 +342,8 @@ export function incompleteAnswerText(task: CodeBridgeTaskView): string {
 export function codeBridgeFullyDone(task: CodeBridgeTaskView): boolean {
   if (task.status !== 'done') return false
   const text = task.result ?? task.summary ?? ''
+  // Waiting for CI / a watcher / the owner's step: a continue round only repeats the status line (#862).
+  if (claimsOutsideWait(text)) return true
   return text.includes(COMPLETION_MARKER) && !claimsPendingWork(text)
 }
 

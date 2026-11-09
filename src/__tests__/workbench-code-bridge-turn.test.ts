@@ -354,7 +354,7 @@ describe('1/A: a teljes erteku ugynok az iratok oldal-szoveget kapja', () => {
   })
 })
 
-import { claimsPendingWork, claimsBackgroundWait, codeBridgeFullyDone as fullyDoneForPending } from '../workbench-agent/code-bridge-turn.js'
+import { claimsPendingWork, claimsBackgroundWait, claimsOwnerWait, claimsOutsideWait, codeBridgeFullyDone as fullyDoneForPending } from '../workbench-agent/code-bridge-turn.js'
 describe('a befejezes jele mellett kimondott hatralevo munka nem kesz (Boss, 2026-10-02)', () => {
   it('detects pending-work wording in the closing words, Hungarian and English', () => {
     expect(claimsPendingWork('Kesz a resz.\n\nAmi hátravan a tervből: a kijelzés. Ezzel folytatom.\n\n[MINDEN_KESZ]')).toBe(true)
@@ -431,5 +431,25 @@ describe('claimsBackgroundWait (project chat must not loop while waiting for CI)
   })
   it('does not flag ordinary pending work', () => {
     expect(claimsBackgroundWait('Ami hátravan: a kijelzés. Ezzel folytatom.')).toBe(false)
+  })
+})
+
+describe('#862: an answer that waits for the OWNER does not start continue rounds', () => {
+  // Real closing words of chat c9619cb2 (2026-11-08 22:09): the next step is the owner's, then "folytatom" x2 and "nem tudtam tovább haladni".
+  const waits = 'A német változat átnézését a rendszer már rögzítette. Hátra van a **végső PDF** elkészítése, a Vázlat dobozban. Azt csak te tudod megnyomni, én nem. Ha kész, készítem a piszkozatot.'
+  it('detects the owner-only step', () => {
+    expect(claimsPendingWork(waits)).toBe(true)
+    expect(claimsOwnerWait(waits)).toBe(true)
+    expect(claimsOutsideWait(waits)).toBe(true)
+    expect(claimsOwnerWait('Ha megvan a PDF, szólj, és azonnal elkészítem a piszkozatot.')).toBe(true)
+    expect(claimsOwnerWait('Tell me when the PDF exists.')).toBe(true)
+  })
+  it('does not turn real unfinished work or "which part?" into a wait', () => {
+    expect(claimsOwnerWait('Ami hátravan: a kijelzés. Ezzel folytatom.')).toBe(false)
+    expect(claimsOwnerWait('Melyikkel kezdjem? Szólj, ha a másodikkal.')).toBe(false)
+  })
+  it('a finished-looking task that waits for the owner counts as concluded (no continuation, same gate for the bridge)', () => {
+    const task = { status: 'done', result: waits, summary: null } as unknown as Parameters<typeof fullyDoneForPending>[0]
+    expect(fullyDoneForPending(task)).toBe(true)
   })
 })
