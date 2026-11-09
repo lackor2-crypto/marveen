@@ -22,7 +22,13 @@ import { readRateLimitSnapshot, readScrapedUsage, writeScrapedUsage } from '../r
 import { tierForSnapshot, isStale } from '../../rate-limit-status.js'
 import { fetchOpenRouterCredits } from './openrouter-overview.js'
 import { deriveOpenRouterCreditsView } from '../../openrouter-credits.js'
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+// #888: the usage readout and the logged-out check run on every /api/overview request. They used a synchronous exec call (a blocking
+// fork per tmux call, per account); the forks now run off the event loop.
+const execFileAsync = promisify(execFile)
+const tmuxOut = async (args: string[]): Promise<string> => (await execFileAsync('/usr/bin/tmux', args, { timeout: 3000, encoding: 'utf-8' })).stdout
 import { readClaudePlans } from '../claude-plans.js'
 import { readAgentModel } from '../agent-config.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
@@ -154,10 +160,10 @@ function usageTokenForAccount(accountId: string, plans: ReturnType<typeof readCl
   return mainAccountUsageToken()
 }
 
-function usageScrapeSessions(accountId: string): string[] {
+async function usageScrapeSessions(accountId: string): Promise<string[]> {
   if (accountId !== MAIN_AGENT_ID) return [`agent-${accountId}`]
   try {
-    const out = execFileSync('/usr/bin/tmux', ['list-sessions', '-F', '#{session_name}'], { timeout: 3000 }).toString()
+    const out = await tmuxOut(['list-sessions', '-F', '#{session_name}'])
     const live = out.split('\n').map(s => s.trim())
       .filter(s => s === MAIN_CHANNELS_SESSION || s.startsWith(`${MAIN_AGENT_ID}-`))
     if (live.length) return live
@@ -171,10 +177,10 @@ function usageScrapeSessions(accountId: string): string[] {
  * while the pane said "Not logged in", and the agent itself reported ~90%). Those numbers must not be shown as a
  * measurement. Best effort: any tmux failure -> false (absence of evidence is not evidence of a logout).
  */
-export function accountSessionLoggedOut(accountId: string): boolean {
-  for (const session of usageScrapeSessions(accountId)) {
+export async function accountSessionLoggedOut(accountId: string): Promise<boolean> {
+  for (const session of await usageScrapeSessions(accountId)) {
     try {
-      const pane = execFileSync('/usr/bin/tmux', ['capture-pane', '-t', exactTmuxTarget(session), '-p'], { timeout: 3000 }).toString()
+      const pane = await tmuxOut(['capture-pane', '-t', exactTmuxTarget(session), '-p'])
       const st = detectReauthNeeded(pane)
       if (st.needsReauth && st.source === 'status-line') return true
     } catch { /* pane unavailable, try the next one */ }
@@ -182,16 +188,16 @@ export function accountSessionLoggedOut(accountId: string): boolean {
   return false
 }
 
-function scrapeClaudeAccountUsage(accountId: string): { usedPct: number | null; model: string | null; resetsAt: number | null; stale: boolean; capturedAt?: number | null } {
+async function scrapeClaudeAccountUsage(accountId: string): Promise<{ usedPct: number | null; model: string | null; resetsAt: number | null; stale: boolean; capturedAt?: number | null }> {
   const panes: string[] = []
-  for (const session of usageScrapeSessions(accountId)) {
+  for (const session of await usageScrapeSessions(accountId)) {
     try {
       // -S -2000: the "used X%" banner is transient (only shown right after it
       // renders, then scrolls out of the default single-screen capture once the
       // agent replies to anything) -- read back deep into scrollback so a long
       // busy stretch (lots of tool-call output) doesn't push it out of range.
       // Best-effort: any tmux failure (session not found, etc) -> nulls.
-      panes.push(execFileSync('/usr/bin/tmux', ['capture-pane', '-t', exactTmuxTarget(session), '-p', '-S', '-2000'], { timeout: 3000 }).toString())
+      panes.push(await tmuxOut(['capture-pane', '-t', exactTmuxTarget(session), '-p', '-S', '-2000']))
     } catch { /* pane unavailable, try the next one */ }
   }
 
@@ -706,10 +712,10 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     // forras all mogotte, mint a tobbi fiok mogott.
     const mainLive = liveRow(MAIN_AGENT_ID)
     // A signed-out session has no measurement: the numbers its status line still draws are history (see accountSessionLoggedOut).
-    const mainLoggedOut = !mainLive && accountSessionLoggedOut(MAIN_AGENT_ID)
+    const mainLoggedOut = !mainLive && await accountSessionLoggedOut(MAIN_AGENT_ID)
     const mainSnapFresh = rlSnapshot ? !isStale(rlSnapshot.measuredAt, Date.now()) : false
     const mainScrape = (!mainLive && (measureNow || !mainSnapFresh || rlSnapshot?.fiveHour?.usedPct == null))
-      ? scrapeClaudeAccountUsage(MAIN_AGENT_ID) : null
+      ? await scrapeClaudeAccountUsage(MAIN_AGENT_ID) : null
     // A pillanatkep a gazdagabb forras (5 oras ES heti ablak), a panel-
     // leolvasas viszont MOSTANI. Csak akkor lep a helyebe, ha tenyleg elo
     // (`!stale`) es tenyleg van benne szam -- kulonben marad a pillanatkep, es
@@ -745,7 +751,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         measuredAt: mainLoggedOut ? null : mainLive ? mainLive.measuredAt : (mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null)),
         loggedOut: mainLoggedOut,
       },
-      ...readClaudePlans().map(plan => {
+      ...(await Promise.all(readClaudePlans().map(async plan => {
         // Boss 2026-08-10 ("nem igaz, hogy nem lehet lekerni, ha a fiok
         // csatlakozva van"): he was right -- the pane-scrape below was
         // always a workaround for these two plans never having had
@@ -783,7 +789,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
             measuredAt: planLive.measuredAt,
           }
         }
-        const eagerScrape = measureNow ? scrapeClaudeAccountUsage(plan.id) : null
+        const eagerScrape = measureNow ? await scrapeClaudeAccountUsage(plan.id) : null
         if (eagerScrape && !eagerScrape.stale && eagerScrape.usedPct !== null) {
           return {
             id: plan.id,
@@ -812,7 +818,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
             measuredAt: snap.measuredAt,
           }
         }
-        const scraped = eagerScrape ?? scrapeClaudeAccountUsage(plan.id)
+        const scraped = eagerScrape ?? await scrapeClaudeAccountUsage(plan.id)
         if (scraped.usedPct !== null) {
           return {
             id: plan.id,
@@ -848,7 +854,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
           stale: true,
           measuredAt: snap?.measuredAt ?? null,
         }
-      }),
+      }))),
     ]
 
     // #545: a spent 5-hour window keeps its reset time on the row (the watcher knows it even when the usage reading
