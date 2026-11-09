@@ -5751,6 +5751,7 @@ window._i18n.hu = {
   "projects.next.due": "határidő: {date}",
   "projects.next.overdue": "lejárt: {date}",
   "projects.next.answered": "Megválaszolva ({n}) — elküldve, nem nyitott",
+  "projects.next.all_current": "Minden nyitott munkadarab az Aktuális munkában van, több teendő nincs.",
   "projects.next.more": "+ még {n} — megnyitás a Kanbanban",
   "projects.activity.title": "Legutóbbi aktivitás",
   "projects.activity.hint": "Kártya-mozgások, kommentek, jóváhagyások, kódfeladatok és a mappa fájljai — időrendben.",

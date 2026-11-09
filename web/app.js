@@ -49717,9 +49717,13 @@ function _prjApprovalsHtml(ov) {
 
 function _prjNextHtml(ov) {
   const list = ov.nextSteps || []
-  const works = ov.workItems || []
+  // One work item shows in ONE place: what the Current work box lists is not repeated here (Boss, TG 5893).
+  const currentIds = new Set((ov.currentWorkItems || []).map((w) => w.id))
+  const works = (ov.workItems || []).filter((w) => !currentIds.has(w.id))
   const answered = ov.answeredWorkItems || []
-  if (!list.length && !works.length && !answered.length) return _prjEmptyLine('projects.next.empty')
+  if (!list.length && !works.length && !answered.length) {
+    return _prjEmptyLine(currentIds.size ? 'projects.next.all_current' : 'projects.next.empty')
+  }
   const more = (ov.nextStepsTotal || 0) - list.length
   const worksHtml = works.map((w) => _prjWorkRowHtml(ov, w)).join('')
   // Sent (answered) work items are closed in practice: one collapsed line, not next steps.
