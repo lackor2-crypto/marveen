@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events'
 import type http from 'node:http'
 import {
   _resetEventLoopWatch, noteLag, noteStallSample, recentStalls, recentStallSamples, trackRequest, watcherPolls,
-  startEventLoopWatch, TICK_MS, STALL_MS, STALL_SAMPLER_SOURCE, alertSevereStall, SEVERE_STALL_MS, SEVERE_ALERT_COOLDOWN_MS, trimStallSampleFile,
+  startEventLoopWatch, TICK_MS, STALL_MS, STALL_SAMPLER_SOURCE, alertSevereStall, SEVERE_STALL_MS, SEVERE_ALERT_COOLDOWN_MS, trimStallSampleFile, SAMPLE_AFTER_MS, SAMPLER_POLL_MS,
 } from '../web/event-loop-watch.js'
 
 const fakeRes = () => new EventEmitter() as unknown as http.ServerResponse
@@ -176,5 +176,13 @@ describe('#865 a wall-clock step is not a stall', () => {
     vi.advanceTimersByTime(TICK_MS)
     vi.advanceTimersByTime(TICK_MS)
     expect(recentStalls()).toEqual([])
+  })
+})
+
+describe('#893: the stack sampler also sees the 0.5-1.2 s stalls', () => {
+  it('samples below the old 1.2 s limit, and polls often enough to catch it', () => {
+    expect(SAMPLE_AFTER_MS).toBeLessThan(1200)
+    expect(SAMPLE_AFTER_MS).toBeGreaterThanOrEqual(STALL_MS)
+    expect(SAMPLER_POLL_MS).toBeLessThanOrEqual(SAMPLE_AFTER_MS / 2)
   })
 })
