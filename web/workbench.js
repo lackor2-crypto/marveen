@@ -17733,15 +17733,76 @@
   function dpPagesPaint() {
     var page = dpPagesRoot()
     if (!page) return
+    Array.prototype.slice.call(page.querySelectorAll('.wb-dp-pagebreak-tr')).forEach(function (n) { n.remove() })
     Array.prototype.slice.call(page.querySelectorAll('.wb-dp-pagebreak')).forEach(function (n) { n.remove() })
     var d = WB.dpPages
     if (!dpPagesOn() || !d || d.item !== WB.selectedId || d.hash !== dpPagesHash()) return
     d.marks.forEach(function (m) {
+      // A page that begins INSIDE a table: the mark id is `<block id>#r<row>`; the line goes in as a row of its own.
+      var tr = /^(.+)#r(\d+)$/.exec(String(m.id))
+      if (tr) {
+        var tbl = page.querySelector('[data-wb-tbl-block="' + tr[1] + '"] table')
+        var rows = tbl ? tbl.rows : null
+        var at = rows ? rows[Number(tr[2])] : null
+        if (at) {
+          var cols = at.cells.length || 1
+          var band = document.createElement('tr')
+          band.className = 'wb-dp-pagebreak-tr'
+          var td = document.createElement('td')
+          td.colSpan = cols
+          td.innerHTML = dpPageMarkHtml(m)
+          band.appendChild(td)
+          at.parentNode.insertBefore(band, at)
+        }
+        return
+      }
       var row = page.querySelector('[data-wb-row="' + m.id + '"]')
       if (row) { row.insertAdjacentHTML(m.inside ? 'afterend' : 'beforebegin', dpPageMarkHtml(m)); return }
       var box = page.querySelector('[data-wb-secbox="' + m.id + '"]')
       var head = box && !m.inside ? box.querySelector('.wb-dp-sechead') : null
       if (head) head.insertAdjacentHTML('beforebegin', dpPageMarkHtml(m))
+    })
+    dpPagesFixLayout(page, d.pages)
+  }
+  /** FIXED A4 PAGES (owner, 2026-11-09: "legyen egy fix meretu oldal es kesz, nem huzzuk mint a retes tesztat"; the same way the
+   *  professional editors -- CKEditor 5 Pagination, Word Online -- draw it: pages of a fixed paper size, the content sits on
+   *  them, a break is a gap between two sheets). The sheet is one white column; every page line is a spacer sized so that the
+   *  next page's content starts exactly at the top margin of the next A4 slot (slot = page height + gap). The PDF decides
+   *  WHERE a page ends (measured marks); the spacer decides how much blank paper the page keeps below it. A page whose
+   *  content is taller than the paper moves the next page to the next free slot instead of being squeezed. */
+  var DP_PAGE_GAP = 34
+  function dpPagesFixLayout(page, pages) {
+    if (!page || typeof page.getBoundingClientRect !== 'function' || window.innerWidth <= 900) return
+    var cs = window.getComputedStyle(page)
+    var pt = parseFloat(cs.paddingTop) || 0
+    var pb = parseFloat(cs.paddingBottom) || 0
+    var w = page.clientWidth
+    if (!(w > 300)) return
+    var h = w * 297 / 210
+    var slot = h + DP_PAGE_GAP
+    page.style.setProperty('--pg-gap', DP_PAGE_GAP + 'px')
+    var bands = Array.prototype.slice.call(page.querySelectorAll('.wb-dp-pagebreak'))
+    bands.forEach(function (b) { b.classList.add('is-fixed'); b.style.height = '0px'; if (b.parentNode && b.parentNode.tagName === 'TD') b.parentNode.style.height = '0px' })
+    var k = 0
+    bands.forEach(function (b) {
+      var holder = b.parentNode && b.parentNode.tagName === 'TD' ? b.closest('tr') : b
+      var top = holder.getBoundingClientRect().top - page.getBoundingClientRect().top
+      // The next page starts at slot k+1, content at its top margin; the paper's bottom (+ gap) must be below the content.
+      k = Math.max(k + 1, 1)
+      // The paper's bottom margin may take a little overflow (the screen type is never letter-for-letter the PDF's).
+      while (k * slot - DP_PAGE_GAP + Math.round(pb + 16) < top - 1) k++
+      var hh = Math.max(DP_PAGE_GAP + pt, Math.round(k * slot + pt - top))
+      b.style.height = hh + 'px'
+      if (b.parentNode && b.parentNode.tagName === 'TD') b.parentNode.style.height = hh + 'px'
+    })
+    var total = Math.max(pages || 0, k + 1)
+    page.style.minHeight = Math.round(total * slot - DP_PAGE_GAP) + 'px'
+  }
+  if (typeof window.addEventListener === 'function') {
+    var dpFixTimer = null
+    window.addEventListener('resize', function () {
+      clearTimeout(dpFixTimer)
+      dpFixTimer = setTimeout(function () { if (WB.open) dpPagesPaint() }, 250)
     })
   }
   /** What the marks were measured on: the document's content fingerprint (any change makes them old). */
