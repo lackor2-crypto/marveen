@@ -15,3 +15,13 @@ describe('channel monitor tick takes one async pane snapshot', () => {
     expect(src).not.toMatch(/for \(const t of targets\) \{\n\s+const pane = capturePane\(t\.session\)/)
   })
 })
+
+describe('periodic watchers read panes async', () => {
+  for (const f of ['stuck-tool-call-watcher.ts', 'stuck-input-watcher.ts']) {
+    it(`${f}: no sync capturePane(session) in the tick`, () => {
+      const s = readFileSync(join(__dirname, '..', 'web', f), 'utf-8')
+      expect(s).not.toMatch(/[^a-zA-Z.]capturePane\(session\)/)
+      expect(s).toContain('await capturePaneAsync(session)')
+    })
+  }
+})

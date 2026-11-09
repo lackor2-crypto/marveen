@@ -11,6 +11,7 @@ import {
   agentSessionName,
   restartAgentProcess,
   capturePane,
+  capturePaneAsync,
   sendPromptToSession,
   isSessionReadyForPrompt,
   noteSaturationBannerUntrusted,
@@ -246,12 +247,12 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
 
   const session = sessionFor(name)
   const running = name === MAIN_AGENT_ID
-    ? capturePane(session) !== null
+    ? (await capturePaneAsync(session)) !== null
     : agentRunState(name) === 'running'
 
   // Only pay for the tmux/transcript probes a decision can actually use.
   const needPct = state.phase === 'idle' || state.phase === 'await-handoff'
-  const pane = running && needPct ? capturePane(session) : null
+  const pane = running && needPct ? await capturePaneAsync(session) : null
   const sessionReady = running && state.phase === 'await-ready'
     ? await isSessionReadyForPrompt(session)
     : false

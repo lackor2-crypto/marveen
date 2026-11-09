@@ -41,7 +41,7 @@ import { execFileSync } from 'node:child_process'
 import { logger } from '../logger.js'
 import { tmuxStderr } from './tmux-stderr.js'
 import { makeLazyBinResolver } from '../platform.js'
-import { capturePane } from './agent-process.js'
+import { capturePaneAsync } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { resumeMarveenSession, lastMainRespawnAt, MARVEEN_POST_RESPAWN_GRACE_MS } from './channel-monitor.js'
 import { exactTmuxTarget } from './tmux-target.js'
@@ -147,7 +147,7 @@ export function shouldDeferForRecentRespawn(
 }
 
 async function checkSession(label: string, session: string): Promise<void> {
-  const pane = capturePane(session)
+  const pane = await capturePaneAsync(session)
   const sig = pane == null ? null : stuckToolCallSignature(pane)
 
   const prev = watchState.get(session) ?? NO_STATE
