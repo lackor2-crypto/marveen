@@ -16326,7 +16326,7 @@
   }
   /** The lines of a table drawn by twTableHtml, read back off the page ("a | b" per row); null when the table is gone. */
   function twTableLines(el) {
-    var trs = el.querySelectorAll ? el.querySelectorAll('tr') : []
+    var trs = el.querySelectorAll ? Array.prototype.filter.call(el.querySelectorAll('tr'), function (tr) { return !(tr.classList && tr.classList.contains('wb-dp-pagebreak-tr')) }) : []
     if (!trs.length) return null
     // A line break typed inside a cell (Shift+Enter) reads back as a space, so the words around it are not glued together.
     var cell = function (c) {
@@ -17772,31 +17772,46 @@
    *  content is taller than the paper moves the next page to the next free slot instead of being squeezed. */
   var DP_PAGE_GAP = 34
   function dpPagesFixLayout(page, pages) {
-    if (!page || typeof page.getBoundingClientRect !== 'function' || window.innerWidth <= 900) return
+    if (!page || typeof page.getBoundingClientRect !== 'function') return
+    var w = page.clientWidth
+    if (!(w > 200)) return
+    // The paper margins of the PDF (top / bottom 1.5 cm, left 2.5 cm, right 2 cm) as a share of the sheet's width, so the
+    // sheet is the same paper at any width (a phone included); the type scales with the text width in pageFit.
+    page.style.setProperty('--pg-pt', (w * 1.5 / 21).toFixed(1) + 'px')
+    page.style.setProperty('--pg-pb', (w * 1.5 / 21).toFixed(1) + 'px')
+    page.style.setProperty('--pg-pl', (w * 2.5 / 21).toFixed(1) + 'px')
+    page.style.setProperty('--pg-pr', (w * 2 / 21).toFixed(1) + 'px')
     var cs = window.getComputedStyle(page)
     var pt = parseFloat(cs.paddingTop) || 0
     var pb = parseFloat(cs.paddingBottom) || 0
-    var w = page.clientWidth
-    if (!(w > 300)) return
     var h = w * 297 / 210
     var slot = h + DP_PAGE_GAP
     page.style.setProperty('--pg-gap', DP_PAGE_GAP + 'px')
+    // The work frame can be zoomed ("Nagyitas"): screen measures are divided by the zoom, CSS lengths are not.
+    var zoom = page.offsetWidth ? page.getBoundingClientRect().width / page.offsetWidth : 1
+    if (!(zoom > 0.2)) zoom = 1
     var bands = Array.prototype.slice.call(page.querySelectorAll('.wb-dp-pagebreak'))
     bands.forEach(function (b) { b.classList.add('is-fixed'); b.style.height = '0px'; if (b.parentNode && b.parentNode.tagName === 'TD') b.parentNode.style.height = '0px' })
-    var k = 0
+    // Page n begins at slot n-1 (+ `off`). A page whose content is taller than the paper (the screen's line breaks are not
+    // letter for letter the PDF's) pushes the pages after it down by the overflow instead of leaving a blank sheet.
+    var off = 0
+    var lastPage = 1
     bands.forEach(function (b) {
       var holder = b.parentNode && b.parentNode.tagName === 'TD' ? b.closest('tr') : b
-      var top = holder.getBoundingClientRect().top - page.getBoundingClientRect().top
-      // The next page starts at slot k+1, content at its top margin; the paper's bottom (+ gap) must be below the content.
-      k = Math.max(k + 1, 1)
-      // The paper's bottom margin may take a little overflow (the screen type is never letter-for-letter the PDF's).
-      while (k * slot - DP_PAGE_GAP + Math.round(pb + 16) < top - 1) k++
-      var hh = Math.max(DP_PAGE_GAP + pt, Math.round(k * slot + pt - top))
+      var top = (holder.getBoundingClientRect().top - page.getBoundingClientRect().top) / zoom
+      var pageNo = Number(b.getAttribute('data-wb-pagebreak')) || lastPage + 1
+      var k = Math.max(pageNo - 1, 1)
+      lastPage = pageNo
+      var tol = Math.round(pb + 16)
+      var over = top - (k * slot + off - DP_PAGE_GAP + tol)
+      if (over > 0) off += Math.ceil(over)
+      var hh = Math.max(DP_PAGE_GAP + pt, Math.round(k * slot + off + pt - top))
       b.style.height = hh + 'px'
       if (b.parentNode && b.parentNode.tagName === 'TD') b.parentNode.style.height = hh + 'px'
     })
-    var total = Math.max(pages || 0, k + 1)
-    page.style.minHeight = Math.round(total * slot - DP_PAGE_GAP) + 'px'
+    page._dpPages = pages || 0
+    var total = Math.max(pages || 0, lastPage)
+    page.style.minHeight = Math.round(total * slot + off - DP_PAGE_GAP) + 'px'
   }
   if (typeof window.addEventListener === 'function') {
     var dpFixTimer = null
@@ -17871,6 +17886,7 @@
   function twPagesPaint() {
     var host = document.getElementById('wbTwPage')
     if (!host) return
+    Array.prototype.slice.call(host.querySelectorAll('.wb-dp-pagebreak-tr')).forEach(function (n) { n.remove() })
     Array.prototype.slice.call(host.querySelectorAll('.wb-dp-pagebreak')).forEach(function (n) { n.remove() })
     var d = WB.twPages
     var tw = WB.tw
@@ -17885,8 +17901,25 @@
         return
       }
       var row = els[m.idx]
+      if (row && m.row > 0) {
+        // The page begins INSIDE this table, at row `m.row`: the line goes in as a row of its own.
+        var tbl = row.querySelector('table')
+        var at = tbl && tbl.rows ? tbl.rows[m.row] : null
+        if (at) {
+          var band = document.createElement('tr')
+          band.className = 'wb-dp-pagebreak-tr'
+          band.setAttribute('contenteditable', 'false')
+          var td = document.createElement('td')
+          td.colSpan = at.cells.length || 1
+          td.innerHTML = dpPageMarkHtml(m)
+          band.appendChild(td)
+          at.parentNode.insertBefore(band, at)
+        }
+        return
+      }
       if (row) row.insertAdjacentHTML(m.inside ? 'afterend' : 'beforebegin', dpPageMarkHtml(m))
     })
+    dpPagesFixLayout(host, d.pages)
   }
   function twPagesLoad() {
     var id = WB.selectedId
@@ -17897,7 +17930,7 @@
     api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/pagebreaks?lang=' + encodeURIComponent(window._lang || 'hu') + '&to=' + encodeURIComponent(lang)).then(function (r) {
       WB.twPagesBusy = false
       if (WB.selectedId !== id) return
-      if (r.ok && r.data) WB.twPages = { item: id, lang: lang, marks: r.data.marks || [], fit: r.data.fit || null }
+      if (r.ok && r.data) WB.twPages = { item: id, lang: lang, marks: r.data.marks || [], pages: r.data.pages || 0, fit: r.data.fit || null }
       twPagesPaint()
     })
   }
@@ -25628,6 +25661,12 @@
       var fs = (tw * PAGE_FONT_PER_TEXT_WIDTH).toFixed(3) + 'px'
       if (pg.style.fontSize !== fs) pg.style.fontSize = fs
       if (pg.style.getPropertyValue('--wb-lh') !== String(PAGE_LINE_PITCH)) pg.style.setProperty('--wb-lh', String(PAGE_LINE_PITCH))
+      // The fixed A4 slots (dpPagesFixLayout) were sized on the old type size: when the width or the type changed, size them again.
+      var fitKey = pg.clientWidth + '|' + fs
+      if (pg._fitKey !== fitKey) {
+        pg._fitKey = fitKey
+        if (pg._dpPages !== undefined && pg.querySelector('.wb-dp-pagebreak')) dpPagesFixLayout(pg, pg._dpPages)
+      }
     }
   }
   var pageFitQueued = false

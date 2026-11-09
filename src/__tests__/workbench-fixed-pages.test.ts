@@ -25,6 +25,20 @@ describe('fixed A4 pages in the page editor', () => {
     expect(JS).toContain('wb-dp-pagebreak-tr')
     expect(JS).toMatch(/#r\(\\d\+\)\$/)
   })
+  it('the language version page gets the same fixed pages, with page lines inside its tables', () => {
+    expect(JS).toMatch(/dpPagesFixLayout\(host, d\.pages\)/)
+    expect(JS).toMatch(/m\.row > 0/)
+    expect(JS).toMatch(/wb-dp-pagebreak-tr'\)\) \}\)|classList\.contains\('wb-dp-pagebreak-tr'\)/)
+    const srv = readFileSync(join(ROOT, 'src', 'workbench-doclang-translate.ts'), 'utf8')
+    expect(srv).toMatch(/row\?: number/)
+  })
+  it('sizes the slots again when the type size or the width changes, and divides screen measures by the frame zoom', () => {
+    expect(JS).toMatch(/pg\._fitKey !== fitKey/)
+    expect(JS).toMatch(/getBoundingClientRect\(\)\.width \/ page\.offsetWidth/)
+  })
+  it('works at a phone width too (margins as a share of the sheet width)', () => {
+    expect(JS).toMatch(/w \* 2\.5 \/ 21/)
+  })
   it('types the sheet like the PDF (serif, 11 pt equal-width table cells, the PDF margins)', () => {
     expect(CSS).toMatch(/\.wb-dp-page \{ font-family: "Liberation Serif"/)
     expect(CSS).toMatch(/table-layout: fixed/)
