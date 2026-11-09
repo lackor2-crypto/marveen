@@ -33833,7 +33833,9 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
   // browsing Inbox. The panel already has the full envelope object in hand
   // from its own fetch, so it just hands it straight through instead of
   // this function needing yet another round trip to re-fetch it.
-  const envelope = mailbox === emailMailbox ? emailEnvelopes.find(e => String(e.id) === id) : (emailSiblingEnvelopes[id] || envelopeHint)
+  // A search hit can sit deep in the folder that was just opened (its first page does not hold it): when the open
+  // list does not contain the mail, fall back to the siblings / the hint instead of an empty "(nincs tárgy)" header.
+  const envelope = (mailbox === emailMailbox ? emailEnvelopes.find(e => String(e.id) === id) : null) || emailSiblingEnvelopes[id] || envelopeHint
   const pane = document.getElementById('emailReaderPane')
   const content = document.getElementById('emailReaderContent')
   const subjectRow = document.getElementById('emailReaderSubjectRow')
