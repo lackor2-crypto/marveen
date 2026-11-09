@@ -17,6 +17,18 @@ export interface ItemMark { /** one WORK in several languages counts as one: any
 
 export const SOON_DAYS = 7
 
+export const CURRENT_WORK_HOURS = 24
+
+/** ONE rule for "being worked on now" (Boss TG 5878/5898): an UNSENT work item that is in progress, or whose deadline
+ *  is today or past, or that was touched in the last CURRENT_WORK_HOURS hours. The project overview's Current work
+ *  box and the Kanban board's In progress column both use this. `updatedAtMs` is in milliseconds. */
+export function isCurrentWork(w: { status: string; sent: boolean; due: { days: number } | null; updatedAtMs: number }, nowMs: number): boolean {
+  if (w.sent) return false
+  if (w.status === 'in_progress') return true
+  if (w.due && w.due.days <= 0) return true
+  return w.updatedAtMs > 0 && w.updatedAtMs >= nowMs - CURRENT_WORK_HOURS * 3600_000
+}
+
 export function dueLevel(days: number): DueLevel {
   if (days < 0) return 'overdue'
   if (days === 0) return 'today'

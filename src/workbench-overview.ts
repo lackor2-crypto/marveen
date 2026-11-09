@@ -17,6 +17,7 @@ import { getDb, listPendingApprovals } from './db.js'
 import { hasTable } from './projects.js'
 import { approvalCardId } from './kanban-related.js'
 import { ensureWorkbenchTables, type WorkItemStatus } from './workbench.js'
+import { itemMarks, isCurrentWork, type ItemMark } from './workbench-item-marks.js'
 
 /** Mennyi ideig "friss" egy kesz munkadarab. */
 export const RECENT_DONE_DAYS = 14
@@ -266,7 +267,29 @@ export function listBoardWorkItems(projectId?: string | null, now = Math.floor(D
         AND (w.status != 'done' OR w.updated_at >= ?)
       ORDER BY w.updated_at DESC`,
   ).all(pid, pid, since) as Array<Omit<BoardWorkItem, 'column'>>
-  return rows
-    .filter((r) => BOARD_COLUMN[r.status])
-    .map((r) => ({ ...r, column: BOARD_COLUMN[r.status] }))
+  // The column follows what the work item REALLY is, not only its stored status (Boss TG 5898/5903): a SENT
+  // one is answered, so it shows in Done; an unsent one being worked on right now shows in In progress. Display
+  // only: the stored status is never rewritten here.
+  const marks = new Map<string, ItemMark>()
+  for (const projId of new Set(rows.map((r) => r.project_id))) {
+    try { for (const [id, m] of Object.entries(itemMarks(projId))) marks.set(id, m) } catch { /* no marks: stored status decides */ }
+  }
+  const nowMs = now * 1000
+  const out: BoardWorkItem[] = []
+  for (const r of rows) {
+    if (!BOARD_COLUMN[r.status]) continue
+    const m = marks.get(r.id)
+    let column = BOARD_COLUMN[r.status]
+    if (m && r.status !== 'done') {
+      if (m.sent) {
+        // Same recent window as a stored-done one, so the Done column does not grow forever.
+        if (r.updated_at < since) continue
+        column = 'done'
+      } else if (r.status === 'draft' && isCurrentWork({ status: r.status, sent: false, due: m.due, updatedAtMs: r.updated_at * 1000 }, nowMs)) {
+        column = 'in_progress'
+      }
+    }
+    out.push({ ...r, column })
+  }
+  return out
 }

@@ -90,6 +90,8 @@ describe('munkadarabok a Kanban-tablan (TG 1836 B)', () => {
 
   it('az allapot a kanban oszlopara kepzodik, projektnevvel, szurheto projektre', () => {
     item(pid, 'V', 'draft'); item(pid, 'F', 'in_progress'); item(pid, 'A', 'review'); item(other, 'K', 'done')
+    // a draft older than 24 h is Planned (a fresh one counts as current work and shows in In progress)
+    getDb().prepare("UPDATE work_items SET updated_at = ? WHERE title = 'V'").run(Math.floor(Date.now() / 1000) - 3 * 86400)
     const all = listBoardWorkItems()
     const col = (t: string) => all.find((w) => w.title === t)!.column
     expect([col('V'), col('F'), col('A'), col('K')]).toEqual(['planned', 'in_progress', 'waiting', 'done'])

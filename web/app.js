@@ -3032,7 +3032,9 @@ function updateWipBadges(grouped) {
     const limit = cfg?.limits?.[status] || 0
     if (!limit) {
       // No limit configured: restore plain count and clear WIP styling
-      el.textContent = cards.length
+      // The flat board also shows work items in the column: the header counts them too (#457), one shared rule
+      const works = kanbanGroupBy === 'none' ? kanbanWorkItems.filter((w) => w.column === status && kanbanWorkItemVisible(w)).length : 0
+      el.textContent = cards.length + works
       delete el.dataset.wip
       el.style.color = ''
       el.style.borderColor = ''

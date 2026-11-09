@@ -22,7 +22,7 @@
  * Minden ido EZREDMASODPERCBEN megy ki (a kanban masodpercben tarol, a kod-hid
  * ezredben -- itt egysegesitjuk).
  */
-import { itemMarks } from './workbench-item-marks.js'
+import { itemMarks, isCurrentWork } from './workbench-item-marks.js'
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getDb, listPendingApprovals } from './db.js'
@@ -189,15 +189,9 @@ export function sortNextSteps(cards: OverviewCard[]): OverviewCard[] {
 }
 
 const OPEN_WORK_STATUSES = ['draft', 'in_progress', 'review']
-const CURRENT_WORK_HOURS = 24
-
-/** An unsent work item counts as current work when it is in progress, its
- *  deadline is today or past, or it was touched recently. */
+/** Same rule as the Kanban board's In progress column: one shared helper (workbench-item-marks). */
 export function isCurrentWorkItem(w: OverviewWorkItem, now: number): boolean {
-  if (w.sent) return false
-  if (w.status === 'in_progress') return true
-  if (w.due && w.due.days <= 0) return true
-  return w.updatedAt > 0 && w.updatedAt >= now - CURRENT_WORK_HOURS * 3600_000
+  return isCurrentWork({ status: w.status, sent: w.sent, due: w.due, updatedAtMs: w.updatedAt }, now)
 }
 
 /** Every live work item of the project, newest first -- the finished ones too:
