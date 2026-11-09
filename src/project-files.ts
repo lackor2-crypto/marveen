@@ -95,6 +95,7 @@ export function ensureProjectHasFolder(p: ProjectRow): void {
   if (up.ok) {
     p.folder_path = up.project.folder_path
     for (const key of ['knowledgeBase', 'moreMaterial', 'workItems'] as const) noteFolderMade(p, lifeName(key))
+    try { receiptFolderFor(p) } catch { /* made with the first receipt instead */ }
   }
 }
 
@@ -193,16 +194,24 @@ export function noteFolderMade(p: ProjectRow, rel: string): void {
 /** The existing one of `names` under `base` (noted as made), else a new one named `make` -- unless one of them was made
  *  before (then it is gone by the owner's hand and stays gone: null). */
 function onceFolderFor(p: ProjectRow, base: string, names: readonly string[], make: string, remake?: boolean): string | null {
+  const at = (n: string) => (base ? `${base}/${n}` : n)
   for (const n of names) {
-    const have = projectFileTarget(p, `${base}/${n}`)
-    if (have.ok) { noteFolderMade(p, `${base}/${n}`); return `${base}/${n}` }
+    const have = projectFileTarget(p, at(n))
+    if (have.ok) { noteFolderMade(p, at(n)); return at(n) }
   }
   // `remake`: the owner's explicit upload carries content and needs this one folder (#681 B, Boss TG 9567).
-  if (!remake && names.some((n) => folderWasMade(p, `${base}/${n}`))) return null
+  if (!remake && names.some((n) => folderWasMade(p, at(n)))) return null
   const r = makeProjectFolder(p, base, make)
   if (!r.ok) return null
   noteFolderMade(p, r.sub)
   return r.sub
+}
+
+/** #890 (Boss TG 5744/5748): the project-level proof-of-submission folder (see workbench-receipt.ts, #879) is there from the
+ *  start, EMPTY, in every project. Made ONCE: when the owner deletes or moves it, it is not made again (#681). */
+export const RECEIPT_FOLDER_NAMES = { hu: 'Feladási bizonylatok', en: 'Proofs of submission' } as const
+export function receiptFolderFor(p: ProjectRow): string | null {
+  return onceFolderFor(p, '', [RECEIPT_FOLDER_NAMES.hu, RECEIPT_FOLDER_NAMES.en], ol(RECEIPT_FOLDER_NAMES.hu, RECEIPT_FOLDER_NAMES.en))
 }
 
 /** Biztonsagos fajlnev: a Windows tiltott jelei nelkul, a kiterjesztes marad. */

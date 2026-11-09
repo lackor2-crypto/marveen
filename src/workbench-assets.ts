@@ -45,7 +45,7 @@ import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
 import { annotateMisplaced, adviseUpload, type Misplaced, type UploadAdvice } from './workbench-misplaced.js'
-import { folderWasMade, noteFolderMade, noteOneStandardFolder, itemStandardFolderNames, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, type FileErrorCode } from './project-files.js'
+import { folderWasMade, noteFolderMade, noteOneStandardFolder, itemStandardFolderNames, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, receiptFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
@@ -1619,6 +1619,8 @@ function* ensureAllAttachmentsFolderSteps(): Generator<void, { items: number }, 
     for (const key of ['workItems', 'moreMaterial', 'knowledgeBase'] as const) {
       for (const lang of ['hu', 'en'] as const) { const n = lifeName(key, lang); if (projectFileTarget(p, n).ok) noteFolderMade(p, n) }
     }
+    // #890: the empty proof-of-submission folder of every active project (once; a deleted one stays deleted).
+    if (p.archived_at == null) { yield; try { receiptFolderFor(p) } catch { /* made with the first receipt instead */ } }
     const rows = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(p.id) as { id: string }[]
     for (const { id } of rows) {
       yield
