@@ -35681,6 +35681,8 @@ const CONV_FOLLOW_MS = 2500
 const CONV_NEAR_BOTTOM_PX = 40
 /** Ennyi csend utan mar nem "elo", hanem "elo, de nincs uj sor". */
 const CONV_IDLE_MS = 120000
+// Same number as PROMPT_MAX_CHARS in src/web/code-bridge-store.ts (Boss TG 5799: 100 000 characters).
+const CONV_SEND_MAX_CHARS = 100000
 
 /**
  * AZ ALJAN ALL-E a lista? (tiszta fuggveny -- DOM nelkul tesztelheto)
@@ -36146,8 +36148,8 @@ async function convSendSubmit() {
   // ELORE szolunk a hosszrol: a szerver 12 000 karakternel utasitja vissza, es
   // egy hosszu, gonddal megirt utasitast nem a kuldes pillanataban kell
   // elveszteni.
-  if (text.length > 12000) {
-    convSendMsg = { text: t('conversation.send.too_long', { n: text.length }), error: true }
+  if (text.length > CONV_SEND_MAX_CHARS) {
+    convSendMsg = { text: t('conversation.send.too_long', { n: text.length, max: CONV_SEND_MAX_CHARS }), error: true }
     renderConvSend()
     return
   }

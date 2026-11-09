@@ -3646,7 +3646,7 @@ window._i18n.en = {
   'conversation.send.failed':	'Could not send it: {msg}',
   'conversation.send.network':	'The request never reached the server, so the instruction did not start. Check the connection and send it again — your text is kept.',
   'conversation.send.empty':	'Say what it should do.',
-  'conversation.send.too_long':	'{n} / 12000 characters — the other side will not take that much.',
+  'conversation.send.too_long':	'{n} / {max} characters — the other side will not take that much.',
   'memories.agent_all':			'All agents',
   'memories.stat.total':			'Total',
   'memories.stat.vectors_btn':			'Generate vectors',

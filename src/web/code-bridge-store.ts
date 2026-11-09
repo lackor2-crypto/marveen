@@ -904,7 +904,9 @@ export function effectiveRunSessionId(task: Pick<CodeTask, 'sessionId' | 'runSes
 // A CLI `--session-id` kapcsoloja UUID-t var; a heartbeatbol mas nem mehet a sorba.
 const RUN_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-export const PROMPT_MAX_CHARS = 12_000
+// Boss TG 5799: a small novel must fit into a project chat message; 100 000 characters (was 12 000, which made a
+// ~13 000-character message fail with "prompt too long"). web/app.js CONV_SEND_MAX_CHARS must match.
+export const PROMPT_MAX_CHARS = 100_000
 
 export interface EnqueueInput {
   project: string
