@@ -14,6 +14,7 @@ import {
   agentHasChannel,
   agentSessionName,
   capturePane,
+  capturePaneAsync,
   captureParkedInputView,
   observedParkedInputView,
   invalidateObservedPanes,
@@ -1597,12 +1598,21 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
       }
     }
 
+    // ONE async (batched) pane snapshot per tick, shared by the two detection
+    // passes below. They used to call the sync capturePane() once per target per
+    // pass: up to 2 x (1 + agents) blocking tmux forks on the event loop every tick.
+    // Recovery branches that ACT on a pane still re-read it fresh (sync) below.
+    const paneSnapshot = new Map<string, string | null>()
+    await Promise.all(targets.map(async (t) => {
+      paneSnapshot.set(t.session, await capturePaneAsync(t.session).catch(() => null))
+    }))
+
     // Pane-level thinking-block error detection. Independent of channel
     // plugin liveness: a session can keep a live plugin yet be wedged on
     // the API error, every injected prompt yielding another 400. Detect
     // it via the pane state and alert (never auto-reset).
     for (const t of targets) {
-      const pane = capturePane(t.session)
+      const pane = paneSnapshot.get(t.session) ?? null
       const isError = pane != null && detectPaneState(pane) === 'error'
       const prev = paneErrorState.get(t.session) ?? { firstSeenAt: null, lastAlertAt: null, lastErrorAt: null }
       const decision = decidePaneErrorAlert(isError, prev, Date.now(), {
@@ -1635,7 +1645,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
     // machine as the error pass (alert == "recover now") so a one-tick frame
     // never fires and the Escape is not re-sent every tick.
     for (const t of targets) {
-      const pane = capturePane(t.session)
+      const pane = paneSnapshot.get(t.session) ?? null
       // First-run gates (fresh-install folder-trust / bypass acceptance /
       // login picker) are detected SEPARATELY from generic blocking menus,
       // because the recovery differs: Escape on the trust/bypass dialogs
