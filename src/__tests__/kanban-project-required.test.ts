@@ -146,7 +146,7 @@ describe('alap-projektek friss telepitesen', () => {
   it('ures tablanal letrehozza a ket alap-projektet, allando sluggal, a marka es a nyelv szerint', () => {
     const r = seedDefaultProjects({ markerDir: dir, brand: 'Geza', lang: 'hu' })
     expect(r.reason).toBe('seeded')
-    expect(r.seeded.length).toBe(2)
+    expect(r.seeded.length).toBe(3) // system-dev, office-dev, sandbox (#895)
     expect(getProject(SYSTEM_DEV_SLUG)?.name).toBe('Geza fejlesztése')
     expect(getProject(OFFICE_DEV_SLUG)?.name).toBe('Iroda fejlesztése')
     expect(existsSync(join(dir, '.default-projects-seeded'))).toBe(true)

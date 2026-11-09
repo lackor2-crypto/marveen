@@ -971,6 +971,12 @@ Valós esetek: melléklet csak az Életfából (#716), a Munkapad chat 8000 kara
 linkelési tilalom. Skill: `host-agnostic-development`, `marveen-learned-rules` R15; minden ágens
 megkapja (`ensureNoHiddenLimitsSection`, `ensureGlobalNoHiddenLimitsRule`).
 
+## ⛔ TESZTELÉS A PRÓBA-PROJEKTBEN (Boss, TG 5857)
+Ha valamit ki kell próbálni (dokumentum létrehozás/törlés/linkelés, mappa, melléklet, import, levél), a `sandbox` slugú
+PRÓBA-projektben tedd, ne valódi ügyfél- vagy hivatali projektben; ott semmit nem lehet elrontani, pár próba-dokumentum
+bent maradhat. Kivétel: a böngészős kattintás oda kattint, ahova kell. Minden ágens megkapja (`ensureTestSandboxSection`,
+`ensureGlobalTestSandboxRule`). Skill: `test-in-sandbox-project`.
+
 ## ⛔ A HIBÁT A GYÖKERÉNÉL JAVÍTJUK, MINDEN ELŐFORDULÁSNÁL (Boss, TG 3948, törvény)
 
 Boss: „mindig csak egy-egy gombot javítunk ... a gyökérokkal együtt kell meggyógyítani ... nézd meg,
