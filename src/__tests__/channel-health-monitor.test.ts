@@ -46,6 +46,7 @@ vi.mock('../web/agent-process.js', () => ({
   clearFeedbackModalAndRecheck: () => false,
   isAgentRunning: (name: string) => name === 'samu',
   capturePane: (session: string) => mockCapturePane(session),
+  capturePaneAsync: async (session: string) => mockCapturePane(session),
   agentSessionName: (name: string) => `agent-${name}`,
 }))
 
@@ -96,23 +97,23 @@ describe('startChannelHealthMonitor', () => {
     clearInterval(timer)
   })
 
-  it('does not reconnect when pane shows no failure', () => {
+  it('does not reconnect when pane shows no failure', async () => {
     const timer = startChannelHealthMonitor()
     mockCapturePane.mockReturnValue('normal pane content with plugin:telegram:telegram active')
 
-    vi.advanceTimersByTime(46_000)
+    await vi.advanceTimersByTimeAsync(46_000)
 
     expect(mockSpawn).not.toHaveBeenCalled()
     clearInterval(timer)
   })
 
-  it('spawns a detached reconnect worker when pane shows plugin failure', () => {
+  it('spawns a detached reconnect worker when pane shows plugin failure', async () => {
     const timer = startChannelHealthMonitor()
     mockCapturePane.mockReturnValue(
       'plugin:telegram:telegram  ✘ failed\nsome other output',
     )
 
-    vi.advanceTimersByTime(46_000)
+    await vi.advanceTimersByTimeAsync(46_000)
 
     // Off-main-loop: a detached child (reconnect-cli.js) is spawned instead of
     // calling attemptChannelMcpReconnect inline (event-loop starvation fix).
