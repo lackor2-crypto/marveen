@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runVersion } from './capability-probe.js'
 import { convertOfficeToPdf, renderCacheDir } from './office-convert.js'
-import { annexPdfKind, annexTitleLanguageIssues, docSettings, listAnnexes, type AnnexScheme, type FileResolver } from './workbench-docannex.js'
+import { annexPdfKind, annexTitleIssuesAuto, docSettings, listAnnexes, type AnnexScheme, type FileResolver } from './workbench-docannex.js'
 import { buildCoverFodt, buildTextFodt, renderFodtPdf, PDF_FILTER_DRAFT, type DocLang } from './workbench-docrender.js'
 
 export interface AnnexPdf { label: string; title: string; pdf: Buffer; fileName: string }
@@ -93,7 +93,7 @@ export async function annexPdfs(itemId: string, resolve: FileResolver, opts: { l
   const out: AnnexPdf[] = []
   // Owner, 2026-11-08: the cover page speaks the document's language -- a Hungarian title under "Anlage K1" in a German letter
   // must never be printed or sent. Nothing is made until every title is in the document's language.
-  const bad = annexTitleLanguageIssues(itemId, opts.lang)
+  const bad = annexTitleIssuesAuto(itemId)
   if (bad.length) return { ok: false, code: 'annex_title_language', label: bad.map((b) => b.label).join(', '), detail: bad.map((b) => `${b.label}: "${b.title}" (${b.found} / ${b.expected})`).join(' | ') }
   for (const a of listAnnexes(itemId, resolve)) {
     const f = resolve(a.path)

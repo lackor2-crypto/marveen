@@ -681,7 +681,16 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
     tde('doc.annexSettings', { scheme: 'anlage' })
     // #794: the variant has no annex list of its own, it carries the original's (same files, same order), in its own label scheme.
     expect(listAnnexes(de).map((a) => [a.label, a.title])).toEqual([['Anlage K1', 'Bérleti szerződés'], ['Anlage K2', 'Átutalási igazolás']])
+    // Owner, 2026-11-08: a German letter must not carry Hungarian annex titles (they are printed on the cover page): the check flags them,
+    // and the version's OWN titles (the list stays the original's) clear it.
     tde('doc.setCourt', { profile: 'de-ervv' })
+    const flagged = documentCheck(de).items.find((i) => i.key === 'annex_title_language')
+    expect(flagged && flagged.ok).toBe(false)
+    const [axLease, axPay] = listAnnexes(de)
+    tde('doc.updateAnnex', { annex: axLease!.id, title: 'Mietvertrag' })
+    tde('doc.updateAnnex', { annex: axPay!.id, title: 'Überweisungsbeleg' })
+    expect(listAnnexes(de).map((a) => [a.label, a.title])).toEqual([['Anlage K1', 'Mietvertrag'], ['Anlage K2', 'Überweisungsbeleg']])
+    expect(listAnnexes(e.itemId).map((a) => a.title)).toEqual(['Bérleti szerződés', 'Átutalási igazolás'])
     const deCheck = documentCheck(de)
     expect(deCheck.items.filter((i) => !i.ok), JSON.stringify(deCheck.items)).toEqual([])
 

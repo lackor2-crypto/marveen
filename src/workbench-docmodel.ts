@@ -29,8 +29,7 @@ import { existsSync } from 'node:fs'
 import { resolveLifePath } from './life-explorer.js'
 import { getDb } from './db.js'
 import { verifyQuote, normalizeForMatch, bestFuzzyMatch } from './workbench-docread.js'
-import { annexCheck, annexTitleDocLang, annexTitleLanguageIssues, type FileResolver } from './workbench-docannex.js'
-import { detectTextLanguage } from './workbench-letterinfo.js'
+import { annexCheck, annexTitleIssuesAuto, type FileResolver } from './workbench-docannex.js'
 import { consistencyIssues } from './workbench-doccheck.js'
 import { variantCheckItems } from './workbench-doclang.js'
 import { SIGNATURE_TERMS } from './workbench-signatures.js'
@@ -1035,11 +1034,8 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
     if (ax.unsupported.length) items.push({ key: 'annex_unsupported', ok: false, count: ax.unsupported.length, detail: ax.unsupported })
   }
   // ANNEX TITLE LANGUAGE (owner, 2026-11-08): the cover page of an annex carries its title in the document's language.
-  try {
-    const dl = annexTitleDocLang(itemId, (id) => detectTextLanguage(listBlocks(id).map((b) => String(b.text ?? '')).join('\n')))
-    const titleBad = dl ? annexTitleLanguageIssues(itemId, dl) : []
-    if (titleBad.length) items.push({ key: 'annex_title_language', ok: false, count: titleBad.length, detail: titleBad.map((b) => `${b.label}: ${b.title}`) })
-  } catch { /* a check that cannot run never blocks */ }
+  const titleBad = annexTitleIssuesAuto(itemId)
+  if (titleBad.length) items.push({ key: 'annex_title_language', ok: false, count: titleBad.length, detail: titleBad.map((b) => `${b.label}: ${b.title}`) })
   // PICTURES (Boss TG 2901): a picture block whose file is gone would end up as a warning line in the final PDF.
   const pics = blocks.filter((b) => b.kind === 'image')
   if (pics.length) {

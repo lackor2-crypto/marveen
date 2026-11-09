@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
 import { ensureDocModelTables } from './workbench-docmodel.js'
 import { officeExt } from './office-convert.js'
+import { detectTextLanguage } from './workbench-letterinfo.js'
 
 export const ANNEX_SCHEMES = ['k', 'anlage', 'exhibit'] as const
 export type AnnexScheme = typeof ANNEX_SCHEMES[number]
@@ -563,4 +564,15 @@ export function annexTitleDocLang(itemId: string, textLang: (id: string) => Titl
     if (r && (r.lang === 'hu' || r.lang === 'de' || r.lang === 'en')) return r.lang
   } catch { /* the variants table may not exist yet */ }
   return textLang(itemId)
+}
+
+/**
+ * The issues of an item, with the document's language taken ONLY from what is certain: a language version's own language, or the language
+ * its text is plainly written in. When it cannot be told (short text, the dashboard language is only a guess) nothing is judged.
+ */
+export function annexTitleIssuesAuto(itemId: string): AnnexTitleIssue[] {
+  try {
+    const lang = annexTitleDocLang(itemId, (id) => detectTextLanguage(allTexts(id).join('\n')))
+    return lang ? annexTitleLanguageIssues(itemId, lang) : []
+  } catch { return [] }
 }
