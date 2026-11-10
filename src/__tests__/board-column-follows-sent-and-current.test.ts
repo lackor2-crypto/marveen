@@ -1,5 +1,5 @@
 // Boss TG 5898/5903: the Kanban column follows what a work item really is. A SENT one shows in Done, an
-// unsent draft being worked on right now shows in In progress. Display only: the stored status stays.
+// unsent draft being worked on right now shows in In progress. Since TG 5918 sending also stores done.
 import { describe, it, expect, beforeEach } from 'vitest'
 import { initDatabase, getDb } from '../db.js'
 import { createProject } from '../projects.js'
@@ -23,12 +23,12 @@ describe('board column follows sent / current work', () => {
     pid = p.project.id
   })
 
-  it('a sent draft shows in Done, its stored status is untouched', () => {
+  it('a sent draft shows in Done, and its stored status is done too (Boss TG 5918)', () => {
     const w = item('Elkuldott')
     markSentManually(w.id, 'test')
     expect(col(w.id)).toBe('done')
     const st = (getDb().prepare('SELECT status FROM work_items WHERE id = ?').get(w.id) as { status: string }).status
-    expect(st).toBe('draft')
+    expect(st).toBe('done')
   })
 
   it('an unsent draft touched just now shows in In progress', () => {
