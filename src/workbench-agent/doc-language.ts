@@ -36,3 +36,18 @@ export function variantLanguageRule(langCode: string, sourceTitle?: string): str
   const name = VARIANT_LANG_NAMES[langCode] ?? langCode.toUpperCase()
   return `This work item is the ${name} LANGUAGE VERSION${sourceTitle ? ` of "${sourceTitle}"` : ''}. Its document is ${name}, so EVERYTHING you write for THIS item -- text, e-mail subject and e-mail body of its mail draft (doc.mailDraft), salutation, closing -- is in ${name}, whatever the dashboard language is. The attached PDF and the letter that carries it are always in the same language.`
 }
+
+/**
+ * Boss, Workbench chat 2026-11-10: a German language version came out with "Bakos Éva" in the sender table and the
+ * signature. The translator rule said "names stay exact", so the Hungarian family-name-first order was carried into
+ * German, where it reads as "Mr/Ms Bakos, first name Éva" -- a Hungarian name is written GIVEN NAME FIRST in German,
+ * English and every other language but Hungarian (and a few more family-name-first languages). One rule, used by the
+ * translator prompt AND by the agent that translates section by section (doc.translateSection).
+ */
+export function personNameOrderRule(targetLang: string): string {
+  const t = String(targetLang || '').trim().toLowerCase()
+  if (t === 'hu') {
+    return 'Personal names: Hungarian writes the FAMILY name first. Wherever the source has a Hungarian person\'s name in given-name-first order, write it family-name-first (e.g. "Éva Bakos" -> "Bakos Éva", "László Korpás" -> "Korpás László"), in EVERY place the name occurs (sender block, recipient, salutation, signature, reference lines, annex titles, body). Spelling and accents stay exact; only the order changes. Names of non-Hungarian people stay as they are.'
+  }
+  return 'Personal names: a Hungarian person\'s name is written GIVEN name first in this language. Wherever the source has a Hungarian name in family-name-first order, turn it round (e.g. "Bakos Éva" -> "Éva Bakos", "Korpás László" -> "László Korpás"), in EVERY place the name occurs -- the sender block, the recipient, the salutation, the signature, reference lines, annex titles and the body -- so one person is always written the same way. Spelling and accents stay exact; only the order changes. Names of people who are not Hungarian, and names of authorities, companies and streets, stay exactly as they are.'
+}
