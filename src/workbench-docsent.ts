@@ -282,24 +282,39 @@ export function onSentEvent(fn: ((e: SentEvent) => void) | null): void {
  * Taking the last sending back puts it back to "in progress". One common place, so the project overview, the Kanban
  * board and the database always agree.
  */
+/** The work and its language versions are ONE work (owner TG 4216/4219): the item itself, its original and every other version. */
+export function groupMemberIds(itemId: string): string[] {
+  try {
+    const db = getDb()
+    const src = db.prepare('SELECT source_item_id AS s FROM wb_doc_variants WHERE work_item_id = ?').get(itemId) as { s: string } | undefined
+    const root = src?.s || itemId
+    const vs = db.prepare('SELECT work_item_id AS id FROM wb_doc_variants WHERE source_item_id = ?').all(root) as { id: string }[]
+    return Array.from(new Set([root, itemId, ...vs.map((v) => v.id)]))
+  } catch { return [itemId] }
+}
+const groupSql = (ids: string[]): string => ids.map(() => '?').join(',')
+
 export function syncStatusOnSent(itemId: string): void {
   try {
-    getDb().prepare(`UPDATE work_items SET status = 'done', updated_at = ? WHERE id = ? AND status != 'done' AND deleted_at IS NULL`)
-      .run(Math.floor(Date.now() / 1000), itemId)
+    const ids = groupMemberIds(itemId)
+    getDb().prepare(`UPDATE work_items SET status = 'done', updated_at = ? WHERE id IN (${groupSql(ids)}) AND status != 'done' AND deleted_at IS NULL`)
+      .run(Math.floor(Date.now() / 1000), ...ids)
   } catch (err) { logger.warn({ err: String((err as Error)?.message || err), itemId }, '[docsent] the status could not follow the sending') }
 }
 export function syncStatusOnUnsent(itemId: string): void {
   try {
-    if (sentStatus(itemId).sent) return
-    getDb().prepare(`UPDATE work_items SET status = 'in_progress', updated_at = ? WHERE id = ? AND status = 'done' AND deleted_at IS NULL`)
-      .run(Math.floor(Date.now() / 1000), itemId)
+    const ids = groupMemberIds(itemId)
+    if (ids.some((id) => sentStatus(id).sent)) return
+    getDb().prepare(`UPDATE work_items SET status = 'in_progress', updated_at = ? WHERE id IN (${groupSql(ids)}) AND status = 'done' AND deleted_at IS NULL`)
+      .run(Math.floor(Date.now() / 1000), ...ids)
   } catch (err) { logger.warn({ err: String((err as Error)?.message || err), itemId }, '[docsent] the status could not follow the taken-back sending') }
 }
 
 /**
- * One-time (Boss TG 5918, 2A): every work item that already went out gets the stored status "done". `updated_at` is
- * NOT touched, so the Done column ages them out by the real date. Runs once; the marker row makes it idempotent, so
- * an item the owner later reopens by hand is never flipped back.
+ * One-time (Boss TG 5918, 2A): every work item that already went out gets the stored status "done" -- a language version
+ * counts as sent when ANY version of the same work was sent (the first run, 'sent-to-done-1', missed those). `updated_at`
+ * is NOT touched, so the Done column ages them out by the real date. Each marker makes its run idempotent, so an item the
+ * owner later reopens by hand is never flipped back.
  */
 export function migrateSentStatusesOnce(): number {
   try {
@@ -307,15 +322,17 @@ export function migrateSentStatusesOnce(): number {
     ensureSentMarkTable()
     const db = getDb()
     db.exec('CREATE TABLE IF NOT EXISTS wb_sent_status_migration (id TEXT PRIMARY KEY, done_at INTEGER NOT NULL, changed INTEGER NOT NULL)')
-    if (db.prepare("SELECT 1 FROM wb_sent_status_migration WHERE id = 'sent-to-done-1'").get()) return 0
+    if (db.prepare("SELECT 1 FROM wb_sent_status_migration WHERE id = 'sent-to-done-2'").get()) return 0
     const hasItems = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_items'").get()
     let changed = 0
     if (hasItems) {
-      const r = db.prepare(`UPDATE work_items SET status = 'done' WHERE status != 'done' AND deleted_at IS NULL
-        AND (id IN (SELECT work_item_id FROM wb_doc_sent) OR id IN (SELECT work_item_id FROM wb_item_sent_mark))`).run()
-      changed = Number(r.changes)
+      const sentIds = (db.prepare('SELECT DISTINCT work_item_id AS id FROM wb_doc_sent UNION SELECT work_item_id FROM wb_item_sent_mark').all() as { id: string }[]).map((r) => r.id)
+      const all = new Set<string>()
+      for (const id of sentIds) for (const m of groupMemberIds(id)) all.add(m)
+      const upd = db.prepare(`UPDATE work_items SET status = 'done' WHERE id = ? AND status != 'done' AND deleted_at IS NULL`)
+      for (const id of all) changed += Number(upd.run(id).changes)
     }
-    db.prepare("INSERT INTO wb_sent_status_migration (id, done_at, changed) VALUES ('sent-to-done-1', ?, ?)").run(Math.floor(Date.now() / 1000), changed)
+    db.prepare("INSERT INTO wb_sent_status_migration (id, done_at, changed) VALUES ('sent-to-done-2', ?, ?)").run(Math.floor(Date.now() / 1000), changed)
     if (changed) logger.info({ changed }, '[docsent] sent work items set to done (one-time)')
     return changed
   } catch (err) {
