@@ -39,6 +39,7 @@ import { startWorkbenchSnapshots, stopWorkbenchSnapshots } from './workbench-sna
 import { startWorkbenchRelocate, stopWorkbenchRelocate } from './workbench-relocate.js'
 import { startItemContexts, stopItemContexts } from './workbench-item-context.js'
 import { startUploadPackageSweep } from './workbench-upload-package.js'
+import { migrateSentStatusesOnce } from './workbench-docsent.js'
 import { startLegacyReportRelocation } from './debate-export-doc.js'
 import { startLifeFolderIds, stopLifeFolderIds } from './life-folder-ids.js'
 import { AGENTS_BASE_DIR } from './web/agent-config.js'
@@ -682,6 +683,7 @@ async function main(): Promise<void> {
   startWorkbenchRelocate()
   startItemContexts()
   startUploadPackageSweep()
+  migrateSentStatusesOnce()
   startLegacyReportRelocation()
 
   // #510: folders a registry knows by path (link target, backup rule, project folder, Drive backup pair) get a

@@ -164,6 +164,7 @@ export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: un
 export function removeSent(itemId: string, id: string): SentResult<object> {
   ensureDocSentTables()
   const r = getDb().prepare('DELETE FROM wb_doc_sent WHERE id = ? AND work_item_id = ?').run(String(id || ''), itemId)
+  if (r.changes) syncStatusOnUnsent(itemId)
   return r.changes ? { ok: true } : { ok: false, code: 'not_found', detail: 'no such sending for this document' }
 }
 
@@ -275,7 +276,56 @@ export function onSentEvent(fn: ((e: SentEvent) => void) | null): void {
   if (fn === null) { sentListeners.length = 0; return }
   if (!sentListeners.includes(fn)) sentListeners.push(fn)
 }
+/**
+ * Boss TG 5914/5918: the STORED status of a work item must tell the truth, not only the board's display. Sending it
+ * (recorded, found in the Sent mailbox, or marked by hand: all go through emitSent) makes it "done" in the database.
+ * Taking the last sending back puts it back to "in progress". One common place, so the project overview, the Kanban
+ * board and the database always agree.
+ */
+export function syncStatusOnSent(itemId: string): void {
+  try {
+    getDb().prepare(`UPDATE work_items SET status = 'done', updated_at = ? WHERE id = ? AND status != 'done' AND deleted_at IS NULL`)
+      .run(Math.floor(Date.now() / 1000), itemId)
+  } catch (err) { logger.warn({ err: String((err as Error)?.message || err), itemId }, '[docsent] the status could not follow the sending') }
+}
+export function syncStatusOnUnsent(itemId: string): void {
+  try {
+    if (sentStatus(itemId).sent) return
+    getDb().prepare(`UPDATE work_items SET status = 'in_progress', updated_at = ? WHERE id = ? AND status = 'done' AND deleted_at IS NULL`)
+      .run(Math.floor(Date.now() / 1000), itemId)
+  } catch (err) { logger.warn({ err: String((err as Error)?.message || err), itemId }, '[docsent] the status could not follow the taken-back sending') }
+}
+
+/**
+ * One-time (Boss TG 5918, 2A): every work item that already went out gets the stored status "done". `updated_at` is
+ * NOT touched, so the Done column ages them out by the real date. Runs once; the marker row makes it idempotent, so
+ * an item the owner later reopens by hand is never flipped back.
+ */
+export function migrateSentStatusesOnce(): number {
+  try {
+    ensureDocSentTables()
+    ensureSentMarkTable()
+    const db = getDb()
+    db.exec('CREATE TABLE IF NOT EXISTS wb_sent_status_migration (id TEXT PRIMARY KEY, done_at INTEGER NOT NULL, changed INTEGER NOT NULL)')
+    if (db.prepare("SELECT 1 FROM wb_sent_status_migration WHERE id = 'sent-to-done-1'").get()) return 0
+    const hasItems = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'work_items'").get()
+    let changed = 0
+    if (hasItems) {
+      const r = db.prepare(`UPDATE work_items SET status = 'done' WHERE status != 'done' AND deleted_at IS NULL
+        AND (id IN (SELECT work_item_id FROM wb_doc_sent) OR id IN (SELECT work_item_id FROM wb_item_sent_mark))`).run()
+      changed = Number(r.changes)
+    }
+    db.prepare("INSERT INTO wb_sent_status_migration (id, done_at, changed) VALUES ('sent-to-done-1', ?, ?)").run(Math.floor(Date.now() / 1000), changed)
+    if (changed) logger.info({ changed }, '[docsent] sent work items set to done (one-time)')
+    return changed
+  } catch (err) {
+    logger.warn({ err: String((err as Error)?.message || err) }, '[docsent] the one-time sent-to-done migration failed; will retry at next start')
+    return 0
+  }
+}
+
 function emitSent(e: SentEvent): void {
+  syncStatusOnSent(e.itemId)
   for (const l of sentListeners.slice()) {
     try { l(e) } catch (err) { logger.warn({ err: String((err as Error)?.message || err), itemId: e.itemId }, '[docsent] a sent listener failed') }
   }
@@ -320,4 +370,5 @@ export function sentMarkOf(itemId: string): { method: string; date: string; reci
 export function unmarkSentManually(itemId: string): void {
   ensureSentMarkTable()
   getDb().prepare('DELETE FROM wb_item_sent_mark WHERE work_item_id = ?').run(itemId)
+  syncStatusOnUnsent(itemId)
 }

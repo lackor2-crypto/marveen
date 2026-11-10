@@ -61,10 +61,13 @@ describe('before closing a project', () => {
     expect((await fileOfficialCopy(item, s.id, 'Család/Kimenő', 'o')).ok).toBe(true)
     c = check()
     expect([c['unsent'], c['unfiled'], c['missing_docs']]).toEqual([[true, 0, undefined], [true, 0, undefined], [true, 0, undefined]])
-    // The work item itself is still a draft: said, and it alone keeps "ready" false.
-    expect(c['open_items']).toEqual([false, 1, 1])
-    getDb().prepare("UPDATE work_items SET status = 'done' WHERE id = ?").run(item.id)
+    // Sending stores status "done" (Boss TG 5918), so the item is no longer open and the project is ready ...
+    expect(c['open_items']).toEqual([true, 0, 1])
     expect(projectCloseCheck(pid).ready).toBe(true)
+    // ... and a work item reopened by hand is said to be open again and alone keeps "ready" false.
+    getDb().prepare("UPDATE work_items SET status = 'draft' WHERE id = ?").run(item.id)
+    expect(check()['open_items']).toEqual([false, 1, 1])
+    expect(projectCloseCheck(pid).ready).toBe(false)
   })
 
   // #783: a Word / note item finalized with its own panel (before #777) has no court final: done, its PDF in Finished
