@@ -206,7 +206,9 @@ interface InflightTurn {
 /** A resume older than this is no longer "the work that just stopped". */
 const INFLIGHT_MAX_AGE_MS = 2 * 60 * 60 * 1000
 /** A turn that keeps dying with the process is not retried forever. */
-const INFLIGHT_MAX_RESUMES = 2
+const INFLIGHT_MAX_RESUMES = 5
+/** Boss, Workbench chat 2026-11-10: a turn whose session came back EMPTY (a restart cut it off) is run again by itself this many times before the chat says so. */
+const LIVE_EMPTY_RETRIES = 2
 /** Continuations of one live turn when the work is not marked whole-done (progress required each time). */
 const LIVE_MAX_CONTINUES = 5
 /** Wait a little after startup so the rest of the server is up. */
@@ -276,8 +278,7 @@ export function resumeInterruptedWorkbenchTurns(opts: {
   const keys: string[] = []
   for (const [key, t] of Object.entries(all)) {
     if (!t || typeof t.projectId !== 'string') continue
-    if (now - Number(t.startedAt || 0) > INFLIGHT_MAX_AGE_MS) continue
-    if (Number(t.resumes || 0) >= INFLIGHT_MAX_RESUMES) continue
+    if (now - Number(t.startedAt || 0) > INFLIGHT_MAX_AGE_MS || Number(t.resumes || 0) >= INFLIGHT_MAX_RESUMES) { noteResumeGaveUp(t); continue }
     keys.push(key)
     pendingResume.add(key)
     const run = opts.run ?? resumeTurn
@@ -291,6 +292,22 @@ export function resumeInterruptedWorkbenchTurns(opts: {
     else { const tm = setTimeout(go, delay); if (typeof tm.unref === 'function') tm.unref() }
   }
   return keys
+}
+
+/**
+ * Boss, Workbench chat 2026-11-10: when a restart cut a turn off and it can NOT be resumed (too old, or it was already
+ * cut off too many times), the chat used to say nothing and the owner found an empty chat. It now says plainly what
+ * happened and what is needed. Never throws: a missing note must not stop the start-up.
+ */
+function noteResumeGaveUp(t: InflightTurn): void {
+  try {
+    const session = openSessionForWorkItem(t.projectId, t.workItemId ?? projectSessionKey(t.projectId), t.lang)
+    const tooOld = Date.now() - Number(t.startedAt || 0) > INFLIGHT_MAX_AGE_MS
+    const text = tooOld
+      ? msg('live_resume_gave_up_old', t.lang, { hours: String(Math.round(INFLIGHT_MAX_AGE_MS / 3_600_000)) })
+      : msg('live_resume_gave_up_count', t.lang, { n: String(Number(t.resumes || 0)) })
+    addAgentMessage(session.id, 'system', text)
+  } catch { /* the note never stops the start-up */ }
 }
 
 /** Runs the resume through the normal message route, so every rule of a turn
@@ -986,6 +1003,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         let rounds = 0
         let lastStatusKey = ''
         let toolsThisRound = 0
+        let emptyRetries = 0
         outer: for (;;) {
         while (spec) {
           const cur: LiveStartSpec = spec
@@ -1040,8 +1058,31 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         if (failed) addAgentMessage(session.id, 'system', failed)
         // An empty turn (no text, no tool, no error, not stopped by the owner) used to leave nothing
         // behind and the page showed a bare red "no answer" (Boss TG 5074): say it in the chat itself.
-        if (!answer.trim() && !failed && toolsThisRound === 0 && !ac.signal.aborted) {
-          const empty = msg('live_empty_turn', lang)
+        // Boss, Workbench chat 2026-11-10: a restart (update) left the chat with only "the session ended without
+        // an answer, write the message again". Now the empty turn is RUN AGAIN by itself (a session that comes back
+        // empty is the usual sign of a cut-off one); only when that brings nothing either does the chat say, with
+        // facts, how it ended.
+        const emptyTurn = !answer.trim() && !failed && toolsThisRound === 0 && !ac.signal.aborted
+        if (emptyTurn && modelRoute === 'claude' && emptyRetries < LIVE_EMPTY_RETRIES) {
+          emptyRetries++
+          const note = msg('live_empty_retry_note', lang, { n: String(emptyRetries), max: String(LIVE_EMPTY_RETRIES) })
+          addAgentMessage(session.id, 'system', note)
+          send('notice', { type: 'notice', code: 'live_empty_retry', message: note })
+          turnText = msg('live_empty_retry_prompt', lang)
+          answer = ''
+          toolsThisRound = 0
+          spec = lastSpec
+          continue outer
+        }
+        if (emptyTurn) {
+          const lastSaid = (() => {
+            try {
+              const rows = listAgentMessages(session.id).filter((m) => m.role === 'assistant')
+              const t = rows.length ? String(rows[rows.length - 1].content || '').replace(/\s+/g, ' ').trim() : ''
+              return t ? t.slice(0, 240) : ''
+            } catch { return '' }
+          })()
+          const empty = msg('live_empty_turn', lang, { tries: String(emptyRetries), last: lastSaid || msg('live_empty_last_none', lang) })
           addAgentMessage(session.id, 'system', empty)
           send('error', { type: 'error', code: 'live_empty', message: empty })
         }
