@@ -127,8 +127,28 @@ export const MESSAGES = {
     en: 'Your previous turn did not close the WHOLE work (the completion marker was missing, or your text said work was still left). Continue from where it stopped (the working folder shows how far it got), do not start over, and do not promise to continue -- do it. Do not ask which part to start with and do not ask permission: decide yourself and do all of it.',
   },
   live_empty_turn: {
-    hu: 'A munkamenet válasz nélkül ért véget, nem jött belőle szöveg és munka sem. Írd meg újra az üzenetet, és újra nekifutok.',
-    en: 'The session ended without an answer: no text and no work came out of it. Send the message again and I run it again.',
+    hu: 'A munkamenet megszakadt (például frissítés miatt), és {tries} automatikus újrapróbálás után sem jött belőle szöveg vagy munka. Ami a beszélgetésben utoljára rögzítve van: {last} Írj egy sort, és onnan folytatom.',
+    en: 'The session was cut off (for example by an update) and after {tries} automatic retries no text or work came out of it. What was last saved in this conversation: {last} Write a line and I continue from there.',
+  },
+  live_empty_last_none: {
+    hu: 'még semmi.',
+    en: 'nothing yet.',
+  },
+  live_empty_retry_note: {
+    hu: 'A munkamenet üresen ért véget (valószínűleg megszakadt), ezért magától újra nekifut ({n}/{max}).',
+    en: 'The session ended empty (it was probably cut off), so it runs again by itself ({n}/{max}).',
+  },
+  live_empty_retry_prompt: {
+    hu: 'Az előző munkameneted megszakadt, és nem jött belőle válasz. Nézd meg a beszélgetés és a munkakönyvtár állapotát, és vagy folytasd a félbeszakadt munkát, vagy ha már kész volt, írd meg röviden és tényszerűen az eredményt: mi készült el, és milyen azonosítóval (commit, PR, kártya, fájl). Soha ne maradjon el a záró jelentés.',
+    en: 'Your previous session was cut off and produced no answer. Check the state of the conversation and the working folder, then either continue the interrupted work or, if it was already done, report the result briefly and factually: what was done and with which identifier (commit, PR, card, file). The closing report must never be left out.',
+  },
+  live_resume_gave_up_old: {
+    hu: 'A Marveen újraindulása (frissítés) megszakította a munkát, de az már több mint {hours} órája állt, ezért magától nem folytatom. Írj egy sort, és onnan megyek tovább.',
+    en: 'A Marveen restart (update) cut the work off, but it was more than {hours} hours old, so I do not resume it by myself. Write a line and I go on from there.',
+  },
+  live_resume_gave_up_count: {
+    hu: 'A munkát a Marveen újraindulása (frissítés) megszakította, és az automatikus folytatás {n} próbálkozás után kifogyott. Írj egy sort, és onnan megyek tovább; amit addig csináltam, az a munkamappában és a beszélgetésben megvan.',
+    en: 'The work was cut off by a Marveen restart (update) and the automatic resume ran out after {n} attempts. Write a line and I go on from there; what I did so far is in the working folder and in this conversation.',
   },
   live_continue_stuck: {
     hu: 'Nem tudtam tovább haladni: a folytatás nem hozott új munkát, ezért megálltam. Írj egy sort, és onnan megyek tovább.',

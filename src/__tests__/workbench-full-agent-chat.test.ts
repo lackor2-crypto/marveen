@@ -510,7 +510,9 @@ process.stdin.on('data', () => {
 })
 `
     const { msgs, r } = await run(silent, 'na mi ujsag?')
-    expect(msgs.some(([role, c]) => role === 'system' && c.includes('válasz nélkül ért véget'))).toBe(true)
+    // Boss, 2026-11-10: the empty turn is run again by itself (twice) before the chat says so, with facts
+    expect(msgs.filter(([role, c]) => role === 'system' && c.includes('magától újra nekifut')).length).toBe(2)
+    expect(msgs.some(([role, c]) => role === 'system' && c.includes('2 automatikus újrapróbálás után sem jött belőle szöveg'))).toBe(true)
     expect(r.raw).toContain('live_empty')
   })
 
@@ -764,11 +766,15 @@ describe('#434: a Marveen ujraindulasa altal felbeszakitott munka magatol folyta
     const now = Date.now()
     writeFileSync(inflight, JSON.stringify({
       a: { projectId, workItemId, lang: 'hu', actor: 'teszt', startedAt: now - 3 * 60 * 60 * 1000, resumes: 0 },
-      b: { projectId, workItemId, lang: 'hu', actor: 'teszt', startedAt: now, resumes: 2 },
+      b: { projectId, workItemId, lang: 'hu', actor: 'teszt', startedAt: now, resumes: 5 },
     }))
     const ran: string[] = []
     expect(resumeInterruptedWorkbenchTurns({ now, delayMs: 0, run: async (k) => { ran.push(k) } })).toEqual([])
     expect(ran).toEqual([])
     expect(JSON.parse(readFileSync(inflight, 'utf-8'))).toEqual({})
+    // Boss, 2026-11-10: the chat says so plainly instead of staying empty
+    const said = listAgentMessages(openSessionForWorkItem(projectId, workItemId, 'hu').id).map((m) => m.content)
+    expect(said.some((c) => c.includes('több mint 2 órája'))).toBe(true)
+    expect(said.some((c) => c.includes('5 próbálkozás után kifogyott'))).toBe(true)
   })
 })
