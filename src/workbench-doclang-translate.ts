@@ -15,6 +15,7 @@
  * es a hiba (emberi mondattal) a valtozat fejlecen latszik.
  */
 import { getDb } from './db.js'
+import { personNameOrderRule } from './workbench-agent/doc-language.js'
 import { logger } from './logger.js'
 import { isBlankLine, isPlaceholderSectionTitle, listBlocks, listSections, tableBlockParts, type BlockRow } from './workbench-docmodel.js'
 import { parsePfmt, richMatches, richRuns, sanitizeRich } from './workbench-docrich.js'
@@ -133,7 +134,8 @@ export function buildTranslatePrompt(input: {
   const system = [
     `You are a professional translator of legal and official documents. You translate ONE section of a document into ${target}.`,
     'Rules:',
-    '- Translate faithfully and completely: do not add, drop, summarise or soften anything. Names, numbers, dates, amounts, case numbers, file names and annex labels stay exact; translate the words around them.',
+    '- Translate faithfully and completely: do not add, drop, summarise or soften anything. Numbers, dates, amounts, case numbers, file names and annex labels stay exact; translate the words around them. Names keep their spelling (the ORDER of a person\'s name follows the rule below).',
+    '- ' + personNameOrderRule(input.targetLang),
     untitled
       ? '- This section has NO title: do not invent one, answer with "title": "".'
       : '- Translate the section title too.',
