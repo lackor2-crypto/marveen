@@ -2836,6 +2836,10 @@
     var name = nameEl ? String(nameEl.value || '').trim() : String(window.prompt(t('workbench.folder.new_prompt')) || '').trim()
     if (!name) { window.showToast(t('workbench.folder.name_required')); return }
     readNewDraft()
+    // #907: the intake name/text typed in the popover must survive the re-render a new group causes.
+    intakeReadDraft()
+    var inEl = document.getElementById('wbIntakeName')
+    if (inEl && typeof inEl.value === 'string') WB.intakeName = inEl.value
     var parent = shownPick()
     if (parent === '@project') parent = ''
     var pid = WB.projectId
@@ -3558,8 +3562,9 @@
     // #540: the target folder is VISIBLE on the form (preselected from WB.pickFolder, e.g. the group just made with the
     // strip's button), so the owner sees where the new work goes. Not when the Simple view's intake already shows the
     // one picker (one `wbNewFolder` on screen: shownPick() reads that one).
-    var simpleIntakeOn = isSimple() && !WB.selectedId
-    return (hasFolderSystem() && !simpleIntakeOn ? '<div class="wb-new-folder">' + folderPickHtml(true) + '</div>' : '')
+    // #907: the rail's popover is where the owner types the new work's name, so the picker AND the "new group" box are
+    // HERE (Simple view); the start view then leaves its own copy out while the popover is open (one id on screen).
+    return (hasFolderSystem() ? '<div class="wb-new-folder">' + folderPickHtml(!isSimple()) + '</div>' : '')
       + intakeHtml()
       + '<details class="wb-new-manual"><summary>' + esc(t('workbench.intake.manual')) + '</summary>'
       + '<form class="wb-form" id="wbNewForm">'
@@ -15568,7 +15573,7 @@
       + (archived() ? '<p class="wb-hint">' + esc(t('workbench.archived_hint')) + '</p>'
         : '<p><button type="button" class="btn-primary" data-wb-act="intake-go"' + (busy ? ' disabled' : '') + '>'
           + esc(busy ? t('workbench.new.creating') : t('workbench.intake.go')) + '</button></p>'
-          + (hasFolderSystem() ? '<div class="wb-sh-folder">' + folderPickHtml() + '</div>' : ''))
+          + (hasFolderSystem() && !WB.formOpen ? '<div class="wb-sh-folder">' + folderPickHtml() + '</div>' : ''))
       + (ask ? '<p><button type="button" class="btn-secondary" data-wb-act="intake-reset">' + esc(t('workbench.intake.all_kinds')) + '</button></p>' : '')
       + '</section>'
   }
@@ -22566,7 +22571,7 @@
     else if (a === 'layout-toggle') { WB.layout = WB.layout === 'split' ? 'classic' : 'split'; saveLayout(WB.layout); render() }
     else if (a === 'refresh') load(WB.projectId)
     else if (a === 'card-open') openCard(act.getAttribute('data-wb-card'))
-    else if (a === 'new') { if (!archived()) { if (!(isSimple() && !WB.selectedId)) dropStalePick(); WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
+    else if (a === 'new') { if (!archived()) { dropStalePick(); WB.newDraft = null; WB.formOpen = true; WB.intakeFocused = false; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; WB.newDraft = null; WB.intakeAsk = null; render() }
     else if (a === 'intake-go') intakeCreate(null)
     else if (a === 'intake-kind') intakeCreate(act.getAttribute('data-wb-kind'))
