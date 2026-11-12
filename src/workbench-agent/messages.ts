@@ -102,6 +102,14 @@ export const MESSAGES = {
     hu: 'A VS Code kódhíd Claude Code programja elavult, ezt a modellt nem ismeri (nem keretprobléma). A munkát a(z) {to} fiókkal folytatom.',
     en: 'The VS Code code bridge Claude Code is out of date and does not know this model (not a quota problem). I continue the work with the {to} account.',
   },
+  code_bridge_login: {
+    hu: 'A VS Code kódhíd Claude Code programja ki van jelentkezve (a belépése lejárt), ezért nem tudott elindulni. Teendő: a Windows gépen nyisd meg a VS Code-ban a Claude Code-ot, írd be: /login, és lépj be újra.',
+    en: 'The VS Code code bridge Claude Code is signed out (its login expired), so it could not start. To fix: on the Windows machine open Claude Code in VS Code, type /login and sign in again.',
+  },
+  code_bridge_login_fallback: {
+    hu: 'A VS Code kódhíd Claude Code programja ki van jelentkezve (a belépése lejárt), ez nem keretprobléma. A munkát a(z) {to} fiókkal végzem el. Hogy a kódhíd újra menjen: a Windows gépen a VS Code-ban a Claude Code-ba írd be: /login.',
+    en: 'The VS Code code bridge Claude Code is signed out (its login expired), this is not a quota problem. I do the work with the {to} account. To get the bridge back: on the Windows machine type /login into Claude Code in VS Code.',
+  },
   code_bridge_error_fallback: {
     hu: 'A VS Code kódhíd futása hibával állt le (nem keretprobléma), a munka viszont még nincs kész. A(z) {to} fiókkal folytatom.',
     en: 'The VS Code code bridge run stopped with an error (not a quota problem), but the work is not finished. I continue it with the {to} account.',
