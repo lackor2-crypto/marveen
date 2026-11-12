@@ -373,6 +373,8 @@ function continueOnAnotherAccount(task: CodeTask): boolean {
     ? msg('code_bridge_limit_fallback', turn.lang, { to })
     : kind === 'outdated'
       ? msg('code_bridge_outdated_fallback', turn.lang, { to })
+      : kind === 'login'
+        ? msg('code_bridge_login_fallback', turn.lang, { to })
       : kind === 'error'
         ? msg('code_bridge_error_fallback', turn.lang, { to })
         : kind === 'incomplete'
@@ -1196,6 +1198,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             let bridgeTaskId: string | null = null
             let bridgeStalled = false
             let bridgeOutdated = false
+            let bridgeLogin = false
             let bridgeError = false
             let bridgeIncomplete = false
             const liveDir = liveFolder && liveFolder.ok ? liveFolder.dirAbs : null
@@ -1283,13 +1286,16 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               // futas (`code_bridge_incomplete` -- hianyzik a teljes-kesz jel) is
               // folytatodik egy masik fiokkal, nem csak a keret/elakadas/elavult --
               // amig a munka nincs kesz. Ha nincs szabad fiok, a sor kiirodik (lent).
-              if (ev.type === 'error' && (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_stalled' || ev.code === 'code_bridge_outdated' || ev.code === 'code_bridge_error' || ev.code === 'code_bridge_incomplete')) {
-                if (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_outdated') bridgeLimitedUntil = Date.now() + BRIDGE_LIMIT_COOLDOWN_MS
+              if (ev.type === 'error' && (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_stalled' || ev.code === 'code_bridge_outdated' || ev.code === 'code_bridge_login' || ev.code === 'code_bridge_error' || ev.code === 'code_bridge_incomplete')) {
+                // A signed-out worker fails every run the same way: the next messages go straight to a working
+                // account for a while, so the owner does not get the same failure line under every answer.
+                if (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_outdated' || ev.code === 'code_bridge_login') bridgeLimitedUntil = Date.now() + BRIDGE_LIMIT_COOLDOWN_MS
                 const fallback = !account && !ac.signal.aborted ? liveResolver(key, liveDir, account) : null
                 if (fallback) {
                   liveFallback = fallback
                   bridgeStalled = ev.code === 'code_bridge_stalled'
                   bridgeOutdated = ev.code === 'code_bridge_outdated'
+                  bridgeLogin = ev.code === 'code_bridge_login'
                   bridgeError = ev.code === 'code_bridge_error'
                   bridgeIncomplete = ev.code === 'code_bridge_incomplete'
                   if (bridgeTaskId) markBridgeTaskContinued(bridgeTaskId)
@@ -1307,6 +1313,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                 ? msg('code_bridge_stalled_fallback', lang, { to })
                 : bridgeOutdated
                   ? msg('code_bridge_outdated_fallback', lang, { to })
+                  : bridgeLogin
+                    ? msg('code_bridge_login_fallback', lang, { to })
                   : bridgeError
                     ? msg('code_bridge_error_fallback', lang, { to })
                     : bridgeIncomplete

@@ -3,6 +3,7 @@ import {
   runCodeBridgeTurn, codeBridgeContinuable, COMPLETION_MARKER,
   type CodeBridgeTaskView,
 } from '../workbench-agent/code-bridge-turn.js'
+import { codeBridgeLoginDetail } from '../workbench-agent/code-bridge-turn.js'
 import {
   continueBridgeTaskElsewhere, setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask,
   markBridgeTaskContinued, wasBridgeTaskContinued, resetBridgeContinuationForTest,
@@ -211,5 +212,34 @@ describe('the chat names the accounts (Boss, 2026-09-29)', () => {
   it('the completion hook asks first', () => {
     const src = readFileSync(join(__dirname, '..', 'workbench-agent', 'code-bridge-delivery.ts'), 'utf-8')
     expect(src).toContain('continueBridgeTaskElsewhere(task)')
+  })
+})
+
+// #862 follow-up (measured 2026-11-13 in the live project chat): the bridge worker was signed out, every answer
+// carried "the bridge run stopped with an error (not a quota problem)" with no cause and nothing to do about it.
+describe('a signed-out code bridge worker', () => {
+  const LOGIN = view({ error: 'Claude Code reported an error: Failed to authenticate: OAuth session expired and could not be refreshed', result: 'Failed to authenticate: OAuth session expired and could not be refreshed' })
+  it('is recognised, and an ordinary failure is not', () => {
+    expect(codeBridgeLoginDetail(LOGIN)).toBeTruthy()
+    expect(codeBridgeContinuable(LOGIN)).toBe('login')
+    expect(codeBridgeLoginDetail(view({ error: 'Please run /login' }))).toBeTruthy()
+    expect(codeBridgeLoginDetail(view({ error: 'tsc failed: 3 errors' }))).toBeNull()
+    expect(codeBridgeLoginDetail(view({ status: 'done', result: 'the user is not logged in to the bank' }))).toBeNull()
+    expect(codeBridgeContinuable(OUTDATED)).toBe('outdated')
+  })
+  it('says what happened and what to do, in both languages, naming the account that takes over', () => {
+    for (const lang of ['hu', 'en'] as const) {
+      expect(msg('code_bridge_login', lang)).toContain('/login')
+      const f = msg('code_bridge_login_fallback', lang, { to: 'masik' })
+      expect(f).toContain('/login'); expect(f).toContain('masik')
+    }
+  })
+  it('the route continues on another account, rests the bridge and shows the login line', () => {
+    const src = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench-agent.ts'), 'utf8')
+    expect(src).toMatch(/ev\.code === 'code_bridge_outdated' \|\| ev\.code === 'code_bridge_login'\) bridgeLimitedUntil/)
+    expect(src).toContain("bridgeLogin = ev.code === 'code_bridge_login'")
+    expect(src.match(/code_bridge_login_fallback/g)!.length).toBe(2)
+    const turn = readFileSync(join(__dirname, '..', 'workbench-agent', 'code-bridge-turn.ts'), 'utf8')
+    expect(turn).toContain("login ? 'code_bridge_login' : 'code_bridge_error'")
   })
 })

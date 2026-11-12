@@ -539,12 +539,23 @@ export function codeBridgeOutdatedDetail(task: CodeBridgeTaskView): string | nul
   return /does not support this model|or newer is required/i.test(text) ? text : null
 }
 
+/** The worker's Claude Code is signed out ("Failed to authenticate: OAuth session expired and could not be
+ *  refreshed", "Not logged in", "Please run /login"). Not a quota problem and not a fault of the work: the run
+ *  never started, and it will not start until the owner signs in again on that machine. */
+export function codeBridgeLoginDetail(task: CodeBridgeTaskView): string | null {
+  if (task.status !== 'error') return null
+  const text = codeBridgeErrorDetail(task)
+  if (!text || text.length > LIMIT_TEXT_MAX_CHARS) return null
+  return /failed to authenticate|oauth (session|token)[^.\n]{0,40}(expired|revoked)|not logged in|please run \/login|invalid api key|authentication_error/i.test(text) ? text : null
+}
+
 /** A limit, an outdated worker or a stalled run: the work was NOT finished and another account
  *  can take it over (Boss, 2026-09-29: "Az elso dolog az legyen, hogy megnezi,
  *  hogy milyen masik fiokban van limit es tud dolgozni"). */
-export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'outdated' | 'stalled' | 'error' | 'incomplete' | null {
+export function codeBridgeContinuable(task: CodeBridgeTaskView): 'limit' | 'outdated' | 'login' | 'stalled' | 'error' | 'incomplete' | null {
   if (codeBridgeLimitDetail(task)) return 'limit'
   if (codeBridgeOutdatedDetail(task)) return 'outdated'
+  if (codeBridgeLoginDetail(task)) return 'login'
   if (codeBridgeStallDetail(task)) return 'stalled'
   // Boss, 2026-10-02 (TG 7117 + 7127): ANY other error-stop is continued too,
   // not only the three recognized kinds -- as long as the work is not done, the
@@ -603,11 +614,13 @@ function* finishedEvents(
   }
   if (task.status === 'error') {
     const detail = codeBridgeErrorDetail(task)
-    const m = detail ? msg('code_bridge_error_detail', lang, { detail }) : msg('code_bridge_error', lang)
+    const login = codeBridgeLoginDetail(task)
+    // A signed-out worker is said in the owner's words, with what to do; the raw error line would not tell them.
+    const m = login ? msg('code_bridge_login', lang) : detail ? msg('code_bridge_error_detail', lang, { detail }) : msg('code_bridge_error', lang)
     record('system', m)
     yield { type: 'tool', name: 'code-bridge', status: 'error' }
     const code = codeBridgeStallDetail(task) ? 'code_bridge_stalled'
-      : codeBridgeOutdatedDetail(task) ? 'code_bridge_outdated' : 'code_bridge_error'
+      : codeBridgeOutdatedDetail(task) ? 'code_bridge_outdated' : login ? 'code_bridge_login' : 'code_bridge_error'
     yield { type: 'error', code, message: m }
     return
   }
