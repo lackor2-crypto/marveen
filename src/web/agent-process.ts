@@ -48,7 +48,7 @@ import { readEnvFile } from '../env.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { loadProfileTemplate } from './profiles.js'
 import { resolveAgentSecurityProfile } from './agent-team.js'
-import { writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureAutonomySection, ensureAskBackSection, ensureRecheckSection, ensureWakeGreetingSection, ensureDelegateCheckSection, ensureOneCardOneFixSection, ensureAgentIdentitySection, ensureNoLiveTreeSection, ensureCompletionReportSection, ensureKanbanWaitingMoveSection, ensureCardReferenceSection, ensureOwnerLanguageSection, ensureAvailabilitySection, ensureShortReplySection, ensureBrowserClickthroughSection, ensureFollowReferenceSection, ensureNoHiddenLimitsSection, ensureTestSandboxSection, ensureRootCauseFixSection, ensureWorkItemFolderFilesSection, ensureLetterHeadSection } from './agent-scaffold.js'
+import { writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureAutonomySection, ensureAskBackSection, ensureRecheckSection, ensureWakeGreetingSection, ensureDelegateCheckSection, ensureOneCardOneFixSection, ensureAgentIdentitySection, ensureNoLiveTreeSection, ensureCompletionReportSection, ensureKanbanWaitingMoveSection, ensureCardReferenceSection, ensureOwnerLanguageSection, ensureAvailabilitySection, ensureShortReplySection, ensureBrowserClickthroughSection, ensureFollowReferenceSection, ensureNoHiddenLimitsSection, ensureTestSandboxSection, ensureWebResearchSaveSection, ensureRootCauseFixSection, ensureWorkItemFolderFilesSection, ensureLetterHeadSection } from './agent-scaffold.js'
 import { schedulePluginUnlockAfterRespawn } from './channel-plugin-unlock.js'
 import { getSecret } from './vault.js'
 import { resolveOpenRouterModel } from './openrouter-models.js'
@@ -1498,6 +1498,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     ensureFollowReferenceSection(name)
     ensureNoHiddenLimitsSection(name)
     ensureTestSandboxSection(name)
+    ensureWebResearchSaveSection(name)
     ensureRootCauseFixSection(name)
     ensureWorkItemFolderFilesSection(name)
     ensureLetterHeadSection(name)

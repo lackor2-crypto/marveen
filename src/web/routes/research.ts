@@ -1,8 +1,8 @@
-import { readFileSync, readdirSync, statSync, realpathSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync, realpathSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { join, relative, isAbsolute, sep } from 'node:path'
 import { MAIN_AGENT_ID } from '../../config.js'
 import { agentConfigRoot, listAgentNames } from '../agent-config.js'
-import { json } from '../http-helpers.js'
+import { json, readBody } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
 import { researchProject } from '../../project-scope.js'
 
@@ -160,8 +160,66 @@ export function listResearchDocs(pf = ''): { agent: string; docs: ResearchDoc[] 
     .sort((a, b) => (b.docs[0].ms - a.docs[0].ms) || a.agent.localeCompare(b.agent))
 }
 
+/** Lowercase letters, digits, hyphen: the Research page lists only files named like that. */
+function webSlug(text: string): string {
+  const base = text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '')
+  return base || 'kereses'
+}
+
+export interface WebCaptureInput { tool: string; query: string; url: string; text: string; project?: string; at?: Date }
+export type WebCaptureResult = { ok: true; name: string; duplicate: boolean } | { ok: false; code: 'bad_input' | 'unreachable'; detail: string }
+
+/**
+ * #908: whatever an agent found on the web is saved into ITS research folder, by the system, not by the agent's
+ * memory of a rule. Never overwrites: a taken name gets -2, -3; the same text under the same name is not saved
+ * twice. No size limit: the page shows what the agent read, whole.
+ */
+export function saveWebResearch(dir: string, input: WebCaptureInput): WebCaptureResult {
+  const tool = String(input.tool || '').trim()
+  const query = String(input.query || '').trim()
+  const urlText = String(input.url || '').trim()
+  const text = String(input.text || '')
+  if (!text.trim()) return { ok: false, code: 'bad_input', detail: 'text is empty' }
+  if (!query && !urlText) return { ok: false, code: 'bad_input', detail: 'query or url is required' }
+  const title = (query || urlText).replace(/\s+/g, ' ').slice(0, 120)
+  const slug = 'web-' + webSlug(query || urlText)
+  try { mkdirSync(dir, { recursive: true }) } catch (err) {
+    return { ok: false, code: 'unreachable', detail: `the research folder cannot be created: ${(err as Error).message}` }
+  }
+  const proj = String(input.project || '').trim()
+  const body = text.trim()
+  let name = `${slug}.md`
+  for (let i = 2; existsSync(join(dir, name)); i++) {
+    try { if (readFileSync(join(dir, name), 'utf-8').includes(body)) return { ok: true, name, duplicate: true } } catch { /* keep going */ }
+    name = `${slug}-${i}.md`
+  }
+  const head = [`# ${tool === 'WebFetch' ? 'Web oldal' : 'Web keresés'}: ${title}`, '']
+  if (proj) head.push(`project: ${proj}`, '')
+  head.push(`forrás: ${tool || 'web'}${query ? ` | keresés: ${query}` : ''}${urlText ? ` | cím: ${urlText}` : ''}`, `mentve: ${(input.at ?? new Date()).toISOString()}`, '')
+  try { writeFileSync(join(dir, name), head.join('\n') + '\n' + body + '\n', { flag: 'wx' }) } catch (err) {
+    return { ok: false, code: 'unreachable', detail: (err as Error).message }
+  }
+  return { ok: true, name, duplicate: false }
+}
+
 export async function tryHandleResearch(ctx: RouteContext): Promise<boolean> {
-  const { res, path, method, url } = ctx
+  const { req, res, path, method, url } = ctx
+
+  // #908: the PostToolUse hook (scripts/hooks/web-research-save.py) posts every web search / page read here.
+  if (path === '/api/research/capture' && method === 'POST') {
+    let data: Record<string, unknown>
+    try { data = JSON.parse((await readBody(req, { maxBytes: 64 * 1024 * 1024 })).toString()) } catch { json(res, { error: 'Invalid JSON' }, 400); return true }
+    const agent = String(data.agent_id || '')
+    if (![MAIN_AGENT_ID, ...listAgentNames()].includes(agent)) { json(res, { error: 'Unknown agent' }, 404); return true }
+    const r = saveWebResearch(researchDir(agent), {
+      tool: String(data.tool || ''), query: String(data.query || ''), url: String(data.url || ''),
+      text: String(data.text || ''), project: String(data.project || ''),
+    })
+    if (!r.ok) { json(res, { ok: false, code: r.code, error: r.detail }, r.code === 'bad_input' ? 400 : 500); return true }
+    json(res, { ok: true, agent, name: r.name, duplicate: r.duplicate })
+    return true
+  }
 
   if (path === '/api/research' && method === 'GET') {
     // ?project=<id> / ?project=none -- the Research page filtered to a project.
