@@ -8,6 +8,7 @@ import { blockText, canonLineParts, BLANK_LINE_CHAR as Z } from '../workbench-bl
 import { richMatches, richToPlain, sanitizeRich } from '../workbench-docrich.js'
 import { enforceRecipientWindow } from '../workbench-letterhead.js'
 import { buildFodt, type RenderOutline } from '../workbench-docrender.js'
+import { parseWordHtml } from '../workbench-worddoc.js'
 
 const SRC = join(__dirname, '..')
 const WEB = readFileSync(join(SRC, '..', 'web', 'workbench.js'), 'utf8')
@@ -90,5 +91,15 @@ describe('an empty line is a line (#912)', () => {
       })
     }
     expect(offenders).toEqual([])
+  })
+
+  it('a Word file keeps its empty lines: line breaks above a paragraph text, and an empty paragraph under a chapter', () => {
+    const w = parseWordHtml('<html><body><h1>Egy</h1><p><br><br>Szoveg</p><p><br></p><h1>Ketto</h1><p>Vege</p><p><br></p></body></html>')
+    const one = w.sections[0]!.blocks.map((b) => b.text)
+    expect(one[0]).toBe(`${Z}\n${Z}\nSzoveg`)
+    // the empty paragraph under the first chapter's text is a line and stays
+    expect(one[one.length - 1]).toBe(Z)
+    // only the trailing paragraph marks at the very end of the FILE carry nothing
+    expect(w.sections[1]!.blocks.map((b) => b.text)).toEqual(['Vege'])
   })
 })
