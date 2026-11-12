@@ -1865,7 +1865,8 @@ main:has(> .page .wb-root-simple .wb-fr), main:has(.wb-root-simple .wb-fr) { pad
 .wb-panel-items .wb-panel-head .wb-root-title { overflow: hidden; }
 .wb-panel-items .wb-root-title .wb-folder-toggle { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Simple view: the frame fits the window; no page scroll until the technical details are opened (TG 2469). */
-main.projects-active.wb-sh-locked { overflow-y: hidden; }
+/* #911: the lock holds only while the Simple frame is really on the page; a stale class can never freeze the overview. */
+main.projects-active.wb-sh-locked:has(.wb-fr-body) { overflow-y: hidden; }
 .wb-root-row .wb-folder-toggle { font-size: 1.05rem; }
 .wb-fr-layers { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .wb-fr-layer { display: flex; align-items: center; gap: 6px; border-radius: 6px; padding: 2px 4px; }
