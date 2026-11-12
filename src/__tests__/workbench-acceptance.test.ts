@@ -31,7 +31,7 @@ vi.mock('../web/claude-plans.js', async (orig) => {
 })
 import { initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem, listWorkItems, getWorkItem } from '../workbench.js'
+import { createWorkItem, listWorkItems, getWorkItem, setWorkItemNoTrigger } from '../workbench.js'
 import { resetRunningForTest, turnKey, isTurnRunning } from '../workbench-agent/orchestrator.js'
 import { setUsageSnapshotReader, resetUsageManagerForTest } from '../workbench-agent/usage-manager.js'
 import { setAuditWriterForTest } from '../workbench-agent/audit.js'
@@ -152,6 +152,7 @@ describe('PROBAESET 0. fazis: hosszu keres, elnavigalas, ket sorba allitott uzen
     projectId = p.project.id
     const w = createWorkItem({ project_id: projectId, title: 'Ajánlat', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     workItemId = w.item.id
     // Minden kimeno HTTP-hivas -- igy latszik, ha barmi a Telegram fele indulna.
     fetched.length = 0
@@ -302,6 +303,7 @@ function docEnv(): { get: () => DocEnv; setup: (title: string) => void; teardown
       updateProject(p.project.id, { folder_path: 'Projektek/Iroda' })
       const w = createWorkItem({ project_id: p.project.id, title, type: 'document' })
       if (!w.ok) throw new Error('munkadarab')
+      setWorkItemNoTrigger(w.item.id, true)
       env = { depot, pid: p.project.id, itemId: w.item.id, ctx: { projectId: p.project.id, workItemId: w.item.id, lang: 'hu' } }
     },
     teardown() {

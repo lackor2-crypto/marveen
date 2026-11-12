@@ -70,7 +70,7 @@ import { beginDocStep, docHistoryState, docStepLabel, redoDocStep, undoDocStep }
 import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { trailToText } from '../../workbench-doctrail-text.js'
-import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
+import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation, variantOf as docVariantOf } from '../../workbench-doclang.js'
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
@@ -83,7 +83,8 @@ import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus }
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { hasTextFinalPanel } from '../../workbench-notefinal.js'
 import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefinal.js'
-import { hasDocxFinalPanel } from '../../workbench-docxfinal.js'
+import { finalizeNeedsTrigger, triggerStateOf } from '../../workbench-trigger.js'
+import { hasDocxFinalPanel, hasPdfSource } from '../../workbench-docxfinal.js'
 import { decideWorkmodeProposal, DEFAULT_WORKMODE, getWorkmode, listWorkmodeProposals, resetWorkmode, setWorkmode, sheetWithRule, WORKMODE_MAX_CHARS } from '../../workbench-workmode.js'
 import { checkPlacementAfter, lifeMoveIssues } from '../../workbench-placement-check.js'
 import { saveTextVariant, textLangState } from '../../workbench-notelang.js'
@@ -378,6 +379,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   note_final_bad_translation: {
     hu: 'A lefordított szöveg vagy a nyelv kódja nem megfelelő, ezért nem készült PDF. Fordítsd le újra a szöveget, és próbáld újra.',
     en: 'The translated text or its language code is not usable, so no PDF was made. Translate the text again and retry.',
+  },
+  pdf_mail_no_file: {
+    hu: 'A PDF fájl nem található a helyén (átnevezték vagy törölték), ezért nincs mit csatolni. Keresd meg a fájlt az Életfában.',
+    en: 'The PDF file is not at its place any more (renamed or deleted), so there is nothing to attach. Find the file in the Life tree.',
+  },
+  finalize_trigger_missing: {
+    hu: 'Kiváltó irat nélkül nem lehet véglegesíteni: nincs irat a „Kiváltó irat” mappában, és a „Nincs kiváltó irat (saját kezdeményezés)” jelölés sincs bekapcsolva. Linkeld be a kiváltó iratot, vagy jelöld, hogy nincs.',
+    en: 'Cannot finalise without a trigger document: the "Trigger document" folder is empty and "No trigger document (own initiative)" is not marked. Link the trigger document, or mark that there is none.',
   },
   docx_mail_no_pdf: {
     hu: 'Még nincs végleges PDF az Elkészített anyagok mappában. Előbb véglegesítsd a munkadarabot, utána készülhet az e-mail.',
@@ -2653,6 +2662,15 @@ function isBrowserPageClick(ctx: RouteContext): boolean {
  *  deadline as a to-do, mark a source as seen): a sign-in session OR a click on the dashboard page itself in token mode.
  *  One rule for all of them -- fixing these buttons one by one left the next one returning 403 for a page opened with the
  *  token only (#1512, #1520, TG 3936). Finalising, the sensitive switch and the court rules use it too (Boss TG 4029: finalising answered "only you can" to his own click in token mode, the third time the same cause came back). */
+/** #909 (Boss TG 5943): every way of finalizing asks the same question first: the trigger document, or the owner's "none" mark. */
+function finalizeTriggerHeld(item: WorkItemRow): boolean {
+  try {
+    const project = getProject(item.project_id)
+    if (!project) return false
+    return finalizeNeedsTrigger(triggerStateOf(project, item), !!docVariantOf(item.id))
+  } catch { return false } // an unreadable state never blocks (the same safe side as the assistant's hold)
+}
+
 function isOwnerOrPageClick(ctx: RouteContext): boolean {
   return isOwnerClick(ctx) || isBrowserPageClick(ctx)
 }
@@ -4214,7 +4232,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       court: courtOut(item.id),
       ...(hasTextFinalPanel(item) ? { text_langs: textLangState(item) } : {}),
       // #723: the e-mail draft of a finalized Word item (the same draft as a court document's, made by the same code).
-      ...(hasDocxFinalPanel(item) ? { mail_draft: mailDraftView(item), mail_prefill: mailPrefill(item) } : {}),
+      ...(hasDocxFinalPanel(item) || hasPdfSource(item) ? { mail_draft: mailDraftView(item), mail_prefill: mailPrefill(item) } : {}),
       text_profile: textProfileView(item),
     })
     return true
@@ -4558,6 +4576,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'outline_finalize_owner_only', lang)
       const body = await readJson(req)
       if (!body) return fail(res, 400, 'bad_json', lang)
+      if (finalizeTriggerHeld(item)) return fail(res, 409, 'finalize_trigger_missing', lang)
       const r = await finalizeDocument(item, { accept: body['accept'], hash: body['hash'], override: body['override'], by: actor(ctx), lang })
       if (!r.ok) {
         if (!r.code.startsWith('outline_')) return docPdfFail(res, r.code === 'docpdf_failed' && r.convert ? r.convert : r.code, lang, r.detail, r.label, { outline: outlineOut(item.id) }, true)
@@ -4729,7 +4748,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const r = await saveMailDraft(item, { ...sender, to: body['to'], cc: body['cc'], subject: body['subject'], body: body['body'] }, lang)
       if (!r.ok) {
         if (r.code === 'outline_empty') return fail(res, 404, 'outline_empty', lang)
-        if (r.code === 'docx_mail_no_pdf') return fail(res, 409, 'docx_mail_no_pdf', lang)
+        if (r.code === 'docx_mail_no_pdf' || r.code === 'pdf_mail_no_file') return fail(res, 409, r.code, lang)
         if (r.code === 'bad_input') return failDetail(res, 400, 'maildraft_bad_input', lang, r.detail)
         if (r.code === 'final_required') return fail(res, 409, 'maildraft_final_required', lang)
         if (r.code === 'own_address') return failDetail(res, 400, 'maildraft_own_address', lang, r.detail)
@@ -4744,7 +4763,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (sub === 'mail-draft' && segs.length === 4 && segs[3] === 'mailbox' && method === 'POST') {
       const r = await saveDraftToMailbox(item, lang)
       if (!r.ok) {
-        if (r.code === 'docx_mail_no_pdf') return fail(res, 409, 'docx_mail_no_pdf', lang)
+        if (r.code === 'docx_mail_no_pdf' || r.code === 'pdf_mail_no_file') return fail(res, 409, r.code, lang)
         if (r.code === 'no_draft' || r.code === 'no_account' || r.code === 'save_failed') return failDetail(res, r.code === 'save_failed' ? 502 : 409, 'maildraft_' + r.code, lang, r.detail)
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }
@@ -5252,6 +5271,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     } else if (action === 'finalize' || action === 'reopen') {
       // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.
       if (!isOwnerOrPageClick(ctx)) return fail(res, 403, 'finalize_login_needed', lang)
+      if (action === 'finalize' && finalizeTriggerHeld(item)) return fail(res, 409, 'finalize_trigger_missing', lang)
       // #777 / #803 (Boss TG: "egy helyen javitunk, mindenhol javitva van"): a note / Word file has ONE finalize, the court
       // document's own (/outline/finalize), so a fix there reaches every document. The old #667 note and #719 Word panels
       // are gone: a request for them is pointed to the document page (or told the text is not read onto it yet).

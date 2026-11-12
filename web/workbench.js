@@ -11356,6 +11356,7 @@
         load(WB.projectId)
         return
       }
+      if (askNoTriggerThen(id, r, function () { finalizeDocument() })) { render(); return }
       window.showToast(r.text || r.message)
       render()
     })
@@ -13882,7 +13883,24 @@
   /** #743 (Boss TG 4171): a finalized document can be mailed again (to anyone) -- a finalized Word item and a drafted
    *  document alike. The drafted document's own mail box is locked with the rest of its page, so the top bar opens this one. */
   function isMailDoneItem(it) {
-    return isDocxDoneItem(it) || !!(it && it.status === 'done' && finalOnPage(it))
+    return isDocxDoneItem(it) || isPdfDoneItem(it) || !!(it && it.status === 'done' && finalOnPage(it))
+  }
+  /** #909 (Boss TG 5943): a finalized item made from a PDF file: the PDF itself goes out, so it has the same Send panel. */
+  function isPdfDoneItem(it) {
+    return !!(it && it.source_path && /\.pdf$/i.test(it.source_path) && it.status === 'done')
+  }
+  /** #909: a finalize the server refused because no trigger document is linked and "none" is not marked: ask the owner, who
+   *  answers with his own click ("there is none" marks it, then the same finalize runs again; "cancel" leaves the item as it is). */
+  function askNoTriggerThen(itemId, r, again) {
+    if (!r || r.code !== 'finalize_trigger_missing') return false
+    if (!window.confirm(t('workbench.trigger.finalize_ask'))) { window.showToast(r.text || r.message); return true }
+    api('POST', '/api/workbench/items/' + encodeURIComponent(itemId) + '/no-trigger', { no_trigger: true }).then(function (m) {
+      if (!m.ok) { window.showToast(m.text || m.message); return }
+      if (WB.detail && WB.detail.item && WB.detail.item.id === itemId) WB.detail.item.no_trigger = 1
+      window.showToast(t('workbench.trigger.marked'))
+      again()
+    })
+    return true
   }
 
   /** #674: a spreadsheet (xlsx / csv) item: its Finalize opens the panel too (the workbook goes to Finished materials). */
@@ -14062,11 +14080,11 @@
     return out + '</div>'
   }
 
-  function approvalAction(action) {
+  function approvalAction(action, retried) {
     if (!WB.detail || WB.approvalBusy) return
     var id = WB.detail.item.id
     var body = { action: action }
-    if (action === 'finalize' && !window.confirm(t('workbench.finalize.confirm', { name: WB.detail.item.source_path ? baseOf(WB.detail.item.source_path) : WB.detail.item.title }))) return
+    if (action === 'finalize' && !retried && !window.confirm(t('workbench.finalize.confirm', { name: WB.detail.item.source_path ? baseOf(WB.detail.item.source_path) : WB.detail.item.title }))) return
     if (action === 'approve' || action === 'reject') {
       var el = document.getElementById('wbApprovalReason')
       var reason = el && typeof el.value === 'string' ? el.value.trim() : ''
@@ -14078,11 +14096,16 @@
     api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/approval', body).then(function (r) {
       WB.approvalBusy = false
       if (!WB.detail || WB.detail.item.id !== id) return
-      if (!r.ok) { window.showToast(r.text || r.message); render(); return }
+      if (!r.ok) {
+        if (action === 'finalize' && askNoTriggerThen(id, r, function () { approvalAction('finalize', true) })) { render(); return }
+        window.showToast(r.text || r.message); render(); return
+      }
       if (r.data && r.data.item) WB.detail.item = r.data.item
       WB.detail.approval = (r.data && r.data.approval) || null
       if (r.data && r.data.versions) WB.detail.versions = r.data.versions
       window.showToast(t('workbench.approval.toast.' + action))
+      // #909: the Send panel of a PDF-made item opens by itself after the finalize, as a drafted document's does.
+      if (action === 'finalize' && WB.detail.item && isPdfDoneItem(WB.detail.item)) WB.docxMailFor = WB.detail.item.id
       render()
       load(WB.projectId)
     })

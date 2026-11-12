@@ -51,6 +51,17 @@ export function triggerBlocksWork(st: TriggerState): boolean {
   return st.folder !== null && st.files.length === 0 && !st.noTrigger
 }
 
+/**
+ * #909 (Boss TG 5943): FINALIZING needs a trigger document or the owner's "no trigger document" mark, whatever kind of item it is.
+ * Unlike triggerBlocksWork, an item without a trigger folder (a plain item made from an existing file, for example a PDF) is held
+ * too: it has no folder to link into, so the owner answers the question by the "no trigger document" mark (the page offers it
+ * when the finalize is refused). Only a language version is exempt: it answers the same trigger as its original.
+ */
+export function finalizeNeedsTrigger(st: TriggerState, isLanguageVersion: boolean): boolean {
+  if (st.noTrigger || st.files.length > 0 || isLanguageVersion) return false
+  return true
+}
+
 /** #794 (Boss TG 3807): while the work is held, the owner may still ask to FIND and LINK the trigger document ("1", "keressük
  *  meg", "linkeld be", "find it"). Only that request goes through, with a directive that limits the model to that one job. */
 export function wantsTriggerSearch(text: string): boolean {

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, setProjectArchived, updateProject } from '../projects.js'
-import { createWorkItem, getWorkItem, listWorkItemVersions } from '../workbench.js'
+import { createWorkItem, getWorkItem, listWorkItemVersions, setWorkItemNoTrigger } from '../workbench.js'
 import { addSection, addBlock, addClaim, documentOutline, type SourceWorld } from '../workbench-docmodel.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
 import { buildFodt, renderOutlineDocx, renderOutlinePdf, toRenderOutline, DOCX_FILTER, PDF_FILTER_FINAL } from '../workbench-docrender.js'
@@ -77,6 +77,7 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     updateProject(pid, { folder_path: 'Projektek/Iroda' })
     const w = createWorkItem({ project_id: pid, title: 'Válaszbeadvány', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     itemId = w.item.id
     writeFileSync(join(projDir(), 'Level', 'idezes.pdf'), 'PDF')
     seedRead(join(projDir(), 'Level', 'idezes.pdf'), 'idezes.pdf', ['Seite eins', QUOTE_PAGE])

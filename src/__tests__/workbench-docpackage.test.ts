@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject, getProject, type ProjectRow } from '../projects.js'
-import { createWorkItem, createWorkItemVersion, getWorkItem } from '../workbench.js'
+import { createWorkItem, createWorkItemVersion, getWorkItem, setWorkItemNoTrigger } from '../workbench.js'
 import { addSection, addBlock } from '../workbench-docmodel.js'
 import { addAnnex, annexPdfKind, listAnnexes, setDocSettings } from '../workbench-docannex.js'
 import { contentHash, finalPackageFiles, listFinals } from '../workbench-docfinal.js'
@@ -73,6 +73,7 @@ describe('mellekletek a PDF-ben', () => {
     project = getProject(pid) as ProjectRow
     const w = createWorkItem({ project_id: pid, title: 'Válaszbeadvány', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     itemId = w.item.id
     writeFileSync(join(projDir(), 'Iratok', 'szerzodes.pdf'), '%PDF-1.4 SZERZODES-TARTALOM')
     writeFileSync(join(projDir(), 'Iratok', 'foto.jpg'), 'JPEG')

@@ -22,6 +22,20 @@ export function hasDocxFinalPanel(item: Pick<WorkItemRow, 'source_path'>): boole
   return !!item.source_path && /\.docx$/i.test(item.source_path)
 }
 
+/** #909: an item made from an existing PDF file: the PDF itself is the document that goes out (nothing to render). */
+export function hasPdfSource(item: Pick<WorkItemRow, 'source_path'>): boolean {
+  return !!item.source_path && /\.pdf$/i.test(item.source_path)
+}
+
+/** #909: the PDF file of a PDF-made item (name, paths), null when the file is gone. */
+export function pdfSourceFile(item: Pick<WorkItemRow, 'source_path'>): { abs: string; rel: string; name: string } | null {
+  if (!hasPdfSource(item)) return null
+  const abs = resolveLifePath(item.source_path as string)
+  if (!abs) return null
+  try { if (!statSync(abs).isFile()) return null } catch { return null }
+  return { abs, rel: item.source_path as string, name: basename(abs) }
+}
+
 /**
  * #783: the final PDF the Word finalize left (an item finalized before #777), for the project close check: its name, and
  * whether the Word file changed since it was made. Null = there is none.
