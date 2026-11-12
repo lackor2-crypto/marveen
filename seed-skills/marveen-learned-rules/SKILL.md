@@ -395,3 +395,51 @@ Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismeré
 **Hiba (2026-11-12, sokadszor):** a levél Címzett blokkja felugrott a Feladó mellé, mert a fölötte álló 4 üres sor eltűnt. Ok: a munkadarab oldala mentéskor kidobta az üres sor jelét (U+200B), a szerver pedig minden blokk szövegén `trim()`-et futtatott (addBlock, updateBlock, proposeRewrite, fordítás), így az üres sorok az oldal ELSŐ mentésénél elvesztek. A korábbi javítások (#565, #838, #851) mindig csak egy helyen tették vissza.
 **Szabály:** egy dokumentum-blokk szövegében az üres sor ugyanolyan sor, mint amiben írás van: ha a tulajdonos Entert (vagy Shift+Entert) nyom, az ott marad. EGY közös szabály van rá: szerveren `blockText()` / `canonLineParts()` (`src/workbench-blanklines.ts`), böngészőben ugyanaz betűre (`dpCanonParts` / `dpCanonText` a `web/workbench.js`-ben). Az üres sor egyetlen U+200B karakterként tárolódik. Blokk szövegét író kód SOHA nem hív kézzel `trim()`-et és nem szedi ki az U+200B-t: a `blockText()`-en megy át. Ez minden dokumentumfajtára áll (munkadarab oldala, fordítás-oldal, nyelvi változat, asszisztens által írt blokk, Word-import, PDF és Word kimenet).
 **Mérés:** `npx vitest run src/__tests__/blank-line-is-a-line.test.ts` (a szabály, a böngésző-szerver azonosság, és az, hogy egy író sem vág kézzel); böngészőben: gépelés + mentés után a Címzett blokk 4 üres sora megvan, a piszkozat PDF-ben a Címzett a Feladó ALATT áll.
+
+### R37 -- Egy cellát szélesebbre húzni auto-layout táblán átméretezi az EGÉSZ táblát
+**Hiba (2026-08-07):** a Jóváhagyások táblán egy sor leírás-cellájának
+kattintásra kinyíló állapota `max-width:280px -> 420px`-re nőtt. A tábla
+(`.ssh-table`, `table-layout` nincs rajta beállítva, alapértelmezett `auto`)
+emiatt ÚJRASZÁMOLTA az összes oszlop szélességét a legszélesebb cella
+alapján -- a kattintott sor kinyitásakor a TELJES tábla látványosan
+átméreteződött, nem csak az a sor. Boss vette észre ("ha rákattintok az
+egyikre hogy nyíljon ki, az össze[s] kisebb nagyobb lesz").
+**Szabály:** ha egy tábla-cella tartalma állapottól függően változik
+(kinyit/becsuk, hosszú/rövid szöveg), és a táblának NINCS `table-layout:
+fixed`-je, SOSE változtasd a cella `max-width`/`width` értékét a két állapot
+között -- tartsd fixen, és csak a `white-space`/`word-break` értékét
+váltogasd (a sor magasabb lesz, nem szélesebb). Ha a cellának valóban
+szélesebbnek KELL lennie kinyitáskor, akkor előbb tedd rá a táblára
+`table-layout: fixed`-et és explicit oszlopszélességeket, különben minden
+más oszlop is ugrálni fog vele.
+
+### R38 -- Teljesítmény- vagy funkció-kapcsolót MAGADTÓL kikapcsolni TILOS
+
+**Hiba:** valaki (ágens vagy terminál) 2026-08-10-en letrehozta a
+`~/.local/share/marveen-himalaya/disable-imap-direct` marker-fajlt. Ez egyetlen
+fajl letezesevel kikapcsolta a direct-IMAP gyorsutvonalat MINDHAROM helyen
+(level-body, mappalista, levellista), igy minden level ujra a himalaya CLI-n at
+jott, ami MINDIG a teljes levelet letolti, mellekletestul. Ket napig lassu volt
+minden: egy 55 karakteres level 22 MB-os mellekettel 37,2 masodperc helyett
+0,8 masodperc lett volna. Semmi nem naplozta, semmi nem mutatta a dashboardon,
+es csak akkor derult ki, amikor Boss panaszkodott. Boss dontese: "toroljuk ki
+azt a lehetoseget, hogy soha az eletben ne tudjak azt kikapcsolni".
+
+**Szabály:** egy meglevo teljesitmeny-gyorsutvonalat, funkciot vagy vedelmet
+NEM kapcsolhatsz ki sajat hatarozatbol -- se kill-switch fajllal, se env
+valtozoval, se flag atirasaval -- CSAK ha a tulajdonos kifejezetten engedelyezi.
+Ha diagnosztizalas kozben ideiglenesen kikapcsolsz valamit: (1) a SAJAT fordulod
+vegen allitsd vissza, (2) ha megis bent marad, azonnal szolj Telegramon es vedd
+fel kanban kartyara, (3) SOSE hagyd ott csendben. Ha egy kapcsolo tenylegesen
+karos (mint ez volt), a helyes lepes nem a hasznalata, hanem a MEGSZUNTETESE:
+az automatikus, keresenkenti fallback (a helper null-t ad hibara) mindig
+biztonsagosabb, mint egy kezi, mindent-egyszerre kikapcsolo gomb.
+
+### R39 -- Kanban lekérdezésnél NE `sqlite3` CLI, a gép nem garantáltan tartalmazza
+**Hiba (2026-08-22):** heartbeat közben mai lejáratú kanban kártyát kerestem
+`sqlite3 store/claudeclaw.db "SELECT ..."` paranccsal -- exit 127, a `sqlite3`
+bináris nincs telepítve ezen a gépen. Elsőre néma hibát okozott volna, ha nem
+nézem meg az exit kódot.
+**Szabály:** kanban/DB lekérdezéshez ELSŐDLEGESEN a dashboard API-t használd
+(`GET /api/kanban` + helyi szűrés Python/jq-val), ne közvetlen `sqlite3` hívást
+-- a CLI jelenléte gépfüggő, az API mindig elérhető amíg a dashboard fut.
