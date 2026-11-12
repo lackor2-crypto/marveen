@@ -31,6 +31,6 @@ describe('Simple view technical details', () => {
     expect(js).toContain('lockFrameScroll()')
     expect(js).toContain("if (WB.shMore) scrollTechIntoView()")
     expect(js).toContain("scrollIntoView({ behavior: 'smooth', block: 'start' })")
-    expect(css).toContain('main.projects-active.wb-sh-locked { overflow-y: hidden; }')
+    expect(css).toContain('main.projects-active.wb-sh-locked:has(.wb-fr-body) { overflow-y: hidden; }')
   })
 })

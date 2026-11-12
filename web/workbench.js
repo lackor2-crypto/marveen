@@ -469,6 +469,15 @@
       if (quiet) {
         try { if (JSON.stringify(wf) === JSON.stringify(WB.workFolders) && JSON.stringify(items) === JSON.stringify(WB.items) && JSON.stringify(marks) === JSON.stringify(WB.itemMarks || {})) return } catch (e) { /* draw */ }
       }
+      // #910 (Boss TG 5954): a presentation redrawn every ~9 s made its photo blink. When the work item that is OPEN did not
+      // change itself (same row), only the tree panel is replaced: the page the owner is looking at is not redrawn for the
+      // sake of another item's row. A full redraw stays for when the open item's own row changed.
+      if (quiet && !swap && WB.selectedId) {
+        try {
+          var openRow = function (list) { return JSON.stringify((list || []).filter(function (x) { return x.id === WB.selectedId })[0] || null) }
+          if (openRow(items) === openRow(WB.items)) swap = true
+        } catch (e) { /* keep the full redraw */ }
+      }
       WB.workFolders = wf
       WB.items = items
       WB.itemMarks = marks
@@ -21571,6 +21580,16 @@
     if (lock) { if (host) host.scrollTop = 0; try { window.scrollTo(0, 0) } catch (_e) { /* harmless */ } }
   }
 
+  /** #911 (Boss TG 5954, "the page cannot be scrolled again"): the lock class lives on the shared <main>, but only render() of
+   *  an open work item updated it. Closing the Workbench (back to the project overview, which has no frame) or restarting the
+   *  Projects page left `wb-sh-locked` on <main> -> overflow-y hidden -> nothing scrolled. Every way out of the frame
+   *  releases it here (the CSS also applies the lock only while a frame is on the page). */
+  function releaseFrameScrollLock() {
+    if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return
+    var host = document.querySelector('main')
+    if (host && host.classList) host.classList.remove('wb-sh-locked')
+  }
+
   /** After "Technical details" opens: the page scrolls itself up to where they start, so the
    *  click visibly does something. */
   function scrollTechIntoView() {
@@ -22238,6 +22257,7 @@
 
   function closeWorkbench() {
     var pid = WB.projectId
+    releaseFrameScrollLock()
     WB.open = false
     WB.projectId = null
     WB.items = null
@@ -25498,6 +25518,7 @@
    *  itt eppen az a dolgunk, hogy ne szoljunk bele abba, amit a hivo rajzol. */
   function resetWorkbench() {
     if (WB.liveTimer) { clearTimeout(WB.liveTimer); WB.liveTimer = null }
+    releaseFrameScrollLock()
     WB.open = false
     WB.projectId = null
     WB.project = null
