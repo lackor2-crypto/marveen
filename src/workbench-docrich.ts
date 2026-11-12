@@ -8,6 +8,8 @@
  * formatting is simply ignored instead of being painted on the wrong words.
  */
 
+import { blockText, canonLineParts } from './workbench-blanklines.js'
+
 export const BLOCK_ALIGNS = ['l', 'c', 'r', 'j'] as const
 export type BlockAlign = (typeof BLOCK_ALIGNS)[number]
 
@@ -194,6 +196,9 @@ export function richUniform(source: string | null | undefined, text: string): st
 export function sanitizeRich(input: unknown): string {
   const runs = richRuns(String(input ?? ''))
   if (!runs.some(hasFormat)) return ''
+  // #912: the empty lines of a formatted text are lines too -- the same canonical form as the plain text (blockText).
+  const canon = canonLineParts(runs.map((r) => r.text))
+  if (canon) runs.forEach((r, i) => { r.text = canon[i] as string })
   return runs.map((r) => {
     let out = encode(r.text).replace(/\n/g, '<br>')
     if (r.s) out = `<s>${out}</s>`
@@ -209,7 +214,8 @@ export function sanitizeRich(input: unknown): string {
 /** Does this rich string describe exactly this plain text? */
 export function richMatches(rich: string | null | undefined, text: string): boolean {
   if (!rich) return false
-  return richToPlain(rich).replace(/\r\n/g, '\n').trim() === String(text ?? '').replace(/\r\n/g, '\n').trim()
+  // #912: compared in the canonical form, so the empty lines above / below the text count (and never break the match).
+  return blockText(richToPlain(rich)) === blockText(text)
 }
 
 // ---- paragraph formatting ---------------------------------------------------------------------

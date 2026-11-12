@@ -91,7 +91,9 @@ describe('dokumentum-lap: a fejezetcim igazitasa (#604)', () => {
       const root = link({ nodeType: 1, nodeName: 'DIV', style: {}, firstChild: null, nextSibling: null, getAttribute: (n: string) => (n === 'data-wb-dp' ? kind : null) }, kids)
       const ctx = { DP_FONTS: ['Times New Roman', 'Arial', 'Courier New', 'Georgia', 'Verdana', 'Calibri'], root, out: undefined as unknown }
       vm.createContext(ctx)
-      vm.runInContext(`${fns}\n${body}\nout = dpFmtOf(root)`, ctx)
+      // #912: dpFmtOf reads the lines with the one empty-line rule (dpCanonParts)
+      const canon = src.slice(src.indexOf('function dpCanonParts(parts)'), src.indexOf('/** The text of a paragraph as it is stored'))
+      vm.runInContext(`var DP_BLANK = '\\u200B'\n${canon}\n${fns}\n${body}\nout = dpFmtOf(root)`, ctx)
       return (ctx.out as { rich: string }).rich
     }
     const kids = () => [el('span', { fontWeight: 'normal', color: 'rgb(255, 0, 0)' }, [el('i', {}, [tx('Cím')])])]

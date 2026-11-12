@@ -536,9 +536,9 @@ describe('the draft page wiring', () => {
     }
     const collect = (src: string, tw: { lang: string; prev: Record<string, Record<string, unknown>>; note: string }) => {
       // eslint-disable-next-line no-new-func
-      new Function('document', 'WB', 'twState', 'twKey', 't', 'dpFmtOf', 'dpPfmtOf', 'DP_ALIGNS', 'dpTableParts', 'dpTableText', 'twTableLines', src + '; twCollect()')(
+      new Function('document', 'WB', 'twState', 'twKey', 't', 'dpFmtOf', 'dpPfmtOf', 'DP_ALIGNS', 'dpTableParts', 'dpTableText', 'twTableLines', 'dpCanonText', src + '; twCollect()')(
         { getElementById: () => page }, { detail: { outline: { sections: [{ id: 's1' }] } }, selectedId: 'w1' }, () => tw,
-        (id: string) => 'w1:de:' + id, (k: string) => k, () => ({}), () => ({}), [], (x: string) => ({ text: x }), (x: string) => x, () => null,
+        (id: string) => 'w1:de:' + id, (k: string) => k, () => ({}), () => ({}), [], (x: string) => ({ text: x }), (x: string) => x, () => null, (x: string) => String(x).trim(),
       )
     }
     const arrived = () => ({ lang: 'de', note: '', prev: { 'w1:de:s1': {
