@@ -3385,6 +3385,61 @@ export function ensureGlobalNoHiddenLimitsRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+// ---- #908: every web search / page read is saved to the Research ------------------------------------------
+const WEBRES_BEGIN = '<!-- BEGIN GENERATED: web-research-save-rule (auto-generated, do not edit by hand) -->'
+const WEBRES_END = '<!-- END GENERATED: web-research-save-rule -->'
+const WEBRES_BLOCK_RE = new RegExp(
+  `${WEBRES_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${WEBRES_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildWebResearchSaveBody(): string {
+  return [
+    '## AMIT AZ INTERNETEN MEGTALALSZ, AZ A KUTATASBA KERUL -- A RENDSZER MENTI',
+    '',
+    'Minden webes keresest (WebSearch) es oldal-olvasast (WebFetch) a rendszer magatol elment a sajat',
+    'research/ mappadba (PostToolUse hook, `web-research-save.py`), igy a Kutatas oldalon es a Munkapadon',
+    'megjelenik. Ezt NEM kell kezzel elvegezned, es nem is lehet kihagyni. A hook a valaszod mellett jelzi,',
+    'hova mentette. Amit TE teszel hozza: ha munkadarabon dolgozol, a talalt tenyeket es a forrast ird a',
+    'munkadarab Kontextus fajljaba (context.append), a kovetkezo lepeseket es nyitott pontokat a Teendok koze.',
+    'Ha az internetet mas eszkozzel (bongeszo, curl) olvasod, a lenyeget te mented a Kutatasba',
+    '(a projekt-asszisztensnel `research.save`). Reszletek: `web-research-saved` skill.',
+  ].join('\n')
+}
+
+function webResearchBlock(): string { return `${WEBRES_BEGIN}\n${buildWebResearchSaveBody()}\n${WEBRES_END}` }
+
+/** Bevisz egy agens sajat CLAUDE.md-jebe: a webes talalat a Kutatasba kerul. */
+export function ensureWebResearchSaveSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+  const block = webResearchBlock()
+  let existing: string
+  try { existing = readFileSync(claudeMdPath, 'utf-8') } catch { return 'unreadable' }
+  const updated = WEBRES_BLOCK_RE.test(existing) ? existing.replace(WEBRES_BLOCK_RE, block) : existing.trimEnd() + '\n\n' + block + '\n'
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben futo agens is ezt olvassa. */
+export function ensureGlobalWebResearchSaveRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = webResearchBlock()
+  let existing = ''
+  if (existsSync(path)) {
+    try { existing = readFileSync(path, 'utf-8') } catch { return }
+  } else {
+    try { mkdirSync(dir, { recursive: true }) } catch { return }
+  }
+  const updated = WEBRES_BLOCK_RE.test(existing)
+    ? existing.replace(WEBRES_BLOCK_RE, block)
+    : existing.trim() === '' ? block + '\n' : existing.trimEnd() + '\n\n' + block + '\n'
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 const SANDBOX_BEGIN = '<!-- BEGIN GENERATED: test-sandbox-rule (auto-generated, do not edit by hand) -->'
 const SANDBOX_END = '<!-- END GENERATED: test-sandbox-rule -->'
 const SANDBOX_BLOCK_RE = new RegExp(

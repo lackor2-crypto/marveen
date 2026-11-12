@@ -977,6 +977,13 @@ PRÓBA-projektben tedd, ne valódi ügyfél- vagy hivatali projektben; ott semmi
 bent maradhat. Kivétel: a böngészős kattintás oda kattint, ahova kell. Minden ágens megkapja (`ensureTestSandboxSection`,
 `ensureGlobalTestSandboxRule`). Skill: `test-in-sandbox-project`.
 
+## ⛔ AMIT AZ INTERNETEN MEGTALÁLSZ, AZ A KUTATÁSBA KERÜL (Boss, TG 5940, #908)
+Minden webes keresést (WebSearch) és oldal-olvasást (WebFetch) a rendszer magától elment a saját `research/` mappádba
+(PostToolUse hook: `scripts/hooks/web-research-save.py`), a Kutatás oldalon megjelenik. Nem kell kézzel, nem lehet kihagyni.
+Amit te teszel hozzá: munkadarabon dolgozva a talált tényeket és a forrást a Kontextus fájlba (`context.append`), a nyitott
+pontokat a Teendők közé. Minden ágens megkapja (`ensureWebResearchSaveSection`, `ensureGlobalWebResearchSaveRule`);
+a hook a `templates/settings.json.template`-ből jön. Skill: `web-research-saved`.
+
 ## ⛔ A HIBÁT A GYÖKERÉNÉL JAVÍTJUK, MINDEN ELŐFORDULÁSNÁL (Boss, TG 3948, törvény)
 
 Boss: „mindig csak egy-egy gombot javítunk ... a gyökérokkal együtt kell meggyógyítani ... nézd meg,
