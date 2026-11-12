@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem, getWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem, setWorkItemNoTrigger } from '../workbench.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { hasTableFinalPanel } from '../workbench-tablefinal.js'
 import { hasTextFinalPanel } from '../workbench-notefinal.js'
@@ -34,6 +34,7 @@ describe('#674 table work item: finalize puts the workbook into Finished materia
   const mk = (rel: string | null) => {
     const w = createWorkItem({ project_id: pid, title: 'Koltsegvetes', type: 'note' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     if (rel) getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(rel, w.item.id)
     return w.item.id
   }

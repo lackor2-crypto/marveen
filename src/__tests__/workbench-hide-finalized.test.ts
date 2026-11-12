@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
-import { createWorkItem, getWorkItem, listWorkItemVersions } from '../workbench.js'
+import { createWorkItem, getWorkItem, listWorkItemVersions, setWorkItemNoTrigger } from '../workbench.js'
 import { submitWorkItemForApproval, workItemApprovalState } from '../workbench-approval.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
 import type { RouteContext } from '../web/routes/types.js'
@@ -34,6 +34,7 @@ describe('#552 finalize / reopen: the server', () => {
   const mk = (title: string) => {
     const r = createWorkItem({ project_id: pid, title, type: 'note' })
     if (!r.ok) throw new Error('create')
+    setWorkItemNoTrigger(r.item.id, true)
     return r.item
   }
   beforeEach(() => {

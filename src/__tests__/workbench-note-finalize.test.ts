@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem, getWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem, setWorkItemNoTrigger } from '../workbench.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { hasTextFinalPanel, isTextSourcePath } from '../workbench-notefinal.js'
 import { textLangState } from '../workbench-notelang.js'
@@ -36,6 +36,7 @@ describe('#803 text-file work item: one finalize, on the document page', () => {
   const mkNote = (rel: string | null, title = 'Terv', type: 'note' | 'video' = 'note') => {
     const w = createWorkItem({ project_id: pid, title, type })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     if (rel) getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(rel, w.item.id)
     return w.item.id
   }

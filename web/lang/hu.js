@@ -6115,6 +6115,7 @@ window._i18n.hu = {
   "workbench.trigger.hint": "Ide kerül (hivatkozásként, nem másolatként) az az irat, ami ezt a munkadarabot kiváltotta: hatósági határozat, hiánypótlás, megválaszolandó levél. Pipáld be, ha nincs ilyen, mert a munka saját kezdeményezés.",
   "workbench.trigger.x_label": "Nincs kiváltó irat",
   "workbench.trigger.x_hint": "Ennek a munkadarabnak nincs kiváltó irata: saját kezdeményezés, ezért kiváltó irat nélkül is lehet rajta tovább dolgozni.",
+  "workbench.trigger.finalize_ask": "Nincs kiváltó irat a „Kiváltó irat” mappában, és a „Nincs kiváltó irat” jelölés sincs bekapcsolva. Biztosan nincs olyan irat, ami miatt ez a munka készült (saját kezdeményezés)?\n\nOK: megjelölöm, hogy nincs kiváltó irat, és véglegesítem.\nMégse: nem véglegesítek, előbb linkeld be a kiváltó iratot.",
   "workbench.trigger.marked": "Megjelölve: nincs kiváltó irat, a munka mehet tovább.",
   "workbench.trigger.unmarked": "A jelölés visszavonva: kell kiváltó irat.",
   "workbench.ctx.more_folder": "Mappa műveletei",

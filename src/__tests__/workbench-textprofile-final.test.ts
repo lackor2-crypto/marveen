@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem, getWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem, setWorkItemNoTrigger } from '../workbench.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
 import { addBlock, addSection } from '../workbench-docmodel.js'
 import { isWordImported } from '../workbench-worddoc.js'
@@ -65,6 +65,7 @@ describe('#777 the text profile finalizes on the court document route', () => {
     writeFileSync(join(depot, dirRel, name), text, 'utf-8')
     const w = createWorkItem({ project_id: pid, title, type: 'note' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`${dirRel}/${name}`, w.item.id)
     return getWorkItem(w.item.id)!
   }
@@ -95,6 +96,7 @@ describe('#777 the text profile finalizes on the court document route', () => {
     writeFileSync(join(depot, dirRel, 'Antwort.docx'), 'PK-docx', 'utf-8')
     const w = createWorkItem({ project_id: pid, title: 'Antwort', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`${dirRel}/Antwort.docx`, w.item.id)
     // What the Word import leaves behind: the page's outline and the import mark (the real import needs LibreOffice).
     const sec = addSection(w.item.id, 'Antwort')
@@ -126,6 +128,7 @@ describe('#777 the text profile finalizes on the court document route', () => {
     writeFileSync(join(depot, dirRel, 'Brief.docx'), 'PK-docx', 'utf-8')
     const w = createWorkItem({ project_id: pid, title: 'Brief', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`${dirRel}/Brief.docx`, w.item.id)
     const d = await callWorkbench(`/api/workbench/items/${w.item.id}/approval`, 'POST', { action: 'finalize', pdf: true })
     expect(d.status).toBe(409)
@@ -137,6 +140,7 @@ describe('#777 the text profile finalizes on the court document route', () => {
     writeFileSync(join(depot, dirRel, 'Klage.docx'), 'PK-docx', 'utf-8')
     const w = createWorkItem({ project_id: pid, title: 'Klage', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     const sec = addSection(w.item.id, 'Klage')
     if (!sec.ok) throw new Error('fejezet')
     expect(addBlock(w.item.id, sec.section.id, { kind: 'paragraph', text: 'Der Kläger beantragt.', author: 'owner' }).ok).toBe(true)

@@ -7,7 +7,7 @@ import { readdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem } from '../workbench.js'
+import { createWorkItem, setWorkItemNoTrigger } from '../workbench.js'
 import { markPlainItem } from '../workbench-assets.js'
 import { addSection, addBlock } from '../workbench-docmodel.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
@@ -51,6 +51,8 @@ describe('#737 ujra-veglegesites', () => {
     const w = createWorkItem({ project_id: p.project.id, title: 'Sozialamt Pflegesituation', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
     itemId = w.item.id
+    // #909: finalizing asks for the trigger document or the owner's "none" mark; these tests are about the PDF, not the trigger.
+    setWorkItemNoTrigger(itemId, true)
     const s = addSection(itemId, '1. Tény', { status: 'done' })
     if (!s.ok) throw new Error('fejezet')
     addBlock(itemId, s.section.id, { text: 'Sehr geehrte Frau Jäckle,', author: 'owner' })

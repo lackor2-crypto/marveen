@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
-import { createWorkItem, getWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem, setWorkItemNoTrigger } from '../workbench.js'
 import { finalPackageFiles, listFinals } from '../workbench-docfinal.js'
 import { addSection, addBlock, addClaim, documentOutline, escapesProject } from '../workbench-docmodel.js'
 import { ensureDocReadTables, sha256OfFile, DOCREAD_VERSION } from '../workbench-docread.js'
@@ -274,6 +274,7 @@ describe('veglegesites celbirosag-profillal', () => {
     updateProject(pid, { folder_path: 'Projektek/Iroda' })
     const w = createWorkItem({ project_id: pid, title: 'Klage gegen Muster', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
+    setWorkItemNoTrigger(w.item.id, true)
     itemId = w.item.id
     // Forras-irat a forrasolt allitashoz, es a szkennelt melleklet.
     const src = join(projDir(), 'Level', 'brief.pdf')

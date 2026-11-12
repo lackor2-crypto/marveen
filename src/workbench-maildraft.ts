@@ -32,7 +32,7 @@ import { contentHash, docLangFor, fileStem, finalFileName, letterFileStem, lette
 import { hasDocModel, listBlocks } from './workbench-docmodel.js'
 import { detectTextLanguage, letterSignatory, letterSubject, subjectFromLines } from './workbench-letterinfo.js'
 import { variantOf } from './workbench-doclang.js'
-import { docxFinalPdf, hasDocxFinalPanel } from './workbench-docxfinal.js'
+import { docxFinalPdf, hasDocxFinalPanel, hasPdfSource, pdfSourceFile } from './workbench-docxfinal.js'
 import { resolveLifePath } from './life-explorer.js'
 import type { DocLang } from './workbench-docrender.js'
 import type { WorkItemRow } from './workbench.js'
@@ -484,6 +484,11 @@ export function mailPrefill(item: WorkItemRow): { to: string; subject: string; b
     const wl = textLanguageOf(item) ?? 'hu'
     return { to: knownRecipient(item), subject: mailSubject(item), body: defaultMailBody(item, wl, 0), lang: wl }
   }
+  // #909: an item made from a PDF file carries that PDF as it is.
+  if (!hasDocModel(item.id) && hasPdfSource(item)) {
+    if (getRow(item.id) || !pdfSourceFile(item)) return null
+    return { to: knownRecipient(item), subject: mailSubject(item), body: defaultMailBody(item, 'hu', 0), lang: 'hu' }
+  }
   if (!hasDocModel(item.id) || hasDocxFinalPanel(item) || getRow(item.id)) return null
   const fin = finalState(item)
   if (!fin || fin.stale) return null
@@ -505,9 +510,16 @@ function wordFinalPrint(item: WorkItemRow): string {
   try { const st = statSync(pdf.abs); return `${pdf.name}:${st.size}:${Math.floor(st.mtimeMs)}` } catch { return `${pdf.name}:missing` }
 }
 
+/** #909: the PDF a PDF-made item's mail carries (name, size, time), so a changed file makes the mail outdated. */
+function pdfSourcePrint(item: WorkItemRow): string {
+  const pdf = pdfSourceFile(item)
+  if (!pdf) return ''
+  try { const st = statSync(pdf.abs); return `${pdf.name}:${st.size}:${Math.floor(st.mtimeMs)}` } catch { return `${pdf.name}:missing` }
+}
+
 function packageKey(item: WorkItemRow, from: string, to: string, cc: string, subject: string, body: string): string {
   const doc = hasDocModel(item.id) ? [contentHash(item), docSettings(item.id).annex_mode, currentFinalId(item)] : []
-  const word = hasDocxFinalPanel(item) ? [wordFinalPrint(item)] : []
+  const word = hasDocxFinalPanel(item) ? [wordFinalPrint(item)] : hasPdfSource(item) && !hasDocModel(item.id) ? [pdfSourcePrint(item)] : []
   return sha(Buffer.from([...doc, ...word, from, to, cc, subject, body].join('\n'), 'utf-8'))
 }
 
@@ -556,6 +568,12 @@ export async function collectAttachments(item: WorkItemRow, ui: 'hu' | 'en'): Pr
     }
     if (!hasDocModel(item.id)) return { ok: false, code: 'docx_mail_no_pdf', detail: null }
   }
+  // #909: an item made from a PDF file: the file itself is the attachment, exactly as it is.
+  if (!hasDocModel(item.id) && hasPdfSource(item)) {
+    const pdf = pdfSourceFile(item)
+    if (!pdf) return { ok: false, code: 'pdf_mail_no_file', detail: null }
+    try { return { ok: true, files: [{ name: pdf.name, data: readFileSync(pdf.abs), kind: 'document' }] } } catch { return { ok: false, code: 'pdf_mail_no_file', detail: null } }
+  }
   const lang = docLangFor(item, ui)
   const main = await renderPlainPdf(item, ui)
   if (!main.ok) return { ok: false, code: main.code, detail: main.detail }
@@ -599,7 +617,7 @@ const SUBJECT_MAX = 998
  */
 export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui: 'hu' | 'en'): Promise<MailDraftOutcome> {
   // #723 (Boss TG 3935: "egy kodsort hasznaljunk csak"): a finalized Word item makes its mail here too, with the sender.
-  if (!hasDocModel(item.id) && !hasDocxFinalPanel(item)) return { ok: false, code: 'outline_empty', detail: null }
+  if (!hasDocModel(item.id) && !hasDocxFinalPanel(item) && !hasPdfSource(item)) return { ok: false, code: 'outline_empty', detail: null }
   const prev = getRow(item.id)
   const fromAccount = input.from_account === undefined ? (prev?.from_account ?? '') : String(input.from_account).trim()
   const fromAddr = input.from_account === undefined ? (prev?.from_addr ?? '') : (cleanAddresses(input.from_addr) || '')

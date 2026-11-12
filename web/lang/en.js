@@ -6041,6 +6041,7 @@ window._i18n.en = {
   "workbench.trigger.hint": "The document that triggered this work item goes here (as a link, not a copy): an authority decision, a request for missing documents, a letter to be answered. Tick this if there is none because the work is your own initiative.",
   "workbench.trigger.x_label": "No trigger document",
   "workbench.trigger.x_hint": "This work item has no trigger document: it is your own initiative, so work can go on without one.",
+  "workbench.trigger.finalize_ask": "There is no trigger document in the \"Trigger document\" folder and \"No trigger document\" is not marked. Is there really no document this work was made for (own initiative)?\n\nOK: mark that there is no trigger document, then finalize.\nCancel: do not finalize; link the trigger document first.",
   "workbench.trigger.marked": "Marked: no trigger document, the work can go on.",
   "workbench.trigger.unmarked": "Mark removed: a trigger document is needed.",
   "workbench.ctx.more_folder": "Folder actions",
