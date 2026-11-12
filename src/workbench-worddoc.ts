@@ -35,6 +35,7 @@ import {
   BLANK_LINE, BLOCK_TEXT_MAX, BLOCKS_MAX, OVER_Y_MAX, PLACEHOLDER_SECTION_TITLES, SECTION_TITLE_MAX, addSection, documentOutline,
   hasDocModel, replacePage, type PageSectionIn,
 } from './workbench-docmodel.js'
+import { blockText } from './workbench-blanklines.js'
 import { richMatches, richToPlain, sanitizeRich } from './workbench-docrich.js'
 import { saveBytesAsNewVersion } from './workbench-edit.js'
 import { createWorkItemVersion, deleteWorkItemVersion, getWorkItem, getWorkItemVersion, versionLoadedOnDelete, type WorkItemRow, type WorkItemVersionRow } from './workbench.js'
@@ -237,7 +238,10 @@ export function parseWordHtml(html: string): ParsedWord {
     if (!c) return
     cap = null
     const buf = c.buf.replace(/ ((?:<\/?(?:b|strong|i|em|u|s|strike|del|span|font)\b[^>]*>)*)$/i, '$1')
-    const plain = richToPlain(buf).replace(/[ \t]*\n[ \t]*/g, '\n').replace(/^\n+|\n+$/g, '').trim()
+    const lined = richToPlain(buf).replace(/[ \t]*\n[ \t]*/g, '\n')
+    const plain = lined.replace(/^\n+|\n+$/g, '').trim()
+    // #912: an empty line is a line. A paragraph's own line breaks above / below its text (Shift+Enter in Word) stay.
+    const para = plain ? (blockText(lined) || plain) : ''
     if (c.kind === 'h') {
       if (plain) { cur = { title: plain.replace(/\s*\n\s*/g, ' ').slice(0, SECTION_TITLE_MAX), blocks: [] }; sections.push(cur) }
     } else if (c.kind === 'li') {
@@ -252,9 +256,9 @@ export function parseWordHtml(html: string): ParsedWord {
         const row = table.rows[table.rows.length - 1]
         if (row) row.push(plain.replace(/\s*\n\s*/g, ' ').replace(/\|/g, '/'))
       }
-    } else if (plain) {
+    } else if (para) {
       const rich = sanitizeRich(buf)
-      const pieces = plain.length > BLOCK_TEXT_MAX ? chunk(plain) : [plain]
+      const pieces = para.length > BLOCK_TEXT_MAX ? chunk(para) : [para]
       for (const piece of pieces) {
         const b: ParsedBlock = { kind: 'paragraph', text: piece }
         if (pieces.length === 1 && rich && richMatches(rich, piece)) b.rich = rich
@@ -391,8 +395,10 @@ export function parseWordHtml(html: string): ParsedWord {
     if (tag === 'body' && closing) flush()
   }
   flush()
-  // Empty lines at the very end (the trailing paragraph marks of a Word file) carry nothing.
-  for (const s of sections) while (s.blocks.length && s.blocks[s.blocks.length - 1]?.text === BLANK_LINE) s.blocks.pop()
+  // Empty lines at the very end of the FILE (the trailing paragraph marks of a Word file) carry nothing. Only there (#912):
+  // an empty line the owner left under a chapter's last paragraph is a line and stays.
+  const lastSec = sections[sections.length - 1]
+  if (lastSec) while (lastSec.blocks.length && lastSec.blocks[lastSec.blocks.length - 1]?.text === BLANK_LINE) lastSec.blocks.pop()
   let total = 0
   for (const s of sections) {
     if (total + s.blocks.length > BLOCKS_MAX) { s.blocks.length = Math.max(0, BLOCKS_MAX - total); warnings.add('too_long') }

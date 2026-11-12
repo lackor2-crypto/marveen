@@ -20,6 +20,7 @@
  *   megerositesevel, hivatalos forras, kovetkeztetes) atmasolodnak, az
  *   allitas szovege a forditas szo szerinti resze.
  */
+import { blockText } from './workbench-blanklines.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { mirrorRecipientWindow, forceSenderLabel } from './workbench-letterhead.js'
 import { getDb } from './db.js'
@@ -448,7 +449,7 @@ export function lookOfBlock(sb: { text: string; rich?: string | null; align?: st
   if (pf) own.pfmt = pf
   if (typeof b.rich === 'string' && b.rich) {
     const r = sanitizeRich(b.rich)
-    if (r && richToPlain(r).replace(/\r\n/g, '\n').trim() === text && richMatches(r, text)) own.rich = r
+    if (r && blockText(richToPlain(r)) === text && richMatches(r, text)) own.rich = r
   }
   // Field by field: what the page / the translator gave wins, the rest is what the source block at the same place wears.
   return { ...(sb ? carriedLook(sb, text) : {}), ...own }
@@ -473,7 +474,7 @@ export function translationAlreadySaved(variantId: string, input: { source_secti
   const srcList = listBlocks(v.source_item_id).filter((x) => x.section_id === src.id)
   return raw.every((b, i) => {
     const kind = (b.kind === undefined || b.kind === null || b.kind === '') ? 'paragraph' : String(b.kind)
-    const text = String(b.text ?? '').replace(/\r\n/g, '\n').trim()
+    const text = blockText(b.text)
     if (have[i]!.kind !== kind || have[i]!.text !== text) return false
     const sb = sourceForTranslated(srcList, i, kind, raw.length)
     const look = lookOfBlock(sb, b, text)
@@ -505,7 +506,7 @@ export function translateSection(variantId: string, input: { source_section?: un
   for (const b of raw) {
     const kind = (b.kind === undefined || b.kind === null || b.kind === '') ? 'paragraph' : String(b.kind)
     if (!BLOCK_KINDS.includes(kind as BlockKind)) return { ok: false, code: 'bad_input', detail: `kind must be one of ${BLOCK_KINDS.join(', ')}` }
-    const text = String(b.text ?? '').replace(/\r\n/g, '\n').trim()
+    const text = blockText(b.text)
     if (!text || text.length > BLOCK_TEXT_MAX) return { ok: false, code: 'bad_input', detail: `each block text must be 1 to ${BLOCK_TEXT_MAX} characters` }
     const cl = (Array.isArray(b.claims) ? b.claims as { source_claim?: unknown; text?: unknown }[] : [])
       .map((c) => ({ source_claim: String(c.source_claim ?? ''), text: String(c.text ?? '').trim() }))

@@ -61,7 +61,9 @@ describe('the translation page keeps the blank lines at the top and bottom of a 
     const i = JS.indexOf('var rawTxt = tl != null ? tl : textOf(el)')
     expect(i).toBeGreaterThan(0)
     const body = JS.slice(i, i + 1500)
-    expect(body).toContain('padTo(lead).concat([core], padTo(trail))')
-    expect(body).toContain("kind === 'paragraph' && role !== 'title' && tl == null")
+    // #912: the paragraph is read line for line with the one empty-line rule (dpCanonText), which keeps the blank lines above,
+    // inside and below the text; the hand-made padding of 2026-11-06 is that rule's special case and is gone.
+    expect(body).toContain("? dpCanonText(String(el.innerText != null ? el.innerText : el.textContent || '')")
+    expect(body).toContain("role !== 'title' && tl == null")
   })
 })

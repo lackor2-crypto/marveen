@@ -223,7 +223,17 @@ export function parseTranslation(text: string, src: SourceBlock[], sourceTitle?:
     }
     if (s.rich) {
       const rich = usableRich(s.rich, b.rich, text)
-      if (rich) return { kind: s.kind, text, claims, rich }
+      if (rich) {
+        // #912: a formatted paragraph keeps the original's empty lines above and below too (it used to lose them here).
+        const kept = s.kind === 'paragraph' ? mirrorRecipientWindow(s.text, text) : text
+        if (kept === text) return { kind: s.kind, text, claims, rich }
+        const at = kept.indexOf(text)
+        const lead = at > 0 ? kept.slice(0, at).split('\n').length - 1 : 0
+        const trail = at >= 0 ? kept.slice(at + text.length).split('\n').length - 1 : 0
+        const padded = sanitizeRich('\u200B<br>'.repeat(lead) + rich + '<br>\u200B'.repeat(trail))
+        if (at >= 0 && padded && richMatches(padded, kept)) return { kind: s.kind, text: kept, claims, rich: padded }
+        return { kind: s.kind, text: kept, claims }
+      }
       fallback++
     }
     // Every paragraph keeps the blank lines of the original above and below (Boss TG 4734 + 2026-11-06): the recipient window, the gaps around the subject and the salutation.

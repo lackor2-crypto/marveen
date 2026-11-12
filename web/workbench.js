@@ -16530,24 +16530,12 @@
       if (role === 'island') { cur.blocks.push({ kind: el.getAttribute('data-tw-kind') || 'image', text: el.getAttribute('data-tw-text') || '' }); continue }
       var tl = role !== 'title' && el.getAttribute('data-tw-kind') === 'table' ? twTableLines(el) : null
       var rawTxt = tl != null ? tl : textOf(el)
-      var txt = rawTxt.replace(/\u200B/g, '').trim()
       var kind = role === 'title' ? 'paragraph' : (el.getAttribute('data-tw-kind') || 'paragraph')
-      // Boss, 2026-11-06 (the fourth time the recipient jumped up next to the sender): the blank lines at the TOP and the BOTTOM of a
-      // paragraph block (the recipient window: four above, two below; the gap after the subject) are the owner's and STAY. Stripping
-      // the zero-width spaces and trimming dropped them at every save of the translation page.
-      if (txt && kind === 'paragraph' && role !== 'title' && tl == null) {
-        var rl = rawTxt.split('\n')
-        var isBl = function (x) { return x.replace(/\u200B/g, '').trim() === '' }
-        var lead = 0
-        while (lead < rl.length && isBl(rl[lead])) lead++
-        var trail = 0
-        while (trail < rl.length - lead && isBl(rl[rl.length - 1 - trail])) trail++
-        if (lead || trail) {
-          var core = rl.slice(lead, rl.length - trail).join('\n').replace(/\u200B/g, '').trim()
-          var padTo = function (n) { var a = []; for (var q = 0; q < n; q++) a.push(DP_BLANK); return a }
-          txt = padTo(lead).concat([core], padTo(trail)).join('\n')
-        }
-      }
+      // #912 (the rule itself, after four repairs of single places): an empty line is a line. A block is read LINE FOR LINE --
+      // the empty lines above, inside and below its text stay, whether they hold the invisible mark or were just typed.
+      var txt = (role !== 'title' && tl == null)
+        ? dpCanonText(String(el.innerText != null ? el.innerText : el.textContent || '').replace(/\r/g, ''))
+        : rawTxt.replace(/\u200B/g, '').trim()
       if (!txt) {
         // #838 (Boss TG 4437): an empty line the owner made with Enter is the owner's and STAYS (as on the work item page,
         // #565): it was dropped here, so the lines under it slid up and the name ran under the signature picture. Only a
@@ -17559,6 +17547,58 @@
     return String(el.innerText != null ? el.innerText : el.textContent || '').replace(/\r\n/g, '\n').replace(/ /g, ' ').replace(/\n+$/, '').trim()
   }
 
+  // #912 (Boss TG 5986): an EMPTY LINE IS A LINE, wherever it stands in a paragraph (above the text, inside it, below it): it is
+  // never trimmed away. The recipient of a letter jumped up beside the sender at every save because the lines above it were read
+  // as whitespace. This is the browser's copy of the server's ONE rule (src/workbench-blanklines.ts, canonLineParts): a line
+  // holding nothing is ONE zero-width space, a line with text holds none. `parts` are consecutive pieces of one text (the runs of
+  // a formatted text; a plain text is one piece); null when no line has real text.
+  function dpCanonParts(parts) {
+    var clean = parts.map(function (x) { return String(x == null ? '' : x).replace(/\r\n?/g, '\n').replace(/\u200B/g, '') })
+    var lines = clean.join('').split('\n')
+    var blank = lines.map(function (l) { return l.trim() === '' })
+    var first = 0
+    while (first < lines.length && blank[first]) first++
+    if (first >= lines.length) return null
+    var last = lines.length - 1
+    while (blank[last]) last--
+    var starts = []
+    var off = 0
+    lines.forEach(function (l) { starts.push(off); off += l.length + 1 })
+    var from = starts[first] + (lines[first].length - lines[first].replace(/^\s+/, '').length)
+    var to = starts[last] + lines[last].replace(/\s+$/, '').length
+    var out = []
+    var pos = 0
+    var line = 0
+    var atStart = true
+    clean.forEach(function (piece) {
+      var o = ''
+      for (var i = 0; i < piece.length; i++) {
+        var ch = piece.charAt(i)
+        if (atStart) { if (blank[line]) o += DP_BLANK; atStart = false }
+        if (ch === '\n') { o += ch; line++; atStart = true }
+        else if (blank[line]) { /* the spaces of an empty line are not content */ }
+        else if (line === first && pos < from) { /* outer spaces of the first text line */ }
+        else if (line === last && pos >= to) { /* outer spaces of the last text line */ }
+        else o += ch
+        pos++
+      }
+      out.push(o)
+    })
+    if (atStart && blank[line]) out[out.length - 1] += DP_BLANK
+    return out
+  }
+  /** The text of a paragraph as it is stored: empty lines kept ('' when it has no text at all). A single line break at the very
+   *  end is how the browser closes the last line, not one more line. */
+  function dpCanonText(raw) {
+    var x = String(raw == null ? '' : raw).replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ')
+    if (/\n$/.test(x)) x = x.slice(0, -1)
+    var c = dpCanonParts([x])
+    return c ? c[0] : ''
+  }
+  /** What a paragraph field holds, line for line (see dpCanonParts). */
+  function dpLinesText(el) { return dpCanonText(el.innerText != null ? el.innerText : el.textContent || '') }
+  function dpNoBlankMark(x) { return String(x == null ? '' : x).replace(/\u200B/g, '') }
+
   function dpSections() { var o = WB.detail && WB.detail.outline; return (o && o.sections) || [] }
 
   /** The formatting of a field as the server stores it: {rich, plain}. `rich` is '' when nothing is formatted.
@@ -17610,13 +17650,17 @@
       }
     }
     walk(el, { b: false, i: false, u: false, s: false, f: '', z: 0, c: '', h: '', n: false })
-    // Trailing line breaks are not content.
-    while (runs.length && /\n$/.test(runs[runs.length - 1].t)) {
+    // The line break at the very end is how the browser closes the last line; every other empty line is a line and stays (#912).
+    if (runs.length && /\n$/.test(runs[runs.length - 1].t)) {
       var lr = runs[runs.length - 1]
-      lr.t = lr.t.replace(/\n+$/, '')
+      lr.t = lr.t.slice(0, -1)
       if (!lr.t) runs.pop()
     }
-    var plain = runs.map(function (r) { return r.t }).join('').trim()
+    var canon = dpCanonParts(runs.map(function (r) { return r.t }))
+    if (!canon) return { rich: '', plain: '' }
+    runs.forEach(function (r, ci) { r.t = canon[ci] })
+    runs = runs.filter(function (r) { return r.t })
+    var plain = runs.map(function (r) { return r.t }).join('')
     var fmtd = function (r) { return r.b || r.i || r.u || r.s || r.n || r.f || r.z || r.c || r.h }
     if (!runs.some(fmtd)) return { rich: '', plain: plain }
     var enc = function (x) { return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') }
@@ -18134,8 +18178,9 @@
         else entry = { id: bid, text: dpTableText(text, tp.width, tp.align, tp.x, tp.y, tp.over) }
       } else {
         var fm = dpFmtOf(n)
-        if (fm.rich) text = fm.plain
-        text = String(text || '').replace(/\u200B/g, '')
+        // #912: the field is read LINE FOR LINE: the empty lines above, inside and below the text are the owner's and stay.
+        // (They used to be stripped here and trimmed by the server, so the recipient slid up beside the sender at every save.)
+        text = fm.rich ? fm.plain : dpLinesText(n)
         if (!text) {
           // #565 (Boss TG 8971): an empty line made with Enter is the owner's and STAYS (it used to be dropped here, so
           // everything under it slid up). The line the program only offers (data-wb-dp="new") is not saved while empty.
@@ -18149,7 +18194,7 @@
         var pf = dpPfmtOf(n)
         var kindAttr = n.getAttribute('data-wb-kind') || ''
         if (b) {
-          var same = text === b.text && fm.rich === (b.rich || '') && align === (b.align || '') && dpSameObj(pf, b.pfmt || {}) && (!kindAttr || kindAttr === b.kind)
+          var same = dpNoBlankMark(text) === dpNoBlankMark(b.text) && dpNoBlankMark(fm.rich) === dpNoBlankMark(b.rich || '') && align === (b.align || '') && dpSameObj(pf, b.pfmt || {}) && (!kindAttr || kindAttr === b.kind)
           entry = same ? { id: bid } : { id: bid, text: text, rich: fm.rich, align: align, pfmt: pf }
           if (!same && kindAttr && kindAttr !== b.kind) entry.kind = kindAttr
         } else {
