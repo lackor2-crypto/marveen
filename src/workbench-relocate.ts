@@ -33,6 +33,7 @@ import { ensureWorkbenchTables, type WorkItemRow } from './workbench.js'
 import { SNAPSHOT_FALLBACK_DIR, SNAPSHOT_FILE, SNAPSHOT_FORMAT } from './workbench-snapshot.js'
 import { notifyChannel } from './notify.js'
 import { ol } from './owner-lang.js'
+import { gatedInterval } from './background-gate.js'
 
 const WALK_MAX_DEPTH = 12
 const WALK_MAX_DIRS = 20_000
@@ -345,7 +346,7 @@ export function startWorkbenchRelocate(): void {
   // After the snapshot startup rebuild (20s) has had a moment, run once, then on the slow cadence.
   startTimer = setTimeout(() => { void reconcileItemLocations() }, 45_000)
   startTimer.unref()
-  timer = setInterval(() => { void reconcileItemLocations() }, RELOCATE_MS)
+  timer = gatedInterval('workbench-relocate', () => { void reconcileItemLocations() }, RELOCATE_MS)
   timer.unref()
 }
 

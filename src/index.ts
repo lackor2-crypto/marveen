@@ -51,6 +51,7 @@ import {
   type ProcessLockContext,
   type PidfileLockContext,
 } from './process-lock.js'
+import { gatedInterval } from './background-gate.js'
 
 // A boot-banner a BEALLITOTT markanevet mutatja.
 //
@@ -547,7 +548,7 @@ async function main(): Promise<void> {
     }
     backfillTimer = setTimeout(() => {
       run()
-      backfillInterval = setInterval(run, 24 * 60 * 60 * 1000)
+      backfillInterval = gatedInterval('memory-backfill', run, 24 * 60 * 60 * 1000)
     }, target.getTime() - now.getTime())
     logger.info({ nextRun: target.toLocaleString('hu-HU') }, 'Ejszakai embedding backfill utemezve')
   }
@@ -579,7 +580,7 @@ async function main(): Promise<void> {
 
   // Memory decay (24h cycle)
   runDecaySweep()
-  decayInterval = setInterval(runDecaySweep, DECAY_SWEEP_INTERVAL_MS)
+  decayInterval = gatedInterval('memory-decay', runDecaySweep, DECAY_SWEEP_INTERVAL_MS)
   logger.info('Memoria leepulesi ciklus beallitva (24 oras)')
 
   // Daily digest at 23:00. Timer handles kept so shutdown can drop them.
@@ -602,7 +603,7 @@ async function main(): Promise<void> {
     }
     digestTimer = setTimeout(() => {
       runDigest()
-      digestInterval = setInterval(runDigest, 24 * 60 * 60 * 1000)
+      digestInterval = gatedInterval('daily-digest', runDigest, 24 * 60 * 60 * 1000)
     }, msUntil)
     logger.info({ nextRun: target.toLocaleString('hu-HU') }, 'Napi naplo utemezve')
   }

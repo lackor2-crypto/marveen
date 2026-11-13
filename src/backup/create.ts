@@ -15,16 +15,23 @@
  * Every file it creates is 0600, every dir 0700.
  */
 import { drainSteps, drainStepsYielding } from '../yielding.js'
-import { spawn, execFileSync, execFile } from 'node:child_process'
+import { spawn, execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
-  chmodSync, closeSync, cpSync, createWriteStream, existsSync, fsyncSync, lstatSync,
+  chmodSync, closeSync, createWriteStream, existsSync, lstatSync,
   mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, renameSync, rmSync, statSync,
   unlinkSync, writeFileSync,
 } from 'node:fs'
 import { hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
+import { cp as cpAsync, rm as rmAsync, open as openAsync } from 'node:fs/promises'
+import { fsync as fsyncCb } from 'node:fs'
+import { promisify } from 'node:util'
+
+// #897: the final fsync of a backup held the main thread for 3074 ms on a slow disk (measured by the stall sampler).
+// The flush, the copy into staging and the staging clean-up now run on the thread pool.
+const fsyncAsync = promisify(fsyncCb)
 import type Database from 'better-sqlite3'
 import { encryptStream, type BackupKind, type EncryptOptions } from './crypto.js'
 import { collectInventory, type BackupCategory, type ConfigRoot, type InventoryContext } from './inventory.js'
@@ -173,10 +180,11 @@ function readAppVersion(projectRoot: string): string {
   try { return String(JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8')).version || '0.0.0') } catch { return '0.0.0' }
 }
 
-function readAppCommit(projectRoot: string): string {
-  try {
-    return execFileSync('git', ['-C', projectRoot, 'rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 }).trim()
-  } catch { return '' }
+function readAppCommit(projectRoot: string): Promise<string> {
+  // Async (#897): a git start-up on a busy machine must not hold the main thread.
+  return new Promise((resolve) => {
+    execFile('git', ['-C', projectRoot, 'rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8', timeout: 10_000 }, (err, out) => resolve(err ? '' : String(out).trim()))
+  })
 }
 
 /** Hash a file in 1 MiB slices; yields after each slice so the caller can hand the event loop back (#835). */
@@ -279,7 +287,7 @@ export async function createBackup(opts: CreateBackupOptions): Promise<BackupRes
       const dest = join(staging, it.logical)
       try {
         mkdirSync(dirname(dest), { recursive: true, mode: 0o700 })
-        cpSync(it.abs, dest, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true, force: true })
+        await cpAsync(it.abs, dest, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true, force: true })
         ;(categories[it.category] ??= []).push(it.logical)
       } catch (err: any) {
         warnings.push(`unreadable: ${it.logical} (${err?.code || err?.message || err})`)
@@ -325,7 +333,7 @@ export async function createBackup(opts: CreateBackupOptions): Promise<BackupRes
     // -- 6. manifest
     const now = opts.now ?? new Date()
     const appVersion = opts.appVersion ?? readAppVersion(ctx.projectRoot)
-    const appCommit = opts.appCommit ?? readAppCommit(ctx.projectRoot)
+    const appCommit = opts.appCommit ?? await readAppCommit(ctx.projectRoot)
     const walked = await walkStagedYielding(staging)
     const manifest: BackupManifest = {
       format: MANIFEST_FORMAT,
@@ -360,14 +368,14 @@ export async function createBackup(opts: CreateBackupOptions): Promise<BackupRes
     const entries = readdirSync(staging).sort((a, b) => (a === 'manifest.json' ? -1 : b === 'manifest.json' ? 1 : a.localeCompare(b)))
     try {
       await runTarInto(staging, entries, sink, enc.transform)
-      fsyncSync(fdOut)
+      await fsyncAsync(fdOut)
     } finally { closeSync(fdOut) }
 
     // -- 8. publish
     stage('copying')
     renameSync(partial, file)
     partial = ''
-    try { const d = openSync(outDir, 'r'); try { fsyncSync(d) } finally { closeSync(d) } } catch { /* not all fs allow dir fsync */ }
+    try { const d = await openAsync(outDir, 'r'); try { await d.sync() } finally { await d.close() } } catch { /* not all fs allow dir fsync */ }
     const size = statSync(file).size
     stage('done')
     return { ok: true, file, name, size, counts: dbInfo?.counts, durationMs: Date.now() - t0, warnings }
@@ -381,7 +389,7 @@ export async function createBackup(opts: CreateBackupOptions): Promise<BackupRes
     }
   } finally {
     if (partial) rmSync(partial, { force: true })
-    if (staging) rmSync(staging, { recursive: true, force: true })
+    if (staging) await rmAsync(staging, { recursive: true, force: true }).catch(() => { /* swept at the next run */ })
     release()
   }
 }

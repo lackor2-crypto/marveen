@@ -21,6 +21,7 @@ import {
   type TreeMess,
   type UncommittedAlertState,
 } from '../uncommitted-work.js'
+import { gatedInterval } from '../background-gate.js'
 
 // Hourly is plenty for a three-hour threshold, and the offset keeps it off the
 // same tick as every other watcher.
@@ -139,5 +140,5 @@ async function tick(): Promise<void> {
 
 export function startUncommittedWorkWatcher(): NodeJS.Timeout {
   setTimeout(() => { void tick() }, UNCOMMITTED_INITIAL_DELAY_MS).unref()
-  return setInterval(() => { void tick() }, UNCOMMITTED_INTERVAL_MS)
+  return gatedInterval('uncommitted-work-runner', () => { void tick() }, UNCOMMITTED_INTERVAL_MS)
 }

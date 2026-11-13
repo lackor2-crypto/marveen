@@ -10,6 +10,7 @@ import { getDb } from '../../db.js'
 import { loadCostopsConfig } from '../../costops/config.js'
 import { syncFixedCostsToLedger, getCostSummary, getCostSources } from '../../costops/ledger.js'
 import type { RouteContext } from './types.js'
+import { gatedInterval } from '../../background-gate.js'
 
 // Runs the fixed-cost -> ledger reflection once immediately (so the summary is
 // fresh from the moment the server comes up) and then on a fixed interval, so a
@@ -29,7 +30,7 @@ export function startCostsSyncTask(intervalMs = SYNC_INTERVAL_MS): NodeJS.Timeou
     }
   }
   sync()
-  return setInterval(sync, intervalMs).unref()
+  return gatedInterval('costs', sync, intervalMs).unref()
 }
 
 export async function tryHandleCosts(ctx: RouteContext): Promise<boolean> {

@@ -173,6 +173,8 @@ import { tryHandleBrowser } from './web/routes/browser.js'
 import { resumeVideoGenerations } from './workbench-video-gen-jobs.js'
 import type { RouteContext } from './web/routes/types.js'
 import { isMalformedBodyError } from './web/malformed-body.js'
+import { gatedInterval, gateStats } from './background-gate.js'
+import { currentPressure, machineBusy, pressureLimits } from './machine-pressure.js'
 
 const WEB_DIR = join(PROJECT_ROOT, 'web')
 
@@ -285,7 +287,7 @@ export function startWebServer(port = 3420): http.Server {
     // #490: the requests that were running while the event loop stalled (worst first).
     // #554: and where the main thread was, for the stalls no request explains (newest first).
     if (path === '/api/perf/stalls' && method === 'GET') {
-      return json(res, { stalls: recentStalls(), samples: recentStallSamples() })
+      return json(res, { stalls: recentStalls(), samples: recentStallSamples(), pressure: currentPressure(), busy: machineBusy(), limits: pressureLimits(), gate: gateStats() })
     }
 
     if (path === '/api/network-info' && method === 'GET') {
@@ -705,7 +707,7 @@ export function startWebServer(port = 3420): http.Server {
     })
   }
   runVerificationSweep()
-  const verificationSweepInterval = setInterval(runVerificationSweep, VERIFICATION_SWEEP_INTERVAL_MS)
+  const verificationSweepInterval = gatedInterval('verification-sweep', runVerificationSweep, VERIFICATION_SWEEP_INTERVAL_MS)
 
   // Hourly sweep of expired browser-login sessions (7d idle / 30d absolute).
   // Runs regardless of WEB_ONLY -- it is a cheap indexed delete on the shared DB
@@ -740,7 +742,7 @@ export function startWebServer(port = 3420): http.Server {
     }
   }
   kukaSepres()
-  const kukaSepresInterval = setInterval(kukaSepres, 24 * 60 * 60 * 1000)
+  const kukaSepresInterval = gatedInterval('trash-sweep', kukaSepres, 24 * 60 * 60 * 1000)
 
   // #764: the public app pages the owner listed (Settings) are read once a day; a number that
   // went UP is reported on the owner's channel. The first reading only sets the baseline.
@@ -750,7 +752,7 @@ export function startWebServer(port = 3420): http.Server {
       .catch((err) => logger.warn({ err: String(err) }, '[app-watch] the daily check did not run'))
   }
   const appPageWatchFirst = webOnly ? undefined : setTimeout(appPageWatch, 5 * 60 * 1000)
-  const appPageWatchInterval = webOnly ? undefined : setInterval(appPageWatch, 24 * 60 * 60 * 1000)
+  const appPageWatchInterval = webOnly ? undefined : gatedInterval('app-page-watch', appPageWatch, 24 * 60 * 60 * 1000)
 
   // #396: the daily full backup (Settings -> Backup sets the time).
   const stopBackupScheduler = startDashboardBackup()
@@ -814,7 +816,7 @@ export function startWebServer(port = 3420): http.Server {
       .catch((err) => logger.warn({ err }, '[worktree-sweep] hiba'))
   }
   const worktreeSweepStart = setTimeout(worktreeSweep, 5 * 60_000)
-  const worktreeSweepInterval = setInterval(worktreeSweep, SWEEP_INTERVAL_MS)
+  const worktreeSweepInterval = gatedInterval('worktree-sweep', worktreeSweep, SWEEP_INTERVAL_MS)
   // #873: linked Life-tree documents are watched; a move/rename is followed, a deletion is told to the owner.
   const stopLinkedDocsGuard = startLinkedDocsGuard()
 
@@ -905,7 +907,7 @@ export function startWebServer(port = 3420): http.Server {
   // naponta legfeljebb egy probalkozas) -- nem kell a Varazslo gombja.
   if (!webOnly && !process.env.VITEST) autoInstallVision()
 
-  const tokenCollectInterval = webOnly ? undefined : setInterval(() => {
+  const tokenCollectInterval = webOnly ? undefined : gatedInterval('token-collect', () => {
     collectTokenUsage().catch(err => logger.warn({ err }, 'Periodic token usage collection failed'))
   }, 60 * 60 * 1000)
   if (!webOnly) {

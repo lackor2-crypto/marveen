@@ -25,6 +25,7 @@ import { LINKED_PREFIX, linkedAnnexRows } from './workbench-docannex.js'
 import { notifyChannel } from './notify.js'
 import { isWsl } from './web/scheduled-tasks-io.js'
 import { runScriptViaTaskScheduler } from './windows-settings.js'
+import { gatedInterval } from './background-gate.js'
 
 export { readMissingState }
 
@@ -186,7 +187,7 @@ export function startLinkedDocsGuard(): () => void {
   const run = (): void => { void sweepLinkedDocs().then((r) => { if (r.followed || r.newlyMissing) logger.info(r, '[link-guard] sweep') }).catch((err) => logger.warn({ err: String(err?.message || err) }, '[link-guard] sweep failed')) }
   first = setTimeout(run, 90_000)
   first.unref()
-  timer = setInterval(run, 2 * 60_000)
+  timer = gatedInterval('linked-docs-guard', run, 2 * 60_000)
   timer.unref()
   return () => { if (first) clearTimeout(first); if (timer) clearInterval(timer) }
 }

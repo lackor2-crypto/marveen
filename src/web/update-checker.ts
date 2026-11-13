@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT } from '../config.js'
 import { TOOL_TIMEOUTS } from '../tool-timeouts.js'
+import { gatedInterval } from '../background-gate.js'
 
 export interface UpdateCommit {
   sha: string
@@ -416,5 +417,5 @@ export async function refreshUpdateStatus(): Promise<UpdateStatus> {
 export function startUpdateChecker(): NodeJS.Timeout {
   // First check shortly after startup; then every 15 minutes.
   setTimeout(() => { refreshUpdateStatus().catch(() => {}) }, 10_000)
-  return setInterval(() => { refreshUpdateStatus().catch(() => {}) }, 15 * 60_000)
+  return gatedInterval('update-checker', () => { refreshUpdateStatus().catch(() => {}) }, 15 * 60_000)
 }

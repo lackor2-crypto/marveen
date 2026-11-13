@@ -1362,7 +1362,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     //
     // A `git worktree add` itt fut, a claim-tranzakcion KIVUL (lasd
     // recordCodeTaskDispatchWorkspace kommentjet).
-    const wt = resolveTaskWorkspace(
+    const wt = await resolveTaskWorkspace(
       task.workspacePath ?? '',
       { id: task.id, cardRef: task.cardRef },
       { liveRoot: PROJECT_ROOT, worktreeRoot: CODE_WORKTREE_ROOT ?? undefined },

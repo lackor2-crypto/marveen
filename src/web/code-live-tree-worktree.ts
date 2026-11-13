@@ -42,7 +42,7 @@
 // from HEAD, and node_modules is symlinked only if the live tree has one. No
 // path, owner name or agent id is baked in -- the root comes from the caller.
 
-import { spawnSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, symlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { toLocalWorkspacePath } from './code-bridge-workspace.js'
@@ -70,6 +70,8 @@ export type WorkspaceDecision = {
   createdWorktree: boolean
 }
 
+type RunResult = { ok: boolean; stderr: string }
+
 export type WorktreeDeps = {
   /** This install's own checkout (PROJECT_ROOT). */
   liveRoot: string
@@ -77,7 +79,7 @@ export type WorktreeDeps = {
    *  scripts/agent-worktree.sh (and its MARVEEN_WORKTREE_ROOT override). */
   worktreeRoot?: string
   /** Test seam: run a command and report what it actually said. */
-  run?: (cmd: string, args: string[]) => { ok: boolean; stderr: string }
+  run?: (cmd: string, args: string[]) => RunResult | Promise<RunResult>
   /** Test seam. */
   exists?: (p: string) => boolean
   /** Test seam. */
@@ -87,11 +89,17 @@ export type WorktreeDeps = {
 /** Run `git` and hand back its OWN words on failure. A thrown ENOENT (no git on
  *  PATH at all) is turned into the same shape, because "git is missing" is a
  *  reason the executor must be told, not an exception to swallow. */
-function defaultRun(cmd: string, args: string[]): { ok: boolean; stderr: string } {
-  const r = spawnSync(cmd, args, { encoding: 'utf8' })
-  if (r.error) return { ok: false, stderr: r.error.message }
-  const err = (r.stderr ?? '').trim() || (r.stdout ?? '').trim()
-  return { ok: r.status === 0, stderr: err }
+// ASYNC ON PURPOSE (#897): `git worktree add` checks out the whole repository. As a sync spawn it held the
+// dashboard's only thread for 3.6 s (measured 2026-11-13 05:00:39, while the owner was typing in the project chat).
+function defaultRun(cmd: string, args: string[]): Promise<RunResult> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+      const said = String(stderr ?? '').trim() || String(stdout ?? '').trim()
+      if (!error) return resolve({ ok: true, stderr: said })
+      // A missing git (ENOENT) has no output of its own: then the OS error is the real sentence.
+      resolve({ ok: false, stderr: said || error.message })
+    })
+  })
 }
 
 function safeRealpath(p: string, fn: (s: string) => string): string {
@@ -155,11 +163,11 @@ export function reshapeToWorktree(reported: string, liveRoot: string, worktreeDi
  * "other projects must not change" requirement, enforced here rather than
  * remembered by callers.
  */
-export function resolveTaskWorkspace(
+export async function resolveTaskWorkspace(
   reported: string,
   task: { id: string; cardRef: string | null },
   deps: WorktreeDeps,
-): WorkspaceDecision {
+): Promise<WorkspaceDecision> {
   const run = deps.run ?? defaultRun
   const exists = deps.exists ?? existsSync
   const rp = deps.realpath ?? realpathSync
@@ -218,10 +226,10 @@ export function resolveTaskWorkspace(
   // An existing branch is checked out, a missing one is created from HEAD --
   // the same rule as scripts/agent-worktree.sh, so a worktree removed by hand
   // can be re-created on the card's own branch without losing its commits.
-  const hasBranch = run('git', ['-C', deps.liveRoot, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`]).ok
+  const hasBranch = (await run('git', ['-C', deps.liveRoot, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`])).ok
   const add = hasBranch
-    ? run('git', ['-C', deps.liveRoot, 'worktree', 'add', dir, branch])
-    : run('git', ['-C', deps.liveRoot, 'worktree', 'add', '-b', branch, dir])
+    ? await run('git', ['-C', deps.liveRoot, 'worktree', 'add', dir, branch])
+    : await run('git', ['-C', deps.liveRoot, 'worktree', 'add', '-b', branch, dir])
 
   if (!add.ok) {
     // git's OWN sentence goes to the caller. This is the line that tells the
@@ -255,9 +263,9 @@ function errText(err: unknown): string {
  *  it deliberately does NOT force-drop uncommitted work (same reasoning as
  *  scripts/agent-worktree.sh: an evening's edits must not vanish for
  *  convenience). Returns git's own error when it refuses. */
-export function dropWorktree(dir: string, deps: Pick<WorktreeDeps, 'liveRoot' | 'run'>): { ok: boolean; error: string | null } {
+export async function dropWorktree(dir: string, deps: Pick<WorktreeDeps, 'liveRoot' | 'run'>): Promise<{ ok: boolean; error: string | null }> {
   const run = deps.run ?? defaultRun
-  const r = run('git', ['-C', deps.liveRoot, 'worktree', 'remove', dir])
+  const r = await run('git', ['-C', deps.liveRoot, 'worktree', 'remove', dir])
   if (r.ok) return { ok: true, error: null }
   return { ok: false, error: r.stderr === '' ? 'git worktree remove failed without an error message' : r.stderr }
 }

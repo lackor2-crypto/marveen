@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, lstatSync, symlinkSync, rmSync, realpathSync, renameSync, statSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { execSync, execFileSync, execFile } from 'node:child_process'
+import { execFileSync, execFile } from 'node:child_process'
 import { OLLAMA_URL, AUTOCOMPACT_TOKENS } from '../config.js'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
@@ -107,6 +107,36 @@ function autocompactFlag(): string {
 // services-HTTP-under-load starvation). Never throws.
 export function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+function pidAliveNow(pid: number): boolean {
+  try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException)?.code === 'EPERM' }
+}
+
+function holdThread(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Wait for a killed tmux session's own processes to be gone, at most `maxMs` (#897).
+ *
+ * The stop/start paths used to hold the dashboard's only thread for a FIXED 2-3 s (`sleep 2` / `sleep 3` as a sync
+ * spawn; measured 2164 ms on 2026-11-12 21:10). The wait exists so the orphan reap that follows sees the teardown
+ * finished. Now it ends as soon as the pane processes are really gone (usually a fraction of a second), and never
+ * lasts longer than the old fixed wait. With no known pid (a remote session, or the list failed) the old wait stays:
+ * "could not look" is not "already gone". Returns the milliseconds it held.
+ */
+export function waitForTeardown(
+  pids: ReadonlyArray<number>, maxMs: number,
+  seams: { alive?: (pid: number) => boolean; pause?: (ms: number) => void; now?: () => number } = {},
+): number {
+  const alive = seams.alive ?? pidAliveNow
+  const pause = seams.pause ?? holdThread
+  const now = seams.now ?? Date.now
+  const t0 = now()
+  if (!pids.length) { pause(maxMs); return maxMs }
+  while (now() - t0 < maxMs && pids.some((p) => alive(p))) pause(50)
+  return now() - t0
 }
 
 import { CHANNEL_PLUGIN_IDS } from './plugin-ids.js'
@@ -1119,6 +1149,14 @@ function listLocalSessions(): string {
 /** The same `tmux list-sessions` as captureTmux(null, ...), but off the event loop (see SessionListCache.get). */
 // Async twin of captureTmux for pane reads on the prompt-injection path: the
 // event loop keeps serving requests while tmux answers.
+/** The pids of a local session's panes; empty when it could not be read (then the caller keeps the full wait). */
+function sessionPanePids(host: string | null, session: string): number[] {
+  try {
+    return captureTmux(host, ['list-panes', '-s', '-t', session, '-F', '#{pane_pid}'])
+      .split('\n').map((l) => Number(l.trim())).filter((n) => Number.isInteger(n) && n > 1)
+  } catch { return [] }
+}
+
 function captureTmuxAsyncArgs(host: string | null, tmuxArgs: string[], opts: { timeout?: number } = {}): Promise<string> {
   if (host) ensureControlDir()
   const inv = buildTmuxInvocation(host, tmuxBin(), tmuxArgs)
@@ -1374,8 +1412,9 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
 
   try {
     try {
+      const panePids = sessionPanePids(null, session)
       runTmux(null, ['kill-session', '-t', session])
-      execSync('sleep 3', { timeout: 5000 })
+      waitForTeardown(panePids, 3000)
     } catch { /* ok */ }
 
     // Reap any orphan poller (bun/node) left over from a previous run BEFORE
@@ -1848,8 +1887,9 @@ export function stopAgentProcess(name: string): { ok: boolean; error?: string } 
   const host = readAgentRemoteHost(name)
 
   try {
+    const panePids = host ? [] : sessionPanePids(null, session)
     runTmux(host, ['kill-session', '-t', session], { timeout: 5000 })
-    execSync('sleep 2', { timeout: 4000 })
+    waitForTeardown(panePids, 2000)
     // Reap any orphaned plugin grandchild that tmux did not tear down. This is
     // a LOCAL pkill against this host's process table, so it only makes sense
     // for local agents; a remote agent is channel-less and its processes live
