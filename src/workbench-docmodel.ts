@@ -249,7 +249,18 @@ export function ensureDocModelTables(): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_doc_blocks_section ON wb_doc_blocks(section_id, position)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_doc_claims_block ON wb_doc_claims(block_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_wb_doc_sources_claim ON wb_doc_sources(claim_id)')
+  // #861: official sources are accepted as given (#1635), but rows stored before that kept the old verdict 'unverified'.
+  // Bring them to the one rule once; `officialSourceAccepted` also covers a row that arrives later (restore, import).
+  db.prepare("UPDATE wb_doc_sources SET verdict = 'verified', detail = ? WHERE kind = 'official' AND verdict != 'verified'").run(OFFICIAL_ACCEPTED_DETAIL)
   tablesDb = db
+}
+
+/** The note stored with an official source: it is accepted as given (Boss, 2026-11-06), there is no confirmation step. */
+export const OFFICIAL_ACCEPTED_DETAIL = 'official source (statute / ruling) with citation and URL: accepted as given, no further proof needed'
+
+/** One rule for every reader: an official source is verified whatever an older row still says. */
+export function officialSourceAccepted(s: SourceRow): SourceRow {
+  return s.kind === 'official' && s.verdict !== 'verified' ? { ...s, verdict: 'verified', detail: OFFICIAL_ACCEPTED_DETAIL } : s
 }
 
 const now = (): number => Math.floor(Date.now() / 1000)
@@ -767,7 +778,7 @@ export function addClaim(itemId: string, blockId: string, rawText: unknown, sour
           citation, url, quote: String(s.quote ?? '').trim() || null, retrieved_at: String(s.retrieved_at ?? '').trim() || null,
           // Boss, 2026-11-06: a statute or ruling taken from the official source with its exact citation and URL is accepted
           // as given. There is no confirmation step (the screen never had one) and nothing to prove.
-          verdict: 'verified', detail: 'official source (statute / ruling) with citation and URL: accepted as given, no further proof needed',
+          verdict: 'verified', detail: OFFICIAL_ACCEPTED_DETAIL,
         },
       })
     } else {
@@ -811,7 +822,7 @@ export function claimView(id: string): ClaimView | undefined {
   ensureDocModelTables()
   const c = getDb().prepare('SELECT * FROM wb_doc_claims WHERE id = ?').get(id) as ClaimRow | undefined
   if (!c) return undefined
-  const sources = getDb().prepare('SELECT * FROM wb_doc_sources WHERE claim_id = ? ORDER BY created_at').all(id) as SourceRow[]
+  const sources = (getDb().prepare('SELECT * FROM wb_doc_sources WHERE claim_id = ? ORDER BY created_at').all(id) as SourceRow[]).map(officialSourceAccepted)
   return { ...c, sources, strength: claimStrength(sources) }
 }
 
