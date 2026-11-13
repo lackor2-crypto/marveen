@@ -335,7 +335,7 @@ function docTexts(itemId: string): { texts: DocText[]; claims: { text: string; s
     WHERE c.work_item_id = ? ORDER BY s.position, b.position, c.created_at`).all(itemId) as { id: string; text: string; section: string }[]).map((c) => ({
     text: c.text,
     section: c.section,
-    quotes: (db.prepare("SELECT quote FROM wb_doc_sources WHERE claim_id = ? AND kind IN ('document', 'official') AND quote IS NOT NULL AND verdict = 'verified'").all(c.id) as { quote: string }[]).map((q) => q.quote),
+    quotes: (db.prepare("SELECT quote FROM wb_doc_sources WHERE claim_id = ? AND ((kind = 'document' AND verdict = 'verified') OR kind = 'official') AND quote IS NOT NULL").all(c.id) as { quote: string }[]).map((q) => q.quote),
   }))
   return { texts, claims }
 }
