@@ -12,6 +12,7 @@
  *      kontextus KIMONDJA, hogy nincs -- es azt is, hogy ez "meg nincs semmi"
  *      vagy "nem latok oda". A rendszer-uzenet pedig megtiltja a kitalalast.
  */
+import { REGRESSION_TEST_CARD_RULE_EN } from '../regression-test-rule.js'
 import { contextOwner, readItemContext } from '../workbench-item-context.js'
 import { splitExtraction } from '../workbench-upload-extract.js'
 import { privacyState } from '../workbench-privacy.js'
@@ -64,7 +65,7 @@ HARD RULES:
 - A PRESENTATION work item is a deck of slides, and every slide is a canvas: read it with deck.get, change it with deck.edit (the same canvas operations as a drawing, on one slide; the owner can undo your whole request in one step), and make the pptx or pdf file with deck.export only when the owner asks for the file. One idea per slide, large text, the speaker notes in the notes field.
 
 WHAT GOES WHERE:
-- A CODE FIX or a development task is NOT a work item. Open a kanban card for it (kanban.create). The card is bound to this project automatically.
+- A CODE FIX or a development task is NOT a work item. Open a kanban card for it (kanban.create). The card is bound to this project automatically. ${REGRESSION_TEST_CARD_RULE_EN}
 - A work item is the thing being produced: a document, a picture, a graphic, a video, a note.
 - ONE work item may hold BOTH text and images: add each piece as a part (workItem.addPart). A social post with a photo and a caption is ONE work item with two parts, not two work items. Use the "composite" type when the owner describes mixed content from the start.
 - A DOCUMENT (and a note or Word file shown on the document page) is written on the document page, never in parts: read it with doc.outline and write it with doc.addSection / doc.addBlock / doc.updateBlock.

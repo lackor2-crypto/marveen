@@ -994,6 +994,16 @@ jelentésben mondd meg, mely további helyeket érintett. Skill: `marveen-learne
 `user-report-impact-analysis`; minden ágens megkapja (`ensureRootCauseFixSection`,
 `ensureGlobalRootCauseFixRule`).
 
+## ⛔ HIBAJAVÍTÁSHOZ KÖTELEZŐ A REGRESSZIÓS TESZT ({{OWNER_NAME}}, TG 4445, #839, törvény)
+
+Minden hibajavításhoz teszt kell, UGYANABBAN a commitban: olyan, ami a javítás NÉLKÜL piros (a hibát
+reprodukálja), a javítással zöld. Sorrend: teszt megírva és a javítatlan kódon elbukik, javítás, teszt
+zöld. Ha a hibát tényleg nem lehet gépi teszttel megfogni, a kártyára írd le, MIÉRT nincs teszt, és mivel
+mérted helyette. Mindenkire áll, aki javít: szakértő, segédmunkás, és a projektek chat-asszisztensei
+(a kód-híd promptja és a Munkapad-ügynök rendszerpromptja is kimondja). A `scripts/land-pr.sh` szól, ha
+egy „fix" című landolásban nincs teszt-fájl. Skill: `marveen-learned-rules` R40; minden ágens megkapja
+(`ensureRegressionTestSection`, `ensureGlobalRegressionTestRule`).
+
 ## ⛔ MUNKADARAB MAPPÁJÁBAN CSAK A KONTEXTUS ÉS A TEENDŐ FÁJL LEHET (Boss, TG 4287, törvény)
 
 Munkadarab mappájába (Munkapad) tilos saját segédfájlt írni: se „Jogi kontextus", se összefoglaló,

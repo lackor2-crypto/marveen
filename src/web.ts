@@ -20,7 +20,7 @@ import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames, CorruptConfigError } from './web/agent-config.js'
 import { startDashboardBackup } from './backup/dashboard.js'
-import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureAvailabilitySection, ensureGlobalAvailabilityRule, ensureShortReplySection, ensureGlobalShortReplyRule, ensureBrowserClickthroughSection, ensureGlobalBrowserClickthroughRule, ensureFollowReferenceSection, ensureGlobalFollowReferenceRule, ensureNoHiddenLimitsSection, ensureGlobalNoHiddenLimitsRule, ensureTestSandboxSection, ensureGlobalTestSandboxRule, ensureWebResearchSaveSection, ensureGlobalWebResearchSaveRule, ensureRootCauseFixSection, ensureGlobalRootCauseFixRule, ensureWorkItemFolderFilesSection, ensureLetterHeadSection, ensureGlobalLetterHeadRule, ensureGlobalWorkItemFolderFilesRule, ensureStatusLine } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureAvailabilitySection, ensureGlobalAvailabilityRule, ensureShortReplySection, ensureGlobalShortReplyRule, ensureBrowserClickthroughSection, ensureGlobalBrowserClickthroughRule, ensureFollowReferenceSection, ensureGlobalFollowReferenceRule, ensureNoHiddenLimitsSection, ensureGlobalNoHiddenLimitsRule, ensureTestSandboxSection, ensureGlobalTestSandboxRule, ensureWebResearchSaveSection, ensureGlobalWebResearchSaveRule, ensureRootCauseFixSection, ensureRegressionTestSection, ensureGlobalRegressionTestRule, ensureGlobalRootCauseFixRule, ensureWorkItemFolderFilesSection, ensureLetterHeadSection, ensureGlobalLetterHeadRule, ensureGlobalWorkItemFolderFilesRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -1104,6 +1104,10 @@ export function startWebServer(port = 3420): http.Server {
         const rootFix = ensureRootCauseFixSection(agentName)
         if (rootFix === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (rootFix === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
+        // ...es a "hibajavitashoz regresszios teszt" torveny (kanban #839).
+        const regTest = ensureRegressionTestSection(agentName)
+        if (regTest === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (regTest === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
         // ...es a "munkadarab mappaban csak Kontextus + Teendo" torveny (TG 4287).
         const itemFiles = ensureWorkItemFolderFilesSection(agentName)
         if (itemFiles === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
@@ -1137,6 +1141,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalTestSandboxRule()
       ensureGlobalWebResearchSaveRule()
       ensureGlobalRootCauseFixRule()
+      ensureGlobalRegressionTestRule()
       ensureGlobalWorkItemFolderFilesRule()
       ensureGlobalLetterHeadRule()
       // A szallitott autonomy-katalogus uj kategoriai (kanban #336, 6. fazis).

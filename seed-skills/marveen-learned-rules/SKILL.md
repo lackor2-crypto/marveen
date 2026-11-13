@@ -443,3 +443,14 @@ nézem meg az exit kódot.
 **Szabály:** kanban/DB lekérdezéshez ELSŐDLEGESEN a dashboard API-t használd
 (`GET /api/kanban` + helyi szűrés Python/jq-val), ne közvetlen `sqlite3` hívást
 -- a CLI jelenléte gépfüggő, az API mindig elérhető amíg a dashboard fut.
+
+### R40 -- Hibajavításhoz kötelező a regressziós teszt, ugyanabban a commitban (tulajdonos, TG 4445, #839, törvény)
+**Hiba:** egy javított hiba hetekkel később visszajött (az üres sorok a fordításban, #838; a Címzett
+helye a levélfejben többször is), mert a javítás mellé nem került teszt, ami a visszaesést megfogta volna.
+**Szabály:** minden hibajavításhoz teszt kell, UGYANABBAN a commitban, mint a javítás. A teszt a javítás
+NÉLKÜL piros (a hibát reprodukálja), a javítással zöld. Sorrend: (1) teszt megírva, a javítatlan kódon
+elbukik; (2) javítás; (3) zöld. Ha a hibát gépi teszttel tényleg nem lehet megfogni (csak külső
+szolgáltatáson vagy valódi gépen jön elő), a kártyára írd le, MIÉRT nincs teszt, és mivel mérted helyette.
+Mindenkire áll, aki javít: szakértő, segédmunkás, és a projektek chat-asszisztensei is (kód-híd prompt,
+Munkapad-ügynök rendszerprompt). Kód: `buildRegressionTestBody()`, `REGRESSION_TEST_RULE_EN`; a
+`scripts/land-pr.sh` figyelmeztet, ha egy "fix" című landolásban nincs teszt-fájl.

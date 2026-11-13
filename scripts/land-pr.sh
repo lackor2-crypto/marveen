@@ -227,6 +227,21 @@ if [ "$tsc_rc" -ne 0 ]; then
 fi
 cleanup
 
+# --- 0/b. hibajavitas regresszios teszt nelkul: SZOL, nem allit meg (kanban #839) ----
+# A tulajdonos torvenye: minden hibajavitashoz teszt kell ugyanabban a commitban.
+# Ez jelzes, nem kapu: van hiba, amit gepi teszt nem fog meg -- akkor a kartyan
+# kell leirni, miert nincs teszt. A landolast ezert nem tagadjuk meg.
+case "$TITLE" in
+  fix*|Fix*|FIX*)
+    set +e
+    changed_tests="$(git diff --name-only "origin/main...HEAD" 2>/dev/null | grep -cE '(__tests__/|\.test\.|\.spec\.|(^|/)tests?/)')"
+    set -e
+    if [ "${changed_tests:-0}" -eq 0 ]; then
+      echo "land-pr: FIGYELEM -- ez hibajavitas (\"fix\" cim), de a valtozasban NINCS teszt-fajl. A szabaly: hibajavitashoz regresszios teszt kell ugyanabban a commitban (javitas nelkul piros, javitassal zold). Ha a hibat gepi teszttel tenyleg nem lehet megfogni, ird le a kartyara, miert nincs teszt. A landolas megy tovabb." >&2
+    fi
+    ;;
+esac
+
 # --- 1. branch felnyomasa (a gyors pre-push kapu a main-push-nal futna, itt nem) ----
 # `-u` NELKUL, szandekosan. A `-u` a JELENLEGI branch upstream-jet allitja at az
 # eldobhato land-branchre. Ha a main-rol landolsz (a tipikus eset), a lokalis
