@@ -80,3 +80,16 @@ export function gatedInterval(name: string, fn: () => void, ms: number, seams: S
   }, ms)
   return timer
 }
+
+/**
+ * The FIRST run of a maintenance job, a little after start-up. It is `setTimeout` for work that waits when the
+ * machine is busy: the first pass of every sweep lands right after a deploy restart, exactly when the build and the
+ * boot of the other services load the machine (measured 2026-11-13: 0.9-1.1 s main-thread holds from start-up passes
+ * that the interval gate never saw, because they did not go through it).
+ */
+export function gatedTimeout(name: string, fn: () => void, ms: number, seams: Seams = {}): NodeJS.Timeout {
+  const timer: NodeJS.Timeout = setTimeout(() => {
+    gatedRun(name + ':start', fn, () => true, seams)
+  }, ms)
+  return timer
+}

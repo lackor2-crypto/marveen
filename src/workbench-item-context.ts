@@ -34,7 +34,7 @@ import { listItemTodos } from './workbench-todos.js'
 import { isDebateReportTitle } from './debate-report-title.js'
 import { extractionBlockLines, readNewMaterials, type MaterialFile } from './workbench-upload-extract.js'
 import { drainSteps, drainStepsYielding, type Steps } from './yielding.js'
-import { gatedInterval } from './background-gate.js'
+import { gatedInterval, gatedTimeout } from './background-gate.js'
 
 export const CONTEXT_PREFIX_HU = 'Kontextus'
 export const CONTEXT_PREFIX_EN = 'Context'
@@ -465,7 +465,7 @@ let timer: ReturnType<typeof setInterval> | null = null
 export const ITEM_CONTEXT_MS = 120_000
 export function startItemContexts(): void {
   if (timer) return
-  setTimeout(() => { void sweepItemContexts().catch(() => { /* retried */ }) }, 20_000).unref?.()
+  gatedTimeout('workbench-item-context', () => { void sweepItemContexts().catch(() => { /* retried */ }) }, 20_000).unref?.()
   timer = gatedInterval('workbench-item-context', () => { void sweepItemContexts().catch(() => { /* retried */ }) }, ITEM_CONTEXT_MS)
   timer.unref?.()
 }
