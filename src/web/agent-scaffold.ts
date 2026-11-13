@@ -3592,6 +3592,84 @@ export function ensureGlobalRootCauseFixRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+const REGTEST_BEGIN = '<!-- BEGIN GENERATED: regression-test-rule (auto-generated, do not edit by hand) -->'
+const REGTEST_END = '<!-- END GENERATED: regression-test-rule -->'
+const REGTEST_BLOCK_RE = new RegExp(
+  `${REGTEST_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${REGTEST_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildRegressionTestBody(): string {
+  return [
+    '## HIBAJAVITASHOZ KOTELEZO A REGRESSZIOS TESZT -- A TULAJDONOS TORVENYE',
+    '',
+    'Minden hibajavitashoz teszt kell, UGYANABBAN a commitban, mint a javitas: olyan teszt, ami a',
+    'javitas NELKUL piros (a hibat reprodukalja), a javitassal zold. Igy a hiba nem johet vissza',
+    'eszrevetlenul. Sorrend: (1) ird meg a tesztet es nezd meg, hogy a javitatlan kodon elbukik;',
+    '(2) javits; (3) a teszt zold. A commit/PR cimebe ird bele, hogy van regresszios teszt. Ha a',
+    'hibat tenyleg nem lehet gepi teszttel megfogni (csak kulso szolgaltatason vagy valodi gepen jon',
+    'elo), ird le a kartyara, MIERT nincs teszt, es mivel merted helyette: a csend nem megengedett.',
+    'Ez mindenkire all, aki javit: szakerto, segedmunkas, es a projektek chat-asszisztensei is.',
+    'A `scripts/land-pr.sh` szol, ha egy "fix" cimu landolasban nincs teszt-fajl.',
+    'Reszletek: `marveen-learned-rules` R40.',
+  ].join('\n')
+}
+
+/** Beviszi a szabalyt: hibajavitashoz regresszios teszt (kanban #839) egy agens sajat CLAUDE.md-jebe. */
+export function ensureRegressionTestSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${REGTEST_BEGIN}\n${buildRegressionTestBody()}\n${REGTEST_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = REGTEST_BLOCK_RE.test(existing)
+    ? existing.replace(REGTEST_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalRegressionTestRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${REGTEST_BEGIN}\n${buildRegressionTestBody()}\n${REGTEST_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = REGTEST_BLOCK_RE.test(existing)
+    ? existing.replace(REGTEST_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 const ITEMFILES_BEGIN = '<!-- BEGIN GENERATED: workitem-folder-files-rule (auto-generated, do not edit by hand) -->'
 const ITEMFILES_END = '<!-- END GENERATED: workitem-folder-files-rule -->'
 const ITEMFILES_BLOCK_RE = new RegExp(
