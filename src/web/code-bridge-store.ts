@@ -252,6 +252,7 @@ function ensureTables(): void {
   // heartbeat and stops claude.exe; the answer that still comes in closes the task as 'cancelled'.
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN stop_requested_at INTEGER') } catch { /* mar letezik */ }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_finished ON code_tasks(finished_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
   // Worker presence. The bridge has exactly ONE silent failure mode: the
   // Windows worker stops and nothing says so -- tasks queue up forever, the
@@ -3186,13 +3187,24 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
   // KVOTA-BLOKK: a legutobb LEZART feladat egy keret-kimerules hiba-e, es
   // van-e ota VALODI, frissebb elo tevekenyseg (ami feloldja). Lasd a
   // `CodeBridgeActivity.quotaBlocked` dokumentaciojat.
-  const lastTerminal = db
+  // Two steps: the ordering touches only the narrow columns (finished_at has an index), and the long
+  // summary/error text of that ONE row is read afterwards -- the old single statement dragged every
+  // finished row's text through a temp sort on every poll.
+  const lastKey = db
     .prepare(
-      `SELECT status, summary, error, finished_at FROM code_tasks
+      `SELECT id, status, finished_at FROM code_tasks
        WHERE status IN ('error','done') AND finished_at IS NOT NULL
        ORDER BY finished_at DESC LIMIT 1`,
     )
     .get() as Record<string, unknown> | undefined
+  const lastTerminal = lastKey
+    ? ({
+        ...lastKey,
+        ...(String(lastKey['status']) === 'error'
+          ? ((db.prepare(`SELECT summary, error FROM code_tasks WHERE id = ?`).get(String(lastKey['id'])) as Record<string, unknown> | undefined) ?? {})
+          : {}),
+      } as Record<string, unknown>)
+    : undefined
   let quotaBlocked = false
   if (lastTerminal && String(lastTerminal['status']) === 'error') {
     const msg = `${String(lastTerminal['summary'] ?? '')} ${String(lastTerminal['error'] ?? '')}`

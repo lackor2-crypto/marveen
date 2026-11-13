@@ -2012,7 +2012,7 @@ document.addEventListener('visibilitychange', () => {
 function startActivityPoll() {
   loadActivity()
   if (activityTimer) clearInterval(activityTimer)
-  activityTimer = setInterval(loadActivity, 3000)
+  activityTimer = setInterval(loadActivity, 9000)
 }
 
 function stopActivityPoll() {
@@ -6752,7 +6752,7 @@ function startGlobalActivityPoll() {
   // pane on the server, and a forgotten background tab kept doing that
   // 20 times a minute, forever. Coming back refreshes at once, so the badge
   // is never a poll behind when someone actually looks at it.
-  globalActivityTimer = setInterval(() => { if (!document.hidden) refreshAgentTerminalBusy() }, 3000)
+  globalActivityTimer = setInterval(() => { if (!document.hidden) refreshAgentTerminalBusy() }, 9000)
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAgentTerminalBusy() })
 }
 // #812: WHAT a queued VS Code task waits for (server: codeProjectWaitReason). `long` goes into the line under the
@@ -29998,7 +29998,7 @@ function stopRunningIndicatorPoll() {
 
 function startRunningIndicatorPoll() {
   stopRunningIndicatorPoll()
-  runningIndicatorPollTimer = setInterval(refreshRunningIndicators, 4000)
+  runningIndicatorPollTimer = setInterval(refreshRunningIndicators, 12000)
 }
 
 async function refreshRunningIndicators() {
@@ -39533,7 +39533,7 @@ function _dupRenderStatus(s) {
     line.hidden = !txt
   }
   if (busy && !_dupPoll) {
-    _dupPoll = setInterval(function () { void _dupRefreshStatus() }, 3000)
+    _dupPoll = setInterval(function () { void _dupRefreshStatus() }, 9000)
   } else if (!busy && _dupPoll) {
     clearInterval(_dupPoll)
     _dupPoll = null
@@ -47503,7 +47503,7 @@ async function _intezoCfgSave() {
     window.__cbStopPollImpl()
     // Egy futo feladat percekig tart; 5 masodperces kor eleg ahhoz, hogy a
     // lap eljen, es nem terheli sem a bongeszot, sem az SQLite-ot.
-    _cbTimer = setInterval(cbRefresh, 5000)
+    _cbTimer = setInterval(cbRefresh, 15000)
   }
 
   // ---- esemenyek -------------------------------------------------------

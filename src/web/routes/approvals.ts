@@ -152,9 +152,12 @@ export function reconcileWaitingApprovals(): { raised: number; withdrawn: number
   let withdrawn = 0
   try {
     const cards = listKanbanCards()
+    // ONE read of the open requests for the whole pass: asking per card re-read the table once per waiting
+    // card (N+1), a measured 600+ ms event-loop stall on the live board (stall sampler, #897 follow-up).
+    const openOnes = listPendingApprovals()
     for (const card of cards) {
       if (card.status !== 'waiting') continue
-      if (pendingApprovalForCard(card.id)) continue
+      if (matchPendingForCard(openOnes, card.id)) continue
       if (ensureApprovalForWaitingCard(card.id, 'reconcile')) raised++
     }
     const byId = new Map(cards.map(c => [c.id, c]))
@@ -258,11 +261,15 @@ export function undoApprovedDecision(
   return { ok: true, approval: getApproval(id)!, reopened }
 }
 
-export function pendingApprovalForCard(cardId: string): Approval | undefined {
-  return listPendingApprovals().find(a => {
+export function matchPendingForCard(pending: Approval[], cardId: string): Approval | undefined {
+  return pending.find(a => {
     const id = approvalCardId(a.action_payload, a.action_description)
     return id != null && (id === cardId || cardId.startsWith(id) || id.startsWith(cardId))
   })
+}
+
+export function pendingApprovalForCard(cardId: string): Approval | undefined {
+  return matchPendingForCard(listPendingApprovals(), cardId)
 }
 
 /**
