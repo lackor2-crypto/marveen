@@ -2516,3 +2516,13 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
 .wb-tw-page { font-family: "Liberation Serif", "Times New Roman", Times, serif; }
 .wb-tw-page .wb-tw-tbl { font-size: .9167em; table-layout: fixed; }
 .wb-tw-page .wb-tw-tbl th, .wb-tw-page .wb-tw-tbl td { padding: .125em .19em; line-height: 1.12; overflow-wrap: anywhere; }
+
+/* #859 (Boss mail, TG 4895): on a phone the pinned button box must never be clipped (the 104px cap hid "+ New work item" / "Upload
+   files"), and long folder / file names wrap inside the panel instead of pushing the row buttons off the screen. */
+@media (max-width: 900px) {
+  .wb-panel-items .wb-pin { position: static; margin: 0 0 8px; }
+  .wb-panel-items .wb-pin .wb-pin-slot:not(.wb-pin-open) .wb-blk-top { max-height: none; overflow: visible; }
+  .wb-pin-more, .wb-pin-slot.wb-pin-clipped .wb-pin-more { display: none; }
+  .wb-pin-slot.wb-pin-clipped .wb-blk-top { padding-right: 0; }
+  .wb-fr-panel .wb-item-row, .wb-fr-panel .wb-folder-row, .wb-fr-panel li { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+}
