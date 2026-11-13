@@ -619,3 +619,18 @@ export function startupTokenCeiling(): number {
   const n = Number(raw)
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : STARTUP_TOKEN_CEILING_DEFAULT
 }
+
+// #799: the wake phase of the 5h frame (see src/web/wake-phase.ts). New automatic work may use at most
+// WAKE_PHASE_CEILING_PCT percent of the frame in the first WAKE_PHASE_MINUTES minutes of a window; Boss's own
+// messages are exempt. 0 in either switches the guard off; an unparsable value falls back to the default
+// rather than silently disabling it.
+export const WAKE_PHASE_CEILING_PCT_DEFAULT = 10
+export const WAKE_PHASE_MINUTES_DEFAULT = 30
+function nonNegInt(key: string, fallback: number): number {
+  const raw = (cfg(key) ?? '').trim()
+  if (raw === '') return fallback
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback
+}
+export function wakePhaseCeilingPct(): number { return nonNegInt('WAKE_PHASE_CEILING_PCT', WAKE_PHASE_CEILING_PCT_DEFAULT) }
+export function wakePhaseMinutes(): number { return nonNegInt('WAKE_PHASE_MINUTES', WAKE_PHASE_MINUTES_DEFAULT) }

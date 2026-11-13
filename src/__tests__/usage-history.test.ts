@@ -29,7 +29,15 @@ describe('append policy', () => {
     expect(shouldAppend(s(0, 3), s(USAGE_HISTORY_HEARTBEAT_MS - 1, 3))).toBe(false)
   })
   it('treats a window reset as news', () => {
-    expect(shouldAppend(s(0, 3, 1000), s(1, 3, 2000))).toBe(true)
+    const H = 3_600_000
+    expect(shouldAppend(s(0, 3, 1 * H), s(1, 3, 6 * H))).toBe(true)
+  })
+  // #799: the live reading's resetsAt wobbles by a few milliseconds from one minute to the next
+  // (measured: ...470, ...232, ...435). That is the same window, not news -- with a strict !== every
+  // sample was appended and, worse, tokensPerPercent skipped every step.
+  it('does not treat a millisecond wobble of resetsAt as a new window', () => {
+    const H = 3_600_000
+    expect(shouldAppend(s(0, 3, 5 * H + 470), s(60_000, 3, 5 * H + 232))).toBe(false)
   })
   it('rotates to .1 past the cap and still reads both, oldest first', () => {
     const p = join(tmp, 'h.jsonl')
@@ -60,9 +68,20 @@ describe('tokensPerPercent', () => {
     expect(tokensPerPercent([], () => 1)).toBeNull()
   })
   it('ignores steps across a window reset and steps without tokens', () => {
-    const h = [s(0, 50, 1), s(10, 2, 2), s(20, 4, 2)]
+    const H = 3_600_000
+    const h = [s(0, 50, 1 * H), s(10, 2, 6 * H), s(20, 4, 6 * H)]
     expect(tokensPerPercent(h, () => 100, 1)).toBe(50)
     expect(tokensPerPercent(h, () => 0, 1)).toBeNull()
+  })
+})
+
+describe('tokensPerPercent on real, wobbling resetsAt values (#799)', () => {
+  it('still measures the steps when resetsAt differs by milliseconds inside one window', () => {
+    const H = 3_600_000
+    const wobble = [470, 232, 435, 101, 999, 3]
+    const hist = wobble.map((w, i) => s(i * 10, i * 2, 5 * H + w))
+    // five rises of 2 points, 1000 tokens each -> 500 tokens per point
+    expect(tokensPerPercent(hist, () => 1000)).toBe(500)
   })
 })
 

@@ -44,7 +44,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { locateLocalTranscript, readTranscriptTailMeta } from './code-conversation.js'
 import { getDb, getKanbanCard, listKanbanCards, moveKanbanCard, addKanbanComment, type KanbanCard } from '../db.js'
-import { CODE_BRIDGE_EXCLUDE, APP_TZ } from '../config.js'
+import { CODE_BRIDGE_EXCLUDE, APP_TZ, MAIN_AGENT_ID } from '../config.js'
+import { currentWakePhase, wakePhaseHoldsOrigin } from './wake-phase.js'
 import { parseUsageLimitResetAt } from '../usage-limit-reset.js'
 import { logger } from '../logger.js'
 import {
@@ -1491,6 +1492,9 @@ export function resetChatLaneForTest(): void {
   chatLaneSeenAt = 0
 }
 
+/** Log the wake-phase hold once per window, not on every claim poll. */
+let lastWakeHoldLogAt: number | null = null
+
 export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeClaimLane): CodeTask | null {
   ensureTables()
   const db = getDb()
@@ -1545,6 +1549,19 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       }
       const session = getCodeSession(task.project)
       if (!session) continue
+      // #799: the first minutes of a 5h window may spend only WAKE_PHASE_CEILING_PCT on NEW automatic work.
+      // Boss's own messages (telegram, workbench) are exempt. The reading is the main account's, so only the
+      // WSL-side sessions (the main account's VS Code) are held by it; no fresh reading = nothing is held.
+      if (sessionSide(session.workspacePath) === 'wsl') {
+        const wake = currentWakePhase(MAIN_AGENT_ID, now)
+        if (wakePhaseHoldsOrigin(task.origin, wake)) {
+          if (lastWakeHoldLogAt !== wake.openedAt) {
+            lastWakeHoldLogAt = wake.openedAt
+            logger.info({ task: task.id, origin: task.origin, usedPct: wake.usedPct, phaseEndsAt: wake.phaseEndsAt }, 'code-bridge: wake-phase ceiling reached, new automatic work waits for the phase to end (#799)')
+          }
+          continue
+        }
+      }
       // #550: the executor's login is exhausted -- the task keeps its place in the queue and goes out when the
       // limit lifts. (A Workbench chat task is not held: its chat continues on another account by itself.)
       if (task.origin !== 'workbench') {

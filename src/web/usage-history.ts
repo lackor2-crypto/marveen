@@ -30,11 +30,21 @@ function lastSample(path: string): UsageHistorySample | null {
   } catch { return null }
 }
 
+/** The live reading's resetsAt wobbles by a few milliseconds between two samples of the SAME window
+ *  (measured on store/rate-limit-status/history-*.jsonl: ...470, ...232, ...435). A real reset moves it
+ *  by hours, so anything inside this tolerance is one window. */
+export const WINDOW_JITTER_MS = 60_000
+
+export function sameWindow(a: number | null, b: number | null): boolean {
+  if (a === null || b === null) return a === b
+  return Math.abs(a - b) <= WINDOW_JITTER_MS
+}
+
 export function shouldAppend(prev: UsageHistorySample | null, next: UsageHistorySample): boolean {
   if (!prev) return true
   if (next.t - prev.t >= USAGE_HISTORY_HEARTBEAT_MS) return true
   return prev.fiveHourPct !== next.fiveHourPct
-    || prev.fiveHourResetsAt !== next.fiveHourResetsAt
+    || !sameWindow(prev.fiveHourResetsAt, next.fiveHourResetsAt)
     || prev.sevenDayPct !== next.sevenDayPct
 }
 
@@ -77,7 +87,7 @@ export function tokensPerPercent(
   for (let i = 1; i < history.length; i++) {
     const a = history[i - 1], b = history[i]
     if (a.fiveHourPct === null || b.fiveHourPct === null) continue
-    if (a.fiveHourResetsAt !== b.fiveHourResetsAt) continue
+    if (!sameWindow(a.fiveHourResetsAt, b.fiveHourResetsAt)) continue
     const gained = b.fiveHourPct - a.fiveHourPct
     if (gained <= 0) continue
     const tokens = tokensBetween(a.t, b.t)
