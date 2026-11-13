@@ -450,19 +450,30 @@ export function buildAbandonedWorktreeContext(res: AbandonedResult): string | nu
   return parts.join('\n\n')
 }
 
-interface AuditScanMemo { key: string; ino: number; size: number; tail: string; scan: OwnerScanner }
+interface AuditScanMemo { key: string; ino: number; size: number; tail: Buffer; scan: OwnerScanner }
 let auditScanMemo: AuditScanMemo | null = null
-export function _resetAuditScanMemoForTest(): void { auditScanMemo = null }
+let auditScanQueue: Promise<unknown> = Promise.resolve()
+export function _resetAuditScanMemoForTest(): void { auditScanMemo = null; auditBytesRead = 0; auditLongestReadBytes = 0 }
+let auditBytesRead = 0
+let auditLongestReadBytes = 0
+/** Test seam: bytes read from the audit log, and the largest single read. */
+export function _auditScanReadsForTest(): { bytes: number; longest: number } { return { bytes: auditBytesRead, longest: auditLongestReadBytes } }
 
-/** Lines per slice before the scan gives the event loop a turn. */
-const FEED_SLICE_LINES = 2000
+/** The log is read in pieces of this size: the first look at a 60 MB log used to pull the whole file into one string (#897). */
+const AUDIT_CHUNK_BYTES = 1 << 20
+/** Lines fed in one go, and how long the scan may run before the event loop gets a turn. */
+const FEED_BATCH_LINES = 200
+const FEED_BUDGET_MS = 8
 
-/** `scan.feed(text)` in slices, yielding between them: a first full scan of a big log must not freeze the server. */
-async function feedYielding(scan: OwnerScanner, text: string): Promise<void> {
+/** `scan.feed(text)` in small batches, yielding whenever the time budget is used up. */
+async function feedYielding(scan: OwnerScanner, text: string, clock: { since: number }): Promise<void> {
   const lines = text.split('\n')
-  for (let i = 0; i < lines.length; i += FEED_SLICE_LINES) {
-    scan.feed(lines.slice(i, i + FEED_SLICE_LINES).join('\n'))
-    if (i + FEED_SLICE_LINES < lines.length) await new Promise((r) => setImmediate(r))
+  for (let i = 0; i < lines.length; i += FEED_BATCH_LINES) {
+    scan.feed(lines.slice(i, i + FEED_BATCH_LINES).join('\n'))
+    if (performance.now() - clock.since >= FEED_BUDGET_MS) {
+      await new Promise((r) => setImmediate(r))
+      clock.since = performance.now()
+    }
   }
 }
 
@@ -473,8 +484,15 @@ async function feedYielding(scan: OwnerScanner, text: string): Promise<void> {
  * last line is kept back until its newline arrives. Missing file = nobody
  * worked anywhere (a fresh install), not a failure; other read errors throw
  * (the caller reports "could not look").
+ * Calls run one after the other: two of them feeding the same scanner would count lines twice.
  */
-export async function ownersFromAuditFile(file: string, paths: string[], knownAgents: string[]): Promise<Map<string, string | null>> {
+export function ownersFromAuditFile(file: string, paths: string[], knownAgents: string[]): Promise<Map<string, string | null>> {
+  const run = auditScanQueue.then(() => ownersFromAuditFileNow(file, paths, knownAgents))
+  auditScanQueue = run.catch(() => undefined)
+  return run
+}
+
+async function ownersFromAuditFileNow(file: string, paths: string[], knownAgents: string[]): Promise<Map<string, string | null>> {
   let st
   try { st = await stat(file) } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') { auditScanMemo = null; return attributeOwners('', paths, knownAgents) }
@@ -483,18 +501,25 @@ export async function ownersFromAuditFile(file: string, paths: string[], knownAg
   const key = JSON.stringify([paths, knownAgents])
   let m = auditScanMemo
   if (!m || m.key !== key || m.ino !== st.ino || st.size < m.size) {
-    m = { key, ino: st.ino, size: 0, tail: '', scan: ownerScanner(paths, knownAgents) }
+    m = { key, ino: st.ino, size: 0, tail: Buffer.alloc(0), scan: ownerScanner(paths, knownAgents) }
   }
   if (st.size > m.size) {
     const fh = await open(file, 'r')
     try {
-      const buf = Buffer.alloc(st.size - m.size)
-      const { bytesRead } = await fh.read(buf, 0, buf.length, m.size)
-      const text = m.tail + buf.subarray(0, bytesRead).toString('utf8')
-      const nl = text.lastIndexOf('\n')
-      await feedYielding(m.scan, nl >= 0 ? text.slice(0, nl) : '')
-      m.tail = nl >= 0 ? text.slice(nl + 1) : text
-      m.size += bytesRead
+      const clock = { since: performance.now() }
+      const chunk = Buffer.alloc(Math.min(AUDIT_CHUNK_BYTES, st.size - m.size))
+      while (m.size < st.size) {
+        const { bytesRead } = await fh.read(chunk, 0, Math.min(chunk.length, st.size - m.size), m.size)
+        if (bytesRead <= 0) break
+        auditBytesRead += bytesRead
+        if (bytesRead > auditLongestReadBytes) auditLongestReadBytes = bytesRead
+        // Cut at the last newline BYTE: a character split across two pieces is never decoded in halves.
+        const bytes = m.tail.length ? Buffer.concat([m.tail, chunk.subarray(0, bytesRead)]) : chunk.subarray(0, bytesRead)
+        const nl = bytes.lastIndexOf(0x0a)
+        if (nl >= 0) await feedYielding(m.scan, bytes.toString('utf8', 0, nl), clock)
+        m.tail = Buffer.from(nl >= 0 ? bytes.subarray(nl + 1) : bytes)
+        m.size += bytesRead
+      }
     } finally { await fh.close() }
   }
   auditScanMemo = m

@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync, writeFileSync, appendFileSync, readFileSync } from
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  attributeOwners, ownerScanner, ownersFromAuditFile, _resetAuditScanMemoForTest,
+  attributeOwners, ownerScanner, ownersFromAuditFile, _resetAuditScanMemoForTest, _auditScanReadsForTest,
 } from '../web/abandoned-worktrees.js'
 
 const REPO = join(__dirname, '..', '..')
@@ -111,6 +111,49 @@ describe('incremental audit file', () => {
     writeFileSync(f, LOG + '\n')
     ;(await ownersFromAuditFile(f, WT, AG)).set('/x/claw', 'mutated')
     expect((await ownersFromAuditFile(f, WT, AG)).get('/x/claw')).toBe('gamma')
+  })
+})
+
+// #897: the first look at a large log pulled the whole file (60 MB on the owner's machine)
+// into one string and split it in one go: 1.2 s with the server frozen. Measured in BYTES.
+describe('a large audit log is read in pieces (#897)', () => {
+  let dir: string
+  let f: string
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'aw897-')); f = join(dir, 'agent-audit.jsonl'); _resetAuditScanMemoForTest() })
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+
+  it('no single read is larger than 1 MiB, and the answer is the answer of the whole text', async () => {
+    // "é" and "😀" pad the lines so that characters fall across the piece boundaries
+    const filler = (i: number) => L({ agent: 'alpha', op: 'read', target: '/elsewhere/' + 'é😀'.repeat(40 + (i % 7)), cwd: '/r' })
+    const rows: string[] = []
+    for (let i = 0; i < 12000; i++) {
+      rows.push(filler(i))
+      if (i === 3000) rows.push(L({ agent: 'beta', op: 'edit', target: '/r/.worktrees/a/é.ts', cwd: '/r' }))
+      if (i === 9000) rows.push(L({ agent: 'gamma', op: 'write', target: '/x/claw/😀', cwd: '/x' }))
+    }
+    const text = rows.join('\n') + '\n'
+    writeFileSync(f, text)
+    const total = Buffer.byteLength(text)
+    expect(total).toBeGreaterThan(3 * (1 << 20))
+    const got = await ownersFromAuditFile(f, WT, AG)
+    expect(got).toEqual(reference(text, WT, AG))
+    expect(got.get('/r/.worktrees/a')).toBe('beta')
+    expect(got.get('/x/claw')).toBe('gamma')
+    const reads = _auditScanReadsForTest()
+    expect(reads.bytes).toBe(total)
+    expect(reads.longest).toBeLessThanOrEqual(1 << 20)
+  })
+
+  it('two calls at the same time do not feed the same lines twice', async () => {
+    const rows: string[] = []
+    for (let i = 0; i < 4000; i++) rows.push(L({ agent: 'alpha', op: 'read', target: '/elsewhere/' + 'x'.repeat(400), cwd: '/r' }))
+    rows.push(L({ agent: 'beta', op: 'edit', target: '/r/.worktrees/a/x.ts', cwd: '/r' }))
+    const text = rows.join('\n') + '\n'
+    writeFileSync(f, text)
+    const [one, two] = await Promise.all([ownersFromAuditFile(f, WT, AG), ownersFromAuditFile(f, WT, AG)])
+    expect(one).toEqual(two)
+    expect(one.get('/r/.worktrees/a')).toBe('beta')
+    expect(_auditScanReadsForTest().bytes).toBe(Buffer.byteLength(text))
   })
 })
 

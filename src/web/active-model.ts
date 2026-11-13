@@ -137,35 +137,183 @@ export function scanLinesBackward(path: string, visit: (line: string) => boolean
   } finally { closeSync(fd) }
 }
 
-// #390: egy VALTOZATLAN naplot (ugyanaz a meret es modositasi ido) nem
-// olvasunk vegig ujra -- az eredmenye sem valtozhatott. Egy uresjaratban allo
-// vagy friss (meg modell-/usage-sor nelkuli) munkamenetnel a visszafele
-// kereses az EGESZ fajlt bejarta minden /api/agents lekerdezesnel, es ez
-// agensenkent szaz ms-okra megallitotta a szervert.
-const scanMemo = new Map<string, { sig: string; value: unknown }>()
-const SCAN_MEMO_MAX = 256
-
-function fileSig(path: string): string | null {
-  try {
-    const st = statSync(path)
-    return `${st.size}:${st.mtimeMs}`
-  } catch { return null }
+// #390 / #897: a transcript is only ever APPENDED to, so a scan is kept as a
+// running fold over the file and only the bytes that arrived since the last
+// call are read. The #390 version remembered the answer for an UNCHANGED file
+// only: a live session's file changes every few seconds, so a transcript with
+// no model line and no usage line (measured: 82 MB, 1924 lines) was walked from
+// the end to the first byte on the main thread at every change -- 575 ms each
+// time, dozens of times a day.
+//
+// Two rules keep the main thread free:
+//   1. A call reads at most SYNC_SLICE_BYTES. A longer walk (the first look at a
+//      large file after a restart) continues in the background in slices that
+//      give the loop back in between; until it lands the caller gets the answer
+//      of the part already read, marked provisional.
+//   2. When the file grew, only the new tail is walked and folded onto the
+//      stored result (`merge`). A file that shrank, or whose bytes before the
+//      old end changed, is not an append: it is read again from scratch.
+export interface TranscriptFold<S> {
+  init(): S
+  /** Lines arrive newest first. Return true when nothing older can change the answer. */
+  visit(state: S, line: string): boolean
+  /** `newer` walked its whole range without stopping; fold the older part's finished result under it. */
+  merge(newer: S, older: S): S
 }
 
-function memoByFile<T>(key: string, path: string, compute: () => T): T {
-  const sig = fileSig(path)
-  const hit = scanMemo.get(key)
-  if (sig !== null && hit && hit.sig === sig) return hit.value as T
-  const value = compute()
-  if (sig !== null) {
-    if (scanMemo.size >= SCAN_MEMO_MAX) scanMemo.clear()
-    scanMemo.set(key, { sig, value })
+const SYNC_SLICE_BYTES = 4 * 1024 * 1024
+const BACKGROUND_SLICE_BYTES = 2 * 1024 * 1024
+const ANCHOR_BYTES = 64
+const SCAN_MEMO_MAX = 256
+
+interface ScanJob<S> {
+  upper: number        // the walk covers [floor, upper)
+  floor: number
+  pos: number          // next byte to read is just below this
+  carry: Buffer
+  state: S
+  older: S | null      // finished result for [0, floor), when this is an append
+  mtimeMs: number
+}
+
+interface Tracked<S> {
+  path: string
+  size: number         // bytes folded so far: [0, size)
+  mtimeMs: number
+  anchor: Buffer       // the last bytes before `size`: proves the next read is an append
+  appendable: boolean  // the folded part ends on a line break
+  state: S | null      // finished result for [0, size)
+  job: ScanJob<S> | null
+}
+
+const tracked = new Map<string, Tracked<unknown>>()
+let scanBytesRead = 0
+let backgroundScans = 0
+let settledWaiters: Array<() => void> = []
+
+/** Walks the job backwards for at most `budget` bytes. Returns true when the walk is over. */
+function stepJob<S>(path: string, job: ScanJob<S>, fold: TranscriptFold<S>, budget: number): { done: boolean; stopped: boolean } {
+  const fd = openSync(path, 'r')
+  try {
+    let spent = 0
+    while (job.pos > job.floor) {
+      if (spent >= budget) return { done: false, stopped: false }
+      const len = Math.min(BACKWARD_CHUNK_BYTES, job.pos - job.floor)
+      job.pos -= len
+      const buf = Buffer.alloc(len)
+      const read = readSync(fd, buf, 0, len, job.pos)
+      spent += read
+      scanBytesRead += read
+      const data = job.carry.length ? Buffer.concat([buf.subarray(0, read), job.carry]) : buf.subarray(0, read)
+      let end = data.length
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i] !== 0x0a) continue
+        const line = data.subarray(i + 1, end).toString('utf-8').trim()
+        end = i
+        if (line && fold.visit(job.state, line)) return { done: true, stopped: true }
+      }
+      job.carry = Buffer.from(data.subarray(0, end))
+    }
+    const first = job.carry.toString('utf-8').trim()
+    job.carry = Buffer.alloc(0)
+    if (first && fold.visit(job.state, first)) return { done: true, stopped: true }
+    return { done: true, stopped: false }
+  } finally { closeSync(fd) }
+}
+
+function readAnchor(path: string, size: number): Buffer {
+  const len = Math.min(ANCHOR_BYTES, size)
+  if (len <= 0) return Buffer.alloc(0)
+  const fd = openSync(path, 'r')
+  try {
+    const buf = Buffer.alloc(len)
+    const read = readSync(fd, buf, 0, len, size - len)
+    return buf.subarray(0, read)
+  } finally { closeSync(fd) }
+}
+
+function finishJob<S>(t: Tracked<S>, job: ScanJob<S>, fold: TranscriptFold<S>, stopped: boolean): S {
+  const result = !stopped && job.older !== null ? fold.merge(job.state, job.older) : job.state
+  t.state = result
+  t.size = job.upper
+  t.mtimeMs = job.mtimeMs
+  t.anchor = readAnchor(t.path, job.upper)
+  t.appendable = t.anchor.length > 0 && t.anchor[t.anchor.length - 1] === 0x0a
+  t.job = null
+  return result
+}
+
+function settleIfIdle(): void {
+  if (backgroundScans > 0) return
+  const waiters = settledWaiters
+  settledWaiters = []
+  for (const w of waiters) w()
+}
+
+function continueInBackground<S>(key: string, t: Tracked<S>, fold: TranscriptFold<S>): void {
+  backgroundScans++
+  const slice = (): void => {
+    // The entry was dropped or replaced (memo cleared, file rewritten): this walk is nobody's any more.
+    if (tracked.get(key) !== t || t.job === null) { backgroundScans--; settleIfIdle(); return }
+    try {
+      const r = stepJob(t.path, t.job, fold, BACKGROUND_SLICE_BYTES)
+      if (!r.done) { setImmediate(slice); return }
+      finishJob(t, t.job, fold, r.stopped)
+    } catch {
+      tracked.delete(key) // the file went away mid-walk; the next call starts over
+    }
+    backgroundScans--
+    settleIfIdle()
   }
-  return value
+  setImmediate(slice)
+}
+
+function provisionalView<S>(job: ScanJob<S>, fold: TranscriptFold<S>): S {
+  return job.older !== null ? fold.merge(job.state, job.older) : job.state
+}
+
+/**
+ * The fold's answer for the transcript as it is now. `provisional` is true while
+ * a long walk is still running in the background: the state then describes the
+ * newest part of the file only.
+ */
+export function foldTranscript<S>(key: string, path: string, fold: TranscriptFold<S>): { state: S; provisional: boolean } {
+  const st = statSync(path)
+  let t = tracked.get(key) as Tracked<S> | undefined
+  if (t && t.job !== null) return { state: provisionalView(t.job, fold), provisional: true }
+  if (t && t.state !== null && t.size === st.size && t.mtimeMs === st.mtimeMs) return { state: t.state, provisional: false }
+
+  let floor = 0
+  let older: S | null = null
+  if (t && t.state !== null && t.appendable && st.size > t.size && readAnchor(path, t.size).equals(t.anchor)) {
+    floor = t.size
+    older = t.state
+  }
+  if (!t || floor === 0) {
+    if (!t && tracked.size >= SCAN_MEMO_MAX) tracked.clear()
+    t = { path, size: 0, mtimeMs: 0, anchor: Buffer.alloc(0), appendable: false, state: null, job: null }
+    tracked.set(key, t as Tracked<unknown>)
+  }
+  const job: ScanJob<S> = { upper: st.size, floor, pos: st.size, carry: Buffer.alloc(0), state: fold.init(), older, mtimeMs: st.mtimeMs }
+  const r = stepJob(path, job, fold, SYNC_SLICE_BYTES)
+  if (r.done) return { state: finishJob(t, job, fold, r.stopped), provisional: false }
+  t.job = job
+  continueInBackground(key, t, fold)
+  return { state: provisionalView(job, fold), provisional: true }
 }
 
 /** Csak teszthez. */
-export function _resetScanMemoForTest(): void { scanMemo.clear() }
+export function _resetScanMemoForTest(): void { tracked.clear(); scanBytesRead = 0 }
+/** Csak teszthez: how many transcript bytes the scans have read so far. */
+export function _scanBytesReadForTest(): number { return scanBytesRead }
+/** Csak teszthez: resolves when no background walk is running. */
+export function _scanSettledForTest(): Promise<void> {
+  if (backgroundScans === 0) return Promise.resolve()
+  return new Promise((resolve) => { settledWaiters.push(resolve) })
+}
+
+// A provisional answer is kept only briefly, so the finished one shows up on the next poll.
+const PROVISIONAL_TTL_MS = 250
 
 function newestTranscript(dir: string): string | null {
   return rankedTranscripts(dir)[0] ?? null
@@ -177,6 +325,7 @@ export function readActiveModelFromProjectDir(workingDir: string, sinceUnixSec?:
   const cached = cache.get(cacheKey)
   if (cached && cached.expiresAt > now) return cached.value
   let value: string | null = null
+  let provisional = false
   try {
     const dir = projectsDirFor(workingDir, configDir)
     if (!existsSync(dir)) {
@@ -188,36 +337,43 @@ export function readActiveModelFromProjectDir(workingDir: string, sinceUnixSec?:
     // model-less transcript look like "we cannot tell", which is a different
     // and much more alarming statement than the truth.
     for (const transcript of rankedTranscripts(dir)) {
-      value = memoByFile(`model:${transcript}:${sinceUnixSec ?? ''}`, transcript, () => {
-        let found: string | null = null
-        scanLinesBackward(transcript, (line) => {
-          try {
-            const entry = JSON.parse(line)
-            let lineUnix: number | null = null
-            if (sinceUnixSec !== undefined) {
-              const ts = entry?.timestamp
-              if (typeof ts === 'string') {
-                const u = Math.floor(new Date(ts).getTime() / 1000)
-                if (Number.isFinite(u)) lineUnix = u
-              }
-              // A naplo idorendben bovul: egy `since` elotti sor elott mar
-              // csak regebbiek allnak -- innen nincs mit keresni.
-              if (lineUnix !== null && lineUnix < sinceUnixSec) return true
-            }
-            const model = entry?.message?.model
-            if (typeof model !== 'string' || model.startsWith('<')) return false
-            if (sinceUnixSec !== undefined && lineUnix === null) return false
-            found = model
-            return true
-          } catch { return false /* skip malformed JSON line */ }
-        })
-        return found
-      })
+      const r = foldTranscript(`model:${transcript}:${sinceUnixSec ?? ''}`, transcript, modelFold(sinceUnixSec))
+      if (r.provisional) provisional = true
+      value = r.state.found
       if (value !== null) break
     }
   } catch { /* fall through */ }
-  cache.set(cacheKey, { value, expiresAt: now + TTL_MS })
+  cache.set(cacheKey, { value, expiresAt: now + (provisional ? PROVISIONAL_TTL_MS : TTL_MS) })
   return value
+}
+
+function modelFold(sinceUnixSec: number | undefined): TranscriptFold<{ found: string | null }> {
+  return {
+    init: () => ({ found: null }),
+    visit: (state, line) => {
+      try {
+        const entry = JSON.parse(line)
+        let lineUnix: number | null = null
+        if (sinceUnixSec !== undefined) {
+          const ts = entry?.timestamp
+          if (typeof ts === 'string') {
+            const u = Math.floor(new Date(ts).getTime() / 1000)
+            if (Number.isFinite(u)) lineUnix = u
+          }
+          // A naplo idorendben bovul: egy `since` elotti sor elott mar
+          // csak regebbiek allnak -- innen nincs mit keresni.
+          if (lineUnix !== null && lineUnix < sinceUnixSec) return true
+        }
+        const model = entry?.message?.model
+        if (typeof model !== 'string' || model.startsWith('<')) return false
+        if (sinceUnixSec !== undefined && lineUnix === null) return false
+        state.found = model
+        return true
+      } catch { return false /* skip malformed JSON line */ }
+    },
+    // The newer part named no model and met no line older than `since`: the older part's answer stands.
+    merge: (newer, older) => (newer.found !== null ? newer : { found: older.found }),
+  }
 }
 
 /**
@@ -347,6 +503,7 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
   const cached = ctxCache.get(cacheKey)
   if (cached && cached.expiresAt > now) return cached.value
   let reading: ContextReading = { tokens: null, state: 'unknown' }
+  let provisional = false
   try {
     const dir = projectsDirFor(workingDir, configDir)
     if (existsSync(dir)) {
@@ -355,41 +512,46 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
         // The transcript is there and readable; from here on the only question
         // is whether it carries a number, so anything short of that is 'fresh'
         // (a live session with no API accounting), never 'unknown'.
-        reading = memoByFile(`ctx:${transcript}`, transcript, () => scanContextReading(transcript))
+        const r = foldTranscript(`ctx:${transcript}`, transcript, contextFold)
+        provisional = r.provisional
+        reading = finishContextReading(r.state)
       }
     }
   } catch { /* fall through as 'unknown' */ }
-  ctxCache.set(cacheKey, { value: reading, expiresAt: now + TTL_MS })
+  ctxCache.set(cacheKey, { value: reading, expiresAt: now + (provisional ? PROVISIONAL_TTL_MS : TTL_MS) })
   return reading
 }
 
-function scanContextReading(transcript: string): ContextReading {
-  let reading: ContextReading = { tokens: null, state: 'fresh' }
+interface ContextScan {
+  tokens: number | null
+  state: 'fresh' | 'no-usage' | 'measured'
   // The quota wall is read from the newest turns backwards, and only the
   // UNBROKEN run at the end counts: an agent that hit the limit an hour
   // ago and has been answering since is not blocked now.
-  let quota: ContextQuotaBlock | null = null
-  let quotaRunBroken = false
-  scanLinesBackward(transcript, (line) => {
+  quota: ContextQuotaBlock | null
+  quotaRunBroken: boolean
+}
+
+const contextFold: TranscriptFold<ContextScan> = {
+  init: () => ({ tokens: null, state: 'fresh', quota: null, quotaRunBroken: false }),
+  visit: (scan, line) => {
     try {
       const entry = JSON.parse(line)
       // A turn happened here even if it carries no numbers: distinguishes
       // "session never ran" from "session ran and we cannot size it".
-      if (entry?.type === 'assistant' && reading.state === 'fresh') {
-        reading = { tokens: null, state: 'no-usage' }
-      }
-      if (entry?.type === 'assistant' && !quotaRunBroken) {
+      if (entry?.type === 'assistant' && scan.state === 'fresh') scan.state = 'no-usage'
+      if (entry?.type === 'assistant' && !scan.quotaRunBroken) {
         const rejection = readQuotaRejection(entry)
         if (rejection) {
-          if (quota === null) quota = rejection
-          else quota.rejectedTurns += 1
-        } else quotaRunBroken = true
+          if (scan.quota === null) scan.quota = rejection
+          else scan.quota.rejectedTurns += 1
+        } else scan.quotaRunBroken = true
       }
       // Post-compaction and still idle: no fresh usage exists yet, so the
       // authoritative current size is the boundary's postTokens.
       if (entry?.type === 'system' && entry?.subtype === 'compact_boundary') {
         const post = Number(entry?.compactMetadata?.postTokens)
-        if (Number.isFinite(post) && post > 0) reading = { tokens: post, state: 'measured' }
+        if (Number.isFinite(post) && post > 0) { scan.tokens = post; scan.state = 'measured' }
         // Boundary without a usable postTokens: treat as fresh (empty),
         // never fall through to the stale pre-compaction usage below.
         return true
@@ -400,18 +562,39 @@ function scanContextReading(transcript: string): ContextReading {
         const cr = Number(u.cache_read_input_tokens) || 0
         const cc = Number(u.cache_creation_input_tokens) || 0
         const total = inp + cr + cc
-        if (total > 0) { reading = { tokens: total, state: 'measured' }; return true }
+        if (total > 0) { scan.tokens = total; scan.state = 'measured'; return true }
       }
     } catch { /* skip malformed JSON line */ }
     return false
-  })
+  },
+  // `newer` reached its lower end without a usage or a boundary, so the walk
+  // would have gone on into the older part: its number stands, a turn seen in
+  // either part counts, and an unbroken run of rejections runs on into it.
+  merge: (newer, older) => {
+    const measured = older.state === 'measured'
+    const sawTurn = newer.state === 'no-usage' || older.state === 'no-usage'
+    let quota: ContextQuotaBlock | null
+    if (newer.quotaRunBroken) quota = newer.quota
+    else if (newer.quota !== null && older.quota !== null) quota = { ...newer.quota, rejectedTurns: newer.quota.rejectedTurns + older.quota.rejectedTurns }
+    else quota = newer.quota ?? older.quota
+    return {
+      tokens: measured ? older.tokens : null,
+      state: measured ? 'measured' : sawTurn ? 'no-usage' : 'fresh',
+      quota: quota === null ? null : { ...quota },
+      quotaRunBroken: newer.quotaRunBroken || older.quotaRunBroken,
+    }
+  },
+}
+
+function finishContextReading(scan: ContextScan): ContextReading {
+  const reading: ContextReading = { tokens: scan.tokens, state: scan.state }
   // Zero usage AND the file says why -> name the real cause. Without this
   // the caller only learns "unmeasurable", which is also what a healthy
   // brand-new session reports.
-  if (quota !== null) {
-    reading = reading.state === 'no-usage'
-      ? { tokens: null, state: 'quota-blocked', quota }
-      : { ...reading, quota }
+  if (scan.quota !== null) {
+    return reading.state === 'no-usage'
+      ? { tokens: null, state: 'quota-blocked', quota: { ...scan.quota } }
+      : { ...reading, quota: { ...scan.quota } }
   }
   return reading
 }
