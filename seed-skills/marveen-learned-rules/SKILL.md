@@ -454,3 +454,15 @@ szolgáltatáson vagy valódi gépen jön elő), a kártyára írd le, MIÉRT ni
 Mindenkire áll, aki javít: szakértő, segédmunkás, és a projektek chat-asszisztensei is (kód-híd prompt,
 Munkapad-ügynök rendszerprompt). Kód: `buildRegressionTestBody()`, `REGRESSION_TEST_RULE_EN`; a
 `scripts/land-pr.sh` figyelmeztet, ha egy "fix" című landolásban nincs teszt-fájl.
+
+### R41 -- A próbához nyitott ügynök / projekt-kártya a munka végén eltűnik (tulajdonos, TG 6062 + TG 6086, #914, törvény)
+**Hiba:** egy izolált próba-példány Munkapad chatje Claude beszélgetést nyitott a próba-raktár ideiglenes
+mappájában. A kód-híd felderítése a mappát projektként vette fel, a Csapat oldalon megjelent egy második
+"külső programozó" kártya, amit senki nem kért, és a rendszer két valódi Munkapad-chatet ebbe a próba-mappába
+irányított. A tulajdonos: "ha csinál az agent ilyen tmp teszt agentet, akkor munka végeztével azt törölje ki".
+**Szabály:** amit a próbához hoztál létre (próba-ügynök, próba-projekt, kód-híd projekt-kártya, próba-példány),
+azt a munka végén le kell venni, a kész-jelzés ELŐTT. Ellenőrzés: a Csapat oldalon és a `GET /api/code/projects`
+listában csak az áll, ami a próba előtt is ott volt. A gép is fogja: ideiglenes mappából (a rendszer temp
+könyvtára, `/tmp`, `/var/tmp`, Windows `AppData\Local\Temp`) a felderítés magától nem csinál projektet, és
+a korábban így keletkezett kártyát a következő körben leveszi; a tulajdonos kézzel bekötött mappája marad.
+Kód: `isTempWorkspacePath()` (`src/web/routes/code.ts`), teszt: `code-bridge-temp-workspace-914.test.ts`.
