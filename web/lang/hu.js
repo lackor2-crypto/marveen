@@ -5036,6 +5036,22 @@ window._i18n.hu = {
   'auth.bridge.repaired':          'Eszköz újrapárosítva (a korábbi kulcsa visszavonva).',
   'auth.bridge.bundle_hint':       'Másold ki most, és illeszd be a Bridge-be -- a csomag többé nem jeleníthető meg. Cél-cím: {host}.',
   'auth.bridge.err_empty':         'A kulcs-sor és az eszköznév is kötelező.',
+  'auth.bridge.err.line_required': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.line_empty': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.line_multiline': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.line_fields': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.key_type': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.key_not_base64': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.blob_too_short': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.blob_type_field': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.blob_type_mismatch': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.blob_truncated': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.key_length': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.blob_trailing': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.comment_prefix': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.comment_uuid': 'Ez nem a Bridge alkalmazás kulcs-sora. Másold ki újra a teljes sort a Bridge alkalmazásból, és illeszd be ide egyben.',
+  'auth.bridge.err.enroll813': 'A párosítást a védelem megakadályozta: ez a példány tesztkörnyezetből érte el az éles telepítést. A részletek a naplóban vannak.',
+  'auth.bridge.err.enroll_failed': 'A párosítás nem sikerült. A pontos ok a szerver naplójában van.',
 
 
   // --- Kod-hid: chat fulek (2026-08-23) ---

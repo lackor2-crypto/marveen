@@ -92,7 +92,9 @@ test.describe('BRIDGEHU813 -- the pairing error in a real browser', () => {
   test('a Hungarian install shows the Hungarian sentence, not the English one', async ({ page }) => {
     const errors = await openPairingPanel(page, 'hu')
 
+    await page.click('#authBridgeKeyLine') // the field is read-only until clicked (anti-autofill)
     await page.fill('#authBridgeKeyLine', BAD_LINE)
+    await page.click('#authBridgeName') // the field is read-only until clicked (anti-autofill)
     await page.fill('#authBridgeName', 'Szabi laptopja')
     page.once('dialog', (d) => d.accept())
     await page.click('#authBridgeEnrollBtn')
@@ -113,7 +115,9 @@ test.describe('BRIDGEHU813 -- the pairing error in a real browser', () => {
   test('an English install is unchanged', async ({ page }) => {
     const errors = await openPairingPanel(page, 'en')
 
+    await page.click('#authBridgeKeyLine') // the field is read-only until clicked (anti-autofill)
     await page.fill('#authBridgeKeyLine', BAD_LINE)
+    await page.click('#authBridgeName') // the field is read-only until clicked (anti-autofill)
     await page.fill('#authBridgeName', 'Szabi laptop')
     page.once('dialog', (d) => d.accept())
     await page.click('#authBridgeEnrollBtn')
@@ -141,7 +145,9 @@ test.describe('BRIDGEHU813 -- the pairing error in a real browser', () => {
       }))
     await page.goto('/index.html')
     await showPairingPanel(page)
+    await page.click('#authBridgeKeyLine') // the field is read-only until clicked (anti-autofill)
     await page.fill('#authBridgeKeyLine', BAD_LINE)
+    await page.click('#authBridgeName') // the field is read-only until clicked (anti-autofill)
     await page.fill('#authBridgeName', 'Teszt')
     page.once('dialog', (d) => d.accept())
     await page.click('#authBridgeEnrollBtn')
