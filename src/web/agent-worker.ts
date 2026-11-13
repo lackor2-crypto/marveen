@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, appendFileSync, readdirSync, lstatSync, symlinkSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir, userInfo } from 'node:os'
@@ -524,17 +524,26 @@ export function startWorkerSession(): void {
  * from a stuck pane. Best effort: a probe failure never blocks the boot.
  */
 function logWorkerClaudeVersion(ctx: WorkerCtx): void {
+  // Informational only, so it must not hold the server while `claude --version` starts up
+  // (measured 1.2 s on the loaded machine, #897): the answer is logged when it arrives.
   try {
     const claudeBin = resolveFromPath('claude')
-    const v = execFileSync(claudeBin, ['--version'], { encoding: 'utf-8', timeout: 10_000 }).trim()
-    const stampPath = join(ctx.home, '.last-claude-version')
-    const prev = existsSync(stampPath) ? readFileSync(stampPath, 'utf-8').trim() : null
-    if (prev && prev !== v) {
-      logger.warn({ prev, current: v }, 'agent-worker: Claude Code version changed since the last worker boot -- watch for new first-run chrome')
-    } else {
-      logger.info({ version: v }, 'agent-worker: claude version')
-    }
-    writeFileSync(stampPath, v + '\n')
+    execFile(claudeBin, ['--version'], { encoding: 'utf-8', timeout: 10_000 }, (err, stdout) => {
+      try {
+        if (err) throw err
+        const v = String(stdout).trim()
+        const stampPath = join(ctx.home, '.last-claude-version')
+        const prev = existsSync(stampPath) ? readFileSync(stampPath, 'utf-8').trim() : null
+        if (prev && prev !== v) {
+          logger.warn({ prev, current: v }, 'agent-worker: Claude Code version changed since the last worker boot -- watch for new first-run chrome')
+        } else {
+          logger.info({ version: v }, 'agent-worker: claude version')
+        }
+        writeFileSync(stampPath, v + '\n')
+      } catch (e) {
+        logger.warn({ err: e }, 'agent-worker: claude version probe failed (continuing)')
+      }
+    })
   } catch (err) {
     logger.warn({ err }, 'agent-worker: claude version probe failed (continuing)')
   }

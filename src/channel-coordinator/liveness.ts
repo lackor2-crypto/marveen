@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import { tmuxStderr } from '../web/tmux-stderr.js'
@@ -51,6 +51,44 @@ export function getClaudePidForSession(session: string): number | null {
     if (cmd === 'claude' || cmd.endsWith('/claude')) return panePid
     try {
       const child = execFileSync('/usr/bin/pgrep', ['-P', String(panePid), '-x', 'claude'], { timeout: 3000, encoding: 'utf-8' }).trim()
+      if (child) return parseInt(child.split('\n')[0], 10)
+    } catch { /* none */ }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/** One child process without holding the thread; rejects like execFileSync throws. */
+function runChild(file: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { timeout: 3000, encoding: 'utf-8' }, (err, stdout, stderr) => {
+      if (err) { (err as { stderr?: unknown }).stderr = stderr; reject(err) } else resolve(String(stdout))
+    })
+  })
+}
+
+/**
+ * `getClaudePidForSession` for callers that poll (#897): the same three questions
+ * (tmux pane, its command, its claude child), but the server keeps answering while
+ * the children run. On a loaded machine the synchronous form held the whole
+ * dashboard for 0.7-0.8 s per agent, once a minute.
+ */
+export async function getClaudePidForSessionAsync(session: string): Promise<number | null> {
+  try {
+    let out: string
+    try {
+      out = await runChild(TMUX(), ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'])
+    } catch (err) {
+      logger.debug({ site: 'liveness.getClaudePidForSessionAsync', session, tmux: tmuxStderr(err) }, 'tmux list-panes: session absent')
+      return null
+    }
+    const panePid = parseInt(out.trim().split('\n')[0], 10)
+    if (!panePid) return null
+    const cmd = (await runChild('/bin/ps', ['-p', String(panePid), '-o', 'comm='])).trim()
+    if (cmd === 'claude' || cmd.endsWith('/claude')) return panePid
+    try {
+      const child = (await runChild('/usr/bin/pgrep', ['-P', String(panePid), '-x', 'claude'])).trim()
       if (child) return parseInt(child.split('\n')[0], 10)
     } catch { /* none */ }
     return null
@@ -199,6 +237,37 @@ export function probeChannelPluginLiveness(
     logger.warn({ err, claudePid, agentName, providerType }, 'Channel-plugin liveness probe failed (ps, after retry) -- verdict unknown, not restarting')
     return 'unknown'
   }
+  return verdictFromPs(psOutput, claudePid, providerType, agentName)
+}
+
+/**
+ * `probeChannelPluginLiveness` for the monitor's once-a-minute loop over every agent (#897):
+ * the same snapshot, the same two deadlines and the same verdict, but `ps` runs without
+ * holding the server's thread.
+ */
+export async function probeChannelPluginLivenessAsync(
+  claudePid: number,
+  providerType: ChannelProviderType,
+  agentName?: string,
+): Promise<PluginLiveness> {
+  const run = (timeoutMs: number) => new Promise<string>((resolve, reject) => {
+    execFile('/bin/ps', ['-axww', '-o', 'pid,ppid,command'], { timeout: timeoutMs, encoding: 'utf-8', maxBuffer: PS_PROBE_MAX_BUFFER },
+      (err, stdout) => { if (err) reject(err); else resolve(String(stdout)) })
+  })
+  let psOutput: string
+  try {
+    try { psOutput = await run(PS_PROBE_TIMEOUT_MS) } catch (firstErr) {
+      logger.debug({ err: firstErr }, 'Channel-plugin liveness probe: ps snapshot timed out, retrying with a longer deadline')
+      psOutput = await run(PS_PROBE_RETRY_TIMEOUT_MS)
+    }
+  } catch (err) {
+    logger.warn({ err, claudePid, agentName, providerType }, 'Channel-plugin liveness probe failed (ps, after retry) -- verdict unknown, not restarting')
+    return 'unknown'
+  }
+  return verdictFromPs(psOutput, claudePid, providerType, agentName)
+}
+
+function verdictFromPs(psOutput: string, claudePid: number, providerType: ChannelProviderType, agentName?: string): PluginLiveness {
   try {
     const stateDir = agentName
       ? channelStateDir(providerType, agentDir(agentName))

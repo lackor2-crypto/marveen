@@ -14,7 +14,7 @@
   "src/web.ts": 3,
   "src/web/agent-bundle.ts": 5,
   "src/web/agent-process.ts": 7,
-  "src/web/agent-worker.ts": 10,
+  "src/web/agent-worker.ts": 9,
   "src/web/auto-restart-runner.ts": 1,
   "src/web/card-work-guard.ts": 2,
   "src/web/channel-health-monitor.ts": 1,

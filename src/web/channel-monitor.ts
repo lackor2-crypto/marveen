@@ -57,7 +57,7 @@ import { readLastIngestionTimestamp, TRANSCRIPT_DIR } from './inbound-probe.js'
 import { decideDownAgentAction, AGENT_MAX_RESTART_ATTEMPTS, parseEtimeToSeconds } from './agent-restart-policy.js'
 // getClaudePidForSession + hasChannelPluginAlive live in the shared liveness
 // module so the standalone channel-coordinator reuses the exact same probe.
-import { getClaudePidForSession, hasChannelPluginAlive, probeChannelPluginLiveness } from '../channel-coordinator/liveness.js'
+import { getClaudePidForSession, getClaudePidForSessionAsync, hasChannelPluginAlive, probeChannelPluginLivenessAsync } from '../channel-coordinator/liveness.js'
 import { getDesiredAgents } from './agent-desired-state.js'
 import { exactTmuxTarget } from './tmux-target.js'
 import { readConfiguredMainModel as readConfiguredMainModelFrom } from './main-agent-model.js'
@@ -1802,7 +1802,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
     }
 
     for (const t of targets) {
-      const claudePid = getClaudePidForSession(t.session)
+      const claudePid = await getClaudePidForSessionAsync(t.session)
       if (!claudePid) {
         if (!t.isMarveen && t.agentName) {
           const lastRestart = agentLastRestart.get(t.agentName)
@@ -1828,7 +1828,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
         }
         continue
       }
-      const liveness = probeChannelPluginLiveness(claudePid, t.provider, t.agentName)
+      const liveness = await probeChannelPluginLivenessAsync(claudePid, t.provider, t.agentName)
       if (liveness === 'unknown') {
         // The PROBE failed (ps timed out, state dir unreadable) -- that is not
         // evidence about the plugin. Leave every counter untouched (down-since,
