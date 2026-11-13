@@ -516,7 +516,7 @@
   // working (its commands move and link files meanwhile) or while the cursor stands in the document page: then only the
   // tree panel is replaced ('swap'); a full redraw ('full') is used only when the owner is doing nothing special.
   var TREE_POLL_MS = 10000
-  var TREE_POLL_BUSY_MS = 4000
+  var TREE_POLL_BUSY_MS = 12000
   var treeSeenAt = 0
   var treeBusy = false
   /** '' = do not ask now, 'swap' = ask and replace only the tree panel, 'full' = ask and redraw as before. */

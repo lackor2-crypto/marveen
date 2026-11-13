@@ -31,7 +31,7 @@ describe('the Workbench follows the assistant without F5', () => {
 
   it('the lists are asked for every 10 s, and every 4 s while the assistant works (with the translation column)', () => {
     expect(js).toContain('var TREE_POLL_MS = 10000')
-    expect(js).toContain('var TREE_POLL_BUSY_MS = 4000')
+    expect(js).toContain('var TREE_POLL_BUSY_MS = 12000')
     expect(js).toMatch(/setInterval\(function \(\) \{ if \(WB\.chatStreaming\) \{ treeAutoRefresh\(TREE_POLL_BUSY_MS - 500\); twResync\(\) \} \}, TREE_POLL_BUSY_MS\)/)
   })
 
