@@ -20,4 +20,8 @@ describe('workbench mobile pin box (#859)', () => {
   it('lets tree rows shrink and wrap inside the panel', () => {
     expect(mobile).toMatch(/min-width: 0[^}]*max-width: 100%[^}]*overflow-wrap: anywhere/)
   })
+  it('one-column phone grids use minmax(0, 1fr) so deep folders cannot widen the panel past the screen', () => {
+    expect(mobile).toMatch(/\.wb-grid, \.wb-grid\.wb-grid-aside, \.wb-grid-aside\[style\*="--wb-tree-w"\] \{ grid-template-columns: minmax\(0, 1fr\); \}/)
+    expect(mobile).toMatch(/\.wb-grid > \*, \.wb-grid-aside > \* \{ min-width: 0; \}/)
+  })
 })

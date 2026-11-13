@@ -2525,4 +2525,8 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
   .wb-pin-more, .wb-pin-slot.wb-pin-clipped .wb-pin-more { display: none; }
   .wb-pin-slot.wb-pin-clipped .wb-blk-top { padding-right: 0; }
   .wb-fr-panel .wb-item-row, .wb-fr-panel .wb-folder-row, .wb-fr-panel li { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  /* The one-column phone grids were `1fr` (= minmax(auto,1fr)): the column grew to the widest unbreakable content (807px in a
+     412px viewport) and the right side was cut off the deeper the folders went. minmax(0,1fr) lets the column shrink. */
+  .wb-grid, .wb-grid.wb-grid-aside, .wb-grid-aside[style*="--wb-tree-w"] { grid-template-columns: minmax(0, 1fr); }
+  .wb-grid > *, .wb-grid-aside > * { min-width: 0; }
 }
