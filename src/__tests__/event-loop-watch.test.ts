@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import type http from 'node:http'
+import { _setPressureForTest, _resetPressureWatch, machineBusy } from '../machine-pressure.js'
+import { noteGcPause } from '../web/event-loop-watch.js'
 import {
   _resetEventLoopWatch, noteLag, noteStallSample, recentStalls, recentStallSamples, trackRequest, watcherPolls,
   startEventLoopWatch, TICK_MS, STALL_MS, STALL_SAMPLER_SOURCE, alertSevereStall, SEVERE_STALL_MS, SEVERE_ALERT_COOLDOWN_MS, trimStallSampleFile, SAMPLE_AFTER_MS, SAMPLER_POLL_MS,
@@ -153,6 +155,27 @@ describe('#823 severe stall alert', () => {
     expect(await alertSevereStall({ ...s, at: 2000 }, send)).toBe(false)
     expect(await alertSevereStall({ ...s, at: 1000 + SEVERE_ALERT_COOLDOWN_MS }, send)).toBe(true)
     expect(sent.length).toBe(2)
+  })
+  // #897: the warning says what the MACHINE was doing, so a freeze from a starved machine is told from our own code.
+  it('names the machine load in the warning, and the memory clean-up when it was long', async () => {
+    const sent: string[] = []
+    const send = async (t: string) => { sent.push(t) }
+    const pressure = { at: 1, cpu: 62, io: 3, memory: 0, load1: 11.5, cores: 8 }
+    expect(await alertSevereStall({ at: 1000, lagMs: SEVERE_STALL_MS, inflight: [], pressure, busy: ['cpu'], gcMs: 900 }, send)).toBe(true)
+    expect(sent[0]).toMatch(/terhelt volt|was busy/)
+    expect(sent[0]).toContain('62%')
+    expect(sent[0]).toMatch(/0\.9 (mp|s)/)
+  })
+  it('a stall record carries the measured machine pressure and the longest clean-up pause near it', () => {
+    _setPressureForTest({ at: 50_000, cpu: 80, io: 0, memory: 0, load1: 9, cores: 8 })
+    noteGcPause(700, 49_500)
+    noteLag(1200, 50_000)
+    const s = recentStalls().at(-1)!
+    expect(s.pressure?.cpu).toBe(80)
+    expect(s.busy).toEqual(['cpu'])
+    expect(s.gcMs).toBe(700)
+    expect(machineBusy(50_500).reasons).toContain('stall')
+    _resetPressureWatch()
   })
   it('does not send for a stall under the limit, and a failing send does not throw', async () => {
     const send = async () => { throw new Error('x') }

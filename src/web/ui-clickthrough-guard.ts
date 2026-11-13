@@ -10,7 +10,7 @@
 //  - `ui_clickthrough_skip_reason` (15+ chars) is the explicit, recorded way out ("the change has no screen effect").
 //
 // Pure decision in checkClickthroughMove, git reading in cardTouchesWebUi.
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 
 export const CLICKTHROUGH_MARKER = /v[eé]gigkattint|click[\s-]?through|b[öo]ng[ée]sz[öo]s\s+(pr[óo]ba|ellen[őo]rz)/i
 export const SKIP_REASON_MIN = 15
@@ -75,10 +75,14 @@ export function uiTouchedByCard(commits: ReadonlyArray<LogCommit>, seq: number, 
 }
 
 /** Reads the history of the checkout at `root`. null = could not be measured (no git, no history), never a fake false. */
-export function cardTouchesWebUi(root: string, seq: number, commentTexts: ReadonlyArray<string>): boolean | null {
+// ASYNC ON PURPOSE (#897): this runs on every agent move to waiting, and the 4000-commit log as a sync spawn held
+// the dashboard's only thread for up to 1.2 s (14 measured samples, the last one 2026-11-13 10:05).
+export async function cardTouchesWebUi(root: string, seq: number, commentTexts: ReadonlyArray<string>): Promise<boolean | null> {
   try {
-    const raw = execFileSync('git', ['-C', root, 'log', '-n', '4000', '--format=@@COMMIT@@%s', '--name-only', 'HEAD', 'origin/main'],
-      { encoding: 'utf8', timeout: 8000, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] })
+    const raw = await new Promise<string>((resolve, reject) => {
+      execFile('git', ['-C', root, 'log', '-n', '4000', '--format=@@COMMIT@@%s', '--name-only', 'HEAD', 'origin/main'],
+        { encoding: 'utf8', timeout: 8000, maxBuffer: 64 * 1024 * 1024 }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))))
+    })
     const commits = parseGitLog(raw)
     if (!commits.length) return null
     return uiTouchedByCard(commits, seq, prNumbersFromComments(commentTexts))

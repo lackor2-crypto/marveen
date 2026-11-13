@@ -21,6 +21,7 @@ import { projectFileTarget } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { explorerRoot } from './life-explorer.js'
 import { createWorkItem, ensureWorkbenchTables, type WorkItemRow } from './workbench.js'
+import { gatedInterval } from './background-gate.js'
 
 export const SNAPSHOT_FILE = 'marveen-item.json'
 export const SNAPSHOT_FALLBACK_DIR = '.marveen-items'
@@ -436,7 +437,7 @@ export function startWorkbenchSnapshots(): void {
     try { await sweepSnapshotsAsync({ force: true }) } catch (err) { logger.warn({ err }, 'workbench-snapshot: first sweep failed') }
   }, 20_000)
   startTimer.unref()
-  timer = setInterval(() => {
+  timer = gatedInterval('workbench-snapshot', () => {
     sweepSnapshotsAsync().catch((err) => logger.warn({ err }, 'workbench-snapshot: sweep failed'))
   }, SWEEP_MS)
   timer.unref()

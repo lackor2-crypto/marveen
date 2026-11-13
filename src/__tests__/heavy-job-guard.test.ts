@@ -36,6 +36,40 @@ describe('heavy-job.sh queue', () => {
     first.kill('SIGTERM')
   }, 20000)
 
+  // #897: a heavy job must not take the machine from the owner.
+  it('runs the job at the lowest CPU priority, and MARVEEN_HEAVY_JOB_NICE=0 turns that off', () => {
+    const store = mkdtempSync(join(tmpdir(), 'heavy-q-'))
+    const env = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '', MARVEEN_PRESSURE_CPU_FILE: join(store, 'none') }
+    const low = spawnSync('bash', [HEAVY, 'n1', '--', 'nice'], { env, encoding: 'utf8' })
+    expect(low.status).toBe(0)
+    expect(low.stdout.trim()).toBe('19')
+    const own = spawnSync('nice', [], { encoding: 'utf8' }).stdout.trim()
+    const off = spawnSync('bash', [HEAVY, 'n2', '--', 'nice'], { env: { ...env, MARVEEN_HEAVY_JOB_NICE: '0' }, encoding: 'utf8' })
+    expect(off.stdout.trim()).toBe(own)
+  }, 20000)
+
+  it('does not start into a busy machine: it waits, says so, and still runs after the longest wait', () => {
+    const store = mkdtempSync(join(tmpdir(), 'heavy-q-'))
+    const psi = join(store, 'cpu')
+    writeFileSync(psi, 'some avg10=91.50 avg60=0 avg300=0 total=0\n')
+    const marker = join(store, 'ran')
+    const env = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '', MARVEEN_PRESSURE_CPU_FILE: psi, MARVEEN_HEAVY_JOB_CALM_WAIT: '10' }
+    const t0 = Date.now()
+    const r = spawnSync('bash', [HEAVY, 'busy', '--', 'touch', marker], { env, encoding: 'utf8' })
+    expect(r.status).toBe(0)
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(9000)
+    expect(r.stderr).toContain('varok a nyugalomra')
+    expect(r.stderr).toContain('megis elindul')
+    expect(existsSync(marker)).toBe(true)
+    // a calm machine starts at once
+    writeFileSync(psi, 'some avg10=2.00 avg60=0 avg300=0 total=0\n')
+    const t1 = Date.now()
+    const c = spawnSync('bash', [HEAVY, 'calm', '--', 'true'], { env, encoding: 'utf8' })
+    expect(c.status).toBe(0)
+    expect(Date.now() - t1).toBeLessThan(5000)
+    expect(c.stderr).not.toContain('terhelt')
+  }, 40000)
+
   it('a web-only instance has its own slot: a build / browser job is not blocked by it (H1)', async () => {
     const store = mkdtempSync(join(tmpdir(), 'heavy-q-'))
     const env = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '' }

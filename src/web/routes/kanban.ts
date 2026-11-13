@@ -137,7 +137,7 @@ function kanbanPutAcceptedKeys(): Set<string> {
 }
 
 /** #464: refuse a move to waiting while the card has open points. Returns true when it answered 409. */
-function refuseUnfinishedWaiting(ctx: RouteContext, id: string, newStatus: unknown, body: Record<string, unknown>): boolean {
+async function refuseUnfinishedWaiting(ctx: RouteContext, id: string, newStatus: unknown, body: Record<string, unknown>): Promise<boolean> {
   if (newStatus !== 'waiting') return false
   const prev = getKanbanCard(id)?.status
   const refusal = checkWaitingMove({
@@ -157,7 +157,7 @@ function refuseUnfinishedWaiting(ctx: RouteContext, id: string, newStatus: unkno
     const skip = body.ui_clickthrough_skip_reason
     const click = checkClickthroughMove({
       prevStatus: prev, newStatus: 'waiting', agentCaller,
-      uiTouched: card?.seq != null ? cardTouchesWebUi(PROJECT_ROOT, Number(card.seq), texts) : null,
+      uiTouched: card?.seq != null ? await cardTouchesWebUi(PROJECT_ROOT, Number(card.seq), texts) : null,
       commentTexts: texts, skipReason: skip,
     })
     if (click) { json(ctx.res, click, 409); return true }
@@ -420,7 +420,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
         return true
       }
     }
-    if (refuseUnfinishedWaiting(ctx, id, data.status, data)) return true
+    if (await refuseUnfinishedWaiting(ctx, id, data.status, data)) return true
     if (updateKanbanCard(id, data)) {
       if (data.status === 'waiting') ensureApprovalForWaitingCard(id, data.actor)
       // ...and the symmetric half: leaving waiting closes the request that
@@ -459,7 +459,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       json(res, { error: `Invalid expected_status. Accepted: ${KANBAN_STATUSES.join(', ')}` }, 400)
       return true
     }
-    if (refuseUnfinishedWaiting(ctx, id, status, parsed)) return true
+    if (await refuseUnfinishedWaiting(ctx, id, status, parsed)) return true
     if (moveKanbanCard(id, status, sort_order ?? 0, actor, hasExpected ? { expectedStatus: expected_status } : undefined)) {
       // Wake the assigned agent once when the card enters in_progress -- unless
       // that agent is the one who moved it (self-pickup needs no wake-up).

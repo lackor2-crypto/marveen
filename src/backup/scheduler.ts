@@ -12,6 +12,7 @@
 import { readConfig } from './destinations.js'
 import { readState, updateState } from './state.js'
 import { sweepStaleStaging } from './create.js'
+import { gatedInterval } from '../background-gate.js'
 
 const TICK_MS = 5 * 60 * 1000
 
@@ -96,7 +97,7 @@ export function startBackupScheduler(d: SchedulerDeps): () => void {
       .finally(() => { busy = false })
   }
   const first = setTimeout(tick, 60_000)
-  const iv = setInterval(tick, TICK_MS)
+  const iv = gatedInterval('backup-scheduler', tick, TICK_MS)
   first.unref?.()
   iv.unref?.()
   return () => { clearTimeout(first); clearInterval(iv) }

@@ -24,6 +24,7 @@ import { getProject, listActiveProjectIds } from './projects.js'
 import { ensureWorkbenchTables } from './workbench.js'
 import { buildProjectTimeline, TIMELINE_MAX_LIMIT, type TimelineEvent, type TimelineSource } from './workbench-timeline.js'
 import { listDecisions } from './workbench-decisions.js'
+import { gatedInterval } from './background-gate.js'
 
 const DAY = 24 * 60 * 60
 /** Listankent ennyi nevet mutatunk; a tobbit a szam mondja meg. */
@@ -267,7 +268,7 @@ export function startWeeklySummarySweeper(onError?: (err: unknown) => void): Nod
   }
   const first = setTimeout(run, 30_000)
   if (typeof first.unref === 'function') first.unref()
-  const t = setInterval(run, WEEKLY_SWEEP_MS)
+  const t = gatedInterval('workbench-weekly', run, WEEKLY_SWEEP_MS)
   if (typeof t.unref === 'function') t.unref()
   return t
 }

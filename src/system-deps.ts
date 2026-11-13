@@ -26,6 +26,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { probeCommand, type CommandProbe } from './capability-probe.js'
+import { gatedInterval } from './background-gate.js'
 
 export type DepTier = 'core' | 'recommended' | 'extra'
 export type DepState = 'ok' | 'not_installed' | 'check_failed'
@@ -365,7 +366,7 @@ export function startSystemDepsMonitor(): void {
   monitorStartedAt = Date.now()
   const run = (): void => { void measureSystemDeps(true).catch(() => { /* a pillanatkep marad */ }) }
   run()
-  setInterval(run, REFRESH_MS).unref?.()
+  gatedInterval('system-deps', run, REFRESH_MS).unref?.()
 }
 
 /** Csak teszthez. */

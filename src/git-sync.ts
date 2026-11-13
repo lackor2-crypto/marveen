@@ -32,6 +32,7 @@ import { gitEnvFor } from './git-accounts.js'
 import { SCHEDULED_TASKS_DIR } from './web/scheduled-tasks-io.js'
 import { logger } from './logger.js'
 import { onWake } from './wake-detect.js'
+import { gatedInterval } from './background-gate.js'
 
 /** Ide irjuk, mikor futott utoljara -- ezt mutatja a felulet. */
 const STATE_FILE = join(STORE_DIR, 'git-sync.json')
@@ -629,7 +630,7 @@ export function startGitSync(): NodeJS.Timeout | null {
   setTimeout(() => {
     syncAllRepos().catch((err) => logger.warn({ err }, '[git-sync] az elso futas nem sikerult'))
   }, 5 * 60 * 1000)
-  const timer = setInterval(() => {
+  const timer = gatedInterval('git-sync', () => {
     syncAllRepos().catch((err) => logger.warn({ err }, '[git-sync] futas nem sikerult'))
   }, GIT_SYNC_INTERVAL_MS)
   logger.info({ everyHours: GIT_SYNC_INTERVAL_MS / 3600000 }, '[git-sync] automatikus szinkron beallitva')

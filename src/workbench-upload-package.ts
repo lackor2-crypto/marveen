@@ -19,6 +19,7 @@ import { collectAttachments } from './workbench-maildraft.js'
 import { onSentEvent } from './workbench-docsent.js'
 import { toWindowsPath } from './open-in-file-manager.js'
 import type { WorkItemRow } from './workbench.js'
+import { gatedInterval } from './background-gate.js'
 
 export const PACKAGE_MARKER = '.marveen-upload-package'
 export const PACKAGE_MAX_AGE_DAYS = 7
@@ -215,7 +216,7 @@ export function sweepOldUploadPackages(nowMs = Date.now()): number {
 let sweepTimer: ReturnType<typeof setInterval> | null = null
 export function startUploadPackageSweep(): void {
   if (sweepTimer) return
-  sweepTimer = setInterval(() => { try { sweepOldUploadPackages() } catch { /* next round */ } }, 6 * 3600 * 1000)
+  sweepTimer = gatedInterval('workbench-upload-package', () => { try { sweepOldUploadPackages() } catch { /* next round */ } }, 6 * 3600 * 1000)
   sweepTimer.unref?.()
   try { sweepOldUploadPackages() } catch { /* next round */ }
 }

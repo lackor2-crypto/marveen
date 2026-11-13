@@ -44,8 +44,8 @@ describe('reading the card\'s UI work from git', () => {
     expect(prNumbersFromComments(['landolt: PR #1382, kész', 'https://github.com/o/r/pull/1387'])).toEqual(new Set([1382, 1387]))
     expect(uiTouchedByCard(commits, 999, new Set([1382]))).toBe(true)
   })
-  it('a directory that is not a git checkout is "not measured", never a fake false', () => {
-    expect(cardTouchesWebUi('/nonexistent-dir-763', 1, [])).toBeNull()
+  it('a directory that is not a git checkout is "not measured", never a fake false', async () => {
+    expect(await cardTouchesWebUi('/nonexistent-dir-763', 1, [])).toBeNull()
   })
 })
 

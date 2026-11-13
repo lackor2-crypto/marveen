@@ -15,10 +15,11 @@ import type http from 'node:http'
 import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Worker } from 'node:worker_threads'
-import { performance } from 'node:perf_hooks'
+import { performance, PerformanceObserver } from 'node:perf_hooks'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { logger } from '../logger.js'
 import { ol } from '../owner-lang.js'
+import { busyReasons, currentPressure, describePressure, noteStallForPressure, startPressureWatch, type PressureSnapshot } from '../machine-pressure.js'
 
 export const TICK_MS = 100
 export const STALL_MS = 300
@@ -29,7 +30,7 @@ export const SEVERE_STALL_MS = 3000
 export const SEVERE_ALERT_COOLDOWN_MS = 30 * 60 * 1000
 let lastSevereAlertAt = 0
 
-export type Stall = { at: number; lagMs: number; inflight: string[] }
+export type Stall = { at: number; lagMs: number; inflight: string[]; pressure?: PressureSnapshot | null; busy?: string[]; gcMs?: number }
 
 /** How often the watcher thread looks at the main thread's heartbeat. */
 export const SAMPLER_POLL_MS = 250
@@ -160,11 +161,16 @@ export function trackRequest(req: http.IncomingMessage, res: http.ServerResponse
 /** Record one late tick; exported for the test (the timer calls it with the measured lag). */
 export function noteLag(lagMs: number, now = Date.now()): Stall | null {
   if (lagMs < STALL_MS) return null
-  const s: Stall = { at: now, lagMs: Math.round(lagMs), inflight: [...new Set(inflight.values())].slice(0, 10) }
+  // #897: what the MACHINE was doing. A freeze on a calm machine is our code; a freeze while tasks were queuing for
+  // the CPU, the disk or memory is the machine being short of it. Measured, so nobody has to guess afterwards.
+  const pressure = currentPressure(now)
+  const gcMs = longestGcSince(now - Math.round(lagMs) - 1000)
+  const s: Stall = { at: now, lagMs: Math.round(lagMs), inflight: [...new Set(inflight.values())].slice(0, 10), pressure, busy: busyReasons(pressure), gcMs }
+  noteStallForPressure(lagMs, now)
   stalls.push(s)
   stalls.sort((a, b) => b.lagMs - a.lagMs)
   if (stalls.length > KEEP) stalls.length = KEEP
-  logger.warn({ lagMs: s.lagMs, inflight: s.inflight }, 'event loop stalled (#490): these requests were running')
+  logger.warn({ lagMs: s.lagMs, inflight: s.inflight, pressure: s.pressure, busy: s.busy, gcMs: s.gcMs }, 'event loop stalled (#490): these requests were running')
   void alertSevereStall(s)
   return s
 }
@@ -183,9 +189,18 @@ export async function alertSevereStall(
   const what = s.inflight.length ? s.inflight.join(', ') : ol('nem futott kérés (időzítő vagy indulási lépés)', 'no request was running (a timer or a start-up step)')
   try {
     const secs = (s.lagMs / 1000).toFixed(1)
+    const busy = s.busy ?? []
+    const machineHu = busy.length
+      ? `A gép ekkor terhelt volt (${describePressure(s.pressure ?? null, 'hu')}), a háttérmunkák ilyenkor várnak.`
+      : `A gép ekkor: ${describePressure(s.pressure ?? null, 'hu')}.`
+    const machineEn = busy.length
+      ? `The machine was busy then (${describePressure(s.pressure ?? null, 'en')}); background work waits at such times.`
+      : `The machine then: ${describePressure(s.pressure ?? null, 'en')}.`
+    const gcHu = s.gcMs && s.gcMs >= 200 ? ` Ebből memória-takarítás: ${(s.gcMs / 1000).toFixed(1)} mp.` : ''
+    const gcEn = s.gcMs && s.gcMs >= 200 ? ` Of this, memory clean-up: ${(s.gcMs / 1000).toFixed(1)} s.` : ''
     await send(ol(
-      `Figyelmeztetés: a dashboard ${secs} mp-re lefagyott. Ami futott: ${what}. Részletek: GET /api/perf/stalls.`,
-      `Warning: the dashboard froze for ${secs} s. What was running: ${what}. Details: GET /api/perf/stalls.`,
+      `Figyelmeztetés: a dashboard ${secs} mp-re lefagyott. Ami futott: ${what}. ${machineHu}${gcHu} Részletek: GET /api/perf/stalls.`,
+      `Warning: the dashboard froze for ${secs} s. What was running: ${what}. ${machineEn}${gcEn} Details: GET /api/perf/stalls.`,
     ))
     return true
   } catch (e) {
@@ -274,6 +289,8 @@ function startStallSampler(): void {
 export function startEventLoopWatch(): void {
   if (timer) return
   startStallSampler()
+  startPressureWatch()
+  startGcWatch()
   // The lag is the gap on the MONOTONIC clock. The wall clock (Date.now) can be stepped forward by the system: on this
   // WSL machine it jumped ~2.1 s every ~34.5 s while the monotonic clock ran on, which was counted as a 2.1 s freeze
   // (and told to the owner) with nothing blocked (#865). Date.now() stays only as the timestamp of the record.
@@ -296,4 +313,36 @@ export function _resetEventLoopWatch(): void {
   stalls.length = 0
   samples.length = 0
   lastSevereAlertAt = 0
+  if (gcObserver) { try { gcObserver.disconnect() } catch { /* already off */ } gcObserver = null }
+  gcPauses.length = 0
+}
+
+// #897: the longest garbage-collection pause near a stall. Many measured freezes sat on trivial code; whether the
+// runtime's own memory clean-up was the holder is now a number in the record instead of a guess.
+const gcPauses: Array<{ at: number; ms: number }> = []
+let gcObserver: PerformanceObserver | null = null
+
+function startGcWatch(): void {
+  if (gcObserver) return
+  try {
+    gcObserver = new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (e.duration < 50) continue
+        gcPauses.push({ at: Date.now(), ms: Math.round(e.duration) })
+        if (gcPauses.length > 50) gcPauses.shift()
+      }
+    })
+    gcObserver.observe({ entryTypes: ['gc'] })
+  } catch { gcObserver = null }
+}
+
+/** Exported for the test. */
+export function noteGcPause(ms: number, at = Date.now()): void {
+  gcPauses.push({ at, ms })
+}
+
+export function longestGcSince(since: number): number {
+  let max = 0
+  for (const p of gcPauses) if (p.at >= since && p.ms > max) max = p.ms
+  return max
 }

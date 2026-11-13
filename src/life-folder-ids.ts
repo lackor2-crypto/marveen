@@ -35,6 +35,7 @@ import { moveDisplayLabels } from './life-labels.js'
 import { moveArchivedPrefix } from './life-archived.js'
 import { notifyChannel } from './notify.js'
 import { ol } from './owner-lang.js'
+import { gatedInterval } from './background-gate.js'
 
 /** Same file name and format as the Workbench folder ids (workbench-assets.ts). */
 export const LIFE_FOLDER_MARKER = '.marveen-id'
@@ -321,7 +322,7 @@ export function startLifeFolderIds(): void {
   if (timer) return
   startTimer = setTimeout(() => { void runLifeFolderIdPass() }, 60_000)
   startTimer.unref()
-  timer = setInterval(() => { void runLifeFolderIdPass() }, LIFE_FOLDER_IDS_MS)
+  timer = gatedInterval('life-folder-ids', () => { void runLifeFolderIdPass() }, LIFE_FOLDER_IDS_MS)
   timer.unref()
 }
 

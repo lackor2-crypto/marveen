@@ -79,12 +79,41 @@ case "$NAME" in
   web-only*) LOCK="$STORE_DIR/heavy-job-web.lock"; REG="$STORE_DIR/heavy-job-web.json" ;;
 esac
 
+# Card #897: a heavy job must not take the machine away from the owner or from the dashboard. It runs at the lowest
+# CPU priority (nice 19) and, where ionice exists, in the idle disk class: whatever else wants the CPU or the disk
+# gets it first. MARVEEN_HEAVY_JOB_NICE=0 turns this off.
+LOW=()
+if [[ "${MARVEEN_HEAVY_JOB_NICE:-1}" != "0" ]]; then
+  command -v nice >/dev/null 2>&1 && LOW+=(nice -n 19)
+  command -v ionice >/dev/null 2>&1 && LOW+=(ionice -c 3)
+fi
+
 run_cmd() {
   if (( RUN_TIMEOUT > 0 )) && command -v timeout >/dev/null 2>&1; then
-    timeout -k 10 "$RUN_TIMEOUT" "$@"
+    ${LOW[@]+"${LOW[@]}"} timeout -k 10 "$RUN_TIMEOUT" "$@"
   else
-    "$@"
+    ${LOW[@]+"${LOW[@]}"} "$@"
   fi
+}
+
+# Card #897: do not START a heavy job into a machine that is already short of CPU. The kernel's pressure figure
+# (/proc/pressure/cpu, "some avg10" = share of the last 10 s in which a task waited for a CPU) is checked every 10 s;
+# the job starts when it is under MARVEEN_HEAVY_JOB_CPU_PCT (default 40), or after MARVEEN_HEAVY_JOB_CALM_WAIT seconds
+# (default 300) anyway, so a job is delayed, never lost. No figure (other OS) = no waiting.
+cpu_pressure() { sed -n 's/^some avg10=\([0-9]*\).*/\1/p' "${MARVEEN_PRESSURE_CPU_FILE:-/proc/pressure/cpu}" 2>/dev/null | head -1; }
+wait_for_calm() {
+  local limit="${MARVEEN_HEAVY_JOB_CPU_PCT:-40}" max="${MARVEEN_HEAVY_JOB_CALM_WAIT:-300}" w=0 p
+  while :; do
+    p="$(cpu_pressure)"
+    [[ -z "$p" ]] && return 0
+    (( p < limit )) && return 0
+    if (( w >= max )); then
+      echo "heavy-job: ${NAME}: a gep ${w} mp utan is terhelt (processzorra varakozas ${p}%), most megis elindul. / still busy, starting anyway." >&2
+      return 0
+    fi
+    (( w % 30 == 0 )) && echo "heavy-job: ${NAME}: a gep terhelt (processzorra varakozas ${p}%), varok a nyugalomra. / the machine is busy, waiting." >&2
+    sleep 10; w=$(( w + 10 ))
+  done
 }
 
 # Nested, or no queue available: run directly.
@@ -93,7 +122,9 @@ if [[ -n "${MARVEEN_HEAVY_JOB_ACTIVE:-}" ]] || ! command -v flock >/dev/null 2>&
   run_cmd "$@"; exit $?
 fi
 
-exec 9>"$LOCK" 2>/dev/null || { export MARVEEN_HEAVY_JOB_ACTIVE=1; run_cmd "$@"; exit $?; }
+# The braces matter (#897): a bare `exec 9>... 2>/dev/null` made the 2>/dev/null PERMANENT, so every later message of
+# this script ("varok, most fut: ...") and the job's own stderr went to /dev/null.
+{ exec 9>"$LOCK"; } 2>/dev/null || { export MARVEEN_HEAVY_JOB_ACTIVE=1; run_cmd "$@"; exit $?; }
 
 holder() {
   local n p
@@ -114,6 +145,7 @@ until flock -w 5 9; do
   fi
 done
 
+wait_for_calm
 started="$(date +%s)"
 cmd_text="$*"; cmd_text="${cmd_text//\\/\\\\}"; cmd_text="${cmd_text//\"/\\\"}"; cmd_text="${cmd_text:0:300}"
 reg_tmp="$REG.$$"

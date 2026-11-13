@@ -31,6 +31,7 @@ import {
   type OwnerSource,
   type RawPr,
 } from '../pr-ledger.js'
+import { gatedInterval } from '../background-gate.js'
 
 export const PR_LEDGER_INTERVAL_MS = 60 * 60_000
 const PR_LEDGER_INITIAL_DELAY_MS = 7 * 60_000
@@ -246,7 +247,7 @@ export async function prLedgerTick(nowMs = Date.now()): Promise<void> {
 export function startPrLedgerRunner(): NodeJS.Timeout {
   const tick = () => { prLedgerTick().catch(err => logger.warn({ err }, '[pr-ledger] tick failed')) }
   setTimeout(tick, PR_LEDGER_INITIAL_DELAY_MS).unref?.()
-  const iv = setInterval(tick, PR_LEDGER_INTERVAL_MS)
+  const iv = gatedInterval('pr-ledger-runner', tick, PR_LEDGER_INTERVAL_MS)
   iv.unref?.()
   return iv
 }

@@ -34,6 +34,7 @@ import { join, sep } from 'node:path'
 import { PROJECT_ROOT } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { logger } from '../logger.js'
+import { gatedInterval } from '../background-gate.js'
 
 export type SkillScope = 'personal' | 'global' | 'review'
 
@@ -212,5 +213,5 @@ export function startGlobalSkillSeeder(
     }
   }
   tick()
-  return setInterval(tick, SEEDER_INTERVAL_MS).unref()
+  return gatedInterval('skill-scope', tick, SEEDER_INTERVAL_MS).unref()
 }
