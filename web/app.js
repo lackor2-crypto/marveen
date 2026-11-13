@@ -27883,7 +27883,7 @@ async function bridgeEnrollFromUi() {
       body: JSON.stringify(hostOverride ? { key_line: keyLine, name, host: hostOverride } : { key_line: keyLine, name }),
     })
     const data = await r.json().catch(() => ({}))
-    if (!r.ok) { msg.classList.add('err'); msg.textContent = data.error || t('auth.card.err_generic'); return }
+    if (!r.ok) { msg.classList.add('err'); msg.textContent = bridgeEnrollErrorText(data); return }
     msg.classList.add('ok')
     msg.textContent = (data.action === 'replaced' ? t('auth.bridge.repaired') : t('auth.bridge.paired')) +
       (data.warnings && data.warnings.length ? ` (${data.warnings.join('; ')})` : '')
@@ -27905,6 +27905,18 @@ async function bridgeEnrollFromUi() {
     })
     refreshDeviceKeyList()
   } catch { msg.classList.add('err'); msg.textContent = t('auth.login.err_network') }
+}
+
+/** The pairing error in the interface language: the server sends a stable `code` (+ `params`); the sentence is ours. A code no
+ *  language file knows still shows the server's own sentence (never a bare key). */
+function bridgeEnrollErrorText(data) {
+  const code = data && data.code
+  if (code) {
+    const key = 'auth.bridge.err.' + code
+    const s = t(key, (data && data.params) || {})
+    if (s && s !== key) return s
+  }
+  return (data && data.error) || t('auth.card.err_generic')
 }
 
 // === Per-device keys (mint/list/revoke) ===

@@ -4962,6 +4962,22 @@ window._i18n.en = {
   'auth.bridge.repaired':          'Device re-paired (its previous key was revoked).',
   'auth.bridge.bundle_hint':       'Copy it now and paste it into the Bridge -- the bundle cannot be displayed again. Target host: {host}.',
   'auth.bridge.err_empty':         'Both the key line and the device name are required.',
+  'auth.bridge.err.line_required': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.line_empty': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.line_multiline': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.line_fields': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.key_type': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.key_not_base64': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.blob_too_short': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.blob_type_field': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.blob_type_mismatch': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.blob_truncated': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.key_length': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.blob_trailing': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.comment_prefix': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.comment_uuid': 'This is not a valid Bridge key line. Copy the whole line again from the Bridge app and paste it here in one piece.',
+  'auth.bridge.err.enroll813': 'Pairing was stopped by a safety guard: a test environment reached the live install. The details are in the log.',
+  'auth.bridge.err.enroll_failed': 'Pairing failed. The exact reason is in the server log.',
 
 
   // --- Code bridge: chat tabs (2026-08-23) ---
