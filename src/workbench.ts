@@ -22,6 +22,7 @@
  * csinalni. Friss telepitesen (ures store/, ures db) az elso hivas hozza letre
  * oket -- kulon migracios lepes nem kell.
  */
+import { withChatKeys } from './workbench-chat-case.js'
 import { randomUUID } from 'node:crypto'
 import { basename as basenamePath } from 'node:path'
 import { getDb } from './db.js'
@@ -89,6 +90,8 @@ export interface WorkItemRow {
    *  in. NULL = the project's default "Work items" folder. Used once, when the
    *  item's folder is created. */
   container_folder?: string | null
+  /** Computed on listing (#821): the key of the assistant chat this item shares with its folder. Not a column. */
+  chat_key?: string
   /** #794: 1 when the owner marked "no trigger document (own initiative)". */
   no_trigger?: number | null
 }
@@ -318,9 +321,10 @@ export function listWorkItems(projectId: string): WorkItemRow[] {
   ensureWorkbenchTables()
   const pid = String(projectId || '').trim()
   if (!pid) return []
-  return getDb()
+  // chat_key (#821): the items of one folder share the assistant chat; the page reads the key from here.
+  return withChatKeys(getDb()
     .prepare('SELECT * FROM work_items WHERE project_id = ? AND deleted_at IS NULL ORDER BY (pinned_at IS NULL), pinned_at DESC, updated_at DESC, created_at DESC, seq ASC, rowid ASC')
-    .all(pid) as WorkItemRow[]
+    .all(pid) as WorkItemRow[])
 }
 
 /** A projekt lomtara (#443): a torolt munkadarabok, a legutobb torolt elol. */
