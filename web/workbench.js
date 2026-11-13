@@ -381,7 +381,7 @@
   function notePlacement(data) {
     var pl = data && data.placement
     if (!pl || !pl.note || !pl.item_id) return
-    var st = WB.chat && WB.chat[pl.item_id]
+    var st = WB.chat && WB.chat[chatKeyOfItem(pl.item_id) || pl.item_id]
     if (st && st.loaded) {
       var last = null
       for (var i = st.turns.length - 1; i >= 0; i--) { if (st.turns[i].role === 'agent') { last = st.turns[i]; break } }
@@ -12441,9 +12441,19 @@
   /** One assistant chat per document family (Boss TG 3945): a language version and its original share the chat, the way the
    *  server keys the session (chatFamilyKey). The picked item stays the context of each message. */
   function chatKey() {
+    // #821: the chat belongs to the CASE (the folder): the server names the key on every listed item (chat_key).
+    var ck = chatKeyOfItem(WB.selectedId)
+    if (ck) return ck
     var o = WB.selectedId && WB.detail && WB.detail.item && WB.detail.item.id === WB.selectedId ? WB.detail.outline : null
     if (o && o.variant && o.variant.source_item_id) return o.variant.source_item_id
     return WB.selectedId || ('project:' + WB.projectId)
+  }
+
+  /** The chat key the server gave to a listed work item ('' when the item is not listed yet). */
+  function chatKeyOfItem(itemId) {
+    if (!itemId || !WB.items) return ''
+    for (var i = 0; i < WB.items.length; i++) { if (WB.items[i].id === itemId) return WB.items[i].chat_key || '' }
+    return ''
   }
 
   function chatState() {

@@ -21,6 +21,7 @@
  * Munkapad sorai a busz tablajaba mennek. A MEZOK pontosan a spec szerintiek,
  * csak a tabla-nevek kaptak elotagot.
  */
+import { chatCaseFamilies } from '../workbench-chat-case.js'
 import { variantOf } from '../workbench-doclang.js'
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../db.js'
@@ -253,6 +254,50 @@ export function listAgentMessages(sessionId: string, limit = 200): AgentMessageR
        (SELECT rowid FROM workbench_agent_messages WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?)
      ORDER BY created_at, rowid`,
   ).all(v, limit) as AgentMessageRow[]
+}
+
+/**
+ * The sessions whose messages make up the chat shown for `sessionId` (#821): its own, plus the live session of every
+ * other document family in the same folder (case). A project chat, or an item alone in its folder, is just itself.
+ */
+export function caseSessionIds(sessionId: string): string[] {
+  const v = String(sessionId || '').trim()
+  if (!v) return []
+  const out = [v]
+  try {
+    const own = getAgentSession(v)
+    if (!own?.work_item_id || own.work_item_id.startsWith('project:')) return out
+    for (const fam of chatCaseFamilies(own.work_item_id)) {
+      if (fam === own.work_item_id) continue
+      const row = getDb().prepare(
+        "SELECT id FROM workbench_agent_sessions WHERE work_item_id = ? AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+      ).get(fam) as { id: string } | undefined
+      if (row && !out.includes(row.id)) out.push(row.id)
+    }
+  } catch { /* the case cannot be read: the chat of the item itself still works */ }
+  return out
+}
+
+/** The chat of the CASE (#821): the newest `limit` messages of every session of the folder, oldest first. */
+export function listCaseMessages(sessionId: string, limit = 200): AgentMessageRow[] {
+  ensureAgentTables()
+  const ids = caseSessionIds(sessionId)
+  if (ids.length <= 1) return listAgentMessages(sessionId, limit)
+  const marks = ids.map(() => '?').join(',')
+  return getDb().prepare(
+    `SELECT * FROM workbench_agent_messages WHERE rowid IN
+       (SELECT rowid FROM workbench_agent_messages WHERE session_id IN (${marks}) ORDER BY created_at DESC, rowid DESC LIMIT ?)
+     ORDER BY created_at, rowid`,
+  ).all(...ids, limit) as AgentMessageRow[]
+}
+
+/** The tool calls of the CASE chat, for showing them under the messages they belong to (#821). */
+export function listCaseToolCalls(sessionId: string): AgentToolCallRow[] {
+  ensureAgentTables()
+  const ids = caseSessionIds(sessionId)
+  if (ids.length <= 1) return listToolCalls(sessionId)
+  const marks = ids.map(() => '?').join(',')
+  return getDb().prepare(`SELECT * FROM workbench_agent_tool_calls WHERE session_id IN (${marks}) ORDER BY started_at, rowid`).all(...ids) as AgentToolCallRow[]
 }
 
 export function startToolCall(sessionId: string, toolName: string, input: unknown): AgentToolCallRow {

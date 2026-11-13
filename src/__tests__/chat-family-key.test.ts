@@ -11,10 +11,11 @@ describe('one assistant chat per document family (TG 3945)', () => {
     expect(SES).toContain('export function chatFamilyKey')
     expect(SES).toContain('variantOf(workItemId)?.source_item_id')
     expect(SES).toMatch(/const workItemId = chatFamilyKey\(rawWorkItemId\)/)
-    expect(ORC).toContain('`item:${chatFamilyKey(workItemId)}`')
+    // #821: the turn lock is the key of the CASE (the folder); a version still resolves through its original there.
+    expect(ORC).toContain('`item:${chatCaseKey(workItemId)}`')
   })
   it('the page keeps the chat of the family, not of the opened version', () => {
     const i = JS.indexOf('function chatKey()')
-    expect(JS.slice(i, i + 500)).toContain('o.variant.source_item_id')
+    expect(JS.slice(i, i + 700)).toContain('o.variant.source_item_id')
   })
 })

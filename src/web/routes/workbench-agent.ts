@@ -49,7 +49,7 @@ import { codeBridgeHealth, resolveProject, enqueueCodeTask, getCodeTask, cancelC
 import { projectFileTarget } from '../../project-files.js'
 import { updateWindowsClaudeForBridge, windowsUpdatePossible, type WindowsUpdateOutcome } from '../../windows-claude-updater.js'
 import {
-  ensureAgentTables, getAgentSession, listAgentMessages, listToolCalls, openSessionForWorkItem, followUiLanguage, projectSessionKey, addAgentMessage,
+  ensureAgentTables, getAgentSession, listAgentMessages, listToolCalls, openSessionForWorkItem, listCaseMessages, listCaseToolCalls, followUiLanguage, projectSessionKey, addAgentMessage,
   addAgentMessageOnce, startToolCall, finishToolCall,
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
@@ -511,6 +511,16 @@ function liveCwd(projectFolder: string | null): string {
   return own
 }
 
+/** The work item each live session (one per case, #821) was last told about. Lost on restart: then it is told once more. */
+const liveLastItem = new Map<string, string>()
+/** True when this turn is about another work item than the previous one of the same live session; remembers the new one. */
+export function liveItemSwitched(key: string, itemId: string | null): boolean {
+  const now = itemId ?? ''
+  const before = liveLastItem.get(key)
+  liveLastItem.set(key, now)
+  return before !== now
+}
+
 function liveSpecFor(key: string, projectFolder: string | null, account: string | undefined, skip?: ReadonlySet<string>): LiveStartSpec | null {
   // Tesztben SOSE indul valodi `claude` (merve 2026-09-28: egy regi route-teszt
   // igy 6 valodi munkamenetet inditott); a teszt a sajat resolverevel dolgozik.
@@ -787,8 +797,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     await settleWorkbenchApprovals(session.id).catch(() => 0)
     json(res, {
       session,
-      messages: listAgentMessages(session.id),
-      toolCalls: listToolCalls(session.id),
+      // #821: the chat of the CASE -- every work item of the folder shows the same conversation.
+      messages: listCaseMessages(session.id),
+      toolCalls: listCaseToolCalls(session.id),
       running: isTurnRunning(turnKey(item.project_id, item.id)) || pendingResume.has(turnKey(item.project_id, item.id)) || bridgeStillWorking(session.id),
     })
     return true
@@ -953,7 +964,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       send('session', { type: 'session', sessionId: session.id })
       // Az elozmeny a mentes ELOTT keszul, kulonben az uj uzenet ketszer
       // allna a promptban.
-      const history = prior ?? listAgentMessages(session.id)
+      const history = prior ?? listCaseMessages(session.id)
       const text = input.message.trim()
       if (!prior) addAgentMessage(session.id, resumeCount !== undefined ? 'system' : 'user', text)
       if (!prior && resumeCount === undefined && item) { try { recordTaskFromChat(item, project, text) } catch { /* the notes never stop a chat turn */ } }
@@ -1013,7 +1024,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
           spec = null
           for await (const ev of getLivePool().turn(
             cur,
-            (fresh) => fresh
+            // #821: one live session serves the whole case (folder). When the owner moved to ANOTHER work item of it,
+            // the session must be told which document the message is about, or it goes on editing the previous one.
+            (fresh) => [fresh, liveItemSwitched(key, item ? item.id : null)].some(Boolean)
               ? liveInstallNote() + buildCodeBridgePrompt({
                 projectName: project.name || project.id,
                 projectFolder: liveFolder && liveFolder.ok ? liveFolder.dirAbs : null,
@@ -1207,7 +1220,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             const turnStartSec = Math.floor(Date.now() / 1000)
             const folder = projectFileTarget(project, '')
             const bridgeAssets = item ? await listWorkItemAssetsSyncedYielding(item.id).catch(() => []) : []
-            const history = listAgentMessages(session.id)
+            const history = listCaseMessages(session.id)
             const prompt = buildCodeBridgePrompt({
               projectName: project.name || project.id,
               projectFolder: folder.ok ? folder.dirAbs : null,

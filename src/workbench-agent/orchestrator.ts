@@ -24,6 +24,7 @@
  * szolgaltato vagy betelt a keret, az agens NEM nemul el: ember-nyelvu (HU/EN)
  * `notice` esemenyt ad, es a beszelgetesbe is bekerul.
  */
+import { chatCaseKey } from '../workbench-chat-case.js'
 import { readItemMaterials, recordTaskFromChat } from '../workbench-item-context.js'
 import { randomUUID } from 'node:crypto'
 import { MAIN_AGENT_ID } from '../config.js'
@@ -40,7 +41,7 @@ import { triggerStateOf, triggerBlocksWork } from '../workbench-trigger.js'
 import { pickAIProvider, whyNoAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
 import {
   addAgentMessage, claimAwaitingCallsForApproval, finishToolCall, isApprovalRunInProgress, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
-  projectSessionKey, startToolCall, chatFamilyKey,
+  projectSessionKey, startToolCall, listCaseMessages,
   type AgentSessionRow,
 } from './sessions.js'
 import { decideTool, getTool } from './tools.js'
@@ -108,11 +109,11 @@ export function validateTurn(input: TurnInput): TurnFailure | { ok: true } {
 /** Egy munkadarabhoz egyszerre egy fordulo fut. */
 const running = new Set<string>()
 export function isTurnRunning(key: string): boolean { return running.has(key) }
-/** A "fut mar" zar kulcsa: a munkadarabe, vagy munkadarab nelkul a projekte.
+/** A "fut mar" zar kulcsa: a munkadarab UGYE (mappaja, #821), vagy munkadarab nelkul a projekte.
  *  EGY helyen szamoljuk, hogy a teljes erteku mod, a felulet "fut-e meg"
  *  kerdese es a Leallitas ugyanazt a zarat lassa. */
 export function turnKey(projectId: string, workItemId: string | null | undefined): string {
-  return workItemId ? `item:${chatFamilyKey(workItemId)}` : `project:${projectId}`
+  return workItemId ? `item:${chatCaseKey(workItemId)}` : `project:${projectId}`
 }
 /** A zar lefoglalasa a projekt-asszisztensen KIVULI forduloknak (teljes
  *  erteku mod). false = mar fut egy valasz. */
@@ -374,7 +375,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     // #404 H2: a kozben eldontott jovahagyasok eredmenye MEG ez elott a
     // fordulo elott a beszelgetesbe kerul, hogy a modell is lassa.
     await settleWorkbenchApprovals(session.id).catch(() => 0)
-    const history = historyMessages(listAgentMessages(session.id))
+    const history = historyMessages(listCaseMessages(session.id))
     // A kontextus-blokk az ELSO user-uzenet ele kerul, hogy a modell a
     // tenyeket a keressel egyutt lassa.
     const messages: AIMessage[] = history.length
