@@ -40,6 +40,8 @@ Ez az eljárás a kockázatot szűkíti, a próbát nem hagyja ki.
 - A rail-fül (`fr-tab`) újrakattintása BEZÁRJA a panelt (Canva-minta): ellenőrizd az aktív állapotot, mielőtt kattintasz.
 - A `land-pr.sh` kimenetében a `MERGE-ELVE` sort keresd; a `PR -> .../pull/N` szám a SAJÁT PR-ed, a `gh pr view N` más repóra (alapértelmezett remote) mutathat.
 
+- A próba végén NEM maradhat utána próba-ügynök vagy projekt-kártya az élő rendszerben (#914, tulajdonos, TG 6086): ha a próba-példány chatje Claude beszélgetést nyitott a próba-raktár mappájában, az élő kód-híd felderítése korábban projektként vette fel, és valódi Munkapad-chatek mentek oda. A gép ma már nem regisztrál ideiglenes mappát, de a kész-jelzés előtt nézd meg az élő `GET /api/code/projects` listát és a Csapat oldalt: csak az legyen ott, ami a próba előtt is ott volt; ami a tiéd, azt vedd le (`DELETE /api/code/projects/<név>`).
+
 ## Ellenőrzés
 - Minden lépésre `OK`/`FAIL` sor, `pageerror` számláló 0, és a kimenetet mérd (pl. `ffprobe` a renderelt videóra), ne a gomb állapotából következtess.
 - A jelentésben nevezd meg, mit NEM mértél (telefonos nézet, stb.).

@@ -50,6 +50,7 @@ import { readCodeConversation, statCodeConversation, locateLocalTranscript } fro
 import { displayName } from '../code-folder-browse.js'
 import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, extname } from 'node:path'
+import { tmpdir } from 'node:os'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { notifyCodeTaskFinished, notifyCodeTaskPartial, notifyCodeTaskDeferred } from '../code-bridge-notify.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
@@ -173,6 +174,35 @@ export function isUnderAgentsDir(localPath: string): boolean {
   const base = workspaceKey(AGENTS_BASE_DIR)
   if (!base) return false
   return workspaceKey(localPath).startsWith(base + '/')
+}
+
+/**
+ * Is this workspace a TEMPORARY folder (the system temp directory of either side)?
+ *
+ * #914, measured 2026-11-13: an isolated test instance's Workbench chat opened a Claude
+ * conversation in its throw-away depot under `/tmp`. Discovery registered the folder as a
+ * project, the owner got a second external-programmer card nobody asked for, and the
+ * fallback pick sent two real Workbench chats into the scratch folder. A temporary folder
+ * is where tests and tools work, not where a project lives -- so discovery does not turn
+ * it into a card BY ITSELF. It stays visible as a candidate, and a hand-made (pinned)
+ * connection is kept: this is a default, not a limit.
+ *
+ * Host-agnostic: the server's own temp directory comes from the OS, the rest are the
+ * fixed temp locations of Linux and Windows. Only a path prefix counts -- a real folder
+ * that merely has "tmp" or "Temp" in its name is not temporary.
+ */
+export function isTempWorkspacePath(workspacePath: string): boolean {
+  const raw = String(workspacePath ?? '').trim()
+  if (!raw) return false
+  const under = (key: string, base: string): boolean => !!base && base !== '/' && (key === base || key.startsWith(base + '/'))
+  const local = toLocalWorkspacePath(raw)
+  if (local) {
+    const key = workspaceKey(local)
+    for (const base of [tmpdir(), '/tmp', '/var/tmp']) if (under(key, workspaceKey(base))) return true
+  }
+  // Windows side: the user's and the system's temp directory, on any drive.
+  const win = raw.replace(/\\/g, '/').toLowerCase()
+  return /^[a-z]:\/users\/[^/]+\/appdata\/local\/temp(\/|$)/.test(win) || /^[a-z]:\/windows\/temp(\/|$)/.test(win)
 }
 
 /**
@@ -1062,6 +1092,17 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       if (localPath && isRepoWorktreePath(localPath)) {
         deleteCodeSession(alias)
         continue
+      }
+      // #914: a temporary folder does not become a project by itself (see
+      // isTempWorkspacePath). The owner's own connection (pinned) stays; a row that an
+      // earlier discovery made of the same folder goes, so it can no longer be picked
+      // as the fallback session for somebody else's work.
+      if (isTempWorkspacePath(s.workspacePath)) {
+        const row = known.find((k) => sameWorkspace(k.workspacePath, s.workspacePath!))
+        if (!row?.pinned) {
+          if (row) deleteCodeSession(row.project)
+          continue
+        }
       }
       // ELAVULT-E A BEKOTES?
       //
