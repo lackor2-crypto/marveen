@@ -163,6 +163,14 @@ export interface TranscriptFold<S> {
 
 const SYNC_SLICE_BYTES = 4 * 1024 * 1024
 const BACKGROUND_SLICE_BYTES = 2 * 1024 * 1024
+// A byte budget alone is a promise about a FAST disk. Measured on a loaded
+// machine (2026-11-13): one 2 MiB background slice held the main thread for
+// 720 ms. So a slice also ends when its time is up, whatever it has read by
+// then; it always reads at least one chunk, so the walk still moves forward.
+export const SYNC_SLICE_MS = 40
+export const BACKGROUND_SLICE_MS = 25
+/** Pause between two background slices: the loop serves what queued up meanwhile. */
+const BACKGROUND_PAUSE_MS = 5
 const ANCHOR_BYTES = 64
 const SCAN_MEMO_MAX = 256
 
@@ -187,17 +195,24 @@ interface Tracked<S> {
 }
 
 const tracked = new Map<string, Tracked<unknown>>()
+let sliceClock: () => number = () => performance.now()
+/** Csak teszthez: the clock a slice measures its own time with. */
+export function setSliceClockForTests(clock: (() => number) | null): void {
+  sliceClock = clock ?? (() => performance.now())
+}
 let scanBytesRead = 0
 let backgroundScans = 0
 let settledWaiters: Array<() => void> = []
 
 /** Walks the job backwards for at most `budget` bytes. Returns true when the walk is over. */
-function stepJob<S>(path: string, job: ScanJob<S>, fold: TranscriptFold<S>, budget: number): { done: boolean; stopped: boolean } {
+function stepJob<S>(path: string, job: ScanJob<S>, fold: TranscriptFold<S>, budget: number, budgetMs: number): { done: boolean; stopped: boolean } {
+  const started = sliceClock()
   const fd = openSync(path, 'r')
   try {
     let spent = 0
     while (job.pos > job.floor) {
       if (spent >= budget) return { done: false, stopped: false }
+      if (spent > 0 && sliceClock() - started >= budgetMs) return { done: false, stopped: false }
       const len = Math.min(BACKWARD_CHUNK_BYTES, job.pos - job.floor)
       job.pos -= len
       const buf = Buffer.alloc(len)
@@ -256,8 +271,8 @@ function continueInBackground<S>(key: string, t: Tracked<S>, fold: TranscriptFol
     // The entry was dropped or replaced (memo cleared, file rewritten): this walk is nobody's any more.
     if (tracked.get(key) !== t || t.job === null) { backgroundScans--; settleIfIdle(); return }
     try {
-      const r = stepJob(t.path, t.job, fold, BACKGROUND_SLICE_BYTES)
-      if (!r.done) { setImmediate(slice); return }
+      const r = stepJob(t.path, t.job, fold, BACKGROUND_SLICE_BYTES, BACKGROUND_SLICE_MS)
+      if (!r.done) { setTimeout(slice, BACKGROUND_PAUSE_MS); return }
       finishJob(t, t.job, fold, r.stopped)
     } catch {
       tracked.delete(key) // the file went away mid-walk; the next call starts over
@@ -295,7 +310,7 @@ export function foldTranscript<S>(key: string, path: string, fold: TranscriptFol
     tracked.set(key, t as Tracked<unknown>)
   }
   const job: ScanJob<S> = { upper: st.size, floor, pos: st.size, carry: Buffer.alloc(0), state: fold.init(), older, mtimeMs: st.mtimeMs }
-  const r = stepJob(path, job, fold, SYNC_SLICE_BYTES)
+  const r = stepJob(path, job, fold, SYNC_SLICE_BYTES, SYNC_SLICE_MS)
   if (r.done) return { state: finishJob(t, job, fold, r.stopped), provisional: false }
   t.job = job
   continueInBackground(key, t, fold)
