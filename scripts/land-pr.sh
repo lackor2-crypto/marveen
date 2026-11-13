@@ -28,7 +28,7 @@
 #       worktree torlodik (#384), igy a hivo shell nem marad torolt mappaban
 #
 # Kornyezeti valtozok (opcionalis):
-#   LAND_PR_CI_WAIT_MAX   -- meddig varjunk a CI-re, masodpercben (alap: 1500)
+#   LAND_PR_CI_WAIT_MAX   -- meddig varjunk a CI-re, masodpercben (alap: 1800)
 #   LAND_PR_EMPTY_GRACE   -- ures rollup tureshatara, masodpercben (alap: 120)
 #   LAND_PR_KEEP_WORKTREE -- 1 = a sikeres merge utan NE torolje a tiszta worktree-t
 #
@@ -287,14 +287,14 @@ fi
 #                                     ugyanaz, mint (b)!
 # A regi valtozat mindharmat egyetlen `|| echo 0`-ra kepezte, es (b) okat
 # allitotta mindharomra. Most a KILEPOKOD donti el, nem a szam.
-CI_WAIT_MAX="${LAND_PR_CI_WAIT_MAX:-1500}"
+CI_WAIT_MAX="${LAND_PR_CI_WAIT_MAX:-1800}"
 EMPTY_GRACE="${LAND_PR_EMPTY_GRACE:-120}"
 GH_FAIL_MAX=4                   # ennyi EGYMAS UTANI gh-hiba utan feladjuk
 POLL_INTERVAL=15
 
 # A hatarido nem lehet rovidebb a CI sajat legrosszabb esetenel, kulonben egy
 # lassu, de ZOLD CI-t dobnank el: ci.yml `test` = 15 perc, a ra kovetkezo
-# `ci-passed` = 2 perc (sorosan), plusz a runner sorbanallasa. 1500s = 25 perc.
+# `ci-passed` = 2 perc (sorosan), plusz a runner sorbanallasa. 1800s = 30 perc.
 # (Ezt az osszefuggest a src/__tests__/landing-doctrine.test.ts orzi.)
 echo "land-pr: varakozas a CI-re (tipikusan ~2-3 perc; hatarido $(( CI_WAIT_MAX / 60 )) perc)..." >&2
 start="$(date +%s)"
