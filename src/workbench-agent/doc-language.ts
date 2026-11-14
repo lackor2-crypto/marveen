@@ -34,7 +34,7 @@ const VARIANT_LANG_NAMES: Record<string, string> = { hu: 'Hungarian', en: 'Engli
  */
 export function variantLanguageRule(langCode: string, sourceTitle?: string): string {
   const name = VARIANT_LANG_NAMES[langCode] ?? langCode.toUpperCase()
-  return `This work item is the ${name} LANGUAGE VERSION${sourceTitle ? ` of "${sourceTitle}"` : ''}. Its document is ${name}, so EVERYTHING you write for THIS item -- text, e-mail subject and e-mail body of its mail draft (doc.mailDraft), salutation, closing -- is in ${name}, whatever the dashboard language is. The attached PDF and the letter that carries it are always in the same language.`
+  return `This work item is the ${name} LANGUAGE VERSION${sourceTitle ? ` of "${sourceTitle}"` : ''}. Its document is ${name}, so EVERYTHING you write for THIS item -- text, e-mail subject and e-mail body of its mail draft (doc.mailDraft), salutation, closing -- is in ${name}, whatever the dashboard language is. The attached PDF and the letter that carries it are always in the same language. ${personNameOrderRule(langCode)}`
 }
 
 /**
