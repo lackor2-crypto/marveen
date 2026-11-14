@@ -16,7 +16,7 @@
 //     nem nezett oda -- nem mert nem volt elteres.
 import { describe, it, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +24,7 @@ import { decideWakeGreeting, GREETING_OUTAGE_AFTER_MS } from '../wake-greeting.j
 import { mainAgentEffectiveConfigDir } from '../web/agent-config.js'
 import {
   findParityDrift, describeParityDrift, hookScriptNames,
-  unionHookScripts, mainAgentSettingsPaths,
+  unionHookScripts, mainAgentSettingsPaths, liveInstallJudgeable,
 } from '../agent-parity.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -184,6 +184,9 @@ describe('a paritas-kapu MINDKET settings.json-t nezi', () => {
     const mainConfigDir = process.env.MARVEEN_LIVE_MAIN_CONFIG_DIR || mainAgentEffectiveConfigDir()
     const mainSettings = join(mainConfigDir, 'settings.json')
     if (!existsSync(mainSettings)) return
+    // a worktree without the live dir cannot judge the install (see liveInstallJudgeable)
+    const gitIsFile = (p: string): boolean => { try { return statSync(p).isFile() } catch { return false } }
+    if (!liveInstallJudgeable(ROOT, process.env, gitIsFile)) return
     const paths = mainAgentSettingsPaths(mainConfigDir, ROOT).filter(p => existsSync(p))
     const drift = findParityDrift(unionHookScripts(paths.map(hooksOf)), hookScriptNames(hooksOf(TEMPLATE)))
     expect(drift, describeParityDrift(drift)).toEqual([])

@@ -89,6 +89,19 @@ export function mainAgentSettingsPaths(configDir: string, repoRoot: string): str
   return [`${configDir}/settings.json`, `${repoRoot}/.claude/settings.json`]
 }
 
+/**
+ * Can a test judge THIS machine's main agent from where it runs? (card: false red "this install" parity tests.)
+ * The live config dir is resolved from the live store/ and .env. A git WORKTREE has neither, so the resolver falls
+ * back to ~/.claude -- a file the main agent may not run on -- and the "this install" tests go red for no real
+ * reason. Verifiers run plain `vitest` in a worktree, so every kanban_done check showed a red mark.
+ * Judgeable: the caller was handed the live dir (scripts/test-guard.sh does), or this is not a worktree
+ * (the live checkout, CI, a fresh clone: .git is a directory). Otherwise the honest answer is "cannot look".
+ */
+export function liveInstallJudgeable(repoRoot: string, env: Record<string, string | undefined>, gitIsFile: (p: string) => boolean): boolean {
+  if (env.MARVEEN_LIVE_MAIN_CONFIG_DIR) return true
+  return !gitIsFile(`${repoRoot}/.git`)
+}
+
 /** The union of several settings.json hook blobs -- see mainAgentSettingsPaths. */
 export function unionHookScripts(blobs: unknown[]): Set<string> {
   const out = new Set<string>()

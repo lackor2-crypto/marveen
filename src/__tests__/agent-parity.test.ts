@@ -10,7 +10,7 @@
 // repo could tell.
 
 import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import {
@@ -22,6 +22,7 @@ import {
   FLEET_WIDE_BY_CODE,
   unionHookScripts,
   mainAgentSettingsPaths,
+  liveInstallJudgeable,
 } from '../agent-parity.js'
 import { skillLibraryParity } from '../web/skill-library-parity.js'
 import { mainAgentEffectiveConfigDir } from '../web/agent-config.js'
@@ -106,6 +107,20 @@ describe('the shipped template is the fleet-wide source of truth', () => {
   })
 })
 
+const isGitFile = (p: string): boolean => { try { return statSync(p).isFile() } catch { return false } }
+
+describe('liveInstallJudgeable: a worktree without the live dir cannot judge the install', () => {
+  it('a worktree (.git is a file) with no handed-over live dir is NOT judgeable', () => {
+    expect(liveInstallJudgeable('/r', {}, () => true)).toBe(false)
+  })
+  it('a worktree that was handed the live dir (test-guard.sh) IS judgeable', () => {
+    expect(liveInstallJudgeable('/r', { MARVEEN_LIVE_MAIN_CONFIG_DIR: '/home/x/.claude-marvin' }, () => true)).toBe(true)
+  })
+  it('the live checkout / CI / a clone (.git is a directory) IS judgeable', () => {
+    expect(liveInstallJudgeable('/r', {}, () => false)).toBe(true)
+  })
+})
+
 describe('this install', () => {
   // The user file is the one in the dir the main agent RUNS on -- the same
   // resolution the runtime check uses (an isolated config dir is not ~/.claude).
@@ -121,7 +136,7 @@ describe('this install', () => {
   // which Claude Code loads for it. Reading only the first is how four ledger
   // hooks ran for the main agent and no one else while this gate stayed green:
   // it was not looking at the file they were in.
-  it.skipIf(!existsSync(mainSettings))('runs nothing the rest of the fleet is denied', () => {
+  it.skipIf(!existsSync(mainSettings) || !liveInstallJudgeable(REPO_ROOT, process.env, isGitFile))('runs nothing the rest of the fleet is denied', () => {
     const paths = mainAgentSettingsPaths(mainConfigDir, REPO_ROOT).filter(p => existsSync(p))
     const drift = findParityDrift(unionHookScripts(paths.map(hooksOf)), hookScriptNames(hooksOf(TEMPLATE_PATH)))
     expect(drift, describeParityDrift(drift)).toEqual([])
