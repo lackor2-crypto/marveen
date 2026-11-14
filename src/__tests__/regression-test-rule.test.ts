@@ -13,6 +13,8 @@ import { REGRESSION_TEST_CARD_RULE_EN, REGRESSION_TEST_RULE_EN } from '../regres
 import { buildCodeBridgePrompt } from '../workbench-agent/code-bridge-turn.js'
 import { SYSTEM_PROMPT } from '../workbench-agent/context.js'
 import { PROMPT_MAX_CHARS } from '../web/code-bridge-store.js'
+import { buildVerificationPrompt } from '../approval-verification-dispatch.js'
+import { buildCodeTaskPreamble } from '../web/code-task-preamble.js'
 
 const THROWAWAY = 'zz-regression-test-probe'
 const read = (rel: string): string => readFileSync(join(PROJECT_ROOT, rel), 'utf-8')
@@ -73,6 +75,26 @@ describe('regression-test rule (#839)', () => {
     const prompt = buildCodeBridgePrompt({ projectName: 'P', projectFolder: '/x', workItem: null, history, message: 'm', lang: 'hu' })
     expect(prompt.length).toBeLessThanOrEqual(PROMPT_MAX_CHARS)
     expect(prompt).toContain(REGRESSION_TEST_RULE_EN)
+  })
+})
+
+describe('the prompts that DISPATCH a fix to a code session carry the rule too (#839 follow-up)', () => {
+  const base = { approvalId: 'a', category: 'kanban_done', actionDescription: 'd', agent: 'code:x', ownerName: 'Boss', tokenPath: '/t', baseUrl: 'http://localhost:1' }
+  it('the fix-mode approval prompt demands a regression test in the same commit; the read-only review prompt does not ask for code', () => {
+    const fix = buildVerificationPrompt({ ...base, mode: 'fix' })
+    expect(fix).toContain('REGRESSZIOS TESZT')
+    expect(fix).toContain('UGYANABBAN a commitban')
+    expect(fix).toContain('NELKUL piros')
+    expect(fix).toContain('MIERT nincs teszt')
+    expect(buildVerificationPrompt({ ...base, mode: 'review' })).not.toContain('REGRESSZIOS TESZT')
+  })
+  it('the code-bridge preface (every task, both languages) names the rule', () => {
+    const hu = buildCodeTaskPreamble({ workspacePath: '', hostKind: 'unix', lang: 'hu' })
+    expect(hu).toContain('REGRESSZIOS TESZT')
+    expect(hu).toContain('UGYANABBAN a commitban')
+    const en = buildCodeTaskPreamble({ workspacePath: '', hostKind: 'unix', lang: 'en' })
+    expect(en).toContain('REGRESSION TEST')
+    expect(en).toContain('SAME commit')
   })
 })
 
