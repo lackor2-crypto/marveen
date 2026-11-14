@@ -432,12 +432,12 @@ function walkOutside(projectRel: string, startAbs: string, startRel: string, box
 
 /** #860: the same walk as a stepping generator. The time budget counts only the time the walk itself ran: the pauses
  *  where the event loop served other requests are not charged to it, so a busy server never cuts the listing short. */
-function* walkOutsideSteps(projectRel: string, startAbs: string, startRel: string, box: string | null, opts: OutsideWalkOpts): Generator<void, ProjectOutside, void> {
+function* walkOutsideSteps(projectRel: string, startAbs: string, startRel: string, box: string | null, opts: OutsideWalkOpts): Steps<ProjectOutside> {
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? OUTSIDE_TIME_BUDGET_MS
   let active = 0
   let sliceStart = now()
-  const pause = function* (): Generator<void, void, void> { const t = now(); active += t - sliceStart; yield; sliceStart = now() }
+  const pause = function* (): Steps<void> { const t = now(); active += t - sliceStart; yield; sliceStart = now() }
   const spentTime = (): boolean => active + (now() - sliceStart) > budget
   const out: ProjectOutside = { folders: [], files: {}, truncated: false, lazy: {}, linked: {} }
   let fileTotal = 0
@@ -449,9 +449,13 @@ function* walkOutsideSteps(projectRel: string, startAbs: string, startRel: strin
     const spent = () => !first && (spentTime() || fileTotal >= WORK_FILES_TOTAL_MAX)
     if (spent() || (!first && (read >= WORK_FOLDER_MAX || depth > WORK_FOLDER_MAX_DEPTH))) { out.lazy[rel] = null; continue }
     read++
-    yield* pause()
-    let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { if (!first) out.lazy[rel] = null; continue }
+    // #897: the folder is read through the stepping protocol (async in the yielding drain), so a cold folder on the
+    // Windows drive no longer holds the main thread; the wait is not charged to the walk's own time budget.
+    active += now() - sliceStart
+    const got = yield { readdir: abs }
+    sliceStart = now()
+    if (!got) { if (!first) out.lazy[rel] = null; continue }
+    const entries: import('node:fs').Dirent[] = got
     const here = `${projectRel}${rel ? '/' + rel : ''}`
     const fileNames: string[] = []
     const dirNames = new Set<string>()
@@ -529,7 +533,7 @@ export function listProjectOutside(project: ProjectRow, box: string | null, opts
   return drainSteps(listProjectOutsideSteps(project, box, opts))
 }
 
-function* listProjectOutsideSteps(project: ProjectRow, box: string | null, opts: OutsideWalkOpts = {}): Generator<void, ProjectOutside, void> {
+function* listProjectOutsideSteps(project: ProjectRow, box: string | null, opts: OutsideWalkOpts = {}): Steps<ProjectOutside> {
   const t = projectFileTarget(project, '')
   if (!t.ok) return { folders: [], files: {}, truncated: false, lazy: {}, linked: {} }
   return yield* walkOutsideSteps(t.dirRel, t.dirAbs, '', box, opts)
@@ -555,7 +559,7 @@ export function listProjectFolderLevel(project: ProjectRow, folder: unknown, opt
  * Boss TG 3025: a Life-tree document linked as an annex stands in the item's Attachments folder as a link (no copy):
  * it is listed there with the real path, flagged `linked` (the page offers no rename / move on it).
  */
-function* linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): Generator<void, void, void> {
+function* linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): Steps<void> {
   let rows: { folder: string; life_rel: string | null; path: string; id: string; item: string }[] = []
   try {
     rows = getDb().prepare(`SELECT w.folder AS folder, a.life_rel AS life_rel, a.path AS path, a.id AS id, a.work_item_id AS item FROM wb_doc_annexes a JOIN work_items w ON w.id = a.work_item_id
@@ -587,7 +591,7 @@ function* linkedAnnexRows(project: ProjectRow, folders: string[], files: Record<
  * Uploads folder as a link, so the owner sees it there without a second copy on the disk. Flagged `annex` like the
  * annex links: the page offers no delete / rename / move on it (a delete would hit the real Life-tree file).
  */
-function* linkedAssetRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): Generator<void, void, void> {
+function* linkedAssetRows(project: ProjectRow, folders: string[], files: Record<string, WorkFolderFile[]>): Steps<void> {
   let rows: { folder: string; path: string; name: string; id: string; item: string }[] = []
   try {
     rows = getDb().prepare(`SELECT w.folder AS folder, a.path AS path, a.name AS name, a.id AS id, a.work_item_id AS item FROM work_item_assets a JOIN work_items w ON w.id = a.work_item_id
@@ -613,7 +617,7 @@ function* linkedAssetRows(project: ProjectRow, folders: string[], files: Record<
 
 /** #741: a linked file (#601 mount) left at the old place of a file that moved to the Life tree shows in the work folder it
  *  stood in, flagged `linked`. `boxLife` is the Life path of the box, `box` its project-relative name. */
-function* mountedFileRows(boxLife: string, box: string, folders: string[], files: Record<string, WorkFolderFile[]>): Generator<void, void, void> {
+function* mountedFileRows(boxLife: string, box: string, folders: string[], files: Record<string, WorkFolderFile[]>): Steps<void> {
   let mounts: ReturnType<typeof listMounts> = []
   try { mounts = listMounts().filter((m) => m.file) } catch { return }
   if (!mounts.length) return
@@ -647,7 +651,7 @@ export function listWorkFoldersYielding(project: ProjectRow, opts: { outside?: b
   return drainStepsYielding(listWorkFoldersSteps(project, opts))
 }
 
-function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } = {}): Generator<void, { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] }, void> {
+function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } = {}): Steps<{ box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] }> {
   const box = findWorkItemsBox(project)
   const outside = opts.outside === false ? { folders: [], files: {}, truncated: false, lazy: {}, linked: {} } : yield* listProjectOutsideSteps(project, box)
   // The real folder name of the project (it can differ from the project's display name).
@@ -661,11 +665,13 @@ function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } 
   const ownFolders = liveOwnFolders(project)
   let fileTotal = 0
   let truncated = false
-  const walk = function* (abs: string, rel: string, depth: number): Generator<void, void, void> {
+  const walk = function* (abs: string, rel: string, depth: number): Steps<void> {
     if (depth > WORK_FOLDER_MAX_DEPTH) return
     yield
-    let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    // #897: asked for through the stepping protocol: the yielding drain reads it asynchronously (a cold folder blocked 0.8 s).
+    const got = yield { readdir: abs }
+    if (!got) return
+    const entries: import('node:fs').Dirent[] = got
     // #488: list the loose files in EVERY folder, even one that also holds a work item (its snapshot
     // sits directly in it after the #479 flatten). Only the snapshot file and dotfiles are kept out,
     // so a folder where Boss put pictures next to the presentation no longer looks empty (Boss TG
@@ -693,8 +699,8 @@ function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } 
       const childRel = `${rel}/${d.name}`
       // #691: a versions folder with no file in it is never shown (only a saved version makes it worth seeing).
       if (isVersionsFolderKey(childRel, itemFolders)) {
-        let any = false
-        try { any = readdirSync(childAbs).some((n) => n !== FOLDER_MARKER) } catch { /* unreadable: hidden */ }
+        const inner = yield { readdir: childAbs } // #897: through the stepping protocol, not readdirSync
+        const any = !!inner && inner.some((e) => e.name !== FOLDER_MARKER)
         if (!any) continue
       }
       out.push(childRel)
@@ -2935,7 +2941,7 @@ export const RECONCILE_MIN_GAP_MS = 4000
  * without an id gets one; a copy of a folder (same id twice) keeps the id on the original and gets a fresh one.
  * A folder that cannot be found any more is reported once per process (`lost`) but its row is KEPT (the disk may be unmounted); forgetLostFolder() drops it after the owner confirms. Never deletes or moves anything on disk.
  */
-function* reconcileFolderMarkersSteps(project: ProjectRow, opts: { force?: boolean } = {}): Generator<void, FolderReconcile, void> {
+function* reconcileFolderMarkersSteps(project: ProjectRow, opts: { force?: boolean } = {}): Steps<FolderReconcile> {
   const out: FolderReconcile = { moved: [], lost: [] }
   ensureAssetTables()
   const box = findWorkItemsBox(project)
@@ -2948,10 +2954,12 @@ function* reconcileFolderMarkersSteps(project: ProjectRow, opts: { force?: boole
 
   type Dir = { rel: string; abs: string; id: string | null }
   const dirs: Dir[] = []
-  const walk = function* (abs: string, rel: string, depth: number): Generator<void, void, void> {
+  const walk = function* (abs: string, rel: string, depth: number): Steps<void> {
     if (depth > WORK_FOLDER_MAX_DEPTH || dirs.length >= WORK_FOLDER_MAX) return
-    let entries: import('node:fs').Dirent[]
-    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    // #897: the folder read goes through the stepping protocol (async in the yielding drain), not readdirSync: measured 0.84 s on a cold folder.
+    const got = yield { readdir: abs }
+    if (!got) return
+    const entries: import('node:fs').Dirent[] = got
     for (const d of entries) {
       if (!d.isDirectory() || d.name.startsWith('.') || d.name === 'node_modules') continue
       const cAbs = join(abs, d.name)
