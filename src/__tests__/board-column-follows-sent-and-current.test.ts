@@ -5,6 +5,7 @@ import { initDatabase, getDb } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { markSentManually } from '../workbench-docsent.js'
+import { addTodo } from '../workbench-todos.js'
 import { listBoardWorkItems } from '../workbench-overview.js'
 
 let pid = ''
@@ -43,6 +44,48 @@ describe('board column follows sent / current work', () => {
 
   it('a fresh item in review stays in Waiting (a deliberate column)', () => {
     expect(col(item('Varakozo', 'review').id)).toBe('waiting')
+  })
+
+  const ago3d = () => Math.floor(Date.now() / 1000) - 3 * 86400
+  const ymd = (offsetDays: number) => {
+    const d = new Date(); d.setDate(d.getDate() + offsetDays)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  function oldDraftWithDue(title: string, offsetDays: number) {
+    const w = item(title)
+    const r = addTodo({ work_item_id: w.id, text: 'teendo', due_date: ymd(offsetDays) })
+    if (!r.ok) throw new Error('todo failed')
+    getDb().prepare('UPDATE work_items SET updated_at = ? WHERE id = ?').run(ago3d(), w.id)
+    return w
+  }
+
+  it('an old unsent draft with a deadline TODAY shows in In progress (card #901: the "ARD 88M" case)', () => {
+    expect(col(oldDraftWithDue('Ma hatarido', 0).id)).toBe('in_progress')
+  })
+
+  it('an old unsent draft with an overdue deadline shows in In progress', () => {
+    expect(col(oldDraftWithDue('Lejart', -2).id)).toBe('in_progress')
+  })
+
+  it('an old unsent draft with a deadline in the future stays in Planned', () => {
+    expect(col(oldDraftWithDue('Kesobbi', 5).id)).toBe('planned')
+  })
+
+  it('a stored in_progress item shows in In progress even when old', () => {
+    const w = item('Folyamatban', 'in_progress')
+    getDb().prepare('UPDATE work_items SET updated_at = ? WHERE id = ?').run(ago3d(), w.id)
+    expect(col(w.id)).toBe('in_progress')
+  })
+
+  it('the project-filtered list (project Kanban tab) uses the same columns as the all-projects list (main board)', () => {
+    const s = item('Elkuldott2'); markSentManually(s.id, 'test')
+    const f = item('Friss2')
+    const o = item('Regi2'); getDb().prepare('UPDATE work_items SET updated_at = ? WHERE id = ?').run(ago3d(), o.id)
+    const byId = (list: ReturnType<typeof listBoardWorkItems>) => Object.fromEntries(list.map((w) => [w.id, w.column]))
+    const all = byId(listBoardWorkItems())
+    const one = byId(listBoardWorkItems(pid))
+    expect(one).toEqual(all)
+    expect(one[s.id]).toBe('done'); expect(one[f.id]).toBe('in_progress'); expect(one[o.id]).toBe('planned')
   })
 
   it('a sent item older than the recent window drops off the board', () => {
