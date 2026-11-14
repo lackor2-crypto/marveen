@@ -149,6 +149,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
+    name: 'context.send',
+    description: 'Fill the SENDING DETAILS block at the TOP of a work item\'s context file: where the letter / e-mail goes. Do it for EVERY letter (court, Jobcenter, landlord, authority, anyone), at once, in the same turn you learn it, and keep it current. Give the recipient\'s name, the e-mail address (when there is none, the postal address stays in the block and the letter goes by post), the e-mail subject and the e-mail body (the covering text of the mail, in the language of the letter: set lang to de / en / hu). Only what you pass is changed; never make an address up.',
+    input: 'id: the work item id (optional, defaults to the open one); name: recipient name (optional); email: recipient e-mail (optional); postal: recipient postal address (optional); subject: e-mail subject (optional); body: e-mail text (optional); lang: de / en / hu, the language of subject and body (optional; leave out for a text that suits every version)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
     name: 'context.rewrite',
     description: 'Replace the whole human-written part of a work item\'s context file with a tidied version (keep every fact; the system-kept Materials block is preserved automatically). Use it only to reorganise a file that got long or messy.',
     input: 'id: the work item id (optional, defaults to the open one); text: the whole new markdown',

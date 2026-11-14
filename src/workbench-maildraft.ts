@@ -20,7 +20,8 @@ import { join } from 'node:path'
 import { getDb } from './db.js'
 import { currentOwnerName, OWNER_NAME_PLACEHOLDER } from './config.js'
 import { getProject } from './projects.js'
-import { readItemContext } from './workbench-item-context.js'
+import { readItemContext, readSendDetails } from './workbench-item-context.js'
+import { sendEmailOf, sendTextFor } from './workbench-send-block.js'
 import { finishedFolderFor, freeFileName, projectFileTarget } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
@@ -138,12 +139,21 @@ const DEFAULT_BODY: Record<DocLang, (title: string, annexes: number, who: string
  * letter's subject. The mail's subject is the subject line of the letter itself, in the letter's language: a labelled line
  * (Betreff / Subject / Tárgy / Re), else the first line after the date line of a letter. The title only when neither exists.
  */
+/** The letter language the sending block's per-language lines are picked by (null when unknown). */
+function sendLang(item: WorkItemRow): DocLang | null {
+  try { return variantOf(item.id) ? docLangFor(item, 'hu') : textLanguageOf(item) } catch { return null }
+}
+
 export function mailSubject(item: WorkItemRow): string {
+  // Boss 2026-11-14: the "Sending details" block at the top of the context file names the mail's subject; the letter's own subject line is the fallback.
+  try { const b = sendTextFor(readSendDetails(item), sendLang(item), 'subject'); if (b) return b } catch { /* no context file */ }
   if (hasDocModel(item.id)) return letterSubject(item.id)
   return hasDocxFinalPanel(item) ? subjectFromLines(docxParagraphs(item)) : ''
 }
 
 export function defaultMailBody(item: WorkItemRow, lang: DocLang, annexCount: number): string {
+  // The covering text written into the "Sending details" block (in the mail's language) wins over the generic default.
+  try { const b = sendTextFor(readSendDetails(item), lang, 'body'); if (b) return b } catch { /* no context file */ }
   // #794 (Boss TG 4081): the closing name is the one the LETTER carries (its signatory), never the dashboard owner's nickname.
   return (DEFAULT_BODY[lang] || DEFAULT_BODY.en)(mailSubject(item), annexCount, hasDocModel(item.id) ? letterSignatory(item.id) : '')
 }
@@ -428,11 +438,18 @@ export function letterHead(item: WorkItemRow): RecipientHead | null {
   return null
 }
 
+/** The recipient e-mail written into the context file's "Sending details" block (never one of the owner's own addresses). */
+function sendBlockRecipient(item: WorkItemRow): string {
+  try { return firstForeignAddress(sendEmailOf(readSendDetails(item))) } catch { return '' }
+}
+
 export function knownRecipient(item: WorkItemRow): string {
   const head = letterHead(item)
   if (head) {
     // A letter with a labelled recipient block: the address of THAT recipient, from the block or from a line that names it.
     if (head.email) return head.email
+    const sent = sendBlockRecipient(item)
+    if (sent) return sent
     const ownerSaid = (): string => {
       try {
         for (const se of listAgentSessions(item.id).slice().reverse()) {
@@ -446,6 +463,8 @@ export function knownRecipient(item: WorkItemRow): string {
     try { const ctx = readItemContext(item); const a = ctx ? addressNamingRecipient(ctx.text, head) : ''; if (a) return a } catch { /* no context file */ }
     return ''
   }
+  const sentNoHead = sendBlockRecipient(item)
+  if (sentNoHead) return sentNoHead
   const chat = chatRecipient(item)
   if (chat) return chat
   const fromContext = contextRecipient(item)
