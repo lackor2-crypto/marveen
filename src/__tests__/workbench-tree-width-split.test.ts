@@ -12,7 +12,7 @@ describe('folder column width handle', () => {
   it('renders a separator in the Simple frame and the Manual split, stores the width guarded by try/catch', () => {
     expect(js).toMatch(/id="wbTreeWidthSplit" role="separator" aria-orientation="vertical"/)
     expect(js).toContain("TREE_WIDTH_KEY = 'marveen.workbench.treeWidth'")
-    expect(js).toMatch(/frPanelBodyHtml\(\) \+ '<\/aside>' \+ treeWidthHandleHtml\(\)/)
+    expect(js).toMatch(/title \+ body \+ '<\/aside>' \+ treeWidthHandleHtml\(\)/) // #906: title/body locals (collapsed state)
     expect(js).toMatch(/wb-grid-aside"' \+ treeWidthStyle\(\) \+ '>' \+ itemsPanelHtml\(\) \+ treeWidthHandleHtml/)
     expect(js).toMatch(/applyTreeWidth\(w0 \+ \(ev\.clientX - x0\), true\)/)
   })
