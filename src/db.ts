@@ -1712,6 +1712,13 @@ export function saveAgentMemory(
 // accessed memories" instead of "the N most recent <category> memories", so an
 // older-but-still-active memory would drop out of the list with no truncation
 // signal -- invisible to the caller, and worst right after a restart.
+// The listing never needs the embedding vector (a ~15 KB JSON text per row; the API strips it, pending-work and reflect
+// ignore it). `SELECT *` made SQLite push every row's vector through the ORDER BY sorter (the whole table, about 30 MB on
+// the live store) on each cache miss, on the event loop: a stall sample named exactly this under load (2.2 s). The vector
+// is left out of the column list and comes back as null.
+const MEMORY_LIST_COLUMNS =
+  'id, chat_id, topic_key, content, sector, salience, created_at, accessed_at, agent_id, category, auto_generated, keywords, NULL AS embedding'
+
 export function getAgentMemories(agentId: string, limit: number = 20, category?: string, offset = 0): Memory[] {
   // The offset is part of the key, or page 2 would be served page 1's rows.
   const key = `${agentId}:${limit}:${category ?? ''}:${offset}`
@@ -1719,10 +1726,10 @@ export function getAgentMemories(agentId: string, limit: number = 20, category?:
   if (cached) return cached
   const result = (category
     ? db.prepare(
-        "SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND category = ? ORDER BY accessed_at DESC, id DESC LIMIT ? OFFSET ?"
+        `SELECT ${MEMORY_LIST_COLUMNS} FROM memories WHERE (agent_id = ? OR category = 'shared') AND category = ? ORDER BY accessed_at DESC, id DESC LIMIT ? OFFSET ?`
       ).all(agentId, category, limit, offset)
     : db.prepare(
-        "SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') ORDER BY accessed_at DESC, id DESC LIMIT ? OFFSET ?"
+        `SELECT ${MEMORY_LIST_COLUMNS} FROM memories WHERE (agent_id = ? OR category = 'shared') ORDER BY accessed_at DESC, id DESC LIMIT ? OFFSET ?`
       ).all(agentId, limit, offset)) as Memory[]
   memoryCacheSet(key, result)
   return result
