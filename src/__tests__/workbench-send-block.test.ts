@@ -70,6 +70,15 @@ describe('the sending block of the context file', () => {
     expect(sendTextFor(d, 'en', 'body')).toBe('Szia') // no English line: the plain one
   })
 
+  it('#916 an unknown letter language still finds the ONE language line the agent wrote (never lost); two lines are ambiguous', () => {
+    const one = parseSendDetails(applySendPatch(FILE, { subject: 'Betreff DE', body: 'Liebe Frau', lang: 'de' }, hu))!
+    expect(sendTextFor(one, null, 'subject')).toBe('Betreff DE')
+    expect(sendTextFor(one, undefined, 'body')).toBe('Liebe Frau')
+    expect(sendTextFor(one, 'en', 'subject')).toBe('') // a KNOWN other language never gets the German text
+    const two = parseSendDetails(applySendPatch(applySendPatch(FILE, { subject: 'Betreff DE', lang: 'de' }, hu), { subject: 'Subject EN', lang: 'en' }, hu))!
+    expect(sendTextFor(two, null, 'subject')).toBe('')
+  })
+
   it('an unfilled placeholder is never taken as a value', () => {
     const d = parseSendDetails(ensureSendBlockText(FILE, hu))!
     expect(sendEmailOf(d)).toBe('')
