@@ -300,6 +300,10 @@ export function claimsPendingWork(text: string): boolean {
 const BACKGROUND_WAIT_CUES = new RegExp([
   'figyel[őo]', 'monitor', 'watcher', 'CI[- ]?(?:futás|run|ja|-ja)', 'CI-?futás', 'jelez(?:ni)?,? (?:amint|ha|a landol)',
   'will (?:notify|report|ping)', 'waiting for (?:the )?(?:CI|monitor|watcher|merge)',
+  // Real closing words after the first fix (chat 492dd019, 2026-11-09): the CI/merge is waited for in plain words.
+  'megy a CI', 'CI-?n\\b', 'CI (?:vég|lefut|zöld)', '(?:megvárom|várom|vár(?:ok)?) a(?:z)? (?:CI|merge|landol|PR)',
+  'landolás(?:a)? (?:még )?folyik', 'ha le-?merge',
+  'until the (?:CI|merge)', 'once the (?:CI|merge|PR)',
 ].join('|'), 'i')
 
 export function claimsBackgroundWait(text: string): boolean {
@@ -318,6 +322,10 @@ const OWNER_WAIT_CUES = new RegExp([
   'csak te (?:tudod|nyomhatod|tudsz|teheted)', 'azt csak te', 'te (?:tudod|nyomod|kell)\\b[^.\\n]{0,40}(?:megnyomni|elkészíteni|megcsinálni|elküldeni|megnyom)',
   'szólj,? (?:ha|amint) (?:megvan|kész|elkészült|megnyomtad|megcsináltad)', 'szólj,? és', 'írj egy sort', 'ha (?:megvan|kész|elkészült|megnyomtad)[^.\\n]{0,80}szólj',
   'küldd el (?:a |az )?(?:képernyő|fot|screenshot)', 'ha az .{0,60}küldd el', 'ezt kell csinálnod', 'ezt kell tenned',
+  // The "next step" / "to do" block addresses the owner (chats 1e39b306, 204a53fc, 90779a92 of 2026-11-10..13):
+  // review, sign, finalise, hand the text over -- nothing the agent can do in another round.
+  'következő lépés(?:ek)?\\W{0,8}(?:nézd|szúrd|írd|küldd|válaszolj|döntsd|hozd|véglegesítsd|add|olvasd|ellenőrizd|nyisd|kattints|tedd|töltsd|másold|jelezd|döntsd)',
+  'a te dolgod', 'te döntésed', 'a te döntésed', 'add át nekem', 'add át (?:ide|a|az) ',
   'only you can', 'tell me (?:when|once)', 'once you(?:\'ve)? ', 'send me (?:a |the )?(?:screenshot|photo)',
 ].join('|'), 'i')
 const WHICH_PART_CUES = /melyik(?:kel|et)? (?:kezdjem|csináljam|folytassam)|folytassam|kezdjem(?: el)?\?|which (?:one )?(?:should|shall) i|shall i (?:continue|proceed|start)|do you want me to/i

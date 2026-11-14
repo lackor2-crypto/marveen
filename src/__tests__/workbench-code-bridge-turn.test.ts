@@ -453,3 +453,39 @@ describe('#862: an answer that waits for the OWNER does not start continue round
     expect(fullyDoneForPending(task)).toBe(true)
   })
 })
+
+describe('#862 (regression test): closing words seen AFTER the first fixes still started "folytatom" rounds', () => {
+  // Real closing words of live chats, measured in claudeclaw.db after PR #1697 went live (2026-11-09 .. 2026-11-13).
+  // Each one is a status that waits for the CI / merge or for the owner's own step; the chat added "Az egész munka
+  // még nincs kész, ezért folytatom." under every one of them.
+  const ciWaits = [
+    // 492dd019, 2026-11-09 19:11 (CI run is "megy", no "figyelő"/"CI-futás" wording)
+    'Egy rövid fordítási hibát javítok a mérőszkriptben, majd folytatom a méréssel.\n\nA PR (oldalszerkesztő + sorszintű oldaltörés a táblázatokban) most megy a CI-n. Ha lemerge-elt, kitelepítem és élesben újramérem mindkét javítást (görgetés, oldalak).',
+    'A landolás újraindult (a node_modules hiánya miatt állt meg az előző kör, ezt pótoltam). Megvárom a merge-et, utána kitelepítek és élesben ellenőrzöm.',
+    'Még a típusellenőrzésnél tart. Várom a CI végét.\n\nA PR landolása még folyik (típusellenőrzés, majd CI). A merge után kitelepítek, és élesben újramérem az oldalszerkesztőt és a görgetést.',
+  ]
+  const ownerSteps = [
+    // 1e39b306, 2026-11-12 19:35 and 20:31: "Következő lépés" is the OWNER's (review, sign, finalise the PDF)
+    'Nem kattintottam végig a felületen. Az aláírásodat te szúrod be, a PDF-et te véglegesíted.\n\n**Következő lépés**\nNézd át a tervezetet, és jelezd, ha kéred a német változatot.',
+    'Határidő: 2026. november 27.\n\n**Következő lépés**\nNézd át a magyar és a német tervezetet. Hozd rendbe a 430 € és az 555,89 € kérdését, szúrd be mindkettőtök aláírását, és véglegesítsd a PDF-et. Utána elkészítem az e-mail piszkozatot.',
+    // 204a53fc, 2026-11-13 23:10: the next move is the owner's (bring the GPT's German text back)
+    '- Ha a kérelem nem teljesíthető, kérem, hogy ezt írásban közöljék, hogy tudjuk, mi a következő lépés.\n\n**Stílus a németben:** meleg, emberi, rövid.\n\nHa a GPT németül kész a levéllel, add át nekem, és nyelvi változatként beteszem a Munkapadra.',
+  ]
+  it.each(ciWaits)('a CI/merge wait is an outside wait: %#', (text) => {
+    expect(claimsOutsideWait(text)).toBe(true)
+  })
+  it.each(ownerSteps)('an owner-addressed next step is an outside wait: %#', (text) => {
+    expect(claimsOutsideWait(text)).toBe(true)
+  })
+  it('a finished-looking task whose closing words wait for CI or the owner counts as concluded (bridge gate)', () => {
+    for (const result of [...ciWaits, ...ownerSteps]) {
+      const task = { status: 'done', result, summary: null } as unknown as Parameters<typeof fullyDoneForPending>[0]
+      expect(fullyDoneForPending(task)).toBe(true)
+    }
+  })
+  it('real unfinished work of the agent itself still continues', () => {
+    expect(claimsOutsideWait('A levelet az ARD-nek még nem írtam meg, az a következő lépés. A fájl a Munkapad Kontextus fájlja.')).toBe(false)
+    expect(claimsOutsideWait('Ami hátravan: a kijelzés. Ezzel folytatom.')).toBe(false)
+    expect(claimsOutsideWait('Egy rövid fordítási hibát javítok a mérőszkriptben, majd folytatom a méréssel.')).toBe(false)
+  })
+})
