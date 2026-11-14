@@ -22,9 +22,9 @@ test('a work item opened in the browser gets a context file that starts with the
   // a new item made the way the owner makes one (the Workbench write wakes the context sweep within seconds)
   const made = await request.post('/api/workbench/items', {
     headers: { Authorization: 'Bearer ' + dashboardToken() },
-    data: { project_id: liveIds().pid, type: 'document', title: 'Kuldesi adatok proba level', folder: 'Ugy 01' },
+    data: { project_id: liveIds().pid, type: 'document', title: 'Kuldesi adatok proba level' },
   })
-  expect(made.ok()).toBeTruthy()
+  expect(made.ok(), await made.text()).toBeTruthy()
   await openItem(page)
   const base = path.join(liveIds().depot, 'Projektek', 'teszt')
   await expect.poll(() => findContext(base), { timeout: 60_000 }).not.toBeNull()
