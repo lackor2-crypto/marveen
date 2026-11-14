@@ -35,6 +35,7 @@ import { isDebateReportTitle } from './debate-report-title.js'
 import { extractionBlockLines, readNewMaterials, type MaterialFile } from './workbench-upload-extract.js'
 import { drainSteps, drainStepsYielding, type Steps } from './yielding.js'
 import { gatedInterval, gatedTimeout } from './background-gate.js'
+import { applySendPatch, emptySendDetails, ensureSendBlockText, keepSendBlock, parseSendDetails, renderSendDetails, type SendDetails, type SendPatch } from './workbench-send-block.js'
 
 export const CONTEXT_PREFIX_HU = 'Kontextus'
 export const CONTEXT_PREFIX_EN = 'Context'
@@ -120,6 +121,8 @@ function template(title: string): string {
       '> Ezt a fájlt az AI vezeti. Ide gyűlik minden, amit a munkadarabról tudni kell, hogy a chat és az AI egyben lásson mindent. Ne töröld; új információ ide kerül.',
       '> The AI keeps this file. Everything worth knowing about this work item is gathered here, so the chat and the AI see the whole case at once. Do not delete it; new information goes here.',
     ),
+    '',
+    renderSendDetails(emptySendDetails(), ol).trimEnd(),
     '',
     `## ${ol('Feladat', 'Task')}`,
     ol('(még nincs felismerve, az AI kitölti)', '(not recognised yet, the AI fills this in)'),
@@ -274,7 +277,7 @@ function* refreshInventorySteps(item: WorkItemRow, project: ProjectRow, rel: str
   const files: MaterialFile[] = []
   const lines = yield* inventoryLinesSteps(project, dir.abs, basename(abs), ownFolder, files)
   // #794 (Boss TG 10480): the content of every material, read out, sits in the same machine block.
-  const next = withBlock(text, blockText(lines, extractionBlockLines(item.id, files)))
+  const next = ensureSendBlockText(withBlock(text, blockText(lines, extractionBlockLines(item.id, files))), ol)
   if (next === text) return
   try { writeFileSync(abs, next) } catch { /* locked or read-only: the next pass tries again */ }
 }
@@ -559,6 +562,28 @@ export function rewriteItemContext(item: WorkItemRow, project: ProjectRow, markd
   const b = old.indexOf(BLOCK_END)
   const block = a >= 0 && b > a ? old.slice(a, b + BLOCK_END.length) : blockText([])
   const clean = md.replace(BLOCK_BEGIN, '').replace(BLOCK_END, '')
-  try { writeFileSync(abs, withBlock(clean + '\n', block)) } catch { return { ok: false, code: 'write_failed' } }
+  try { writeFileSync(abs, withBlock(keepSendBlock(old, clean, ol) + '\n', block)) } catch { return { ok: false, code: 'write_failed' } }
+  return { ok: true, rel: r.rel }
+}
+
+// ---- the "Sending details" block (top of the file) ----------------------------------------------------------
+
+/** The parsed sending block of the item's context file (a language version reads its original's file), null when there is none yet. */
+export function readSendDetails(item: WorkItemRow): SendDetails | null {
+  const c = readItemContext(item)
+  return c ? parseSendDetails(c.text) : null
+}
+
+/** Writes the sending details (recipient name / e-mail / postal address, mail subject / text) into the block at the top of the file. */
+export function setSendDetails(item: WorkItemRow, project: ProjectRow, patch: SendPatch): AppendOutcome {
+  const r = ensureItemContext(item, project)
+  if (!r.rel) return { ok: false, code: 'no_context_file' }
+  const abs = resolveLifePath(r.rel)
+  if (!abs) return { ok: false, code: 'no_context_file' }
+  let body: string
+  try { body = readFileSync(abs, 'utf8') } catch { return { ok: false, code: 'no_context_file' } }
+  const next = applySendPatch(body, patch, ol)
+  if (next.length > CONTEXT_MAX_CHARS) return { ok: false, code: 'too_big' }
+  try { writeFileSync(abs, next) } catch { return { ok: false, code: 'write_failed' } }
   return { ok: true, rel: r.rel }
 }

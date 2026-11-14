@@ -12,7 +12,7 @@
  *      ilyen" vagy "nem latok oda" -- a tool SOSE ad vissza ures listat
  *      magyarazat nelkul.
  */
-import { appendItemContext, rewriteItemContext, isContextSection, markPlainItem } from '../workbench-item-context.js'
+import { appendItemContext, rewriteItemContext, isContextSection, markPlainItem, setSendDetails } from '../workbench-item-context.js'
 import { resolveLifePath } from '../life-explorer.js'
 import { closeSync, lstatSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs'
 import { getTool } from './tools.js'
@@ -925,6 +925,19 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       }
       if (!r.ok) return { ok: false, code: r.code, detail: `the context file was not changed: ${r.code}` }
       return { ok: true, data: { file: r.rel, note: 'saved in the context file next to the work item' } }
+    }
+
+    case 'context.send': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      const pick = (k: string): string | undefined => (typeof input[k] === 'string' ? (input[k] as string) : undefined)
+      const patch = { name: pick('name'), email: pick('email'), postal: pick('postal'), subject: pick('subject'), body: pick('body'), lang: pick('lang') }
+      if (!patch.name && !patch.email && !patch.postal && !patch.subject && !patch.body) return { ok: false, code: 'bad_input', detail: 'give at least one of name, email, postal, subject, body' }
+      const r = setSendDetails(item, project, patch)
+      if (!r.ok) return { ok: false, code: r.code, detail: `the sending details were not saved: ${r.code}` }
+      return { ok: true, data: { file: r.rel, note: 'saved in the "Sending details" block at the top of the context file' } }
     }
 
     case 'workItem.writeText': {
