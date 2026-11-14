@@ -421,6 +421,13 @@ export async function runMessageRouterTick(): Promise<void> {
     const presentNow = new Set<string>()
     // agent -> {exists: bool, host, session} cached lookup for the main loop.
     const agentSessionCache = new Map<string, {host: string | null, session: string, exists: boolean}>()
+    // #915: sessions found NOT ready (and sessions the stale-input janitor already looked at) earlier in THIS tick. Every
+    // pending message used to repeat the same tmux pane captures (2-5 synchronous spawns each, 0.6-0.8 s apiece on a
+    // loaded machine), so ten messages waiting for one busy agent froze the dashboard for seconds on every 5 s tick.
+    // A pane that was not ready a moment ago is not ready for the rest of the tick; a ready one is NOT remembered
+    // (delivering to it makes it busy, the next message must look again).
+    const notReadyThisTick = new Set<string>()
+    const janitorLookedThisTick = new Set<string>()
     // Which receivers run on an OpenRouter :free model, resolved once per unique
     // receiver per tick (same reason as the session cache: one config read, not
     // one per message) so the rate-limit gate below is a map lookup.
@@ -535,7 +542,9 @@ export async function runMessageRouterTick(): Promise<void> {
         continue
       }
 
-      if (!(await isSessionReadyForPrompt(session, host))) {
+      const paneKey = `${host ?? 'local'}:${session}`
+      if (notReadyThisTick.has(paneKey) || !(await isSessionReadyForPrompt(session, host))) {
+        notReadyThisTick.add(paneKey)
         // ---- session-stuck detection (card 2922e380 thread a) ----
         // Track how long this session has been continuously not-ready.
         const stuckStart = agentStuckSince.get(msg.to_agent)
@@ -562,7 +571,7 @@ export async function runMessageRouterTick(): Promise<void> {
         // ParkedInput only fires on the idle 'typing' state with text unchanged
         // across a settle, so it never clobbers a session that is actually
         // processing or input a human/agent is mid-typing.
-        if (ageMs > JANITOR_PARKED_MIN_AGE_MS && await clearStaleParkedInput(session, host)) {
+        if (ageMs > JANITOR_PARKED_MIN_AGE_MS && !janitorLookedThisTick.has(paneKey) && (janitorLookedThisTick.add(paneKey), await clearStaleParkedInput(session, host))) {
           routerLoggedMisses.delete(msg.id)
           continue // input cleared; deliver on the next tick
         }
