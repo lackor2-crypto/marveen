@@ -24,4 +24,11 @@ describe('workbench mobile pin box (#859)', () => {
     expect(mobile).toMatch(/\.wb-grid, \.wb-grid\.wb-grid-aside, \.wb-grid-aside\[style\*="--wb-tree-w"\] \{ grid-template-columns: minmax\(0, 1fr\); \}/)
     expect(mobile).toMatch(/\.wb-grid > \*, \.wb-grid-aside > \* \{ min-width: 0; \}/)
   })
+  it('every other one-column phone grid of the Workbench also uses minmax(0, 1fr) (same root cause)', () => {
+    const tail = css.slice(css.indexOf('Same root cause in every other one-column phone grid'))
+    expect(tail).toMatch(/\.wb-split, \.wb-cmp-head, \.wb-cmp-cols, \.wb-img-cols, \.wb-md-split \{ grid-template-columns: minmax\(0, 1fr\); \}/)
+    expect(tail).toMatch(/\.wb-can-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/)
+    expect(tail).toMatch(/\.wb-doclang-cols \{ grid-template-columns: minmax\(0, 1fr\); \}/)
+    expect(tail).toMatch(/\.wb-tl-row \{ grid-template-columns: minmax\(0, 1fr\); \}/)
+  })
 })
