@@ -36,6 +36,19 @@ describe('heavy-job.sh queue', () => {
     first.kill('SIGTERM')
   }, 20000)
 
+  it('keeps the first cores free: the job runs on cores 2..n-1 (dashboard stall fix), and the reserve can be turned off', () => {
+    const n = Number(spawnSync('nproc', ['--all'], { encoding: 'utf8' }).stdout.trim())
+    if (!(n >= 4) || spawnSync('which', ['taskset']).status !== 0) return
+    const store = mkdtempSync(join(tmpdir(), 'heavy-cpu-'))
+    const base = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '' }
+    const affinity = (env: NodeJS.ProcessEnv) =>
+      // started on every core, whatever the affinity of the test run itself (the suite may run inside a heavy-job)
+      spawnSync('taskset', ['-c', `0-${n - 1}`, 'bash', HEAVY, 'cpu', '--', 'bash', '-c', 'taskset -cp $$ | sed "s/.*: *//"'], { env, encoding: 'utf8' }).stdout.trim()
+    expect(affinity(base)).toBe(`2-${n - 1}`)
+    expect(affinity({ ...base, MARVEEN_HEAVY_JOB_RESERVE_CORES: '0' })).toBe(`0-${n - 1}`)
+    expect(affinity({ ...base, MARVEEN_HEAVY_JOB_RESERVE_CORES: '3' })).toBe(`3-${n - 1}`)
+  }, 20000)
+
   it('a web-only instance has its own slot: a build / browser job is not blocked by it (H1)', async () => {
     const store = mkdtempSync(join(tmpdir(), 'heavy-q-'))
     const env = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '' }

@@ -79,11 +79,32 @@ case "$NAME" in
   web-only*) LOCK="$STORE_DIR/heavy-job-web.lock"; REG="$STORE_DIR/heavy-job-web.json" ;;
 esac
 
+# CPU reserve: a heavy job (vitest forks one worker per core) may use all cores but the first RESERVE ones, so the dashboard,
+# the agents and the Telegram bridge always have free cores. `nice` alone did not hold: with the whole machine at load
+# 12-13 on 8 cores the dashboard still saw event-loop stalls of 3+ seconds (owner reports, 2026-11-15). Node's
+# availableParallelism() honours the affinity, so vitest sizes its worker pool to the cores it may use.
+# MARVEEN_HEAVY_JOB_RESERVE_CORES=0 turns it off. Needs taskset(1) and at least 4 cores; otherwise the job runs as before.
+cpu_prefix() {
+  local reserve="${MARVEEN_HEAVY_JOB_RESERVE_CORES:-2}" n
+  [[ "$reserve" =~ ^[0-9]+$ ]] || return 0
+  (( reserve > 0 )) || return 0
+  command -v taskset >/dev/null 2>&1 || return 0
+  n="$(nproc 2>/dev/null || echo 0)"
+  [[ "$n" =~ ^[0-9]+$ ]] || return 0
+  (( n >= 4 && reserve < n )) || return 0
+  # Only when the process may still run on every core (an already narrowed affinity is left alone).
+  [[ "$(taskset -cp $$ 2>/dev/null | sed 's/.*: *//')" == "0-$((n - 1))" ]] || return 0
+  echo "taskset -c ${reserve}-$((n - 1))"
+}
+
 run_cmd() {
+  local pre; pre="$(cpu_prefix)"
   if (( RUN_TIMEOUT > 0 )) && command -v timeout >/dev/null 2>&1; then
-    timeout -k 10 "$RUN_TIMEOUT" "$@"
+    # shellcheck disable=SC2086
+    timeout -k 10 "$RUN_TIMEOUT" $pre "$@"
   else
-    "$@"
+    # shellcheck disable=SC2086
+    $pre "$@"
   fi
 }
 
