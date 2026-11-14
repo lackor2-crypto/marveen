@@ -56,6 +56,14 @@ describe('isTempWorkspacePath', () => {
     expect(isTempWorkspacePath('C:\\Windows\\Temp\\proba')).toBe(true)
   })
 
+  it('knows the Windows temp directories also when they are seen from WSL (/mnt/<drive>/...)', () => {
+    expect(isTempWorkspacePath('/mnt/c/Users/Valaki/AppData/Local/Temp/proba')).toBe(true)
+    expect(isTempWorkspacePath('/mnt/d/Windows/Temp/proba')).toBe(true)
+    expect(isTempWorkspacePath('\\\\wsl.localhost\\Ubuntu\\var\\tmp\\proba')).toBe(true)
+    expect(isTempWorkspacePath('/mnt/c/Users/Valaki/Documents/Temp/proba')).toBe(false)
+    expect(isTempWorkspacePath('/mnt/c/Users/Valaki/AppData/Local/Tempo/proba')).toBe(false)
+  })
+
   it('leaves real folders alone, also the ones that only sound temporary', () => {
     expect(isTempWorkspacePath('/home/x/marveen')).toBe(false)
     expect(isTempWorkspacePath('/home/x/tmp-projekt')).toBe(false)
