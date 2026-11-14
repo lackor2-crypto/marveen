@@ -8,12 +8,19 @@ import { join } from 'node:path'
 // The stepping protocol now (a) answers the stats of one folder concurrently, (b) reads sub-folders ahead.
 
 const fake = vi.hoisted(() => {
-  const state = { statActive: 0, statMax: 0, dirActive: 0, dirMax: 0, delay: 15 }
+  const state = { statActive: 0, statMax: 0, dirActive: 0, dirMax: 0, readActive: 0, readMax: 0, delay: 15 }
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
   return { state, sleep }
 })
 
 vi.mock('node:fs/promises', () => ({
+  readFile: async () => {
+    const s = fake.state
+    s.readActive++; s.readMax = Math.max(s.readMax, s.readActive)
+    await fake.sleep(s.delay)
+    s.readActive--
+    return 'x'
+  },
   stat: async () => {
     const s = fake.state
     s.statActive++; s.statMax = Math.max(s.statMax, s.statActive)
@@ -34,7 +41,7 @@ vi.mock('node:fs/promises', () => ({
 
 import { drainStepsYielding, type Steps } from '../yielding.js'
 
-beforeEach(() => { Object.assign(fake.state, { statActive: 0, statMax: 0, dirActive: 0, dirMax: 0 }) })
+beforeEach(() => { Object.assign(fake.state, { statActive: 0, statMax: 0, dirActive: 0, dirMax: 0, readActive: 0, readMax: 0 }) })
 
 describe('the stepping drain asks a slow drive for several things at once (#915)', () => {
   it('answers the stats of one folder concurrently', async () => {
@@ -56,6 +63,33 @@ describe('the stepping drain asks a slow drive for several things at once (#915)
     }
     await drainStepsYielding(gen())
     expect(fake.state.dirMax).toBeGreaterThan(1)
+  })
+})
+
+describe('the folder id markers are read in one concurrent step (#915)', () => {
+  it('answers a read step concurrently', async () => {
+    const into = new Map<string, string | null>()
+    const gen = function* (): Steps<number> {
+      yield { read: ['/x/1', '/x/2', '/x/3', '/x/4', '/x/5'], into }
+      return into.size
+    }
+    expect(await drainStepsYielding(gen())).toBe(5)
+    expect(fake.state.readMax).toBeGreaterThan(1)
+  })
+
+  it('the reconcile walk has no per-folder existsSync / readFileSync', () => {
+    const src = readFileSync(join(__dirname, '..', 'workbench-assets.ts'), 'utf8')
+    const a = src.indexOf('function* reconcileFolderMarkersSteps(')
+    const rest = src.slice(a + 10)
+    const m = /\nexport function |\nfunction\*? /.exec(rest)
+    const body = rest.slice(0, m ? m.index : rest.length)
+    const w0 = body.indexOf('const walk = function*')
+    const w1 = body.indexOf('yield* walk(t.dirAbs')
+    const walk = body.slice(w0, w1)
+    expect(w0).toBeGreaterThan(-1)
+    expect(walk).not.toMatch(/existsSync\(/)
+    expect(walk).not.toMatch(/readFileSync\(/)
+    expect(walk).toContain('yield { read:')
   })
 })
 

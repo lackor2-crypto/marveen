@@ -2969,22 +2969,36 @@ function* reconcileFolderMarkersSteps(project: ProjectRow, opts: { force?: boole
 
   type Dir = { rel: string; abs: string; id: string | null }
   const dirs: Dir[] = []
-  const walk = function* (abs: string, rel: string, depth: number): Steps<void> {
+  const walk = function* (abs: string, rel: string, depth: number, listed?: import('node:fs').Dirent[] | null): Steps<void> {
     if (depth > WORK_FOLDER_MAX_DEPTH || dirs.length >= WORK_FOLDER_MAX) return
     // #897: the folder read goes through the stepping protocol (async in the yielding drain), not readdirSync: measured 0.84 s on a cold folder.
-    const got = yield { readdir: abs }
+    const got = listed ?? (yield { readdir: abs })
     if (!got) return
     const entries: import('node:fs').Dirent[] = got
+    // #915: a sub-folder's own listing says whether it is a repository (`.git`) and whether it holds the id marker, so the
+    // old existsSync + readFileSync per folder (two serial 9p calls each, ~0.9 s for 113 folders) are gone: the listings are
+    // read ahead concurrently, and the marker files of one folder are read in ONE step.
+    const kids: { d: import('node:fs').Dirent; cAbs: string; inner: import('node:fs').Dirent[] | null; marker: string | null }[] = []
     for (const d of entries) {
       if (!d.isDirectory() || d.name.startsWith('.') || d.name === 'node_modules') continue
       const cAbs = join(abs, d.name)
-      if (existsSync(join(cAbs, '.git'))) continue
+      const inner = (yield { readdir: cAbs }) || null
+      if (inner && inner.some((e) => e.name === '.git')) continue
+      kids.push({ d, cAbs, inner, marker: null })
+    }
+    const wanted = kids.filter((k) => k.inner?.some((e) => e.name === FOLDER_MARKER && !e.isDirectory()))
+    if (wanted.length) {
+      const text = new Map<string, string | null>()
+      yield { read: wanted.map((k) => join(k.cAbs, FOLDER_MARKER)), into: text }
+      for (const k of wanted) k.marker = text.get(join(k.cAbs, FOLDER_MARKER)) ?? null
+    }
+    for (const k of kids) {
       let id: string | null = null
-      try { const v = readFileSync(join(cAbs, FOLDER_MARKER), 'utf8').trim(); if (MARKER_RE.test(v)) id = v } catch { /* no marker yet */ }
-      const cRel = `${rel}/${d.name}`
-      dirs.push({ rel: cRel, abs: cAbs, id })
-      yield // #835: one stat/read per folder on a slow drive -- let the async caller hand the loop back here
-      yield* walk(cAbs, cRel, depth + 1)
+      if (k.marker !== null) { const v = k.marker.trim(); if (MARKER_RE.test(v)) id = v }
+      const cRel = `${rel}/${k.d.name}`
+      dirs.push({ rel: cRel, abs: k.cAbs, id })
+      yield // #835: let the async caller hand the loop back here
+      yield* walk(k.cAbs, cRel, depth + 1, k.inner)
     }
   }
   yield* walk(t.dirAbs, box, 1)
