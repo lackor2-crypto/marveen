@@ -75,7 +75,14 @@ const isPlaceholder = (v: string): boolean => /^\(.*\)$/.test(v.trim())
 export function sendTextFor(d: SendDetails | null, lang: string | null | undefined, key: 'subject' | 'body'): string {
   if (!d) return ''
   const own = lang ? d.byLang[lang.toLowerCase()]?.[key] : ''
-  const v = (own || d[key] || '').trim()
+  let v = (own || d[key] || '').trim()
+  if (isPlaceholder(v)) v = '' // the empty plain line of the block reads "(not filled in yet)": that is no text
+  // The letter's language is unknown (no detectable text yet) and there is no plain line: when the block holds exactly ONE
+  // language's text, that is the one the agent wrote for this letter; never lose it just because the language could not be told.
+  if (!v && !lang) {
+    const only = Object.values(d.byLang).map((t) => (t[key] || '').trim()).filter((t) => t && !isPlaceholder(t))
+    if (only.length === 1) v = only[0]
+  }
   return isPlaceholder(v) ? '' : v
 }
 
