@@ -23,6 +23,7 @@ import { getDb, createApproval, createAgentMessage, getApproval, resolveApproval
 import type { Approval } from './db.js'
 import { MAIN_AGENT_ID } from './config.js'
 import { getProject } from './projects.js'
+import { finalizeTriggerHeld } from './workbench-trigger.js'
 import { ensureWorkbenchTables, getWorkItem, createWorkItemVersion } from './workbench.js'
 import type { WorkItemRow, WorkItemStatus } from './workbench.js'
 import { logger } from './logger.js'
@@ -217,7 +218,12 @@ export function applyWorkItemApprovalOutcome(approvalId: string): WorkItemRow | 
     if (!itemId) return null
     const item = getWorkItem(itemId)
     if (!item || item.status !== 'review') return null
-    if (a.status === 'approved') return setStatus(itemId, 'done')
+    if (a.status === 'approved') {
+      // #909: an approval decided on the Approvals page must not finalize an item that has no trigger document and no "none"
+      // mark; it stays in review, and the owner's Finalize on the Workbench asks the question.
+      if (finalizeTriggerHeld(item)) { logger.warn({ itemId, approvalId }, 'workbench: approved, but the item has no trigger document and no "none" mark; it stays in review'); return null }
+      return setStatus(itemId, 'done')
+    }
     if (a.status === 'rejected') return setStatus(itemId, 'in_progress')
     return null
   } catch (err) {

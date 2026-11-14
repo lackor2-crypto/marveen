@@ -7,7 +7,9 @@
 import { readdirSync } from 'node:fs'
 import { listMounts } from './life-mounts.js'
 import { projectFileTarget, TRIGGER_FOLDER_NAMES } from './project-files.js'
+import { getProject } from './projects.js'
 import type { ProjectRow } from './projects.js'
+import { variantOf } from './workbench-doclang.js'
 import type { WorkItemRow } from './workbench.js'
 
 export type TriggerState = {
@@ -60,6 +62,19 @@ export function triggerBlocksWork(st: TriggerState): boolean {
 export function finalizeNeedsTrigger(st: TriggerState, isLanguageVersion: boolean): boolean {
   if (st.noTrigger || st.files.length > 0 || isLanguageVersion) return false
   return true
+}
+
+/**
+ * #909: the ONE question every way of closing an item asks before it becomes done: the owner's Finalize (both routes), the owner's
+ * "approve" on the Workbench, and an approval decided on the Approvals page. True = the item must not be finalized yet.
+ * An unreadable state never blocks (the same safe side as the assistant's hold).
+ */
+export function finalizeTriggerHeld(item: WorkItemRow): boolean {
+  try {
+    const project = getProject(item.project_id)
+    if (!project) return false
+    return finalizeNeedsTrigger(triggerStateOf(project, item), !!variantOf(item.id))
+  } catch { return false }
 }
 
 /** #794 (Boss TG 3807): while the work is held, the owner may still ask to FIND and LINK the trigger document ("1", "keressük

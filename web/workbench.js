@@ -14104,7 +14104,7 @@
     return out + '</div>'
   }
 
-  function approvalAction(action, retried) {
+  function approvalAction(action, retried, keepReason) {
     if (!WB.detail || WB.approvalBusy) return
     var id = WB.detail.item.id
     var body = { action: action }
@@ -14112,6 +14112,7 @@
     if (action === 'approve' || action === 'reject') {
       var el = document.getElementById('wbApprovalReason')
       var reason = el && typeof el.value === 'string' ? el.value.trim() : ''
+      if (!reason && keepReason) reason = keepReason
       if (reason) body.reason = reason
       if (action === 'reject' && !reason && !window.confirm(t('workbench.approval.reject_no_reason'))) return
     }
@@ -14121,7 +14122,8 @@
       WB.approvalBusy = false
       if (!WB.detail || WB.detail.item.id !== id) return
       if (!r.ok) {
-        if (action === 'finalize' && askNoTriggerThen(id, r, function () { approvalAction('finalize', true) })) { render(); return }
+        // #909: accepting the ticket finalizes too, so it gets the same question; the reason typed is kept for the retry.
+        if ((action === 'finalize' || action === 'approve') && askNoTriggerThen(id, r, function () { approvalAction(action, true, body.reason) })) { render(); return }
         window.showToast(r.text || r.message); render(); return
       }
       if (r.data && r.data.item) WB.detail.item = r.data.item

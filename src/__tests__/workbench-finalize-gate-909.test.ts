@@ -43,7 +43,7 @@ describe('both finalize routes ask the same gate', () => {
 describe('the page answers a refused finalize with the owner own click', () => {
   it('both finalize handlers offer the "no trigger document" mark and run again', () => {
     expect(js).toContain("askNoTriggerThen(id, r, function () { finalizeDocument() })")
-    expect(js).toContain("askNoTriggerThen(id, r, function () { approvalAction('finalize', true) })")
+    expect(js).toContain("askNoTriggerThen(id, r, function () { approvalAction(action, true, body.reason) })")
     expect(hu).toContain('"workbench.trigger.finalize_ask"')
     expect(en).toContain('"workbench.trigger.finalize_ask"')
   })
