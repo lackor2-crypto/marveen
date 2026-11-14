@@ -2,8 +2,8 @@
 // dashboard (measured 3.1 s and 5.2 s in /api/perf/stalls). Such a pass is written as a generator that yields between
 // items; the sync wrapper drains it at once (same behaviour as before), the async one gives the loop back every few ms.
 
-import { readdirSync, statSync } from 'node:fs'
-import { readdir, stat } from 'node:fs/promises'
+import { readdirSync, statSync, readFileSync } from 'node:fs'
+import { readdir, stat, readFile } from 'node:fs/promises'
 import type { Dirent, Stats } from 'node:fs'
 import { join } from 'node:path'
 
@@ -14,13 +14,17 @@ export interface DirRead { readdir: string }
 // Per-file stats of one folder in ONE step: on a slow drive (the depot on a 9p mount costs ~7 ms per fs call) a serial
 // statSync per file took seconds; the yielding drain runs them concurrently and the answer lands in `into` (null = gone).
 export interface StatRead { stat: string[]; into: Map<string, Stats | null> }
-export type Step = void | DirRead | StatRead
+// Same idea for small text files (the folder id markers): one step reads them all, the drain runs the reads concurrently.
+export interface ReadFiles { read: string[]; into: Map<string, string | null> }
+export type Step = void | DirRead | StatRead | ReadFiles
 export type DirEntries = Dirent[] | null | void
 export type Steps<T> = Generator<Step, T, DirEntries>
 
 const readNow = (dir: string): Dirent[] | null => { try { return readdirSync(dir, { withFileTypes: true }) } catch { return null } }
 const readLater = async (dir: string): Promise<Dirent[] | null> => { try { return await readdir(dir, { withFileTypes: true }) } catch { return null } }
 const statNow = (p: string): Stats | null => { try { return statSync(p) } catch { return null } }
+const textNow = (p: string): string | null => { try { return readFileSync(p, 'utf8') } catch { return null } }
+const textLater = async (p: string): Promise<string | null> => { try { return await readFile(p, 'utf8') } catch { return null } }
 const statLater = async (p: string): Promise<Stats | null> => { try { return await stat(p) } catch { return null } }
 
 // At most this many fs calls in flight at once: enough to hide a slow drive's latency, few enough not to flood the pool.
@@ -43,7 +47,8 @@ export function drainSteps<T>(it: Generator<Step, T, DirEntries>): T {
     const v = r.value
     if (!v) continue
     if ('readdir' in v) answer = readNow(v.readdir)
-    else for (const p of v.stat) v.into.set(p, statNow(p))
+    else if ('stat' in v) for (const p of v.stat) v.into.set(p, statNow(p))
+    else for (const p of v.read) v.into.set(p, textNow(p))
   }
 }
 
@@ -73,9 +78,12 @@ export async function drainStepsYielding<T>(it: Generator<Step, T, DirEntries>, 
             if (!ahead.has(child)) ahead.set(child, limited(() => readLater(child)))
           }
         }
-      } else {
+      } else if ('stat' in v) {
         const got = await Promise.all(v.stat.map((p) => limited(() => statLater(p))))
         v.stat.forEach((p, i) => v.into.set(p, got[i]))
+      } else {
+        const got = await Promise.all(v.read.map((p) => limited(() => textLater(p))))
+        v.read.forEach((p, i) => v.into.set(p, got[i]))
       }
       slice = Date.now()
       continue
