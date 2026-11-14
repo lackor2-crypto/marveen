@@ -665,13 +665,16 @@ function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } 
   const ownFolders = liveOwnFolders(project)
   let fileTotal = 0
   let truncated = false
-  const walk = function* (abs: string, rel: string, depth: number): Steps<void> {
-    if (depth > WORK_FOLDER_MAX_DEPTH) return
+  // Returns true when the folder is a git repository (its own listing holds `.git`): it is then left out entirely.
+  // #915: that used to be one existsSync per folder on the drive (~7 ms each on the 9p depot); the listing we read anyway says it.
+  const walk = function* (abs: string, rel: string, depth: number, checkGit: boolean): Steps<boolean> {
+    if (depth > WORK_FOLDER_MAX_DEPTH) return false
     yield
     // #897: asked for through the stepping protocol: the yielding drain reads it asynchronously (a cold folder blocked 0.8 s).
     const got = yield { readdir: abs }
-    if (!got) return
+    if (!got) return false
     const entries: import('node:fs').Dirent[] = got
+    if (checkGit && entries.some((e) => e.name === '.git')) return true
     // #488: list the loose files in EVERY folder, even one that also holds a work item (its snapshot
     // sits directly in it after the #479 flatten). Only the snapshot file and dotfiles are kept out,
     // so a folder where Boss put pictures next to the presentation no longer looks empty (Boss TG
@@ -679,35 +682,47 @@ function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } 
     {
       const plain = entries.filter((d) => d.isFile() && !d.name.startsWith('.') && d.name !== ITEM_SNAPSHOT_NAME)
         .sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true }))
+      const take: string[] = []
+      let total = fileTotal
       for (const f of plain) {
-        if (fileTotal >= WORK_FILES_TOTAL_MAX || (files[rel]?.length ?? 0) >= WORK_FOLDER_FILES_MAX) { truncated = true; break }
-        if (fileTotal % 32 === 31) yield
-        let size = 0
-        let at: number | undefined
-        try { const st = statSync(join(abs, f.name)); size = st.size; at = fileStamp(st) } catch { /* gone meanwhile */ }
-        const lifeRel = `${t.dirRel}${rel.slice(box.length)}/${f.name}`
-        ;(files[rel] = files[rel] || []).push({ name: f.name, size, ...(at !== undefined ? { at } : {}), rel: lifeRel, ...(itemFolders.has(rel) ? { item: true as const } : {}), ...(isVersionsFolderKey(rel, itemFolders) ? { version: true as const } : {}) })
+        if (total >= WORK_FILES_TOTAL_MAX || (files[rel]?.length ?? 0) + take.length >= WORK_FOLDER_FILES_MAX) { truncated = true; break }
+        take.push(f.name)
+        total++
+      }
+      // #915: all stats of the folder in ONE step (the yielding drain runs them concurrently).
+      const stats = new Map<string, import('node:fs').Stats | null>()
+      if (take.length) yield { stat: take.map((n) => join(abs, n)), into: stats }
+      for (const name of take) {
+        const st = stats.get(join(abs, name))
+        const size = st ? st.size : 0
+        const at = st ? fileStamp(st) : undefined
+        const lifeRel = `${t.dirRel}${rel.slice(box.length)}/${name}`
+        ;(files[rel] = files[rel] || []).push({ name, size, ...(at !== undefined ? { at } : {}), rel: lifeRel, ...(itemFolders.has(rel) ? { item: true as const } : {}), ...(isVersionsFolderKey(rel, itemFolders) ? { version: true as const } : {}) })
         fileTotal++
       }
     }
     const dirs = entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
       .sort((a, b) => a.name.localeCompare(b.name, 'hu'))
     for (const d of dirs) {
-      if (out.length >= WORK_FOLDER_MAX) { truncated = true; return }
+      if (out.length >= WORK_FOLDER_MAX) { truncated = true; return false }
       const childAbs = join(abs, d.name)
-      if (existsSync(join(childAbs, '.git'))) continue
       const childRel = `${rel}/${d.name}`
+      // Beyond the depth limit the child is not read at all, so only there the repository check still asks the drive.
+      if (depth + 1 > WORK_FOLDER_MAX_DEPTH && existsSync(join(childAbs, '.git'))) continue
       // #691: a versions folder with no file in it is never shown (only a saved version makes it worth seeing).
       if (isVersionsFolderKey(childRel, itemFolders)) {
         const inner = yield { readdir: childAbs } // #897: through the stepping protocol, not readdirSync
+        if (inner && inner.some((e) => e.name === '.git')) continue
         const any = !!inner && inner.some((e) => e.name !== FOLDER_MARKER)
         if (!any) continue
       }
+      const at = out.length
       out.push(childRel)
-      yield* walk(childAbs, childRel, depth + 1)
+      if (yield* walk(childAbs, childRel, depth + 1, true)) out.splice(at, 1)
     }
+    return false
   }
-  yield* walk(t.dirAbs, box, 1)
+  yield* walk(t.dirAbs, box, 1, false)
   // #698: a file that probably lies in the wrong place is only MARKED (nothing is moved or deleted).
   annotateMisplaced(box, files, itemFolders)
   yield* linkedAnnexRows(project, out, files)
