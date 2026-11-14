@@ -70,7 +70,7 @@ import { beginDocStep, docHistoryState, docStepLabel, redoDocStep, undoDocStep }
 import { resolveProjectFile, sourceWorldFor } from '../../workbench-docmodel-world.js'
 import { egressLog, itemAiCost, recordImageAiCall, privacyState, projectSensitive, sensitiveItemIds, setItemSensitive, setProjectSensitive } from '../../workbench-privacy.js'
 import { trailToText } from '../../workbench-doctrail-text.js'
-import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation, variantOf as docVariantOf } from '../../workbench-doclang.js'
+import { createVariant, variantInfo, variantsSummary, listGlossary, addGlossaryTerm, removeGlossaryTerm, backchecks, removeBackTranslation } from '../../workbench-doclang.js'
 import { mirrorFileEdited, scheduleOutlineMirror } from '../../workbench-docmirror.js'
 import { importTextToOutline, isTextProfileCandidate, reimportTextFromFile, textProfileOf } from '../../workbench-textdoc.js'
 import { deleteWordCurrentVersion, dismissWordWarnings, importWordToOutline, isWordImported, isWordProfileCandidate, reimportWordFromFile, restoreWordVersion, uploadWordVersion, wordImportWarnings, type WordVersionOutcome, type WordWarning } from '../../workbench-worddoc.js'
@@ -83,7 +83,7 @@ import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus }
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { hasTextFinalPanel } from '../../workbench-notefinal.js'
 import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefinal.js'
-import { finalizeNeedsTrigger, triggerStateOf } from '../../workbench-trigger.js'
+import { finalizeTriggerHeld } from '../../workbench-trigger.js'
 import { hasDocxFinalPanel, hasPdfSource } from '../../workbench-docxfinal.js'
 import { decideWorkmodeProposal, DEFAULT_WORKMODE, getWorkmode, listWorkmodeProposals, resetWorkmode, setWorkmode, sheetWithRule, WORKMODE_MAX_CHARS } from '../../workbench-workmode.js'
 import { checkPlacementAfter, lifeMoveIssues } from '../../workbench-placement-check.js'
@@ -2662,15 +2662,6 @@ function isBrowserPageClick(ctx: RouteContext): boolean {
  *  deadline as a to-do, mark a source as seen): a sign-in session OR a click on the dashboard page itself in token mode.
  *  One rule for all of them -- fixing these buttons one by one left the next one returning 403 for a page opened with the
  *  token only (#1512, #1520, TG 3936). Finalising, the sensitive switch and the court rules use it too (Boss TG 4029: finalising answered "only you can" to his own click in token mode, the third time the same cause came back). */
-/** #909 (Boss TG 5943): every way of finalizing asks the same question first: the trigger document, or the owner's "none" mark. */
-function finalizeTriggerHeld(item: WorkItemRow): boolean {
-  try {
-    const project = getProject(item.project_id)
-    if (!project) return false
-    return finalizeNeedsTrigger(triggerStateOf(project, item), !!docVariantOf(item.id))
-  } catch { return false } // an unreadable state never blocks (the same safe side as the assistant's hold)
-}
-
 function isOwnerOrPageClick(ctx: RouteContext): boolean {
   return isOwnerClick(ctx) || isBrowserPageClick(ctx)
 }
@@ -5267,6 +5258,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     else if (action === 'withdraw') r = withdrawWorkItemApproval(item.id, { actor: who, lang })
     else if (action === 'approve' || action === 'reject') {
       if (ctx.auth?.kind !== 'session') return fail(res, 403, 'approval_owner_only', lang)
+      // #909: accepting the ticket finalizes the item, so it asks the same trigger question as the Finalize button.
+      if (action === 'approve' && finalizeTriggerHeld(item)) return fail(res, 409, 'finalize_trigger_missing', lang)
       r = decideWorkItemApproval(item.id, action === 'approve' ? 'approved' : 'rejected', { by: who || 'dashboard', reason: body['reason'] })
     } else if (action === 'finalize' || action === 'reopen') {
       // #552: the owner's own one-click finalize / reopen; an agent can only submit for approval.

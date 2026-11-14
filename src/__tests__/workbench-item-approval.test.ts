@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { Readable, Writable } from 'node:stream'
 import { initDatabase, getApproval, resolveApproval, getDb } from '../db.js'
 import { createProject } from '../projects.js'
-import { createWorkItem, getWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem, setWorkItemNoTrigger } from '../workbench.js'
 import {
   submitWorkItemForApproval, withdrawWorkItemApproval, decideWorkItemApproval,
   applyWorkItemApprovalOutcome, workItemApprovalState, listWorkItemApprovals,
@@ -36,6 +36,8 @@ let pid = ''
 function item(title = 'Ajánlat') {
   const r = createWorkItem({ project_id: pid, title, type: 'note' })
   if (!r.ok) throw new Error('nem jott letre')
+  // #909: accepting a ticket finalizes, which asks for the trigger document or the owner's "none" mark; these tests are about the ticket.
+  setWorkItemNoTrigger(r.item.id, true)
   return r.item
 }
 
