@@ -195,14 +195,21 @@ export function isTempWorkspacePath(workspacePath: string): boolean {
   const raw = String(workspacePath ?? '').trim()
   if (!raw) return false
   const under = (key: string, base: string): boolean => !!base && base !== '/' && (key === base || key.startsWith(base + '/'))
-  const local = toLocalWorkspacePath(raw)
+  // The WSL UNC form is parsed here too (not only through toLocalWorkspacePath, which on a
+  // Windows server returns the path unchanged), so the verdict does not depend on the host.
+  const unc = raw.match(/^\\\\wsl(?:\.localhost|\$)\\[^\\]+(\\.*)?$/i)
+  const local = unc ? (unc[1] ?? '\\').replace(/\\/g, '/') || '/' : toLocalWorkspacePath(raw)
   if (local) {
     const key = workspaceKey(local)
     for (const base of [tmpdir(), '/tmp', '/var/tmp']) if (under(key, workspaceKey(base))) return true
   }
-  // Windows side: the user's and the system's temp directory, on any drive.
-  const win = raw.replace(/\\/g, '/').toLowerCase()
-  return /^[a-z]:\/users\/[^/]+\/appdata\/local\/temp(\/|$)/.test(win) || /^[a-z]:\/windows\/temp(\/|$)/.test(win)
+  // Windows side: the user's and the system's temp directory, on any drive -- both as
+  // `C:\...` and as WSL sees the same folder (`/mnt/c/...`).
+  const asDrive = (p: string): string => p.replace(/\\/g, '/').toLowerCase().replace(/^\/mnt\/([a-z])(\/|$)/, '$1:$2')
+  return [raw, local ?? ''].some((p) => {
+    const win = asDrive(p)
+    return /^[a-z]:\/users\/[^/]+\/appdata\/local\/temp(\/|$)/.test(win) || /^[a-z]:\/windows\/temp(\/|$)/.test(win)
+  })
 }
 
 /**
