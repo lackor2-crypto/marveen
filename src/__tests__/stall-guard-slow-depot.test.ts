@@ -91,7 +91,9 @@ describe('#894: no request holds the loop on a slow (9p-like) depot', () => {
       const r = await longestHold(() => callWorkbench(path(), 'GET'))
       slow.on = false
       expect(r.value.status).toBe(200)
-      expect(slow.calls).toBeGreaterThan(50) // the simulation really was in the path
+      // the simulation really was in the path (#915: the list walk now asks the drive mostly through async, concurrent
+      // reads, so fewer sync calls remain than the 50+ it used to make; the 300 ms hold limit below is unchanged)
+      expect(slow.calls).toBeGreaterThan(20)
       expect(r.ms).toBeLessThan(LIMIT_MS)
     }, 60_000)
   }
