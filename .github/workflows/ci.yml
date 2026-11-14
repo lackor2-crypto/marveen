@@ -177,7 +177,7 @@ jobs:
   browser:
     name: Browser regression (Playwright)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -196,6 +196,11 @@ jobs:
 
       - name: Playwright browser suite
         run: npx playwright test --config=playwright.browser.config.ts
+
+      # #824: the live suite boots a disposable web-only dashboard (empty store, temp depot) and clicks through the signature
+      # picker, language versions, finalising, the folder structure and the Life-tree move.
+      - name: Playwright live-dashboard suite
+        run: npx playwright test --config=playwright.live.config.ts
 
   # Aggregalt, STABIL nevu zaro kapu. A branch protection EZT jelolje required
   # status check-nek a matrix-fuggo "Node 20.19" / "Node 22" nevek helyett: azok
