@@ -2542,3 +2542,10 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
   .wb-doclang-cols { grid-template-columns: minmax(0, 1fr); }
   .wb-tl-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* #906: technical details in the middle column; the folder column starts collapsed and the splitter brings it back. */
+.wb-fr-center-tech { overflow-x: hidden; overflow-y: auto; background: var(--bg-card); padding: 14px; box-sizing: border-box; }
+@media (min-width: 901px) {
+  .wb-fr-panel.wb-fr-panel-collapsed { flex: 0 0 0; width: 0; min-width: 0; padding: 0; border: 0; overflow: hidden; }
+  .wb-fr-panel-collapsed + .wb-tree-split { background: var(--border, #d0d7de); flex-basis: 12px; }
+}

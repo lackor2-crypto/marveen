@@ -19244,9 +19244,16 @@
     return '<h3 class="wb-fr-ptitle">' + esc(label) + '</h3>'
   }
 
+  /** #906: while the technical details are open (WB.shMore) they fill the middle column and the folder column starts collapsed
+   *  (zero width). Its splitter stays: a click, a drag or an arrow key brings the column back at the stored width, and from there
+   *  it resizes as always (WB.shTechWide = the owner took it back). Without an open rail tab the collapsed column still exists,
+   *  holding the folder tree, so there is always something to drag back. */
+  function frPanelCollapsed() { return !!WB.shMore && !WB.shTechWide }
   function frPanelHtml() {
-    if (!WB.frTab) return ''
-    return '<aside class="wb-fr-panel"' + treeWidthStyle() + '>' + frPanelTitleHtml() + frPanelBodyHtml() + '</aside>' + treeWidthHandleHtml()
+    if (!WB.frTab && !WB.shMore) return ''
+    var title = WB.frTab ? frPanelTitleHtml() : '<h3 class="wb-fr-ptitle">' + esc(t('workbench.fr.tab.projects')) + '</h3>'
+    var body = WB.frTab ? frPanelBodyHtml() : itemsPanelHtml(true)
+    return '<aside class="wb-fr-panel' + (frPanelCollapsed() ? ' wb-fr-panel-collapsed' : '') + '"' + treeWidthStyle() + '>' + title + body + '</aside>' + treeWidthHandleHtml()
   }
 
   /** A dia-/kartya-export gombjai (PPTX, PDF) -- az Export-doboz tetejen, a deck-nek. */
@@ -21367,6 +21374,8 @@
 
   function frCenterHtml() {
     var it = WB.detail ? WB.detail.item : null
+    // #906 (Boss): the technical details (the old ⋮ block below the page) open here, in the middle, in place of the work piece.
+    if (WB.shMore) { WB.frShowBar = false; return '<div class="wb-fr-center wb-fr-center-tech">' + simpleTechHtml() + '</div>' }
     // The Vitaztatas button covers the work piece; pressing it again brings the work piece back.
     if (WB.dbOpen) { WB.frShowBar = false; return '<div class="wb-fr-center wb-fr-center-db">' + dbPanelHtml() + '</div>' }
     var page = ''
@@ -21513,6 +21522,8 @@
     w = Math.round(Math.min(treeWidthMax(), Math.max(TREE_WIDTH_MIN, w)))
     tgt.style.setProperty('--wb-tree-w', w + 'px') // a variable: the narrow (column) layout overrides it
     WB.treeWidth = w
+    // #906: a drag, a click or an arrow key on the splitter brings the collapsed folder column back.
+    if (WB.shMore && !WB.shTechWide) { WB.shTechWide = true; if (tgt.classList) tgt.classList.remove('wb-fr-panel-collapsed') }
     if (save) { try { window.localStorage && window.localStorage.setItem(TREE_WIDTH_KEY, String(w)) } catch (_e) { /* only this session */ } }
   }
   document.addEventListener('pointerdown', function (e) {
@@ -21522,6 +21533,7 @@
     if (!pane) return
     e.preventDefault()
     var x0 = e.clientX; var w0 = pane.getBoundingClientRect().width
+    if (WB.shMore && !WB.shTechWide) w0 = WB.treeWidth > 0 ? WB.treeWidth : 320 // #906: a collapsed column comes back at its stored width
     function mv(ev) { applyTreeWidth(w0 + (ev.clientX - x0), false) }
     function up(ev) {
       document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up)
@@ -21534,7 +21546,7 @@
     var pane = treeWidthPane()
     if (!pane) return
     e.preventDefault()
-    applyTreeWidth(pane.getBoundingClientRect().width + (e.key === 'ArrowLeft' ? -24 : 24), true)
+    applyTreeWidth((WB.shMore && !WB.shTechWide ? (WB.treeWidth > 0 ? WB.treeWidth : 320) : pane.getBoundingClientRect().width) + (e.key === 'ArrowLeft' ? -24 : 24), true)
   })
   document.addEventListener('dblclick', function (e) {
     if (!(e.target && e.target.closest && e.target.closest('#wbTreeWidthSplit'))) return
@@ -21599,12 +21611,11 @@
 
   function simpleHtml() {
     var hasItem = !!WB.selectedId
-    if (hasItem) return frameHtml() + (WB.shMore ? simpleTechHtml() : '')
+    if (hasItem) return frameHtml()
     // #756 (Boss TG 4376): with no work item open the folder tree is on top too, in a left column like the frame's Projects tab.
     return simpleHeadHtml() + projectDocsPanelHtml() + '<div class="wb-sh-start wb-sh-start-tree' + (WB.frChat ? ' wb-sh-start-chat' : '') + '">'
       + '<aside class="wb-fr-panel wb-sh-tree" aria-label="' + escA(t('workbench.fr.tab.projects')) + '">' + itemsPanelHtml(true) + '</aside>'
-      + '<div class="wb-sh-main">' + (WB.dbOpen ? dbPanelHtml() : simpleIntakeHtml() + simpleRecentHtml()) + '</div>' + frChatHtml() + '</div>'
-      + (WB.shMore ? simpleTechHtml() : '')
+      + '<div class="wb-sh-main">' + (WB.shMore ? simpleTechHtml() : WB.dbOpen ? dbPanelHtml() : simpleIntakeHtml() + simpleRecentHtml()) + '</div>' + frChatHtml() + '</div>'
   }
 
   /** Puts the slide strip back where it was, and only moves it when the open slide would be
@@ -21630,7 +21641,8 @@
   function lockFrameScroll() {
     if (typeof document.querySelector !== 'function') return
     var frame = document.querySelector('.wb-fr-body')
-    var lock = !!frame && !WB.shMore && window.innerWidth > 900
+    // #906: the technical details are in the frame's middle column now, so the page never needs its own scroll for them.
+    var lock = !!frame && window.innerWidth > 900
     var host = document.querySelector('main.projects-active')
     // A class (not an inline style) and only effective under .projects-active: leaving the tab leaks nothing.
     if (host && host.classList) host.classList.toggle('wb-sh-locked', lock)
@@ -21645,15 +21657,6 @@
     if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return
     var host = document.querySelector('main')
     if (host && host.classList) host.classList.remove('wb-sh-locked')
-  }
-
-  /** After "Technical details" opens: the page scrolls itself up to where they start, so the
-   *  click visibly does something. */
-  function scrollTechIntoView() {
-    var el = typeof document.getElementById === 'function' ? document.getElementById('wbShTech') : null
-    if (el && typeof el.scrollIntoView === 'function') {
-      try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } catch (_e) { el.scrollIntoView() }
-    }
   }
 
   function fitFrame() {
@@ -22427,7 +22430,7 @@
     if (WB.frMenu && a !== 'fr-menu') WB.frMenu = null
     if (a === 'fr-menu') { var m = act.getAttribute('data-wb-m'); WB.frMenu = WB.frMenu === m ? null : m; render() }
     else if (a.indexOf('db-') === 0) dbAct(a, act)
-    else if (a === 'fr-tab') { var tb = act.getAttribute('data-wb-tab'); WB.frTab = WB.frTab === tb ? null : tb; writePref('wb.fr.tab', WB.frTab || ''); render(); if (WB.frTab === 'brand' && !WB.brandOpen) { WB.brandOpen = true; render(); loadBrand() } if (WB.frTab === 'templates' && WB.templates === null) loadTemplates() }
+    else if (a === 'fr-tab') { var tb = act.getAttribute('data-wb-tab'); WB.frTab = WB.frTab === tb ? null : tb; WB.shTechWide = true; writePref('wb.fr.tab', WB.frTab || ''); render(); if (WB.frTab === 'brand' && !WB.brandOpen) { WB.brandOpen = true; render(); loadBrand() } if (WB.frTab === 'templates' && WB.templates === null) loadTemplates() }
     else if (a === 'fr-live') { WB.frLive = !WB.frLive; render() }
     else if (a === 'fr-chat') { WB.frChat = !WB.frChat; writePref('wb.fr.chat', WB.frChat ? '1' : '0'); render() }
     else if (a === 'fr-add-text') frAddText(act.getAttribute('data-wb-arg'))
@@ -22624,7 +22627,7 @@
     else if (a === 'text-save') { e.preventDefault(); saveTextEdit() }
     else if (a === 'text-cancel') { WB.textEdit = null; render() }
     else if (a === 'view-set') setView(act.getAttribute('data-wb-view'))
-    else if (a === 'sh-more') { WB.shMore = !WB.shMore; render(); if (WB.shMore) scrollTechIntoView() }
+    else if (a === 'sh-more') { WB.shMore = !WB.shMore; WB.shTechWide = false; render() }
     else if (a === 'sh-recent-view') { WB.recentMode = act.getAttribute('data-wb-mode') === 'list' ? 'list' : 'grid'; saveRecentMode(WB.recentMode); render() }
     else if (a === 'sh-new') { WB.selectedId = null; WB.detail = null; WB.formOpen = false; WB.shMore = false; render() }
     else if (a === 'tw-toggle') {
