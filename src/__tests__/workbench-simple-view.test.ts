@@ -94,6 +94,26 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     expect(h.html()).not.toContain('wbShTech')
   })
 
+  // #906 (Boss): the technical details open in the MIDDLE column, the folder column collapses but can be dragged back.
+  it('#906: a technikai reszletek a kozepso oszlopban nyilnak, a mappaoszlop osszecsukva, a huzo megmarad', async () => {
+    const h = workbenchHarness({ storage: { [KEY]: 'simple' } })
+    await openWith(h, [ITEM])
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.html()).toContain('wb-fr-center'))
+    expect(h.html()).not.toContain('wb-fr-panel-collapsed')
+    h.click({ 'data-wb-act': 'sh-more' })
+    const html = h.html()
+    const centre = html.indexOf('wb-fr-center wb-fr-center-tech')
+    expect(centre).toBeGreaterThan(-1)
+    expect(html.indexOf('wbShTech')).toBeGreaterThan(centre)
+    expect(html).toContain('wb-fr-panel wb-fr-panel-collapsed')
+    expect(html).toContain('id="wbTreeWidthSplit"')
+    expect(html.indexOf('wb-fr-panel-collapsed')).toBeLessThan(centre)
+    h.click({ 'data-wb-act': 'sh-more' })
+    expect(h.html()).not.toContain('wb-fr-panel-collapsed')
+    expect(h.html()).not.toContain('wbShTech')
+  })
+
   it('egyszerű nézet, kijelölt munka: felül sáv, balra ikonsáv + panel, középen a lap, jobbra a chat, alul nagyítás, Mentve jelzés', async () => {
     const h = workbenchHarness({ storage: { [KEY]: 'simple' } })
     await openWith(h, [ITEM])

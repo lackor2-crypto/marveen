@@ -26,11 +26,11 @@ describe('Workbench trash card', () => {
 
 // TG 2469: no page scroll in the Simple view until the technical details open; opening scrolls to them.
 describe('Simple view technical details', () => {
-  it('locks the page scroll while the details are closed and scrolls to them on open', () => {
+  it('locks the page scroll in the frame (the details open in its middle column, #906)', () => {
     expect(js).toContain("host.classList.toggle('wb-sh-locked', lock)")
     expect(js).toContain('lockFrameScroll()')
-    expect(js).toContain("if (WB.shMore) scrollTechIntoView()")
-    expect(js).toContain("scrollIntoView({ behavior: 'smooth', block: 'start' })")
+    // #906: the details open in the frame's middle column, so there is nothing below the page to scroll to any more
+    expect(js).not.toContain('scrollTechIntoView')
     expect(css).toContain('main.projects-active.wb-sh-locked:has(.wb-fr-body) { overflow-y: hidden; }')
   })
 })
