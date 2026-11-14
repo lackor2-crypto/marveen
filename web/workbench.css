@@ -2529,4 +2529,16 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
      412px viewport) and the right side was cut off the deeper the folders went. minmax(0,1fr) lets the column shrink. */
   .wb-grid, .wb-grid.wb-grid-aside, .wb-grid-aside[style*="--wb-tree-w"] { grid-template-columns: minmax(0, 1fr); }
   .wb-grid > *, .wb-grid-aside > * { min-width: 0; }
+  /* Same root cause in every other one-column phone grid of the Workbench (the main chat/work frame, compare, canvas picker,
+     image columns, markdown split, language columns, timeline rows): a plain `1fr` track grows to its widest content. */
+  .wb-split, .wb-cmp-head, .wb-cmp-cols, .wb-img-cols, .wb-md-split { grid-template-columns: minmax(0, 1fr); }
+  .wb-split > *, .wb-cmp-head > *, .wb-cmp-cols > *, .wb-img-cols > *, .wb-md-split > * { min-width: 0; }
+}
+@media (max-width: 720px) {
+  .wb-can-grid { grid-template-columns: minmax(0, 1fr); }
+  .wb-can-grid > * { min-width: 0; }
+}
+@media (max-width: 700px) {
+  .wb-doclang-cols { grid-template-columns: minmax(0, 1fr); }
+  .wb-tl-row { grid-template-columns: minmax(0, 1fr); }
 }

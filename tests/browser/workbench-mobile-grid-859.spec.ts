@@ -10,6 +10,9 @@ for (const [name, cls, style] of [
   ['plain grid', 'wb-grid', ''],
   ['aside grid', 'wb-grid wb-grid-aside', ''],
   ['aside grid with a dragged tree width', 'wb-grid wb-grid-aside', '--wb-tree-w:600px'],
+  ['main chat/work split', 'wb-split', ''],
+  ['compare columns', 'wb-cmp-cols', ''],
+  ['image columns', 'wb-img-cols', ''],
 ] as const) {
   test(`mobile: ${name} stays inside the viewport with very wide content`, async ({ page }) => {
     await page.setContent(`<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0">
