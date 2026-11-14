@@ -2,6 +2,7 @@ import { defineConfig, configDefaults } from 'vitest/config'
 
 // The Playwright suites are driven by their own configs, not by `vitest run`:
 // tests/smoke/** by `npm run smoke` (playwright.config.ts, a running dashboard)
+// tests/browser-live/** by playwright.live.config.ts (#824, a disposable dashboard)
 // and tests/browser/** by `npm run browser-verify`
 // (playwright.browser.config.ts, the static front end). Playwright's test() API
 // throws when collected under vitest, which fails the unit gate. Keep all
@@ -27,7 +28,7 @@ export default defineConfig({
     // configDefaults.exclude is ONLY ['**/node_modules/**', '**/.git/**']
     // (measured, not assumed). Whatever the defaults used to carry, they do not
     // carry this, and the comment's premise quietly stopped holding.
-    exclude: [...configDefaults.exclude, 'dist/**', 'tests/smoke/**', 'tests/browser/**', 'vendor/**'],
+    exclude: [...configDefaults.exclude, 'dist/**', 'tests/smoke/**', 'tests/browser/**', 'tests/browser-live/**', 'vendor/**'],
     // vitest 4 enforces the 5s default testTimeout on tests that vitest 2 let
     // run long. Three subprocess-spawning tests (send-honesty-final,
     // send-honesty-round2) legitimately take 15-30s: they shell out to
