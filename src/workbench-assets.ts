@@ -48,6 +48,7 @@ import { annotateMisplaced, adviseUpload, type Misplaced, type UploadAdvice } fr
 import { folderWasMade, noteFolderMade, noteOneStandardFolder, itemStandardFolderNames, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, receiptFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
+import { listFolderLinks } from './workbench-folder-links.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
 /** #479: the create form's "directly in the project folder" place (not a group of the work items box). Stored in container_folder. */
@@ -640,18 +641,21 @@ function* mountedFileRows(boxLife: string, box: string, folders: string[], files
   }
 }
 
+/** #809: `item_links` = folder -> ids of work items that are only LINKED into that folder (their home is elsewhere). */
+export type WorkFoldersResult = { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[]; item_links?: Record<string, string[]> }
+
 /** `outside: false`: only the box (the file actions that check a path against the box need no more). */
-export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): { box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] } {
+export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean } = {}): WorkFoldersResult {
   return drainSteps(listWorkFoldersSteps(project, opts))
 }
 
 /** #860: same listing, but the disk walk gives the event loop back every few ms (the Munkapad tree polls every 20 s and the
  *  synchronous walk held the loop 2-3 s on the slow depot drive). */
-export function listWorkFoldersYielding(project: ProjectRow, opts: { outside?: boolean } = {}): Promise<{ box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] }> {
+export function listWorkFoldersYielding(project: ProjectRow, opts: { outside?: boolean } = {}): Promise<WorkFoldersResult> {
   return drainStepsYielding(listWorkFoldersSteps(project, opts))
 }
 
-function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } = {}): Steps<{ box: string | null; folders: string[]; truncated: boolean; files: Record<string, WorkFolderFile[]>; outside: ProjectOutside; root_name: string; own_folders: string[] }> {
+function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } = {}): Steps<WorkFoldersResult> {
   const box = findWorkItemsBox(project)
   const outside = opts.outside === false ? { folders: [], files: {}, truncated: false, lazy: {}, linked: {} } : yield* listProjectOutsideSteps(project, box)
   // The real folder name of the project (it can differ from the project's display name).
@@ -728,7 +732,7 @@ function* listWorkFoldersSteps(project: ProjectRow, opts: { outside?: boolean } 
   yield* linkedAnnexRows(project, out, files)
   yield* linkedAssetRows(project, out, files)
   yield* mountedFileRows(t.dirRel, box, out, files)
-  return { box, folders: out, truncated, files, outside, root_name: rootName, own_folders: out.filter((f) => ownFolders.has(f)) }
+  return { box, folders: out, truncated, files, outside, root_name: rootName, own_folders: out.filter((f) => ownFolders.has(f)), item_links: listFolderLinks(project.id) }
 }
 
 /** A new folder inside the work items box (parent '' = the box itself; the box is made if missing). */

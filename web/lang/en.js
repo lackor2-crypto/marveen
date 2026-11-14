@@ -6460,6 +6460,8 @@ window._i18n.en = {
   "workbench.brand.tpl_replaced": "The template \"{name}\" now holds this drawing.",
   "workbench.brand.tpl_replace_confirm": "There is already a brand template called \"{name}\". Replace it with this drawing? The old drawing of the template is lost; the drawings made from it earlier stay.",
   "workbench.db.open": "Debate",
+  "workbench.link.row_title": "Link: this report is stored in the project's shared Debate folder; from here you open the same one.",
+  "workbench.link.row_meta": "link to the shared Debate folder",
   "workbench.db.open_hint": "Two models discuss a question with each other; you only set it up and steer it. Press again to bring the work piece back.",
   "workbench.db.title": "Debate",
   "workbench.db.sub": "This debate belongs to this project, and also shows on the Marvin → Debate page (filterable by project).",
