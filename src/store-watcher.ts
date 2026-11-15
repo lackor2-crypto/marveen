@@ -72,6 +72,10 @@ const recentEvents = new Map<string, number>()
 
 /** Directory (relative to STORE_DIR, '' = the root) -> its watcher. */
 const dirWatchers = new Map<string, ReturnType<typeof watch>>()
+// Parent -> watched child directories. closeDirTree walks ONLY the vanished subtree through this index; it used to scan every
+// watcher for every vanished entry (files too), which is quadratic on a 20 000-file store (#927: 3.7 s stall, stack in closeDirTree).
+const dirChildren = new Map<string, Set<string>>()
+const parentOf = (rel: string): string => { const i = rel.lastIndexOf('/'); return i < 0 ? '' : rel.slice(0, i) }
 let started = false
 let generation = 0
 /** True while the first walk fills knownFiles; events of that time wait in `pendingDuringSeed`. */
@@ -125,6 +129,12 @@ function watchDir(abs: string, rel: string): void {
       logger.warn({ code: err?.code, path: err?.path }, 'store-watcher: subdirectory not watchable, skipped')
     })
     dirWatchers.set(rel, w)
+    if (rel) {
+      const par = parentOf(rel)
+      let kids = dirChildren.get(par)
+      if (!kids) { kids = new Set(); dirChildren.set(par, kids) }
+      kids.add(rel)
+    }
   } catch (err) {
     const e = err as NodeJS.ErrnoException
     const key = JSON.stringify([e?.code ?? null, e?.path ?? null, rel])
@@ -135,12 +145,19 @@ function watchDir(abs: string, rel: string): void {
 }
 
 function closeDirTree(rel: string): void {
-  for (const [k, w] of dirWatchers) {
-    if (k === rel || k.startsWith(`${rel}/`)) {
-      try { w.close() } catch { /* best-effort */ }
-      dirWatchers.delete(k)
-    }
+  // A vanished FILE has no watcher and no children: O(1). A vanished directory costs its own subtree, nothing else.
+  if (!dirWatchers.has(rel) && !dirChildren.has(rel)) return
+  const stack = [rel]
+  while (stack.length) {
+    const k = stack.pop() as string
+    const w = dirWatchers.get(k)
+    if (w) { try { w.close() } catch { /* best-effort */ } dirWatchers.delete(k) }
+    const kids = dirChildren.get(k)
+    if (kids) { dirChildren.delete(k); for (const c of kids) stack.push(c) }
   }
+  const par = parentOf(rel)
+  const sib = dirChildren.get(par)
+  if (sib) { sib.delete(rel); if (!sib.size) dirChildren.delete(par) }
 }
 
 /** Watch `abs` and everything below it, asynchronously. `seed`: the files only fill knownFiles; otherwise they are
@@ -263,4 +280,5 @@ export function stopStoreWatcher(): void {
   pendingDuringSeed.clear()
   for (const w of dirWatchers.values()) { try { w.close() } catch { /* best-effort */ } }
   dirWatchers.clear()
+  dirChildren.clear()
 }
