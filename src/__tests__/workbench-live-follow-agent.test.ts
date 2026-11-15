@@ -56,10 +56,25 @@ describe('the Workbench follows the assistant without F5', () => {
     expect(post).toContain("'/outline/translation-save'")
   })
 
+  it('"Save translation" writes NOTHING when the check read before the write fails (no fail-open overwrite, #867)', () => {
+    const save = between('function twSave(auto)', 'function twSavePost(')
+    // the failed read is handled BEFORE the per-section comparison, and it ends the save without a POST
+    const failBranch = save.indexOf('if (!g || !g.ok)')
+    expect(failBranch).toBeGreaterThan(-1)
+    expect(failBranch).toBeLessThan(save.indexOf('list.forEach(function (it)'))
+    const branch = save.slice(failBranch, save.indexOf('var cur = WB.detail', failBranch))
+    expect(branch).toContain("t('workbench.tw.check_failed'")
+    expect(branch).toContain('tw.busy = false')
+    expect(branch).toContain('return')
+    expect(branch).not.toContain('twSavePost')
+    // a network error that rejects the whole chain must not leave the page stuck "busy"
+    expect(save).toMatch(/\}, function \(\) \{ tw\.busy = false/)
+  })
+
   it('the new texts exist in Hungarian and English', () => {
     for (const lang of ['hu', 'en']) {
       const dict = readFileSync(join(__dirname, '..', '..', 'web', 'lang', lang + '.js'), 'utf8')
-      for (const k of ['workbench.tw.conflict_confirm', 'workbench.tw.newer_taken']) expect(dict).toContain('"' + k + '"')
+      for (const k of ['workbench.tw.conflict_confirm', 'workbench.tw.newer_taken', 'workbench.tw.check_failed']) expect(dict).toContain('"' + k + '"')
     }
   })
 })
