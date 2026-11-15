@@ -4586,6 +4586,14 @@ document.addEventListener('keydown', (e) => {
 })
 
 // === Avatar Gallery ===
+// #891: the avatar pictures are 0.7-1.1 MB PNGs; 20 of them used to download on every dashboard load for a
+// hidden picker and queued ahead of the first API calls. Lazy + async decode: a picture loads only when its grid is
+// actually shown. ONE builder for all four pickers (wizard, agent detail x2, code-bridge).
+function avatarImgHtml(avatar, alt) {
+  const label = alt === undefined ? avatar.replace(/^\d+_/, '').replace('.png', '') : alt
+  return '<img src="/avatars/' + avatar + '" alt="' + label + '" loading="lazy" decoding="async">'
+}
+
 function populateAvatarGrid() {
   const grid = document.getElementById('avatarGrid')
   grid.innerHTML = ''
@@ -4593,7 +4601,7 @@ function populateAvatarGrid() {
     const item = document.createElement('div')
     item.className = 'avatar-grid-item'
     item.dataset.avatar = avatar
-    item.innerHTML = `<img src="/avatars/${avatar}" alt="${avatar.replace(/^\d+_/, '').replace('.png', '')}">`
+    item.innerHTML = avatarImgHtml(avatar)
     item.addEventListener('click', () => {
       grid.querySelectorAll('.avatar-grid-item').forEach(i => i.classList.remove('selected'))
       item.classList.add('selected')
@@ -8045,7 +8053,7 @@ function populateDetailAvatarGrid() {
     const item = document.createElement('div')
     item.className = 'avatar-grid-item'
     item.dataset.avatar = avatar
-    item.innerHTML = `<img src="/avatars/${avatar}" alt="${avatar.replace(/^\d+_/, '').replace('.png', '')}">`
+    item.innerHTML = avatarImgHtml(avatar)
     item.addEventListener('click', async () => {
       if (!currentAgent) return
       grid.querySelectorAll('.avatar-grid-item').forEach(i => i.classList.remove('selected'))
@@ -8137,7 +8145,7 @@ document.getElementById('avatarChangeBtn').addEventListener('click', () => {
     for (const avatar of AVATARS) {
       const item = document.createElement('div')
       item.className = 'avatar-grid-item'
-      item.innerHTML = `<img src="/avatars/${avatar}" alt="${avatar.replace(/^\d+_/, '').replace('.png', '')}">`
+      item.innerHTML = avatarImgHtml(avatar)
       item.addEventListener('click', async () => {
         try {
           const res = await fetch(avatarEndpoint, {
@@ -25676,7 +25684,8 @@ loadKanbanCardIds()
 // csak DOMContentLoaded utan fut (lasd a fajl vegen), tehat a latszo oldal
 // keresei eleve a sor vegen alltak. Aki ezekre az oldalakra lep, ugyis
 // ujratolti oket a switchPage()-bol.
-const bootExtras = () => { populateAvatarGrid(); loadMemAgents(); loadOverview(); loadAvailableModels() }
+// The avatar grid is NOT built here (#891): resetWizard() builds it when the create wizard opens.
+const bootExtras = () => { loadMemAgents(); loadOverview(); loadAvailableModels() }
 const bootLanding = decodeURIComponent((location.hash || '').replace(/^#/, ''))
 if (!bootLanding || bootLanding === 'overview') bootExtras()
 else runLater(bootExtras)
@@ -47269,7 +47278,7 @@ async function _intezoCfgSave() {
     for (const avatar of AVATARS) {
       const item = document.createElement('div')
       item.className = 'avatar-grid-item'
-      item.innerHTML = '<img src="/avatars/' + avatar + '" alt="">'
+      item.innerHTML = avatarImgHtml(avatar, '')
       item.addEventListener('click', function () {
         cbSetAvatar({
           method: 'POST',
