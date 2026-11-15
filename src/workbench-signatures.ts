@@ -8,13 +8,16 @@
 // drive where one walk takes minutes. A synchronous walk inside a request handler freezes every other request too.
 // So this is now ONE asynchronous walk for all fragments, reading each folder once (no stat per entry), with a time
 // budget, an answer that is remembered, and one walk shared by everyone who asks at the same time.
-import { readdir } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { STORE_DIR } from './config.js'
 import { explorerRoot } from './life-explorer.js'
-import { isInTrash, lifeName } from './life-tree.js'
+import { isInTrash, lifeName, trashRelPath } from './life-tree.js'
 
 export interface SignatureFile { rel: string; name: string; folder: string }
-export interface SignatureList { signatures: SignatureFile[]; truncated: boolean }
+/** `refreshing`: the list came straight from the remembered paths and a walk of the tree runs in the background. */
+export interface SignatureList { signatures: SignatureFile[]; truncated: boolean; refreshing?: boolean }
 
 /** Name fragments that mark a signature picture (lower case; accents and plain spelling). */
 export const SIGNATURE_TERMS = ['aláírás', 'alairas', 'alárás', 'signature', 'unterschrift', 'szignó']
@@ -34,8 +37,84 @@ const IDENTITY_NAMES = new Set([lifeName('identity', 'hu'), lifeName('identity',
 let cached: { at: number; root: string; value: SignatureList } | null = null
 let running: { root: string; promise: Promise<SignatureList> } | null = null
 
-/** For tests and for the picker's "search again". */
-export function forgetSignatures(): void { cached = null }
+/**
+ * The remembered paths (owner TG 6300: "once found, remember the path; next time hand the two signatures over at once,
+ * keep searching in the background; if it was moved, follow it; if it went to the trash, find it there; if it is gone
+ * from the trash too, forget it"). Stored next to the other app state so it survives a restart.
+ */
+const MEMORY_FILE = 'signature-memory.json'
+/** The trash is looked through only this far and this long: it answers "was it thrown away?", not "list everything". */
+const TRASH_BUDGET_MS = 1_500
+const TRASH_MAX_FOLDERS = 500
+
+function memoryPath(): string { return join(STORE_DIR, MEMORY_FILE) }
+
+function readMemory(root: string): SignatureFile[] {
+  try {
+    const m = JSON.parse(readFileSync(memoryPath(), 'utf8')) as { root?: string; entries?: SignatureFile[] }
+    if (m.root !== root || !Array.isArray(m.entries)) return []
+    return m.entries.filter((e) => e && typeof e.rel === 'string' && typeof e.name === 'string').map((e) => ({ rel: e.rel, name: e.name, folder: String(e.folder ?? '') }))
+  } catch { return [] }
+}
+
+function writeMemory(root: string, entries: SignatureFile[]): void {
+  try {
+    const tmp = memoryPath() + '.tmp'
+    writeFileSync(tmp, JSON.stringify({ root, entries }))
+    renameSync(tmp, memoryPath())
+  } catch { /* a memory that cannot be written only costs the next call a walk */ }
+}
+
+/** For tests and for the picker's "search again". Also forgets the remembered paths. */
+export function forgetSignatures(): void {
+  cached = null
+  try { if (existsSync(memoryPath())) rmSync(memoryPath(), { force: true }) } catch { /* nothing to forget */ }
+}
+
+/** Test hook: drops only the in-memory answer (what a restart does); the remembered paths on disk stay. */
+export function forgetInMemoryOnly(): void { cached = null; running = null }
+
+/** Which of the remembered files are still where they were. One stat per entry: no tree walk. */
+async function stillThere(root: string, entries: SignatureFile[]): Promise<{ alive: SignatureFile[]; lost: SignatureFile[] }> {
+  const alive: SignatureFile[] = []
+  const lost: SignatureFile[] = []
+  for (const e of entries) {
+    try { if ((await stat(join(root, e.rel))).isFile()) { alive.push(e); continue } } catch { /* not there any more */ }
+    lost.push(e)
+  }
+  return { alive, lost }
+}
+
+/** The lost ones, looked for by name in the trash (a thrown-away signature still counts until it is emptied from there). */
+async function findInTrash(root: string, lost: SignatureFile[], lang: string | undefined): Promise<SignatureFile[]> {
+  if (!lost.length) return []
+  const wanted = new Set(lost.map((e) => e.name.toLowerCase()))
+  const out: SignatureFile[] = []
+  const started = Date.now()
+  const trash = trashRelPath(lang)
+  const queue: Array<{ abs: string; rel: string }> = [{ abs: join(root, trash), rel: trash }]
+  let folders = 0
+  while (queue.length && out.length < wanted.size) {
+    if (Date.now() - started > TRASH_BUDGET_MS || folders >= TRASH_MAX_FOLDERS) break
+    const dir = queue.shift()!
+    folders++
+    let entries: import('node:fs').Dirent[]
+    try { entries = await readdir(dir.abs, { withFileTypes: true }) } catch { continue }
+    for (const e of entries) {
+      const name = String(e.name)
+      const rel = `${dir.rel}/${name}`
+      if (e.isDirectory()) { queue.push({ abs: join(dir.abs, name), rel }); continue }
+      if (e.isFile() && wanted.has(name.toLowerCase())) out.push({ rel, name, folder: dir.rel })
+    }
+  }
+  return out
+}
+
+function mergeByRel(...lists: SignatureFile[][]): SignatureFile[] {
+  const seen = new Map<string, SignatureFile>()
+  for (const l of lists) for (const e of l) if (!seen.has(e.rel)) seen.set(e.rel, e)
+  return [...seen.values()].sort((a, b) => a.folder.localeCompare(b.folder, 'hu') || a.name.localeCompare(b.name, 'hu'))
+}
 
 async function walk(root: string, lang: string | undefined, budgetMs: number, maxFolders: number): Promise<SignatureList> {
   const started = Date.now()
@@ -87,9 +166,38 @@ export async function listSignatures(lang?: string, opts?: { fresh?: boolean; bu
   const now = Date.now()
   if (!opts?.fresh && cached && cached.root === root && now - cached.at < (cached.value.truncated ? SIGNATURE_PARTIAL_CACHE_MS : SIGNATURE_CACHE_MS)) return cached.value
   if (running && running.root === root) return running.promise
-  const promise = walk(root, lang, opts?.budgetMs ?? SIGNATURE_BUDGET_MS, opts?.maxFolders ?? MAX_FOLDERS)
-    .then((value) => { cached = { at: Date.now(), root, value }; return value })
-    .finally(() => { if (running && running.promise === promise) running = null })
-  running = { root, promise }
-  return promise
+  const budgetMs = opts?.budgetMs ?? SIGNATURE_BUDGET_MS
+  const maxFolders = opts?.maxFolders ?? MAX_FOLDERS
+  const remembered = opts?.fresh ? [] : readMemory(root)
+  const startWalk = (): Promise<SignatureList> => {
+    const promise = walk(root, lang, budgetMs, maxFolders)
+      .then(async (value) => {
+        // A complete walk replaces the memory; one cut short only ADDS to it (what it did not reach is not "gone").
+        const old = readMemory(root)
+        const { alive, lost } = await stillThere(root, old)
+        const inTrash = await findInTrash(root, lost.filter((e) => !value.signatures.some((s) => s.name.toLowerCase() === e.name.toLowerCase())), lang)
+        const kept = value.truncated ? mergeByRel(alive, value.signatures, inTrash) : mergeByRel(value.signatures, inTrash)
+        writeMemory(root, kept)
+        // What is reused for the next ten minutes is what is remembered (a trashed signature included), not the bare walk.
+        const merged: SignatureList = { signatures: kept, truncated: value.truncated }
+        cached = { at: Date.now(), root, value: merged }
+        return merged
+      })
+      .finally(() => { if (running && running.promise === promise) running = null })
+    running = { root, promise }
+    return promise
+  }
+  if (remembered.length) {
+    // Remembered paths: answer at once from them (a stat each), follow a move or a trash, and let the walk run behind.
+    const { alive, lost } = await stillThere(root, remembered)
+    const inTrash = await findInTrash(root, lost, lang)
+    const quick = mergeByRel(alive, inTrash)
+    if (quick.length) {
+      startWalk().catch(() => { /* the background look is best effort */ })
+      return { signatures: quick, truncated: false, refreshing: true }
+    }
+    // Everything remembered is gone, also from the trash: forget it and look anew.
+    writeMemory(root, [])
+  }
+  return startWalk()
 }
