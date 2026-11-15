@@ -238,6 +238,114 @@ describe('channel-inbound-tee arrival receipt', () => {
   })
 })
 
+// #925 (Boss, 2026-11-15): "megkaptam, dolgozom rajta" jelzes hianyzott es kesett.
+// Measured on the owner's chat: message 6402 got NO receipt (chat id 6403 was
+// already the agent's own reply), 6404 and 6406 got one. The relay swallowed every
+// send failure silently, never retried, and queued all receipts behind one chain.
+type StubStep = { status: number, body: any, delayMs?: number }
+function scriptedTelegram(script: (n: number, chatId: string) => StubStep): Promise<{ base: string, calls: number, close: () => Promise<void>, get count(): number }> {
+  let count = 0
+  return new Promise((resolve) => {
+    const server: Server = createServer((req, res) => {
+      let raw = ''
+      req.on('data', (c) => { raw += c })
+      req.on('end', () => {
+        count += 1
+        const step = script(count, raw ? JSON.parse(raw).chat_id : '')
+        setTimeout(() => {
+          res.writeHead(step.status, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(step.body))
+        }, step.delayMs || 0)
+      })
+    })
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as AddressInfo).port
+      resolve({
+        base: `http://127.0.0.1:${port}`,
+        calls: 0,
+        get count() { return count },
+        close: () => new Promise((done) => server.close(() => done())),
+      })
+    })
+  })
+}
+
+function readArrival(dir: string): Array<{ chat_id: string, message_id: number, src_message_id: string }> {
+  const file = join(dir, 'progress', 'arrival.jsonl')
+  if (!existsSync(file)) return []
+  return readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+}
+
+describe('channel-inbound-tee receipt delivery (#925)', () => {
+  const emit = (...lines: string[]) => `const fs = require('node:fs'); fs.writeSync(1, ${JSON.stringify(lines.join('\n') + '\n')});`
+
+  it('retries a rejected receipt instead of dropping it silently, and logs both outcomes', async () => {
+    const stub = await scriptedTelegram((n) => n === 1
+      ? { status: 429, body: { ok: false, error_code: 429, description: 'Too Many Requests: retry later', parameters: { retry_after: 0 } } }
+      : { status: 200, body: { ok: true, result: { message_id: 777 } } })
+    const dir = mkdtempSync(join(tmpdir(), 'channel-inbound-tee-retry-'))
+    try {
+      writeFileSync(join(dir, '.env'), 'TELEGRAM_BOT_TOKEN=123:abc\n')
+      const result = await runWrapper(dir, emit(notificationLine({ chat_id: 'c1', message_id: 'm1' })), {
+        TELEGRAM_API_BASE: stub.base, MARVEEN_LANG: 'hu', TELEGRAM_RECEIPT_RETRY_MS: '20',
+      })
+      expect(result.code).toBe(0)
+      expect(stub.count).toBe(2)
+      expect(readArrival(dir)).toEqual([expect.objectContaining({ chat_id: 'c1', message_id: 777, src_message_id: 'm1' })])
+      const log = readFileSync(join(dir, 'progress', 'receipt.log'), 'utf8')
+      expect(log).toMatch(/mid=m1 failed \d+ms attempt=1 http 429/)
+      expect(log).toMatch(/mid=m1 sent \d+ms attempt=2 receipt_id=777/)
+    } finally {
+      await stub.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not make a later message wait behind a slow receipt', async () => {
+    const stub = await scriptedTelegram((n) => ({
+      status: 200,
+      body: { ok: true, result: { message_id: 100 + n } },
+      delayMs: n === 1 ? 1500 : 0,
+    }))
+    const dir = mkdtempSync(join(tmpdir(), 'channel-inbound-tee-parallel-'))
+    try {
+      writeFileSync(join(dir, '.env'), 'TELEGRAM_BOT_TOKEN=123:abc\n')
+      const result = await runWrapper(dir, emit(
+        notificationLine({ chat_id: 'c1', message_id: 'slow' }),
+        notificationLine({ chat_id: 'c1', message_id: 'fast' }),
+      ), { TELEGRAM_API_BASE: stub.base, MARVEEN_LANG: 'hu' })
+      expect(result.code).toBe(0)
+      // The second message's receipt lands first: it was not queued behind the
+      // slow one (a single shared chain would put 'slow' first).
+      expect(readArrival(dir).map((r) => r.src_message_id)).toEqual(['fast', 'slow'])
+    } finally {
+      await stub.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('after the last failed attempt logs every try, warns on stderr and releases the claim so a re-seen frame can retry', async () => {
+    const stub = await scriptedTelegram(() => ({ status: 500, body: { ok: false, description: 'Internal Server Error' } }))
+    const dir = mkdtempSync(join(tmpdir(), 'channel-inbound-tee-giveup-'))
+    try {
+      writeFileSync(join(dir, '.env'), 'TELEGRAM_BOT_TOKEN=123:abc\n')
+      const result = await runWrapper(dir, emit(notificationLine({ chat_id: 'c1', message_id: 'm9' })), {
+        TELEGRAM_API_BASE: stub.base, MARVEEN_LANG: 'hu', TELEGRAM_RECEIPT_RETRY_MS: '10',
+      })
+      expect(result.code).toBe(0)
+      expect(stub.count).toBe(3)
+      expect(result.stderr).toContain('receipt not sent after 3 attempts')
+      const log = readFileSync(join(dir, 'progress', 'receipt.log'), 'utf8').trim().split('\n')
+      expect(log.filter((l) => l.includes(' failed '))).toHaveLength(3)
+      expect(existsSync(join(dir, 'progress', 'seen-arrival-c1-m9.marker'))).toBe(false)
+      expect(readArrival(dir)).toEqual([])
+    } finally {
+      await stub.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('buildTelegramMcpServerConfig', () => {
   it('routes the per-agent telegram MCP server through the inbound tee wrapper', () => {
     const cfg = buildTelegramMcpServerConfig('/home/me/.bun/bin/bun', '/plugins/telegram/0.0.6', '/agents/nova/.claude/channels/telegram')

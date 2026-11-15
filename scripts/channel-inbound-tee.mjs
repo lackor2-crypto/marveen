@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, writeSync, statSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 
@@ -112,6 +112,14 @@ function receiptText() {
   return cachedReceiptText
 }
 const RECEIPT_TIMEOUT_MS = 8000
+// #925: a receipt that Telegram rejects (429 flood wait, 5xx) or that never
+// arrives (network blip) used to vanish without a trace -- measured on the
+// owner's chat: message 6402 had no receipt at all (the next chat id, 6403, was
+// already the agent's own reply), while 6404 and 6406 had one. So the send is
+// retried, and every outcome is written to progress/receipt.log.
+const RECEIPT_ATTEMPTS = 3
+const RECEIPT_RETRY_MS = Number(process.env.TELEGRAM_RECEIPT_RETRY_MS) > 0 ? Number(process.env.TELEGRAM_RECEIPT_RETRY_MS) : 400
+const RECEIPT_LOG_MAX_BYTES = 64 * 1024
 // Overridable so the contract can be tested against a local stub instead of
 // Telegram, and so a self-hosted Bot API server keeps working.
 const API_BASE = (process.env.TELEGRAM_API_BASE || 'https://api.telegram.org').replace(/\/+$/, '')
@@ -121,9 +129,12 @@ const arrivalPath = progressDir ? join(progressDir, 'arrival.jsonl') : ''
 let warnedInboxWrite = false
 let warnedReceipt = false
 let cachedToken
-// Serialised: two messages arriving in the same burst must not interleave their
-// appends to arrival.jsonl, and Telegram is happier with sequential sends.
-let receiptChain = Promise.resolve()
+// One independent send per message (#925): a single shared chain made every
+// receipt wait behind the slowest one -- a send that ran into the 8 s timeout
+// delayed the next message's receipt by up to 8 s. arrival.jsonl appends are
+// single synchronous appendFileSync calls, so concurrent sends cannot
+// interleave them. The set lets the exit guard wait for whatever is in flight.
+const inflightReceipts = new Set()
 let lineBuffer = ''
 const decoder = new StringDecoder('utf8')
 
@@ -173,29 +184,76 @@ function claimArrival(chatId, srcMid) {
   }
 }
 
-async function postReceipt(token, chatId, srcMid) {
+function receiptLog(chatId, srcMid, event, ms, detail) {
+  if (!progressDir) return
+  try {
+    mkdirSync(progressDir, { recursive: true })
+    const file = join(progressDir, 'receipt.log')
+    try {
+      if (statSync(file).size > RECEIPT_LOG_MAX_BYTES) writeFileSync(file, '', 'utf8')
+    } catch { /* no log yet */ }
+    const line = [new Date().toISOString(), `chat=${chatId}`, `mid=${srcMid ?? ''}`, event, `${ms}ms`, detail || '']
+      .join(' ')
+      .trimEnd()
+    appendFileSync(file, line + '\n', 'utf8')
+  } catch { /* a log must never break the relay */ }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function sendReceiptOnce(token, chatId) {
   const res = await fetch(`${API_BASE}/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text: receiptText(), disable_notification: true }),
     signal: AbortSignal.timeout(RECEIPT_TIMEOUT_MS),
   })
-  const body = await res.json()
+  let body = null
+  try { body = await res.json() } catch { /* non-JSON error page */ }
   const messageId = body && body.result && body.result.message_id
-  if (!messageId) return
-  // Handover record for channel-inbox-drain.py: which message to edit when the
-  // turn starts, and which one the Stop hook must clear when the answer is out.
-  mkdirSync(progressDir, { recursive: true })
-  appendFileSync(
-    arrivalPath,
-    JSON.stringify({
-      chat_id: String(chatId),
-      message_id: messageId,
-      src_message_id: srcMid === undefined ? null : srcMid,
-      at: Math.floor(Date.now() / 1000),
-    }) + '\n',
-    'utf8',
-  )
+  if (messageId) return { messageId }
+  const retryAfter = body && body.parameters && Number(body.parameters.retry_after)
+  return { error: `http ${res.status}${body && body.description ? ` ${body.description}` : ''}`, retryAfter }
+}
+
+async function postReceipt(token, chatId, srcMid) {
+  const started = Date.now()
+  let lastError = 'unknown'
+  for (let attempt = 1; attempt <= RECEIPT_ATTEMPTS; attempt++) {
+    let outcome
+    try {
+      outcome = await sendReceiptOnce(token, chatId)
+    } catch (err) {
+      outcome = { error: err instanceof Error ? err.message : String(err) }
+    }
+    if (outcome.messageId) {
+      receiptLog(chatId, srcMid, 'sent', Date.now() - started, `attempt=${attempt} receipt_id=${outcome.messageId}`)
+      // Handover record for channel-inbox-drain.py: which message to edit when the
+      // turn starts, and which one the Stop hook must clear when the answer is out.
+      mkdirSync(progressDir, { recursive: true })
+      appendFileSync(
+        arrivalPath,
+        JSON.stringify({
+          chat_id: String(chatId),
+          message_id: outcome.messageId,
+          src_message_id: srcMid === undefined ? null : srcMid,
+          at: Math.floor(Date.now() / 1000),
+        }) + '\n',
+        'utf8',
+      )
+      return
+    }
+    lastError = outcome.error
+    receiptLog(chatId, srcMid, 'failed', Date.now() - started, `attempt=${attempt} ${lastError}`)
+    if (attempt < RECEIPT_ATTEMPTS) {
+      const wait = outcome.retryAfter > 0 ? Math.min(outcome.retryAfter * 1000, 5000) : RECEIPT_RETRY_MS * attempt
+      await sleep(wait)
+    }
+  }
+  // Out of attempts: release the claim so a re-delivered frame can try again,
+  // and make the failure visible (once on stderr, every time in receipt.log).
+  try { unlinkSync(join(progressDir, `seen-arrival-${chatId}-${srcMid}.marker`)) } catch { /* not claimed */ }
+  throw new Error(`receipt not sent after ${RECEIPT_ATTEMPTS} attempts: ${lastError}`)
 }
 
 function ackArrival(params) {
@@ -206,9 +264,10 @@ function ackArrival(params) {
   const token = botToken()
   if (!token) return // unconfigured install: stay silent, never guess a token
   if (!claimArrival(chatId, meta.message_id)) return
-  receiptChain = receiptChain
-    .then(() => postReceipt(token, chatId, meta.message_id))
+  const p = postReceipt(token, chatId, meta.message_id)
     .catch((err) => warnReceipt(err))
+    .finally(() => inflightReceipts.delete(p))
+  inflightReceipts.add(p)
 }
 
 function teeLine(line) {
@@ -309,5 +368,5 @@ child.on('close', (code, signal) => {
   }
   const guard = setTimeout(finish, RECEIPT_TIMEOUT_MS + 500)
   if (typeof guard.unref === 'function') guard.unref()
-  receiptChain.then(finish, finish)
+  Promise.allSettled([...inflightReceipts]).then(finish, finish)
 })
