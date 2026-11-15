@@ -32608,10 +32608,11 @@ async function emailFetchMailboxEnvelopes(mailboxName) {
   const params = new URLSearchParams({ account: emailAccount, mailbox: mailboxName })
   let list
   try { list = await (await fetch(`/api/email/envelopes?${params}`)).json() } catch { list = null }
-  const result = Array.isArray(list) ? list : []
-  // A failed read must not be remembered as "this mailbox is empty": that made later searches say "no matches".
-  if (Array.isArray(list)) emailScopedMailboxCache[cacheKey] = result
-  return result
+  // A failed read must not be remembered as "this mailbox is empty" (that made later searches say "no matches"),
+  // and must not be returned as an empty list either: null tells the caller the read FAILED (#886).
+  if (!Array.isArray(list)) return null
+  emailScopedMailboxCache[cacheKey] = list
+  return list
 }
 
 // Boss, 2026-08-09: "ha feladóra keresek, vagy címzetre, akkor az egész
@@ -32626,15 +32627,41 @@ async function emailGetAllMailboxNames() {
   if (emailAllMailboxNamesCache) return emailAllMailboxNamesCache
   let list
   try { list = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json() } catch { list = null }
-  emailAllMailboxNamesCache = Array.isArray(list) ? list.map(m => m.name).filter(Boolean) : []
+  // A failed read of the mailbox LIST is not "this account has no mailboxes": cached as [] it made every later search
+  // say "no matches" until the account was switched. null = the read failed, nothing is cached (#886).
+  if (!Array.isArray(list)) return null
+  emailAllMailboxNamesCache = list.map(m => m.name).filter(Boolean)
   return emailAllMailboxNamesCache
 }
-async function emailFetchAllMailboxEnvelopes() {
+// Each mailbox is a separate IMAP read (~20 s on a big Gmail account), so they run a few at a time, never all at
+// once (dozens in parallel froze the dashboard, #886). Returns { merged, failed }: `failed` counts the reads that
+// errored, so the caller can say "the search failed" instead of a false "no matches".
+// One run at a time per account: every keystroke calls this, and on a cold cache each call used to start its own
+// chain of reads (5 letters = 5 reads of every mailbox, 15 at once). Keystrokes during a run share its result.
+let emailAllMailboxEnvelopesFlight = {}
+function emailFetchAllMailboxEnvelopes() {
+  const key = emailAccount
+  if (!emailAllMailboxEnvelopesFlight[key]) {
+    emailAllMailboxEnvelopesFlight[key] = emailFetchAllMailboxEnvelopesRun().finally(() => { delete emailAllMailboxEnvelopesFlight[key] })
+  }
+  return emailAllMailboxEnvelopesFlight[key]
+}
+async function emailFetchAllMailboxEnvelopesRun() {
   const names = await emailGetAllMailboxNames()
-  const lists = await Promise.all(names.map(emailFetchMailboxEnvelopes))
+  if (!names) return { merged: [], failed: 1 }
+  const lists = new Array(names.length)
+  let next = 0
+  const worker = async () => {
+    while (next < names.length) { const k = next++; lists[k] = await emailFetchMailboxEnvelopes(names[k]) }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, names.length) }, worker))
   const merged = []
-  names.forEach((name, i) => { (lists[i] || []).forEach(e => merged.push({ ...e, mailbox: name })) })
-  return merged
+  let failed = 0
+  names.forEach((name, i) => {
+    if (!lists[i]) { failed++; return }
+    lists[i].forEach(e => merged.push({ ...e, mailbox: name }))
+  })
+  return { merged, failed }
 }
 
 // Boss, 2026-08-09 (several voice messages, correcting the first attempt at
@@ -32666,14 +32693,21 @@ async function emailUpdateSearchDropdown(rawValue) {
     const targetMailbox = scope.slice(8)
     const list = await emailFetchMailboxEnvelopes(targetMailbox)
     if (token !== emailSearchDropdownToken) return // superseded by a newer keystroke/scope change
+    if (!list) { emailShowSearchFailed(1); return }
     const matches = list.filter(e => emailFoldSearchText(emailEnvelopeScopeText(e, 'all')).includes(folded))
     emailRenderSearchDropdown(matches, targetMailbox)
     return
   }
-  const all = await emailFetchAllMailboxEnvelopes()
+  const { merged: all, failed } = await emailFetchAllMailboxEnvelopes()
   if (token !== emailSearchDropdownToken) return
   const matches = all.filter(e => emailFoldSearchText(emailEnvelopeScopeText(e, scope)).includes(folded))
+  if (!matches.length && failed) { emailShowSearchFailed(failed); return }
   emailRenderSearchDropdown(matches, null)
+}
+
+function emailShowSearchFailed(n) {
+  const dropdown = document.getElementById('emailSearchResultsDropdown')
+  if (dropdown) dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('email.search_failed', { n }))}</div>`
 }
 
 // `defaultMailbox` is used when the items in `list` don't already carry
@@ -32774,12 +32808,14 @@ async function emailRunContentSearch(rawValue) {
   // The whole archive lives in the account's "all mail" folder: ONE request there instead of one per label (each
   // takes ~20 s on a big Gmail account, and dozens in parallel froze the dashboard). Accounts without such a
   // folder keep the per-mailbox search, a few at a time.
-  let boxes = []
-  try { boxes = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json() } catch { boxes = [] }
+  let boxes = null
+  try { boxes = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json() } catch { boxes = null }
   if (token !== emailSearchDropdownToken) return
   const allBox = Array.isArray(boxes) ? boxes.find(m => emailMailboxRole(m) === 'all') : null
   const names = allBox ? [allBox.name] : await emailGetAllMailboxNames()
   if (token !== emailSearchDropdownToken) return
+  // The mailbox list itself could not be read: that is a failed search, never "no matches" (#886).
+  if (!names) { emailShowSearchFailed(1); return }
   let failed = 0
   const results = new Array(names.length)
   let next = 0
