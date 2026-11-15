@@ -110,7 +110,8 @@ másik kártya alá tolására, és a félbehagyásra vonatkozik.
 
 Ez NEM mond ellent a visszafelé-mozgatás tilalmának sem: egy kártyát a
 `waiting`-ből korábbi oszlopba mozgatni továbbra is CSAK külön kérdés után
-szabad. A waiting-kártyát a MOZGATÁSA NÉLKÜL fejezed be (komment + worktree) --
+szabad (kivéve az ellenőrizetlen kártya, lásd a 7. pontot: amíg peer-ellenőrzés
+nem volt rajta, kérdés nélkül visszanyitható). A waiting-kártyát a MOZGATÁSA NÉLKÜL fejezed be (komment + worktree) --
 a waiting státusz a munka elvégzését nem blokkolja, csak a visszafelé-húzást köti
 kérdéshez.
 
