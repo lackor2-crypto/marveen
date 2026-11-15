@@ -36182,7 +36182,7 @@ async function convSendSubmit() {
   if (!st.can) return
   const text = (ta.value || '').trim()
   if (!text) { convSendMsg = { text: t('conversation.send.empty'), error: true }; renderConvSend(); return }
-  // ELORE szolunk a hosszrol: a szerver 12 000 karakternel utasitja vissza, es
+  // ELORE szolunk a hosszrol: a szerver CONV_SEND_MAX_CHARS (100 000) karakter folott utasitja vissza, es
   // egy hosszu, gonddal megirt utasitast nem a kuldes pillanataban kell
   // elveszteni.
   if (text.length > CONV_SEND_MAX_CHARS) {
