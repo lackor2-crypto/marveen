@@ -22536,6 +22536,21 @@ function selfCheckBoxes(rows, max) {
   return { shown: rows.slice(0, max - 1), extra: rows.slice(max - 1) }
 }
 
+// #813: urgent work under the projects, as ONE self-check box (the card keeps its
+// four-box law). Pure: takes the project list, returns a row or null. A project
+// counts when it is not archived and has urgent to-dos (overdue or due within 7 days).
+function selfCheckUrgentRow(projects) {
+  const list = (Array.isArray(projects) ? projects : []).filter((p) => p && !p.archived_at && p.urgent_todos > 0)
+  if (!list.length) return null
+  list.sort((a, b) => String(a.urgent_next_due || '9999').localeCompare(String(b.urgent_next_due || '9999')))
+  const total = list.reduce((n, p) => n + p.urgent_todos, 0)
+  const desc = list.map((p) => t('conn.ov_urgent_project', { name: p.name, n: p.urgent_todos, due: p.urgent_next_due || '-' })).join(' \u00b7 ')
+  const onclick = list.length === 1
+    ? `switchPage('projects');_prjOpenProject(${JSON.stringify(list[0].id).replace(/"/g, '&quot;')})`
+    : "switchPage('projects')"
+  return { label: t('conn.ov_urgent', { n: total, p: list.length }), desc, onclick }
+}
+
 async function renderOverviewConnections() {
   const box = document.getElementById('overviewConnections')
   const list = document.getElementById('overviewConnectionsList')
@@ -22623,6 +22638,13 @@ async function renderOverviewConnections() {
 
   // A vegigvezeto ebbol tudja, melyik Cloud Console projektre linkeljen.
   _selfCheckProjectId = d.projectId || null
+
+  // #813: the projects' urgent work. A failed fetch only leaves the box out; it never hides the rest of the card.
+  let urgentRow = null
+  try {
+    const pr = await fetch('/api/projects')
+    if (pr.ok) { const pd = await pr.json(); urgentRow = selfCheckUrgentRow(pd && pd.projects) }
+  } catch { urgentRow = null }
 
   const rows = []
   const act = t('conn.ov_action')
@@ -22778,6 +22800,7 @@ async function renderOverviewConnections() {
   }
 
   if (rows.length) {
+    if (urgentRow) rows.unshift(urgentRow)
     paint(TONES[d.tier] || TONES.extra, rows)
     return
   }
@@ -22832,6 +22855,7 @@ async function renderOverviewConnections() {
   // (Boss uzenet 1125) kikuszobolese: a statusz itt, a feluleten latszik.
   const vok = health.find(h => h.id === 'voice_stt_ok')
   if (vok) greenRows.push({ label: t('health.voice_stt_ok'), desc: t('health.voice_stt_ok_action') })
+  if (urgentRow) greenRows.unshift(urgentRow)
   paint(TONES.ok, greenRows)
 }
 
