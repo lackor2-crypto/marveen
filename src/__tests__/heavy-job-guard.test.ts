@@ -70,6 +70,23 @@ describe('heavy-job.sh queue', () => {
     expect(c.stderr).not.toContain('terhelt')
   }, 40000)
 
+  it('keeps the first cores free: the job runs on cores 2..n-1 (dashboard stall fix), and the reserve can be turned off', () => {
+    const n = Number(spawnSync('nproc', ['--all'], { encoding: 'utf8' }).stdout.trim())
+    if (!(n >= 4) || spawnSync('which', ['taskset']).status !== 0) return
+    const store = mkdtempSync(join(tmpdir(), 'heavy-cpu-'))
+    const base = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '' }
+    // taskset prints a range as "2-3" or "2,3" depending on its size: compare the set of cores, not the text
+    const cores = (txt: string): string =>
+      txt.split(',').flatMap((p) => { const [a, b] = p.split('-').map(Number); return b === undefined ? [a] : Array.from({ length: b - a + 1 }, (_, i) => a + i) }).join(',')
+    const affinity = (env: NodeJS.ProcessEnv) =>
+      // started on every core, whatever the affinity of the test run itself (the suite may run inside a heavy-job)
+      cores(spawnSync('taskset', ['-c', `0-${n - 1}`, 'bash', HEAVY, 'cpu', '--', 'bash', '-c', 'taskset -cp $$ | sed "s/.*: *//"'], { env, encoding: 'utf8' }).stdout.trim())
+    const range = (a: number) => cores(`${a}-${n - 1}`)
+    expect(affinity(base)).toBe(range(2))
+    expect(affinity({ ...base, MARVEEN_HEAVY_JOB_RESERVE_CORES: '0' })).toBe(range(0))
+    expect(affinity({ ...base, MARVEEN_HEAVY_JOB_RESERVE_CORES: '3' })).toBe(range(3))
+  }, 20000)
+
   it('a web-only instance has its own slot: a build / browser job is not blocked by it (H1)', async () => {
     const store = mkdtempSync(join(tmpdir(), 'heavy-q-'))
     const env = { ...process.env, MARVEEN_STORE: store, MARVEEN_HEAVY_JOB_ACTIVE: '' }
