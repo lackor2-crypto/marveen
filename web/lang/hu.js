@@ -6534,6 +6534,8 @@ window._i18n.hu = {
   "workbench.brand.tpl_replaced": "A(z) „{name}” sablon mostantól ezt a rajzot tartalmazza.",
   "workbench.brand.tpl_replace_confirm": "Már van „{name}” nevű márka-sablon. Felülírjam ezzel a rajzzal? A sablon régi rajza elvész; a belőle korábban készült grafikák megmaradnak.",
   "workbench.db.open": "Vitáztatás",
+  "workbench.link.row_title": "Hivatkozás: ez a jelentés a projekt közös Vitáztatás mappájában van tárolva, innen ugyanazt nyitod meg.",
+  "workbench.link.row_meta": "hivatkozás a közös Vitáztatás mappára",
   "workbench.db.open_hint": "Két modell egymással megvitat egy kérdést, te csak feltöltöd és irányítod. Újra megnyomva visszajön a munkadarab.",
   "workbench.db.title": "Vitáztatás",
   "workbench.db.sub": "Ez a vita ehhez a projekthez tartozik, és a Marvin → Vitáztatás oldalon is látszik (projekt szerint szűrhető).",

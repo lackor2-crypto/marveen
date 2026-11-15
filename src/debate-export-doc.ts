@@ -14,6 +14,7 @@ import { replacePage, BLOCK_TEXT_MAX } from './workbench-docmodel.js'
 import { scheduleOutlineMirror } from './workbench-docmirror.js'
 import { assignWorkItemFolder, ensureWorkItemFolder, findWorkItemsBox, makeWorkFolder, moveWorkItemToFolder } from './workbench-assets.js'
 import { reportTitle, type DebateReport } from './debate-export.js'
+import { addFolderLink } from './workbench-folder-links.js'
 import { listDebateOrigins } from './debate-run.js'
 
 export type ReportDocResult =
@@ -75,28 +76,26 @@ export function createReportDocument(projectId: string, report: DebateReport, by
   if (!project) return { ok: false, code: 'project_not_found' }
   if (project.archived_at != null) return { ok: false, code: 'project_archived' }
   const title = report.title.slice(0, 200)
-  // Boss (TG 3623): the report never lands loose among the work items. It goes into a "Debate report" folder inside the
-  // folder of the work item the debate was started from; a debate with no known origin gets one shared "Debate report"
-  // folder of the box (never a folder of its own at the box level).
+  // #809 (Boss TG 4506/4532): the report is STORED once, in the project's shared Debate folder (the main place for debates;
+  // never loose among the work items, TG 3623). The Debate folder of the work item the debate was started from holds only a
+  // LINK to it (workbench-folder-links.ts). An origin item whose folder is not made yet (it is made lazily) gets it now.
   const origin = opts?.originItem ? getWorkItem(opts.originItem) : null
-  // An origin item whose folder is not made yet (it is made lazily, with the first file) gets it now: the report must
-  // still land under that item, not in the shared folder of the box.
   let originFolder = ''
   if (origin && origin.project_id === project.id && origin.deleted_at == null) {
     const of = ensureWorkItemFolder(origin)
     if (of.ok) originFolder = of.folder
   }
-  // #681 (Boss TG 9548): the debate folder is made once; when the owner deleted it the report lands in the item's own
-  // folder (or the box) instead of the folder coming back.
+  // #681 (Boss TG 9548): a debate folder the owner deleted on purpose is not made again; the report then lands in the box itself.
   const lang = opts?.lang ?? 'hu'
-  const box = originFolder ? '' : (findWorkItemsBox(project) ?? '')
-  const parent = originFolder || box
-  const known = [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES].map((n) => `${parent}/${n}`)
-  const gone = !!parent && known.every((r) => !projectFileTarget(project, r).ok) && known.some((r) => folderWasMade(project, r))
+  const box = findWorkItemsBox(project) ?? ''
+  const wasDeleted = (parent: string): boolean => {
+    const known = [DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES].map((n) => `${parent}/${n}`)
+    return !!parent && known.every((r) => !projectFileTarget(project, r).ok) && known.some((r) => folderWasMade(project, r))
+  }
   let folder: string | null = null
-  if (gone) folder = parent
+  if (wasDeleted(box)) folder = box
   else {
-    const mf = makeWorkFolder(project, originFolder, reportFolderIn(project, originFolder, lang))
+    const mf = makeWorkFolder(project, '', reportFolderIn(project, box, lang)) // the box's existing Debate folder (either language) is reused, no twin
     folder = mf.ok ? reportSubFolder(project, mf.folder, lang) : null
     if (mf.ok) noteFolderMade(project, mf.folder)
   }
@@ -114,6 +113,11 @@ export function createReportDocument(projectId: string, report: DebateReport, by
     return { ok: false, code: 'page_failed', detail: page.detail }
   }
   scheduleOutlineMirror(made.item.id)
+  // The link row in the origin item's Debate folder (skipped when the owner deleted that folder on purpose).
+  if (originFolder && !wasDeleted(originFolder)) {
+    const lf = makeWorkFolder(project, originFolder, reportFolderIn(project, originFolder, lang))
+    if (lf.ok) { noteFolderMade(project, lf.folder); addFolderLink(made.item.id, lf.folder) }
+  }
   return { ok: true, item: getWorkItem(made.item.id) ?? made.item }
 }
 

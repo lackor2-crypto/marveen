@@ -1802,12 +1802,19 @@
   var DUE_RANK = { overdue: 0, today: 1, soon: 2, later: 3 }
   function moreUrgent(a, b) { return !a ? b : !b ? a : (DUE_RANK[b.level] < DUE_RANK[a.level] || (DUE_RANK[b.level] === DUE_RANK[a.level] && b.days < a.days)) ? b : a }
 
-  function itemRowHtml(it, depth, grp) {
+  function itemRowHtml(it, depth, grp, isLink) {
     var on = it.id === WB.selectedId
     // A csillag KULON gomb a sorban (gombba gomb nem agyazhato), es nem
     // data-wb-item: a kattintas nem nyitja meg a munkadarabot (#406, 21bcb1f4).
     var pinned = it.pinned_at != null
     var pinLabel = t(pinned ? 'workbench.pin.remove' : 'workbench.pin.add')
+    if (isLink) {
+      // #809: a link row is a pointer, not the item: it opens the item, and has no star, drag or menu (those act on the item at its home).
+      return '<li class="wb-item-row wb-item-linkrow' + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + '>'
+        + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '" data-wb-link="1" title="' + escA(t('workbench.link.row_title')) + '">'
+        + '<span class="wb-item-title"><span class="wb-item-linkmark" aria-hidden="true">\u2197</span> ' + esc(it.title) + '</span>'
+        + '<span class="wb-item-meta">' + esc(t('workbench.link.row_meta')) + '</span></button></li>'
+    }
     return '<li class="wb-item-row' + (pinned ? ' wb-item-pinned' : '') + (it.status === 'done' ? ' wb-item-done' : '') + (markOf(it.id).sent ? ' wb-item-answered' : '') + (grp != null ? ' wb-grp' : '') + ' wb-depth-' + Math.min(depth, 8) + '"' + (grp != null ? ' style="' + grpVars(grp) + '"' : '') + ' data-wb-ctx-item="' + escA(it.id) + '"'
       + (archived() ? '' : ' draggable="true" data-wb-drag-item="' + escA(it.id) + '"') + '>'
       + '<button type="button" class="wb-item-pin" data-wb-act="item-pin" data-wb-pin="' + escA(it.id) + '" aria-pressed="' + pinned + '"'
@@ -2597,10 +2604,11 @@
       var own = byPlace[path] || []
       return !(hideOn && own.length && own.every(itHidden)) || !folderGone(path)
     }
-    function count(path) {
+    function count(path, inner) {
       var own = byPlace[path] || []
       var n = own.filter(function (it) { return !itHidden(it) }).length + (looseShown(path) ? (plainFiles[path] || []).length : 0)
-      ;(kids[path] || []).forEach(function (k) { if (!folderGone(k)) n += count(k) })
+      if (!inner) n += ((wf.item_links || {})[path] || []).length // #809: a linked report is a row of this folder (not of its parents)
+      ;(kids[path] || []).forEach(function (k) { if (!folderGone(k)) n += count(k, true) })
       return n
     }
     // #825: a folder shows the most urgent open deadline anywhere under it (the project card's "3 urgent", but inside).
@@ -2647,6 +2655,12 @@
         .concat((looseShown(path) ? (plainFiles[path] || []) : []).map(function (f) { return { name: String(f.name || ''), f: f } }))
       mixed.sort(function (a, b) { return (a.it ? 0 : 1) - (b.it ? 0 : 1) || nameCmp(a, b) })
       mixed.forEach(function (m) { rows.push(m.it ? itemRowHtml(m.it, depth, grp) : plainFileRowHtml(m.f, depth, grp)) })
+      // #809: work items that only LINK into this folder (a debate report lives in the shared Debate folder; the item's own
+      // Debate folder shows a link row that opens the same report).
+      ;((wf.item_links || {})[path] || []).forEach(function (id) {
+        var li = (WB.items || []).filter(function (x) { return x && x.id === id })[0]
+        if (li && !itHidden(li)) rows.push(itemRowHtml(li, depth, grp, true))
+      })
       ;(kids[path] || []).forEach(function (f) {
         if (folderGone(f)) return
         // #684 (Boss TG 9585): the item's own folder is blue, EVERY other folder has a colour of its own from the palette, never

@@ -10,6 +10,7 @@ import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { ensureWorkItemFolder, ensureAllAttachmentsFolders } from '../workbench-assets.js'
 import { createReportDocument } from '../debate-export-doc.js'
+import { listFolderLinks } from '../workbench-folder-links.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
 const FIVE = ['Elkészített anyagok', 'Mellékletek', 'Feltöltések', 'Agent', 'Vitáztatás', 'Kiváltó irat', 'Feladási bizonylatok'] // #794: the trigger document folder; #890: the proof-of-submission folder
@@ -60,9 +61,10 @@ describe('the five standard folders of a work item', () => {
     if (!f.ok) throw new Error('folder')
     const r = createReportDocument(pid, { title: 'Vitáztatás jelentés: X', sections: [{ title: 'S', paragraphs: ['p'] }] } as never, 'test', { originItem: w.item.id })
     expect(r.ok).toBe(true)
-    // #699: the report goes into the "jelentés" subfolder of the Debate folder, and nothing else is made in either
-    expect(subs(`${f.folder}/Vitáztatás`)).toEqual(['jelentés'])
-    expect(subs(`${f.folder}/Vitáztatás/jelentés`)).toEqual([])
+    // #809: the report is STORED once in the project's shared Debate folder; the origin item's Debate folder holds only a
+    // link row (no file, no subfolder, no five folders, no nested Vitáztatás)
+    expect(subs(`${f.folder}/Vitáztatás`)).toEqual([])
+    expect(listFolderLinks(pid)[`${f.folder}/Vitáztatás`]).toEqual([r.ok ? r.item.id : ''])
   })
 
   it('an existing item folder is topped up with the missing EMPTY folders; content and the first-generation names stay', () => {

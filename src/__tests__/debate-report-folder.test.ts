@@ -34,12 +34,12 @@ describe('debate report folder', () => {
     getDb().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run('Munkadarabok/Wohngeld 2026', origin)
   })
 
-  it('goes under the originating work item folder', () => {
+  it('#809: is stored in the shared Debate folder; the originating work item folder only gets a link folder', () => {
     const r = createReportDocument(pid, report, null, { originItem: origin, lang: 'hu' })
     expect(r.ok).toBe(true)
-    expect(made[0].parent).toBe('Munkadarabok/Wohngeld 2026')
+    expect(made[0].parent).toBe('')
     expect(made[0].name).toBe('Vitáztatás')
-    expect((made[0].opts as { own?: boolean } | undefined)?.own).toBeFalsy()
+    expect(made.some(m => m.parent === 'Munkadarabok/Wohngeld 2026' && m.name === 'Vitáztatás')).toBe(true)
   })
   it('English installs get the English folder name', () => {
     expect(reportFolderName('en')).toBe('Debate')
