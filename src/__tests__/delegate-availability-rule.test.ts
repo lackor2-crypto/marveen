@@ -24,6 +24,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { withDetails } from './helpers/rule-details.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
 import { ensureDelegateCheckSection, ensureGlobalDelegateCheckRule } from '../web/agent-scaffold.js'
@@ -46,7 +47,7 @@ describe('ensureDelegateCheckSection', () => {
   it('beirja a szabalyt egy meglevo agens CLAUDE.md-jebe', () => {
     const path = seed('# zz-delegate-check-probe\n\nSajat tartalom.\n')
     expect(ensureDelegateCheckSection(THROWAWAY)).toBe('written')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('MUNKA ATADASA ELOTT KOTELEZO ELLENORIZNI: ONLINE-E A CIMZETT')
     // Kis-nagybetu-fuggetlenul: a szabaly szovege nyomatekositasbol
     // 'HARMADIK agens'-t ir, es ezen a teszt ne bukjon el.
@@ -59,7 +60,7 @@ describe('ensureDelegateCheckSection', () => {
     ensureDelegateCheckSection(THROWAWAY)
     const firstWrite = statSync(path).mtimeMs
     expect(ensureDelegateCheckSection(THROWAWAY)).toBe('current')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     const occurrences = out.split('BEGIN GENERATED: delegate-availability-rule').length - 1
     expect(occurrences).toBe(1)
     expect(statSync(path).mtimeMs).toBe(firstWrite)
@@ -73,7 +74,7 @@ describe('ensureDelegateCheckSection', () => {
       + '<!-- END GENERATED: delegate-availability-rule -->\n\nUTANA.\n',
     )
     expect(ensureDelegateCheckSection(THROWAWAY)).toBe('written')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).not.toContain('regi szoveg')
     expect(out).toContain('MUNKA ATADASA ELOTT KOTELEZO ELLENORIZNI')
     expect(out).toContain('ELOTTE.')
@@ -88,7 +89,7 @@ describe('ensureDelegateCheckSection', () => {
   it('a szoveg gepfuggetlen: nincs benne agens-nev, tulajdonos-nev, /home ut', () => {
     const path = seed('# zz-delegate-check-probe\n')
     ensureDelegateCheckSection(THROWAWAY)
-    const block = readFileSync(path, 'utf-8')
+    const block = withDetails(readFileSync(path, 'utf-8'))
     expect(block).not.toContain('/home/')
     expect(block).not.toContain('lackor')
     expect(block).not.toContain('usalackor')
@@ -107,14 +108,14 @@ describe('ensureGlobalDelegateCheckRule', () => {
       mkdirSync(join(home, '.claude'), { recursive: true })
       writeFileSync(path, '# Sajat gepszintu szabalyaim\n\nEzt nem szabad bantani.\n')
       ensureGlobalDelegateCheckRule()
-      const out = readFileSync(path, 'utf-8')
+      const out = withDetails(readFileSync(path, 'utf-8'))
       expect(out).toContain('MUNKA ATADASA ELOTT KOTELEZO ELLENORIZNI')
       expect(out).toContain('Ezt nem szabad bantani.')
 
       const mtime = statSync(path).mtimeMs
       ensureGlobalDelegateCheckRule()
       expect(statSync(path).mtimeMs).toBe(mtime)
-      expect(readFileSync(path, 'utf-8').split('BEGIN GENERATED: delegate-availability-rule').length - 1).toBe(1)
+      expect(withDetails(readFileSync(path, 'utf-8')).split('BEGIN GENERATED: delegate-availability-rule').length - 1).toBe(1)
     } finally {
       if (original === undefined) delete process.env['HOME']
       else process.env['HOME'] = original
@@ -128,7 +129,7 @@ describe('ensureGlobalDelegateCheckRule', () => {
     process.env['HOME'] = home
     try {
       ensureGlobalDelegateCheckRule()
-      const out = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')
+      const out = withDetails(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8'))
       expect(out).toContain('MUNKA ATADASA ELOTT KOTELEZO ELLENORIZNI: ONLINE-E A CIMZETT')
     } finally {
       if (original === undefined) delete process.env['HOME']

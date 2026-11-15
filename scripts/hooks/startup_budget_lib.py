@@ -3,7 +3,7 @@
 
 When the 5-hour quota resets, several sessions wake at once and each one pays
 its whole start (~100k tokens measured on 2026-10-25) before doing anything.
-STARTUP_TOKEN_CEILING (Settings page / .env, default 50000) is a hard ceiling on
+STARTUP_TOKEN_CEILING (Settings page / .env, default 20000) is a hard ceiling on
 that start. This module answers two questions, in one place, for every hook and
 for the CLI measurer below:
 
@@ -25,7 +25,7 @@ import re
 import sys
 
 CHARS_PER_TOKEN = 3.5
-DEFAULT_CEILING_TOKENS = 50_000
+DEFAULT_CEILING_TOKENS = 20_000
 # The conversation part never drops below this, so the freshest turn(s) always
 # survive even when the fixed part alone is over the ceiling (that case is
 # REPORTED, not hidden, and never cut away silently).

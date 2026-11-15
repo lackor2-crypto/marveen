@@ -32,9 +32,9 @@ function fake(userChars: number, agentChars: number) {
 }
 
 describe('ceiling resolution (python side)', () => {
-  it('is 50000 on an empty install, with no store file and no .env', () => {
+  it('is 20000 on an empty install, with no store file and no .env', () => {
     const f = fake(0, 0)
-    expect(py(`print(json.dumps(L.ceiling_tokens(${JSON.stringify(f.root)})))`)).toBe(50000)
+    expect(py(`print(json.dumps(L.ceiling_tokens(${JSON.stringify(f.root)})))`)).toBe(20000)
   })
   it('env beats the Settings override, which beats .env', () => {
     const f = fake(0, 0)
@@ -47,8 +47,8 @@ describe('ceiling resolution (python side)', () => {
   it('0 means no ceiling; garbage falls back to the default instead of disabling the guard', () => {
     const f = fake(0, 0)
     expect(py(`print(json.dumps(L.ceiling_tokens(${JSON.stringify(f.root)})))`, { STARTUP_TOKEN_CEILING: '0' })).toBe(0)
-    expect(py(`print(json.dumps(L.ceiling_tokens(${JSON.stringify(f.root)})))`, { STARTUP_TOKEN_CEILING: 'many' })).toBe(50000)
-    expect(py(`print(json.dumps(L.ceiling_tokens(${JSON.stringify(f.root)})))`, { STARTUP_TOKEN_CEILING: '-5' })).toBe(50000)
+    expect(py(`print(json.dumps(L.ceiling_tokens(${JSON.stringify(f.root)})))`, { STARTUP_TOKEN_CEILING: 'many' })).toBe(20000)
+    expect(py(`print(json.dumps(L.ceiling_tokens(${JSON.stringify(f.root)})))`, { STARTUP_TOKEN_CEILING: '-5' })).toBe(20000)
   })
 })
 
@@ -125,10 +125,10 @@ describe('measurer summary', () => {
 
 describe('TS side', () => {
   it('has a safe default and a Settings entry with HU+EN texts', () => {
-    expect(STARTUP_TOKEN_CEILING_DEFAULT).toBe(50_000)
+    expect(STARTUP_TOKEN_CEILING_DEFAULT).toBe(20_000)
     expect(typeof startupTokenCeiling()).toBe('number')
     const e = SETTINGS_REGISTRY.find((x) => x.key === 'STARTUP_TOKEN_CEILING')
-    expect(e?.default).toBe(50000)
+    expect(e?.default).toBe(20000)
     const hu = require('node:fs').readFileSync(join(__dirname, '..', '..', 'web', 'lang', 'hu.js'), 'utf8')
     const en = require('node:fs').readFileSync(join(__dirname, '..', '..', 'web', 'lang', 'en.js'), 'utf8')
     expect(hu).toContain("'settings.desc.STARTUP_TOKEN_CEILING'")

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { withDetails } from './helpers/rule-details.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
 import { buildShortReplyBody, ensureGlobalShortReplyRule, ensureShortReplySection } from '../web/agent-scaffold.js'
@@ -26,10 +27,10 @@ describe('short-reply rule', () => {
     const path = join(dir, 'CLAUDE.md')
     writeFileSync(path, '# probe\n\nSajat tartalom.\n')
     expect(ensureShortReplySection(THROWAWAY)).toBe('written')
-    const once = readFileSync(path, 'utf-8')
+    const once = withDetails(readFileSync(path, 'utf-8'))
     expect(once).toContain('Sajat tartalom.')
     expect(ensureShortReplySection(THROWAWAY)).toBe('current')
-    expect(readFileSync(path, 'utf-8')).toBe(once)
+    expect(withDetails(readFileSync(path, 'utf-8'))).toBe(once)
   })
   it('replaces a stale block in place instead of adding a second one', () => {
     const dir = agentDir(THROWAWAY)
@@ -37,7 +38,7 @@ describe('short-reply rule', () => {
     const path = join(dir, 'CLAUDE.md')
     writeFileSync(path, `ELOTTE.\n\n${BEGIN}\nregi szoveg\n${END}\n\nUTANA.\n`)
     expect(ensureShortReplySection(THROWAWAY)).toBe('written')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).not.toContain('regi szoveg')
     expect(out).toContain(buildShortReplyBody())
     expect(out.split('BEGIN GENERATED: short-reply-rule').length - 1).toBe(1)
@@ -72,7 +73,7 @@ describe('ensureGlobalShortReplyRule', () => {
 
   it('creates ~/.claude/CLAUDE.md on a fresh install where nothing exists yet', () => {
     ensureGlobalShortReplyRule()
-    const out = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')
+    const out = withDetails(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8'))
     expect(out).toContain(buildShortReplyBody())
   })
 
@@ -82,7 +83,7 @@ describe('ensureGlobalShortReplyRule', () => {
     writeFileSync(path, '# Sajat szabalyaim\n\nNE NYULJ HOZZA\n')
     ensureGlobalShortReplyRule()
     ensureGlobalShortReplyRule()
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('NE NYULJ HOZZA')
     expect(out.split('BEGIN GENERATED: short-reply-rule').length - 1).toBe(1)
   })

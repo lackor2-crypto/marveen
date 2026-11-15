@@ -21,6 +21,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { withDetails } from './helpers/rule-details.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
 import { ensureWakeGreetingSection, ensureGlobalWakeGreetingRule } from '../web/agent-scaffold.js'
@@ -44,7 +45,7 @@ describe('ensureWakeGreetingSection', () => {
   it('beirja a szabalyt egy meglevo agens CLAUDE.md-jebe', () => {
     const path = seed('# zz-wake-greeting-probe\n\nSajat tartalom.\n')
     expect(ensureWakeGreetingSection(THROWAWAY)).toBe('written')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('FELEBREDESKOR AZ ELSO MONDAT A KOSZONES')
     // A konkret mondat, amit a tulajdonos kert -- nem csak az elv.
     expect(out).toContain('Szia, itt vagyok, felebredtem')
@@ -59,7 +60,7 @@ describe('ensureWakeGreetingSection', () => {
     ensureWakeGreetingSection(THROWAWAY)
     const firstWrite = statSync(path).mtimeMs
     expect(ensureWakeGreetingSection(THROWAWAY)).toBe('current')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     const occurrences = out.split('BEGIN GENERATED: wake-greeting-rule').length - 1
     expect(occurrences).toBe(1)
     expect(statSync(path).mtimeMs).toBe(firstWrite)
@@ -73,7 +74,7 @@ describe('ensureWakeGreetingSection', () => {
       + '<!-- END GENERATED: wake-greeting-rule -->\n\nUTANA.\n',
     )
     expect(ensureWakeGreetingSection(THROWAWAY)).toBe('written')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).not.toContain('regi szoveg')
     expect(out).toContain('Szia, itt vagyok, felebredtem')
     expect(out).toContain('ELOTTE.')
@@ -94,7 +95,7 @@ describe('ensureWakeGreetingSection', () => {
   it('kimondja a #202 kivetelt, ugyanazzal a jelolovel, amit az injektalt blokk hasznal', () => {
     const path = seed('# zz-wake-greeting-probe\n')
     ensureWakeGreetingSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
 
     const injected = buildWakeGreetingContext(
       decideWakeGreeting(
@@ -112,7 +113,7 @@ describe('ensureWakeGreetingSection', () => {
   it('a szoveg gepfuggetlen: nincs benne agens-nev, tulajdonos-nev, /home ut', () => {
     const path = seed('# zz-wake-greeting-probe\n')
     ensureWakeGreetingSection(THROWAWAY)
-    const block = readFileSync(path, 'utf-8')
+    const block = withDetails(readFileSync(path, 'utf-8'))
     expect(block).not.toContain('/home/')
     expect(block).not.toContain('lackor')
     expect(block).not.toContain('Marvin')
@@ -133,7 +134,7 @@ describe('ensureGlobalWakeGreetingRule', () => {
       mkdirSync(join(home, '.claude'), { recursive: true })
       writeFileSync(path, '# Sajat gepszintu szabalyaim\n\nEzt nem szabad bantani.\n')
       ensureGlobalWakeGreetingRule()
-      const out = readFileSync(path, 'utf-8')
+      const out = withDetails(readFileSync(path, 'utf-8'))
       expect(out).toContain('Szia, itt vagyok, felebredtem')
       expect(out).toContain('Ezt nem szabad bantani.')
 
@@ -141,7 +142,7 @@ describe('ensureGlobalWakeGreetingRule', () => {
       const mtime = statSync(path).mtimeMs
       ensureGlobalWakeGreetingRule()
       expect(statSync(path).mtimeMs).toBe(mtime)
-      expect(readFileSync(path, 'utf-8').split('BEGIN GENERATED: wake-greeting-rule').length - 1).toBe(1)
+      expect(withDetails(readFileSync(path, 'utf-8')).split('BEGIN GENERATED: wake-greeting-rule').length - 1).toBe(1)
     } finally {
       if (original === undefined) delete process.env['HOME']
       else process.env['HOME'] = original
@@ -157,7 +158,7 @@ describe('ensureGlobalWakeGreetingRule', () => {
     process.env['HOME'] = home
     try {
       ensureGlobalWakeGreetingRule()
-      const out = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')
+      const out = withDetails(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8'))
       expect(out).toContain('FELEBREDESKOR AZ ELSO MONDAT A KOSZONES')
     } finally {
       if (original === undefined) delete process.env['HOME']

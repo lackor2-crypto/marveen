@@ -20,6 +20,7 @@ import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames, CorruptConfigError } from './web/agent-config.js'
 import { startDashboardBackup } from './backup/dashboard.js'
+import { compactAgentClaudeMds, compactClaudeMdFile } from './web/claude-md-compact.js'
 import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureAvailabilitySection, ensureGlobalAvailabilityRule, ensureShortReplySection, ensureGlobalShortReplyRule, ensureBrowserClickthroughSection, ensureGlobalBrowserClickthroughRule, ensureFollowReferenceSection, ensureGlobalFollowReferenceRule, ensureNoHiddenLimitsSection, ensureGlobalNoHiddenLimitsRule, ensureTestSandboxSection, ensureGlobalTestSandboxRule, ensureWebResearchSaveSection, ensureGlobalWebResearchSaveRule, ensureRootCauseFixSection, ensureRegressionTestSection, ensureGlobalRegressionTestRule, ensureGlobalRootCauseFixRule, ensureWorkItemFolderFilesSection, ensureLetterHeadSection, ensureGlobalLetterHeadRule, ensureGlobalWorkItemFolderFilesRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
@@ -1146,6 +1147,14 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalRegressionTestRule()
       ensureGlobalWorkItemFolderFilesRule()
       ensureGlobalLetterHeadRule()
+      // #799: hand-written CLAUDE.md sections above 700 bytes move (byte for byte)
+      // to ~/.claude/rule-details/, leaving heading + digest + pointer behind.
+      try {
+        if (!webOnly) compactClaudeMdFile(join(PROJECT_ROOT, 'CLAUDE.md'), 'main')
+        compactAgentClaudeMds(join(PROJECT_ROOT, 'agents'))
+      } catch (err) {
+        logger.warn({ err }, 'claude-md compaction failed')
+      }
       // A szallitott autonomy-katalogus uj kategoriai (kanban #336, 6. fazis).
       // Amit a telepites configja nem ismer, azt a rendszer "nincs jog"-nak
       // veszi -- helyesen --, DE akkor a tulajdonos a Beallitasok / Onallosag

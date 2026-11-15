@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { withDetails } from './helpers/rule-details.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
 import { ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule } from '../web/agent-scaffold.js'
@@ -40,7 +41,7 @@ describe('ensureAskBackSection', () => {
   it('appends the rule to an existing agent CLAUDE.md', () => {
     const path = seed('# zz-ask-back-probe\n\nSajat tartalom.\n')
     ensureAskBackSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('KOTELEZO VISSZAKERDEZES')
     // The original content survives.
     expect(out).toContain('Sajat tartalom.')
@@ -54,11 +55,11 @@ describe('ensureAskBackSection', () => {
   it('is idempotent: no duplicate block and no rewrite on the second call', () => {
     const path = seed('# zz-ask-back-probe\n\nSajat tartalom.\n')
     ensureAskBackSection(THROWAWAY)
-    const first = readFileSync(path, 'utf-8')
+    const first = withDetails(readFileSync(path, 'utf-8'))
     const mtimeBefore = statSync(path).mtimeMs
 
     ensureAskBackSection(THROWAWAY)
-    const second = readFileSync(path, 'utf-8')
+    const second = withDetails(readFileSync(path, 'utf-8'))
 
     expect(second).toEqual(first)
     expect(statSync(path).mtimeMs).toEqual(mtimeBefore)
@@ -69,11 +70,11 @@ describe('ensureAskBackSection', () => {
   it('never touches content outside the markers', () => {
     const path = seed('# fejlec\n\nELSO\n')
     ensureAskBackSection(THROWAWAY)
-    const withBlock = readFileSync(path, 'utf-8')
+    const withBlock = withDetails(readFileSync(path, 'utf-8'))
     writeFileSync(path, withBlock + '\nUTOLSO SOR\n')
 
     ensureAskBackSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('ELSO')
     expect(out).toContain('UTOLSO SOR')
   })
@@ -147,7 +148,7 @@ describe('ensureGlobalAskBackRule', () => {
 
   it('creates ~/.claude/CLAUDE.md on a fresh install where nothing exists yet', () => {
     ensureGlobalAskBackRule()
-    const out = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')
+    const out = withDetails(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8'))
     expect(out).toContain('KOTELEZO VISSZAKERDEZES')
     expect(out).toContain('MINDIG kerdezz')
   })
@@ -160,7 +161,7 @@ describe('ensureGlobalAskBackRule', () => {
     ensureGlobalAskBackRule()
     ensureGlobalAskBackRule()
 
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('NE NYULJ HOZZA')
     expect(out.split('BEGIN GENERATED: ask-back-rule').length - 1).toBe(1)
   })
@@ -189,7 +190,7 @@ describe('ensureRecheckSection', () => {
     const path = seed('# zz-ask-back-probe\n\nSajat tartalom.\n')
     ensureAskBackSection(THROWAWAY)
     ensureRecheckSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
 
     expect(out).toContain('UJRA ALLITAS ELOTT UJRA MEG KELL NEZNI')
     // Both rules coexist -- one did not overwrite the other.
@@ -205,12 +206,12 @@ describe('ensureRecheckSection', () => {
   it('is idempotent: no duplicate block and no rewrite on the second call', () => {
     const path = seed('# zz-ask-back-probe\n\nSajat tartalom.\n')
     ensureRecheckSection(THROWAWAY)
-    const first = readFileSync(path, 'utf-8')
+    const first = withDetails(readFileSync(path, 'utf-8'))
     const mtimeBefore = statSync(path).mtimeMs
 
     ensureRecheckSection(THROWAWAY)
 
-    expect(readFileSync(path, 'utf-8')).toEqual(first)
+    expect(withDetails(readFileSync(path, 'utf-8'))).toEqual(first)
     expect(statSync(path).mtimeMs).toEqual(mtimeBefore)
     expect(first.split('BEGIN GENERATED: recheck-rule').length - 1).toBe(1)
   })
@@ -257,7 +258,7 @@ describe('ensureGlobalRecheckRule', () => {
 
   it('creates ~/.claude/CLAUDE.md on a fresh install where nothing exists yet', () => {
     ensureGlobalRecheckRule()
-    const out = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')
+    const out = withDetails(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8'))
     expect(out).toContain('UJRA ALLITAS ELOTT UJRA MEG KELL NEZNI')
   })
 
@@ -271,7 +272,7 @@ describe('ensureGlobalRecheckRule', () => {
     ensureGlobalAskBackRule()
     ensureGlobalRecheckRule()
 
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('NE NYULJ HOZZA')
     expect(out.split('BEGIN GENERATED: ask-back-rule').length - 1).toBe(1)
     expect(out.split('BEGIN GENERATED: recheck-rule').length - 1).toBe(1)
