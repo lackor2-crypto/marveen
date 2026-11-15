@@ -68,6 +68,10 @@ export interface CodeSession {
   host: string | null
   transcriptMtime: number | null
   pinned: boolean
+  /** #923: the owner paused THIS project: its queued tasks wait (they are kept, not cancelled) and the next one
+   *  goes out after Resume. Every other project is untouched -- the global CODE_BRIDGE_ENABLED switch is a
+   *  different, whole-bridge thing. */
+  paused: boolean
   /** Ezt a beszelgetest MARVIN maga nyitotta (friss-inditas eredmenye), nem
    *  felderites talalta egy mar meglevo -- esetleg a tulaj altal kezzel
    *  hasznalt -- fulben. Csak ilyen sessiont hasznal ujra a claimNextCodeTask
@@ -237,6 +241,8 @@ function ensureTables(): void {
   // altal talalt, akar a tulaj altal eppen kezzel hasznalt) fulbe irjon --
   // csak olyan sessiont hasznaljon ujra alapertelmezesben, amit MAGA nyitott.
   try { db.exec('ALTER TABLE code_sessions ADD COLUMN marvin_owned INTEGER NOT NULL DEFAULT 0') } catch { /* mar letezik */ }
+  // #923: a per-project pause (this project's queued tasks wait; every other project keeps running).
+  try { db.exec('ALTER TABLE code_sessions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0') } catch { /* already there */ }
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN start_fresh INTEGER NOT NULL DEFAULT 0') } catch { /* mar letezik */ }
   // Kartya 15e9476a (#276): a futas KOZBENI beszelgetes, a worker heartbeatjebol.
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN run_session_id TEXT') } catch { /* mar letezik */ }
@@ -394,6 +400,7 @@ function rowToSession(row: Record<string, unknown>): CodeSession {
     host: (row['host'] as string | null) ?? null,
     transcriptMtime: (row['transcript_mtime'] as number | null) ?? null,
     pinned: Boolean(row['pinned']),
+    paused: Boolean(row['paused']),
     marvinOwned: Boolean(row['marvin_owned']),
     updatedAt: row['updated_at'] as number,
   }
@@ -454,6 +461,13 @@ export function lastAgentRunSession(project: string): {
     .get(project) as { id: string; session_id: string; status: string; at: number } | undefined
   if (!row) return null
   return { sessionId: row.session_id, taskId: row.id, at: Number(row.at) || 0, running: row.status === 'running' }
+}
+
+/** #923: pause / resume ONE project. Returns false when the project does not exist. */
+export function setCodeProjectPaused(project: string, paused: boolean): boolean {
+  ensureTables()
+  const r = getDb().prepare(`UPDATE code_sessions SET paused = ? WHERE project = ?`).run(paused ? 1 : 0, normalizeAlias(project))
+  return r.changes > 0
 }
 
 export function getCodeSession(project: string): CodeSession | null {
@@ -1563,6 +1577,8 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       }
       const session = getCodeSession(task.project)
       if (!session) continue
+      // #923: a paused project keeps its queued tasks and lets every other project's task go out.
+      if (session.paused) continue
       // #799: the first minutes of a 5h window may spend only WAKE_PHASE_CEILING_PCT on NEW automatic work.
       // Boss's own messages (telegram, workbench) are exempt. The reading is the main account's, so only the
       // WSL-side sessions (the main account's VS Code) are held by it; no fresh reading = nothing is held.

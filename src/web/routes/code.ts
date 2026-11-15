@@ -29,7 +29,7 @@ import {
 } from '../../config.js'
 import {
   listCodeSessions, getCodeSession, upsertCodeSession, deleteCodeSession,
-  dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
+  setCodeProjectPaused, dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
   claimNextCodeTask, noteWorkerLogin, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
   recordCodeTaskEndedSession, recordCodeTaskDispatchWorkspace,
@@ -285,6 +285,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // ki, mintha az ugynok identitasa is elveszett volna.
   const alwaysOn = path === '/api/code/health' || path === '/api/code/config'
     || path === '/api/code/worker-script' || path === '/api/code/avatar'
+    // #923: the project cards stay on the Team page when the whole bridge is switched off (they show as stopped),
+    // so the read-only project list answers too. Moving a task stays behind the gate.
+    || (path === '/api/code/projects' && method === 'GET')
   if (!CODE_BRIDGE_ENABLED && !alwaysOn) {
     json(res, { error: 'code bridge disabled (CODE_BRIDGE_ENABLED=0)', errorKey: 'cb.err.bridge_disabled' }, 503)
     return true
@@ -963,6 +966,17 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     } catch (err) {
       json(res, { error: err instanceof Error ? err.message : String(err), errorKey: 'cb.err.project_map_failed', errorParams: { detail: err instanceof Error ? err.message : String(err) } }, 400)
     }
+    return true
+  }
+
+  // #923: pause / resume ONE project. Its queued tasks wait; every other project keeps running.
+  const pauseMatch = /^\/api\/code\/projects\/([^/]+)\/pause$/.exec(path)
+  if (pauseMatch && method === 'POST') {
+    const alias = safeDecode(pauseMatch[1]!)
+    const body = await parseJsonBody<{ paused?: boolean }>(ctx)
+    if (!body || typeof body.paused !== 'boolean') { json(res, { error: 'paused (boolean) is required', errorKey: 'cb.err.invalid_json' }, 400); return true }
+    const ok = setCodeProjectPaused(alias, body.paused)
+    json(res, ok ? { project: alias, paused: body.paused } : { error: 'unknown project', errorKey: 'cb.err.unknown_project' }, ok ? 200 : 404)
     return true
   }
 
