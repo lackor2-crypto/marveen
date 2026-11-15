@@ -84,7 +84,8 @@ describe('felderitett mappak: a jeloltlista', () => {
     // lap "Felvetel" gombot kinalna olyan mappara, amit a szerver 400-zal utasit
     // vissza.
     const route = readFileSync(join(ROOT, 'src/web/routes/code.ts'), 'utf8')
-    const block = route.slice(route.indexOf("path === '/api/code/candidates'"), route.indexOf("path === '/api/code/projects' && method === 'GET'"))
+    const start = route.indexOf("path === '/api/code/candidates'")
+    const block = route.slice(start, route.indexOf("path === '/api/code/projects' && method === 'GET'", start))
     expect(block).toContain('isExcludedProject(alias)')
     expect(block).toContain("'excluded'")
   })

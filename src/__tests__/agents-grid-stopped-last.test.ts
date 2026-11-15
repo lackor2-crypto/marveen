@@ -81,7 +81,7 @@ describe('#394 code bridge card: stopped -> dimmed, end of the paid tier', () =>
   const cb = fnBody('function renderCodeBridgeAgentCards(')
 
   it('the code bridge card gets is-stopped from its own run state', () => {
-    expect(cb).toContain("card.classList.toggle('is-stopped', cbRunDotClass() === 'stopped')")
+    expect(cb).toContain("card.classList.toggle('is-stopped', cbRunDotClass() === 'stopped' || e.paused === true)")
   })
 
   it('running: rendered in the old slot; stopped: before the free divider, or after the paid tier', () => {
