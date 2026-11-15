@@ -133,15 +133,23 @@ def main():
     # A hook line is a MEASUREMENT, not a fact to repeat (Boss, 2026-11-09, TG 5605: the hook said 100%, Boss saw 32%,
     # the agent passed the 100% on unchecked). So say when and from where it was measured, tell the agent to re-read
     # the file before it states the number, and keep a trace of what this hook saw for later diagnosis.
-    measured = time.strftime('%H:%M:%S', time.localtime(updated_at / 1000))
+    # updatedAt is when the FILE was last touched; statusline.py bumps it on every render and keeps the old figures
+    # when Claude reported no rate_limits. The figures themselves are dated by windowsUpdatedAt -- stamping the
+    # warning with updatedAt made an old number look freshly measured.
+    figures_at = snap.get('windowsUpdatedAt')
+    if not isinstance(figures_at, (int, float)):
+        figures_at = updated_at
+    figures_age_min = max(0, int((now_ms - figures_at) // 60_000))
+    measured = time.strftime('%H:%M:%S', time.localtime(figures_at / 1000))
     source = os.path.relpath(snapshot_path, project_root)
+    age_note = f", a szam {figures_age_min} perce" if figures_age_min >= 5 else ''
     note = (
-        f" (merve: {measured}, forras: {source}.) Mielott ezt a szamot barkinek kimondod (Telegram is), "
+        f" (merve: {measured}{age_note}, forras: {source}.) Mielott ezt a szamot barkinek kimondod (Telegram is), "
         f"olvasd ujra a fajlt (cat {source}); ha mast mutat, a friss adat nyer."
     )
     try:
         with open(os.path.join(project_root, 'store', 'rate-limit-guard.log'), 'a') as lf:
-            lf.write(json.dumps({'at': int(now_ms), 'agent': agent_id, 'five': five, 'snapshot': snap}, ensure_ascii=False) + '\n')
+            lf.write(json.dumps({'at': int(now_ms), 'agent': agent_id, 'five': five, 'figuresAgeMin': figures_age_min, 'snapshot': snap}, ensure_ascii=False) + '\n')
     except OSError:
         pass
 
