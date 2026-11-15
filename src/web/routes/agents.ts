@@ -361,7 +361,9 @@ const localPaneCache = new BackgroundCache<string | null>(2500)
 function summaryPane(name: string, host: string | null): string | null {
   return host
     ? remotePaneCache.getOrRefresh(name, Date.now(), () => capturePane(agentSessionName(name), host), null)
-    : localPaneCache.getWithin(name, Date.now(), 5000, () => capturePane(agentSessionName(name)))
+    // Stale-while-revalidate: only the very first read of an agent forks synchronously. The old fixed-age read forked a tmux
+    // capture on the event loop for every agent whose cached pane was 5 s old (hidden tab, slow poll): up to a 1.2 s freeze.
+    : localPaneCache.get(name, Date.now(), () => capturePaneAsync(agentSessionName(name)), () => capturePane(agentSessionName(name)))
 }
 
 // Resolve an agent's run state, cached for remote agents to avoid blocking on

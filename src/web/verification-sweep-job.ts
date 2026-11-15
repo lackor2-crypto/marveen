@@ -234,8 +234,7 @@ export function settleFailedCodeVerifications(now = Date.now()): number {
       const project = codeBridgeProjectOf(row.agent)
       if (project === null) continue
       // Newest first (listCodeTasks orders by created_at DESC).
-      const mine = listCodeTasks({ project, limit: 200 })
-        .filter((t) => t.prompt.includes(row.approval_id) && t.createdAt >= row.requested_at * 1000 - 2000)
+      const mine = listCodeTasks({ project, limit: 200, promptIncludes: row.approval_id, createdAtFrom: row.requested_at * 1000 - 2000 })
       if (!mine.length) continue
       if (mine.some((t) => t.status === 'queued' || t.status === 'running')) continue
       const last = mine[0]!
