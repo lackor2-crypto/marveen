@@ -2551,3 +2551,18 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
   .wb-fr-panel.wb-fr-panel-collapsed { flex: 0 0 0; width: 0; min-width: 0; padding: 0; border: 0; overflow: hidden; }
   .wb-fr-panel-collapsed + .wb-tree-split { background: var(--border, #d0d7de); flex-basis: 12px; }
 }
+
+/* #906 follow-up (Boss TG 6255): the Technical details are COMPACT, so the owner does not have to scroll: tight spacing, small
+   tool buttons, and where the middle column is wide enough the blocks (tools, this work item, the project) stand side by side. */
+.wb-fr-center-tech .wb-sh-tech { border: 0; padding: 0; gap: 8px; display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); align-items: start; }
+.wb-fr-center-tech .wb-sh-tech > .wb-panel-title { grid-column: 1 / -1; margin: 0; font-size: 14px; }
+.wb-fr-center-tech .wb-sh-tech > .wb-sh-tech-grp:first-of-type { grid-column: 1 / -1; }
+.wb-fr-center-tech .wb-sh-tech-grp { gap: 6px; padding-top: 6px; min-width: 0; }
+.wb-fr-center-tech .wb-sh-tech-h { font-size: 11px; }
+.wb-fr-center-tech .wb-sh-tech-actions { gap: 4px; flex-wrap: wrap; }
+.wb-fr-center-tech .wb-sh-tech-actions .btn-secondary { padding: 3px 8px; font-size: 12px; }
+.wb-fr-center-tech .wb-sh-tech-item { gap: 8px; }
+/* #906 follow-up: the project/work item context blocks flow into as many columns as the middle column has room for. */
+.wb-fr-center-tech .wb-panel-context { display: block; column-width: 300px; column-gap: 14px; }
+.wb-fr-center-tech .wb-panel-context > .wb-panel-title { column-span: all; margin: 0 0 4px; font-size: 14px; }
+.wb-fr-center-tech .wb-panel-context > * { break-inside: avoid; margin-top: 0; margin-bottom: 8px; }
