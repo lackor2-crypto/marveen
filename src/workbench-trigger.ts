@@ -5,6 +5,7 @@
  * (own initiative)". Reads only; makes nothing.
  */
 import { readdirSync } from 'node:fs'
+import { getDb } from './db.js'
 import { listMounts } from './life-mounts.js'
 import { projectFileTarget, TRIGGER_FOLDER_NAMES } from './project-files.js'
 import { getProject } from './projects.js'
@@ -19,11 +20,27 @@ export type TriggerState = {
   noTrigger: boolean
 }
 
+/**
+ * #921 (Boss TG 6314/6315): the "no trigger document" tick belongs to the Kiváltó irat FOLDER, not to one work item. Several
+ * items can share the folder (a Hungarian and a German version in one container); the page draws ONE tick for the folder,
+ * so the answer counts for every item that uses it. True when any item of the project on the same base folder carries the mark.
+ */
+export function siblingNoTrigger(projectId: string, base: string): boolean {
+  if (!base) return false
+  try {
+    const row = getDb().prepare(
+      `SELECT 1 FROM work_items WHERE project_id = ? AND no_trigger = 1
+         AND (TRIM(COALESCE(folder, '')) = ? OR (TRIM(COALESCE(folder, '')) = '' AND TRIM(COALESCE(container_folder, '')) = ?)) LIMIT 1`,
+    ).get(projectId, base, base)
+    return !!row
+  } catch { return false }
+}
+
 export function triggerStateOf(project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'container_folder' | 'no_trigger'>): TriggerState {
-  const noTrigger = item.no_trigger === 1
   // An own-file item has no folder of its own: its container folder is the item folder.
   const cf = String(item.container_folder ?? '').trim()
   const base = String(item.folder ?? '').trim() || (cf && cf !== '@project' ? cf : '')
+  const noTrigger = item.no_trigger === 1 || siblingNoTrigger(project.id, base)
   if (!base) return { folder: null, files: [], noTrigger }
   for (const n of [TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en]) {
     const sub = `${base}/${n}`
