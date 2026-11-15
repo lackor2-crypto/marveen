@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
-import { safeName, packageNames, removeUploadPackage, uploadPackageInfo, sweepOldUploadPackages, PACKAGE_MARKER, pickWindowsDownloads, windowsExe } from '../workbench-upload-package.js'
+import { safeName, packageNames, removeUploadPackage, uploadPackageInfo, sweepOldUploadPackages, PACKAGE_MARKER, pickWindowsDownloads, windowsExe, largeFiles, UPLOAD_SIZE_WARN_BYTES, warnExpiringUploadPackages } from '../workbench-upload-package.js'
 import { readFileSync } from 'node:fs'
 import { markSentManually } from '../workbench-docsent.js'
 
@@ -103,6 +103,58 @@ describe('the folder is made in the WINDOWS Downloads folder, not in the Linux h
     for (const lang of ['hu', 'en']) {
       const dict = readFileSync(join(__dirname, '..', '..', 'web', 'lang', lang + '.js'), 'utf8')
       for (const k of ['workbench.upload.make_print', 'workbench.upload.ready_print', 'workbench.upload.pkg_hint', 'workbench.upload.pkg_hint_print', 'workbench.send.person_pkg_hint']) expect(dict).toContain('"' + k + '"')
+    }
+  })
+})
+
+
+// Card #876 text: "the K3 is over 10 MB, a file-size warning is needed" and "uncleaned folders are removed after some days, a notice comes first".
+// The code did neither: the owner saw no warning for the big annex and an unwarned folder simply vanished after a week.
+describe('size warning and notice before the automatic clean-up', () => {
+  let root = ''
+  beforeEach(() => { initDatabase(':memory:'); root = mkdtempSync(join(tmpdir(), 'wb-up2-')) })
+  afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+  const make = (itemId: string, ageSec: number, bytes = 1): string => {
+    const dir = join(root, 'Upload_' + itemId)
+    mkdirSync(dir)
+    writeFileSync(join(dir, '00_Brief.pdf'), Buffer.alloc(bytes))
+    writeFileSync(join(dir, PACKAGE_MARKER), JSON.stringify({ item_id: itemId }))
+    uploadPackageInfo(itemId)
+    getDb().prepare('INSERT OR REPLACE INTO wb_upload_package (item_id, dir, created_at) VALUES (?, ?, ?)').run(itemId, dir, Math.floor(Date.now() / 1000) - ageSec)
+    return dir
+  }
+  it('largeFiles lists only the files over the limit (a warning, nothing is blocked or changed)', () => {
+    const f = [{ name: 'a.pdf', bytes: 5 * 1024 * 1024 }, { name: 'K3.pdf', bytes: 10 * 1024 * 1024 + 1 }]
+    expect(UPLOAD_SIZE_WARN_BYTES).toBe(10 * 1024 * 1024)
+    expect(largeFiles(f).map((x) => x.name)).toEqual(['K3.pdf'])
+    expect(largeFiles(f, 1).length).toBe(2)
+    expect(largeFiles([])).toEqual([])
+  })
+  it('the package view carries the big files and the day it will be removed', () => {
+    make('big1', 0, 11 * 1024 * 1024)
+    const v = uploadPackageInfo('big1')!
+    expect(v.large.map((x) => x.name)).toEqual(['00_Brief.pdf'])
+    expect(v.size_warn_bytes).toBe(UPLOAD_SIZE_WARN_BYTES)
+    expect(v.expires_at).toBe(v.created_at + 7 * 86400)
+  })
+  it('a package close to the clean-up gets ONE notice, a fresh one none, and the notice never deletes anything', async () => {
+    const near = make('near1', 6.5 * 86400)
+    make('fresh1', 3600)
+    const sent: string[] = []
+    expect(await warnExpiringUploadPackages(Date.now(), async (t) => { sent.push(t) })).toBe(1)
+    expect(sent.length).toBe(1)
+    expect(existsSync(near)).toBe(true)
+    expect(await warnExpiringUploadPackages(Date.now(), async (t) => { sent.push(t) })).toBe(0)
+    expect(sent.length).toBe(1)
+  })
+  it('the page shows the warning and the removal day, in both languages', () => {
+    const js = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf8')
+    const fn = js.slice(js.indexOf('function uploadPackageHtml('), js.indexOf('function sentBannerHtml('))
+    expect(fn).toContain('workbench.upload.large_warn')
+    expect(fn).toContain('workbench.upload.expires')
+    for (const lang of ['hu', 'en']) {
+      const dict = readFileSync(join(__dirname, '..', '..', 'web', 'lang', lang + '.js'), 'utf8')
+      for (const k of ['workbench.upload.large_warn', 'workbench.upload.expires']) expect(dict).toContain('"' + k + '"')
     }
   })
 })
