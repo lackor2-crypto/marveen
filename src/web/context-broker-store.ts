@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { listAgentNames } from './agent-config.js'
-import { agentSessionName, capturePane, sessionExistsOnHost } from './agent-process.js'
+import { agentSessionName, capturePane, capturePaneAsync, sessionExistsOnHost } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
 import { blockingResetsAt, WEEKLY_BLOCK_PCT } from '../availability-transitions.js'
@@ -78,6 +78,12 @@ function hasLiveSession(agent: string): boolean {
 export function readAgentPane(agent: string): string | null {
   const session = agent === MAIN_AGENT_ID ? MAIN_CHANNELS_SESSION : agentSessionName(agent)
   return capturePane(session)
+}
+
+/** #922: the same read without a synchronous tmux fork (the availability tick used to freeze the event loop for it). */
+export function readAgentPaneAsync(agent: string): Promise<string | null> {
+  const session = agent === MAIN_AGENT_ID ? MAIN_CHANNELS_SESSION : agentSessionName(agent)
+  return capturePaneAsync(session)
 }
 
 /**

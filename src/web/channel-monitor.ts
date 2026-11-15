@@ -1328,7 +1328,7 @@ function refreshKeepaliveFromInbound(): void {
   }
 }
 
-function checkMainKeepaliveStaleness(): void {
+function checkMainKeepaliveStaleness(pluginKnownAlive = false): void {
   // SAFETY NET first: let any fresh inbound traffic warm the file before we
   // judge staleness, so a busy-but-alive session is never seen as stale-deaf.
   refreshKeepaliveFromInbound()
@@ -1343,10 +1343,12 @@ function checkMainKeepaliveStaleness(): void {
   // The bun-child check is the same liveness signal channel-plugin-unlock
   // already uses; reuse it here so the two paths agree on "alive".
   try {
-    const claudePid = getClaudePidForSession(MAIN_CHANNELS_SESSION)
+    // #922: the sweep that calls this already probed the plugin (asynchronously) a moment ago and found it alive, so it says
+    // so (pluginKnownAlive) and the two synchronous ps/pgrep forks here (0.7-1.9 s of frozen dashboard) are skipped.
+    const claudePid = pluginKnownAlive ? 0 : getClaudePidForSession(MAIN_CHANNELS_SESSION)
     if (claudePid != null) {
       const provider = getProvider(getMainAgentProvider())
-      if (hasChannelPluginAlive(claudePid, provider.type)) {
+      if (pluginKnownAlive || hasChannelPluginAlive(claudePid, provider.type)) {
         logger.debug({ claudePid, provider: provider.type }, 'Keepalive stale but channel plugin is alive -- skipping respawn')
         return
       }
@@ -1842,7 +1844,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
           handleMarveenUp()
           // Process-alive does NOT prove the inbound MCP pipe is healthy (the
           // deafness blind spot). Cross-check the keep-alive freshness.
-          checkMainKeepaliveStaleness()
+          checkMainKeepaliveStaleness(true)
         } else {
           if (agentDownSince.has(t.session)) {
             logger.info({ session: t.session, provider: t.provider }, 'Agent channel plugin recovered')
