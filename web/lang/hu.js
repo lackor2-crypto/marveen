@@ -9236,6 +9236,7 @@ window._i18n.hu = {
   "workbench.tw.not_yet": "Még nincs lefordítva. Nyomd meg a Fordítás gombot.",
   "workbench.tw.loaded_saved": "Betöltve a mentett fordítás: {n} fejezet a(z) „{title}” változatból.",
   "workbench.tw.conflict_confirm": "A mentett fordítás közben megváltozott (az asszisztens vagy egy másik lap javította), és ezen a lapon is szerkesztettél: {n} fejezetnél. OK = a te lapod felülírja a mentettet, Mégse = a legfrissebb mentett szöveget töltöm be a lapra.",
+  "workbench.tw.check_failed": "A mentés előtt nem sikerült ellenőrizni a mentett fordítást ({why}), ezért semmit nem írtam felül. Próbáld újra a Fordítás mentése gombbal.",
   "workbench.tw.newer_taken": "A fordítás közben frissült: {n} fejezet legújabb szövege betöltve, nem írtam felül.",
   "workbench.tw.resynced": "A mentett fordítás közben megváltozott, a jobb oldali oszlop frissült: {n} fejezet.",
   "workbench.tw.load_failed": "A mentett fordítást nem sikerült betölteni: {why} Frissítsd az oldalt, vagy nyomd meg a Fordítás gombot, és újat készít.",

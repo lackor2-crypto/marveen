@@ -17296,6 +17296,14 @@
     // overwritten silently: if the page was not edited since it took the text over, the server's newer text is taken into the
     // page; if the page was edited too, the owner is asked which of the two wins.
     api('GET', '/api/workbench/items/' + encodeURIComponent(id) + '/outline/translation?to=' + encodeURIComponent(lang)).then(function (g) {
+      // The check itself failed (network, server error): the saved text is UNKNOWN, so nothing is written (never fail open:
+      // an unchecked save is exactly what wrote the old page over the assistant's correction).
+      if (!g || !g.ok) {
+        tw.busy = false
+        tw.note = t('workbench.tw.check_failed', { why: (g && g.message) || '' })
+        twRefresh()
+        return
+      }
       var server = {}
       if (g && g.ok && g.data && g.data.found) (g.data.sections || []).forEach(function (s) { server[s.source_section] = s })
       var cur = WB.detail && WB.detail.outline
@@ -17333,7 +17341,7 @@
         if (taken && tw.note) tw.note += ' ' + t('workbench.tw.newer_taken', { n: taken })
         if (taken) twRefresh()
       })
-    })
+    }, function () { tw.busy = false; twRefresh() })
   }
   /** The write itself (the save of the sections that are safe to write). */
   function twSavePost(id, lang, list, auto) {
