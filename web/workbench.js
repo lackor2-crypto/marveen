@@ -17184,6 +17184,15 @@
     var y0 = Math.max(c.top, tb ? tb.getBoundingClientRect().bottom : 0, cb ? cb.getBoundingClientRect().bottom : 0)
     return { x0: x0, x1: x1, y0: y0, left: x0 - c.left, top: y0 - c.top, width: x1 - x0, gapC: (l.right + r.left) / 2 - x0 }
   }
+  // #877: what one wheel step over the shared-scroll band does. a / b = { top, max } of the two columns, dy = wheel step.
+  // Both columns end on ONE offset (`top`); `rest` is what they could not take and the whole view (attachments) gets.
+  function twBandPlan(a, b, dy) {
+    var lim = Math.max(0, Math.min(a.max, b.max))
+    var t0 = Math.min(Math.max(a.top, b.top), lim) // columns that differ are first brought to the same offset
+    var room = dy < 0 ? t0 : lim - t0
+    var step = dy < 0 ? -Math.min(-dy, room) : Math.min(dy, room)
+    return { top: t0 + step, rest: dy - step }
+  }
   function twBandSetup() {
     var cols = document.querySelector('.wb-fr-scroll .wb-sh-doc-body > .wb-tw-cols')
     var old = document.getElementById('wbTwBand')
@@ -17208,13 +17217,11 @@
         e.preventDefault()
         // Boss TG 5491: the two pages must stay on one line. The step is the most BOTH columns can take; when one of them
         // has run out (top / bottom) the rest goes to the whole view (the attachments below), never to one page alone.
-        // Columns that already differ (older state) are first brought to the same offset.
-        var room = function (el, d) { return d < 0 ? el.scrollTop : Math.max(0, el.scrollHeight - el.clientHeight - el.scrollTop) }
-        var step = dy < 0 ? -Math.min(-dy, room(a, dy), room(b, dy)) : Math.min(dy, room(a, dy), room(b, dy))
-        if (step) { a.scrollTop += step; b.scrollTop += step }
-        var rest = dy - step
+        // Columns that already differ (one was scrolled on its own before) are first brought to the same offset (#877).
+        var plan = twBandPlan({ top: a.scrollTop, max: a.scrollHeight - a.clientHeight }, { top: b.scrollTop, max: b.scrollHeight - b.clientHeight }, dy)
+        a.scrollTop = plan.top; b.scrollTop = plan.top
         var outer = cols.closest('.wb-fr-scroll')
-        if (rest && outer) outer.scrollTop += rest
+        if (plan.rest && outer) outer.scrollTop += plan.rest
       }, { passive: false })
       if (typeof ResizeObserver === 'function') new ResizeObserver(function () { twBandSetup() }).observe(cols)
       // the sticky boxes settle after the first layout and when a column scrolls: the band's top follows them
