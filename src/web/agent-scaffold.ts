@@ -2734,7 +2734,7 @@ function buildKanbanWaitingMoveBody(): string {
     'A tulajdonos a "waiting" oszlopbol viszi be a kartyat a jovahagyasokba, ezert a',
     'kesz munka ott lathato. Ez NEM mond ellent a "visszafele mozgatas csak kerdes',
     'utan" szabalynak: elore (in_progress -> waiting) rutin es kotelezo; a tilalom CSAK',
-    'a visszafele mozgatasra (waiting -> korabbi oszlop) all.',
+    'a visszafele mozgatasra (waiting -> korabbi oszlop) all (kiveve az ellenorizetlen kartya, lasd az 1 hiba = 1 kartya 7. pontjat).',
     '',
     'DE: a "waiting"-be CSAK KESZ kartya mehet. Mielott atteszed, ELLENORIZD AZ OSSZES',
     'PONTOT (lepesek, alfeladat-kartyak, a leirasban es a kommentekben szereplo',

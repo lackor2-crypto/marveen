@@ -108,6 +108,18 @@ describe('ensureOneCardOneFixSection', () => {
     expect(creation).toContain('A VÁRAKOZÓBA KERÜLT KÁRTYA AZ ELSŐ ELLENŐRZÉSIG BŐVÍTHETŐ')
   })
 
+  // #889: point 7 lets an UNVERIFIED waiting card be reopened without asking. Every other text that states the
+  // backward-move ban must carry the same exception, or the rules contradict each other.
+  it('every backward-move ban text names the unverified-card exception (#889)', () => {
+    const ONE_CARD = 'kivéve az ellenőrizetlen kártya'
+    const read = (...p: string[]) => readFileSync(join(PROJECT_ROOT, ...p), 'utf-8')
+    expect(read('seed-skills', 'one-card-one-fix', 'SKILL.md')).toContain(ONE_CARD)
+    expect(read('seed-skills', 'card-done-to-waiting', 'SKILL.md')).toContain(ONE_CARD)
+    expect(read('templates', 'CLAUDE.md.template')).toContain('kivéve az ellenőrizetlen kártya, lásd az 1 hiba = 1 kártya 7. pontját')
+    // The generated per-agent block ships ASCII text.
+    expect(read('src', 'web', 'agent-scaffold.ts')).toContain('kiveve az ellenorizetlen kartya, lasd az 1 hiba = 1 kartya 7. pontjat')
+  })
+
   it('the main-agent CLAUDE.md template carries the rule (fresh clone)', () => {
     const text = readFileSync(join(PROJECT_ROOT, 'templates', 'CLAUDE.md.template'), 'utf-8')
     expect(text).toContain('EGY HIBA = EGY KÁRTYA')

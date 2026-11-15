@@ -72,7 +72,8 @@ Ezt a szerver ki is kényszeríti:
 Csak ELŐRE. Ha a kártya már `waiting`-ben vagy `done`-ban áll, NE mozgasd
 vissza (a kilépés a waitingből visszavonja a függő jóváhagyást) -- a munkát
 mozgatás nélkül is elvégezheted, kommentet írsz a kártyára. Visszafelé csak
-külön kérdés és válasz után.
+külön kérdés és válasz után (kivéve az ellenőrizetlen kártya: amíg peer-ellenőrzés
+nem volt rajta, kérdés nélkül visszanyitható -- lásd `one-card-one-fix` 7. pont).
 
 ## Hogyan
 

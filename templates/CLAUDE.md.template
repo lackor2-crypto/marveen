@@ -806,7 +806,7 @@ mozgatni kell: egy „kész, de még in_progress-ben álló" kártya hazugság a
 A tulajdonos a „waiting" oszlopból viszi be a kártyát a jóváhagyásokba, ezért a kész
 munka ott látható. Ez NEM mond ellent a „visszafelé mozgatás csak kérdés után"
 szabálynak: előre (in_progress -> waiting) rutin és kötelező; a tilalom CSAK a
-visszafelé mozgatásra (waiting -> korábbi oszlop) áll.
+visszafelé mozgatásra (waiting -> korábbi oszlop) áll (kivéve az ellenőrizetlen kártya, lásd az 1 hiba = 1 kártya 7. pontját).
 
 **DE: a „waiting"-be CSAK KÉSZ kártya mehet.** Mielőtt átteszed, ELLENŐRIZD AZ ÖSSZES
 PONTOT (lépések, alfeladat-kártyák, a leírásban és a kommentekben szereplő teendők).
