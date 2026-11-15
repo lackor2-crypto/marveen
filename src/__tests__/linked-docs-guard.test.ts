@@ -190,6 +190,39 @@ describe('#873 linked document guard', () => {
     expect(txt).not.toMatch(/eltűnt az Életfából|is gone from the Life tree/)
     expect(txt).toMatch(/átnevezték|renamed/)
   })
+  // #874 point 3: when the missing file's NAME is found in exactly one place of the Life tree, the notice says where.
+  it('a missing file whose name exists in exactly one other place: the notice says where (the link is not changed)', async () => {
+    mkdirSync(abs('Család/Anna/Archívum'), { recursive: true })
+    writeFileSync(abs('Család/Anna/Archívum/igazolas.pdf'), 'A-DIFFERENT-FILE-WITH-THE-SAME-NAME')
+    rmSync(abs(CERT))
+    const seen: Array<{ rel: string; uses: string[]; foundAt?: string }> = []
+    const r = await sweepLinkedDocs({ notify: async (e) => { seen.push(...e) } })
+    expect([r.missing, r.newlyMissing, r.followed]).toEqual([1, 1, 0])
+    expect(seen[0]!.foundAt).toBe('Család/Anna/Archívum/igazolas.pdf')
+    const txt = missingNoticeText(seen as never)
+    expect(txt).toContain('Család/Anna/Archívum/igazolas.pdf')
+    expect(listProjectDocs(projectId).docs[0]!.life_rel).toBe(CERT) // the link stays: it is changed only when the owner asks
+    expect(Object.values(readMissingState())[0]!.foundAt).toBe('Család/Anna/Archívum/igazolas.pdf')
+  })
+  it('the same name in two places: nothing is guessed, no place is named', async () => {
+    mkdirSync(abs('Család/Anna/Archívum'), { recursive: true })
+    mkdirSync(abs('Család/Anna/Másik'), { recursive: true })
+    writeFileSync(abs('Család/Anna/Archívum/igazolas.pdf'), 'ONE')
+    writeFileSync(abs('Család/Anna/Másik/igazolas.pdf'), 'TWO')
+    rmSync(abs(CERT))
+    const seen: Array<{ rel: string; uses: string[]; foundAt?: string }> = []
+    await sweepLinkedDocs({ notify: async (e) => { seen.push(...e) } })
+    expect(seen[0]!.foundAt).toBeUndefined()
+    expect(missingNoticeText(seen as never)).not.toContain('Archívum/igazolas.pdf')
+  })
+  it('the name lookup shares the one walk of the tree with the content search', async () => {
+    mkdirSync(abs('Család/Anna/Archívum'), { recursive: true })
+    writeFileSync(abs('Család/Anna/Archívum/igazolas.pdf'), 'X')
+    rmSync(abs(CERT))
+    const before = readdirCalls.filter((p) => p === depot).length
+    await sweepLinkedDocs(deps)
+    expect(readdirCalls.filter((p) => p === depot).length - before).toBe(1)
+  })
   it('the scheduled task runs PowerShell with a hidden window', () => {
     const src = readFileSync(join(process.cwd(), 'src', 'windows-settings.ts'), 'utf-8')
     expect(src).toContain('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File')

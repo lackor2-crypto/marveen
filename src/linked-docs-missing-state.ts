@@ -18,6 +18,8 @@ export interface MissingEntry {
   ignored?: boolean
   /** When the guard last searched the whole tree for it by content (ms). A known-missing file is not searched again every sweep. */
   searchedAt?: number
+  /** The one place of the Life tree where a file of the same NAME exists (only set when there is exactly one). The link is not changed. */
+  foundAt?: string
 }
 export type MissingState = Record<string, MissingEntry>
 

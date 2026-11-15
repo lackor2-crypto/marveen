@@ -274,25 +274,20 @@ export function moveDocumentsPrefix(fromRel: string, toRel: string): number {
  * are a copy, and guessing which one is "the" document would be a lie.
  * Returns the new path when the record was moved there.
  */
-export interface TreeSizeIndex { bySize?: Map<number, string[]> }
-/** One per sweep: the first search that needs the whole tree reads every file size once, the others look the size up. */
+export interface TreeSizeIndex { bySize?: Map<number, string[]>; byName?: Map<string, string[]> }
+/** One per sweep: the first search that needs the whole tree reads every file size once, the others look the size (or the name) up. */
 export function newTreeSizeIndex(): TreeSizeIndex { return {} }
 
-export async function relocateDocument(id: string, shared?: TreeSizeIndex): Promise<string | null> {
-  const v = await verifyDocument(id)
-  if (!v || !v.missing) return null
-  ensureLifeDocTables()
-  const row = getDb().prepare(`SELECT ${COLS} FROM life_documents WHERE id = ?`).get(String(id)) as Row | undefined
-  const root = depotRoot()
-  if (!row || !root || !row.sha256 || !fresh(row)) return null
-  try { if (!(await stat(root)).isDirectory()) return null } catch { return null }
-
+/** Folders the searches never enter: the trash and the linked mounts. */
+function searchSkip(): Set<string> {
   const skip = new Set<string>([norm(trashRelPath()), norm(legacyTrashRelPath())])
   for (const m of listMounts()) skip.add(m.rel)
-  const sameSize: string[] = []
-  const seen = new Set<string>()
+  return skip
+}
+
+/** Walk the depot below `startRel` and call `visit(rel, size)` for every file (hidden entries, node_modules and git repos are left out). */
+async function walkDepot(root: string, skip: Set<string>, visit: (rel: string, size: number) => void, startRel: string, startDepth: number, seen: Set<string>): Promise<void> {
   let dirs = 0
-  let visit = (child: string, size: number): void => { if (size === row.size) sameSize.push(child) }
   const walk = async (rel: string, depth: number): Promise<void> => {
     if (depth > WALK_MAX_DEPTH || dirs >= WALK_MAX_DIRS || seen.has(rel)) return
     seen.add(rel)
@@ -314,21 +309,56 @@ export async function relocateDocument(id: string, shared?: TreeSizeIndex): Prom
       }))
     }
   }
+  await walk(startRel, startDepth)
+}
+
+/** The whole tree read ONCE into the shared index (sizes and names); later callers of the same sweep reuse it. */
+async function ensureSharedIndex(root: string, shared: TreeSizeIndex): Promise<void> {
+  if (shared.bySize && shared.byName) return
+  const bySize = new Map<number, string[]>()
+  const byName = new Map<string, string[]>()
+  await walkDepot(root, searchSkip(), (child, size) => {
+    const l = bySize.get(size); if (l) l.push(child); else bySize.set(size, [child])
+    const key = child.slice(child.lastIndexOf('/') + 1).toLowerCase()
+    const n = byName.get(key); if (n) n.push(child); else byName.set(key, [child])
+  }, '', 0, new Set<string>())
+  shared.bySize = bySize
+  shared.byName = byName
+}
+
+/**
+ * A missing file's NAME looked up in the Life tree (#874): the place when exactly ONE file carries that name
+ * (Windows names are case-insensitive), otherwise null -- two candidates would be a guess. Reads no content and
+ * changes nothing; the tree walk is the one the content search of the same sweep uses.
+ */
+export async function findUniqueByName(rel: string, shared: TreeSizeIndex): Promise<string | null> {
+  const root = depotRoot()
+  if (!root) return null
+  try { if (!(await stat(root)).isDirectory()) return null } catch { return null }
+  await ensureSharedIndex(root, shared)
+  const hits = (shared.byName!.get(rel.slice(rel.lastIndexOf('/') + 1).toLowerCase()) ?? []).filter((r) => r !== rel)
+  return hits.length === 1 ? hits[0]! : null
+}
+
+export async function relocateDocument(id: string, shared?: TreeSizeIndex): Promise<string | null> {
+  const v = await verifyDocument(id)
+  if (!v || !v.missing) return null
+  ensureLifeDocTables()
+  const row = getDb().prepare(`SELECT ${COLS} FROM life_documents WHERE id = ?`).get(String(id)) as Row | undefined
+  const root = depotRoot()
+  if (!row || !root || !row.sha256 || !fresh(row)) return null
+  try { if (!(await stat(root)).isDirectory()) return null } catch { return null }
+
+  const sameSize: string[] = []
   // Beside its old place first; the whole tree only if it is not there.
   const parent = row.rel.includes('/') ? row.rel.slice(0, row.rel.lastIndexOf('/')) : ''
-  await walk(parent, WALK_MAX_DEPTH - 1)
+  await walkDepot(root, searchSkip(), (child, size) => { if (size === row.size) sameSize.push(child) }, parent, WALK_MAX_DEPTH - 1, new Set<string>())
   if (!sameSize.length) {
-    seen.clear()
     if (shared) {
       // Several documents missing at once (a deleted folder): the tree is read ONCE for all of them, not once each.
-      if (!shared.bySize) {
-        const idx = new Map<number, string[]>()
-        visit = (child, size) => { const l = idx.get(size); if (l) l.push(child); else idx.set(size, [child]) }
-        await walk('', 0)
-        shared.bySize = idx
-      }
-      sameSize.push(...(shared.bySize.get(row.size) ?? []))
-    } else await walk('', 0)
+      await ensureSharedIndex(root, shared)
+      sameSize.push(...(shared.bySize!.get(row.size) ?? []))
+    } else await walkDepot(root, searchSkip(), (child, size) => { if (size === row.size) sameSize.push(child) }, '', 0, new Set<string>())
   }
 
   const matches: string[] = []

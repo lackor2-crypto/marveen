@@ -18,7 +18,7 @@ import { APP_LANG } from './config.js'
 import { readMissingState, writeMissingState, type MissingEntry, type MissingState } from './linked-docs-missing-state.js'
 import { getDb } from './db.js'
 import { logger } from './logger.js'
-import { documentById, documentIdFor, ensureDocumentId, ensureLifeDocTables, hashDocument, newTreeSizeIndex, relocateDocument, verifyDocument } from './life-doc-ids.js'
+import { documentById, documentIdFor, ensureDocumentId, ensureLifeDocTables, findUniqueByName, hashDocument, newTreeSizeIndex, relocateDocument, verifyDocument } from './life-doc-ids.js'
 import { listMounts, repointFileMount } from './life-mounts.js'
 import { ensureProjectDocTables } from './workbench-doc-links.js'
 import { LINKED_PREFIX, linkedAnnexRows } from './workbench-docannex.js'
@@ -49,6 +49,14 @@ const T = {
     en: 'A document linked into a project is not where the link points. It may have been renamed or moved (and I cannot find it unambiguously), or it may have been deleted:',
   },
   usedIn: { hu: 'Itt használod:', en: 'Used in:' },
+  foundAt: {
+    hu: 'Ezen a néven egyetlen fájl van az Életfában, itt:',
+    en: 'Exactly one file with this name exists in the Life tree, here:',
+  },
+  foundHint: {
+    hu: 'A linket nem állítottam át; szólj, ha át kell állítanom.',
+    en: 'I did not change the link; tell me if I should repoint it.',
+  },
   restore: {
     hu: 'Ha a Windows Lomtárba ment, onnan visszaállítható; a link magától helyreáll, amint a fájl újra megvan.',
     en: 'If it went to the Windows Recycle Bin you can restore it from there; the link recovers by itself once the file is back.',
@@ -98,6 +106,7 @@ export function missingNoticeText(entries: MissingEntry[]): string {
   for (const e of entries.slice(0, 10)) {
     lines.push('', `• ${e.rel || '?'}`)
     if (e.uses.length) lines.push(`  ${tr('usedIn')} ${e.uses.slice(0, 5).join('; ')}`)
+    if (e.foundAt) lines.push(`  ${tr('foundAt')} ${e.foundAt}`, `  ${tr('foundHint')}`)
   }
   if (entries.length > 10) lines.push('', `... +${entries.length - 10}`)
   lines.push('', tr('restore'))
@@ -172,6 +181,11 @@ export async function sweepLinkedDocs(deps: SweepDeps = defaultDeps): Promise<Sw
       next[t.key] = entry
       if (!state[t.key]) { res.newlyMissing++; fresh.push(entry) }
       else if (entry.ignored) res.missing--
+    }
+    // A newly missing file whose name exists in exactly one other place: the notice says where (reads names only, one shared walk).
+    for (const e of fresh) {
+      const at = await findUniqueByName(e.rel, tree).catch(() => null)
+      if (at) e.foundAt = at
     }
     writeMissingState(next)
     if (fresh.length) await deps.notify(fresh)
