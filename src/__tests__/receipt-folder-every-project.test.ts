@@ -52,7 +52,9 @@ describe('receiptFolderFor (per work item)', () => {
   it('wiring: the startup top-up and the receipt save use the item folder, no project-level folder is made by itself', () => {
     const root = join(__dirname, '..', '..')
     const assets = readFileSync(join(root, 'src', 'workbench-assets.ts'), 'utf8')
-    expect(assets).toContain('receiptFolderFor(project, folder)')
+    // #887: the top-up runs as steps now (one maker per yield); the makers are called on the ITEM folder
+    expect(assets).toContain('[triggerFolderFor, receiptFolderFor]')
+    expect(assets).toContain('f(project, folder)')
     expect(assets).not.toContain('receiptFolderFor(p)')
     expect(readFileSync(join(root, 'src', 'web', 'routes', 'projects.ts'), 'utf8')).not.toContain('receiptFolderFor')
     expect(readFileSync(join(root, 'src', 'workbench-receipt.ts'), 'utf8')).toContain('workItemFolder(item.id)')

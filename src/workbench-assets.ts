@@ -45,7 +45,7 @@ import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
 import { annotateMisplaced, adviseUpload, type Misplaced, type UploadAdvice } from './workbench-misplaced.js'
-import { folderWasMade, noteFolderMade, noteOneStandardFolder, itemStandardFolderNames, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, receiptFolderFor, type FileErrorCode } from './project-files.js'
+import { folderWasMade, noteFolderMade, noteOneStandardFolder, itemStandardFolderNames, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, itemStandardFolderMakers, letterFolderMakers, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, receiptFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { listFolderLinks } from './workbench-folder-links.js'
@@ -1610,6 +1610,11 @@ export function isLetterFolderItem(item: { id: string; project_id: string }, fol
 /** #681: make the standard folders of an item. A TOP-LEVEL item gets all of them once; a sub-document or letter folder
  *  gets its own three (Trigger document, Attachments, Finished materials). A folder the user deleted stays deleted. */
 function provisionStandardFolders(project: ProjectRow, item: WorkItemRow, folder: string): void {
+  drainSteps(provisionStandardFoldersSteps(project, item, folder))
+}
+/** #887: the same pass as steps -- the startup sweep hands the event loop back before every single folder (each is several
+ *  stat calls; on a cold Windows drive one item's folders together held the loop for 200+ ms). */
+function* provisionStandardFoldersSteps(project: ProjectRow, item: WorkItemRow, folder: string): Steps<void> {
   ensureAssetTables()
   const db = getDb()
   migrateFinishedFolder(item) // only renames an existing old-name folder, never makes one
@@ -1623,10 +1628,11 @@ function provisionStandardFolders(project: ProjectRow, item: WorkItemRow, folder
   // clear. Only a report filed inside a debate folder shares that folder. Topped up on every pass (existing items too);
   // onceFolderFor makes only EMPTY folders and a folder the owner deleted stays deleted.
   if (!inDebate) {
-    try { if (sub || letter) ensureLetterFolders(project, folder); else { triggerFolderFor(project, folder); receiptFolderFor(project, folder) } } catch { /* made with its first file instead */ }
+    const own = sub || letter ? letterFolderMakers() : [triggerFolderFor, receiptFolderFor]
+    for (const f of own) { yield; try { f(project, folder) } catch { /* made with its first file instead */ } }
   }
   if (db.prepare('SELECT 1 FROM work_item_std_folders WHERE work_item_id = ?').get(item.id)) return
-  if (!letter && !sub) ensureItemStandardFolders(project, folder)
+  if (!letter && !sub) for (const f of itemStandardFolderMakers(folder)) { yield; try { f(project, folder) } catch { /* made on demand with its first file instead */ } }
   db.prepare('INSERT OR IGNORE INTO work_item_std_folders (work_item_id, done_at) VALUES (?, ?)').run(item.id, Date.now())
 }
 
@@ -1638,14 +1644,14 @@ export function ensureAllAttachmentsFolders(): { items: number } {
 export function ensureAllAttachmentsFoldersAsync(): Promise<{ items: number }> {
   return drainStepsYielding(ensureAllAttachmentsFolderSteps())
 }
-function* ensureAllAttachmentsFolderSteps(): Generator<void, { items: number }, void> {
+function* ensureAllAttachmentsFolderSteps(): Steps<{ items: number }> {
   ensureAssetTables()
   let items = 0
   for (const p of listProjects({ includeArchived: true })) {
     if (!p.folder_path) continue
     // #681: note which boxes exist now, so deleting one later is remembered.
     for (const key of ['workItems', 'moreMaterial', 'knowledgeBase'] as const) {
-      for (const lang of ['hu', 'en'] as const) { const n = lifeName(key, lang); if (projectFileTarget(p, n).ok) noteFolderMade(p, n) }
+      for (const lang of ['hu', 'en'] as const) { yield; const n = lifeName(key, lang); if (projectFileTarget(p, n).ok) noteFolderMade(p, n) }
     }
     const rows = getDb().prepare("SELECT id FROM work_items WHERE project_id = ? AND folder IS NOT NULL AND folder != ''").all(p.id) as { id: string }[]
     for (const { id } of rows) {
@@ -1656,7 +1662,7 @@ function* ensureAllAttachmentsFolderSteps(): Generator<void, { items: number }, 
       try {
         const it = getWorkItem(id)
         yield
-        if (it) provisionStandardFolders(p, it, folder)
+        if (it) yield* provisionStandardFoldersSteps(p, it, folder)
         for (const n of itemStandardFolderNames()) { yield; noteOneStandardFolder(p, folder, n) }
         items++
       } catch { /* one unreadable folder never stops the rest */ }
