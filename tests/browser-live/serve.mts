@@ -7,24 +7,18 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { prepareStore } from './store-guard.ts'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const STORE = path.join(ROOT, 'store')
-const MARKER = path.join(STORE, '.browser-live-owned')
 export const IDS_FILE = path.join(os.tmpdir(), 'marveen-live-browser-ids.json')
 const PORT = parseInt(process.env.LIVE_BROWSER_PORT || '3498', 10)
 
-fs.mkdirSync(STORE, { recursive: true })
-const dbFile = path.join(STORE, 'claudeclaw.db')
-if (fs.existsSync(dbFile)) {
-  if (!fs.existsSync(MARKER)) {
-    console.error('REFUSING: ' + dbFile + ' exists and was not created by the live browser suite (a live install?). Run the suite from a clean checkout / worktree.')
-    process.exit(3)
-  }
-  // a crashed earlier run of this suite: its leftovers are ours
-  for (const f of fs.readdirSync(STORE)) if (f.startsWith('claudeclaw.db') || f === '.dashboard-token') fs.rmSync(path.join(STORE, f), { force: true })
+const prepared = prepareStore(STORE)
+if (prepared.refuse) {
+  console.error(prepared.refuse)
+  process.exit(3)
 }
-fs.writeFileSync(MARKER, String(Date.now()))
 
 const depot = fs.mkdtempSync(path.join(os.tmpdir(), 'marveen-live-depot-'))
 process.env.MARVEEN_DEPOT = depot
