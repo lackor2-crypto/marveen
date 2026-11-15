@@ -1142,7 +1142,7 @@ export function getCodeTaskByPrefix(prefix: string): CodeTask | null {
   return row ? rowToTask(row) : null
 }
 
-export function listCodeTasks(opts: { project?: string; status?: CodeTaskStatus; limit?: number } = {}): CodeTask[] {
+export function listCodeTasks(opts: { project?: string; status?: CodeTaskStatus; limit?: number; promptIncludes?: string; origin?: CodeTaskOrigin; createdAtFrom?: number } = {}): CodeTask[] {
   ensureTables()
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 200)
   const where: string[] = []
@@ -1154,6 +1154,20 @@ export function listCodeTasks(opts: { project?: string; status?: CodeTaskStatus;
   if (opts.status) {
     where.push('status = ?')
     params.push(opts.status)
+  }
+  // Filters done by SQLite, not after the fact in JS: the verification sweep and the approval cancel used to pull 200 rows
+  // (a prompt of several KB each) through rowToTask per pending row only to keep a handful, a 0.7-0.9 s freeze per run.
+  if (opts.promptIncludes) {
+    where.push('instr(prompt, ?) > 0')
+    params.push(opts.promptIncludes)
+  }
+  if (opts.origin) {
+    where.push('origin = ?')
+    params.push(opts.origin)
+  }
+  if (typeof opts.createdAtFrom === 'number') {
+    where.push('created_at >= ?')
+    params.push(opts.createdAtFrom)
   }
   const sql = `SELECT * FROM code_tasks ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT ?`
   const rows = getDb().prepare(sql).all(...params, limit) as Record<string, unknown>[]

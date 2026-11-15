@@ -220,6 +220,25 @@ export function startApprovalTimeoutSweeper(): NodeJS.Timeout {
  */
 export type ApprovalUndoBlock = 'not_found' | 'not_approved' | 'not_kanban' | 'no_card' | 'card_not_done' | 'not_latest'
 
+// The newest resolved_at per card over one pool, built ONCE per pool array. The list endpoint asks about up to 100 rows against
+// a pool of 500; re-deriving each pool row's card id (JSON.parse + regexes) for every asked row was 50 000 parses, a ~0.7 s freeze.
+const latestResolvedByPool = new WeakMap<Approval[], Map<string, number>>()
+function latestResolvedIndex(pool: Approval[]): Map<string, number> {
+  let idx = latestResolvedByPool.get(pool)
+  if (!idx) {
+    idx = new Map()
+    for (const o of pool) {
+      if (o.status !== 'approved' || o.category !== 'kanban_done') continue
+      const c = kanbanCardIdFromApproval(o)
+      if (!c) continue
+      const at = o.resolved_at ?? 0
+      if (at > (idx.get(c) ?? -Infinity)) idx.set(c, at)
+    }
+    latestResolvedByPool.set(pool, idx)
+  }
+  return idx
+}
+
 export function approvalUndoBlock(approval: Approval | undefined, all?: Approval[]): ApprovalUndoBlock | null {
   if (!approval) return 'not_found'
   if (approval.category !== 'kanban_done') return 'not_kanban'
@@ -229,9 +248,8 @@ export function approvalUndoBlock(approval: Approval | undefined, all?: Approval
   if (!card) return 'no_card'
   if (card.status !== 'done' || card.archived_at) return 'card_not_done'
   const pool = all ?? listApprovals({ category: 'kanban_done', status: 'approved', limit: 500 })
-  const newer = pool.some(o => o.id !== approval.id && o.status === 'approved'
-    && o.category === 'kanban_done' && kanbanCardIdFromApproval(o) === cardId
-    && (o.resolved_at ?? 0) > (approval.resolved_at ?? 0))
+  // Same rule as before: a different approved kanban_done row of the card resolved strictly later (the row itself never is).
+  const newer = (latestResolvedIndex(pool).get(cardId as string) ?? -Infinity) > (approval.resolved_at ?? 0)
   return newer ? 'not_latest' : null
 }
 
@@ -426,8 +444,8 @@ export function cancelVerificationsForApproval(approvalId: string): VerifyCancel
     const project = codeBridgeProjectOf(row.agent)
     if (project === null) continue
     // The task carries the approval id in its prompt (buildVerificationPrompt) and was queued by the dashboard for this agent.
-    const mine = listCodeTasks({ project, limit: 200 })
-      .filter((t) => t.origin === 'dashboard' && t.prompt.includes(approvalId) && (t.status === 'queued' || t.status === 'running'))
+    const mine = listCodeTasks({ project, limit: 200, promptIncludes: approvalId, origin: 'dashboard' })
+      .filter((t) => t.status === 'queued' || t.status === 'running')
     for (const t of mine) {
       if (t.status === 'running') { if (requestStopCodeTask(t.id)) runningTasks++; continue }
       cancelCodeTask(t.id)
