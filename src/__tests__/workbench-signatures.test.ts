@@ -168,3 +168,63 @@ describe('#719 Word item e-mail (its own finalize panel is gone, #803)', () => {
     expect(js).toMatch(/function docxMailPanelHtml\(it\) \{[\s\S]{0,600}mailBoxHtml\(/)
   })
 })
+
+// Owner TG 6300: the picker must not search every time. Found once -> the path is remembered (on disk), the next call
+// answers at once from it and walks in the background; a moved file is followed, a trashed one is found in the trash,
+// one gone from the trash too is forgotten.
+describe('#sigmem remembered signature paths', () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  async function remember(): Promise<void> {
+    mkdirSync(join(root, 'Család', 'Korpás László', 'Identitás'), { recursive: true })
+    writeFileSync(join(root, 'Család', 'Korpás László', 'Identitás', 'alairas laszlo.png'), 'x')
+    const first = await listSignatures('hu')
+    expect(first.signatures).toHaveLength(1)
+    expect(first.refreshing).toBeUndefined()
+  }
+
+  it('the second call (after the in-memory answer expired / a restart) answers at once from the remembered path', async () => {
+    await remember()
+    // simulate a restart: only the file on disk is left
+    const { forgetInMemoryOnly } = await import('../workbench-signatures.js') as unknown as { forgetInMemoryOnly?: () => void }
+    expect(forgetInMemoryOnly).toBeTypeOf('function')
+    forgetInMemoryOnly!()
+    const r = await listSignatures('hu')
+    expect(r.refreshing).toBe(true)
+    expect(r.signatures.map((s) => s.rel)).toEqual(['Család/Korpás László/Identitás/alairas laszlo.png'])
+  })
+
+  it('a MOVED file is followed: the walk behind finds it, the next answer has the new path only', async () => {
+    await remember()
+    const { forgetInMemoryOnly } = await import('../workbench-signatures.js') as unknown as { forgetInMemoryOnly: () => void }
+    mkdirSync(join(root, 'Család', 'Korpás László', 'Új hely'), { recursive: true })
+    const { renameSync } = await import('node:fs')
+    renameSync(join(root, 'Család', 'Korpás László', 'Identitás', 'alairas laszlo.png'), join(root, 'Család', 'Korpás László', 'Új hely', 'alairas laszlo.png'))
+    forgetInMemoryOnly()
+    await listSignatures('hu') // gone from the remembered place and not in the trash -> falls back to a walk and finds it
+    forgetInMemoryOnly()
+    await sleep(20)
+    const r = await listSignatures('hu')
+    expect(r.signatures.map((s) => s.rel)).toEqual(['Család/Korpás László/Új hely/alairas laszlo.png'])
+  })
+
+  it('a TRASHED file is still handed over from the trash; once it is gone from there too, it is forgotten', async () => {
+    await remember()
+    const { forgetInMemoryOnly } = await import('../workbench-signatures.js') as unknown as { forgetInMemoryOnly: () => void }
+    mkdirSync(join(root, 'Kuka', 'ma'), { recursive: true })
+    const { renameSync } = await import('node:fs')
+    renameSync(join(root, 'Család', 'Korpás László', 'Identitás', 'alairas laszlo.png'), join(root, 'Kuka', 'ma', 'alairas laszlo.png'))
+    forgetInMemoryOnly()
+    const r = await listSignatures('hu')
+    expect(r.signatures.map((s) => s.rel)).toEqual(['Kuka/ma/alairas laszlo.png'])
+    await sleep(50)
+    rmSync(join(root, 'Kuka', 'ma', 'alairas laszlo.png'))
+    forgetInMemoryOnly()
+    const gone = await listSignatures('hu')
+    expect(gone.signatures).toEqual([])
+  })
+
+  it('the remembered paths are kept in store/signature-memory.json', async () => {
+    await remember()
+    expect(JSON.parse(readFileSync(join(store, 'signature-memory.json'), 'utf8')).entries[0].name).toBe('alairas laszlo.png')
+  })
+})
