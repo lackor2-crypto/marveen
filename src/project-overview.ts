@@ -511,13 +511,16 @@ export async function buildProjectOverview(projectId: string, opts: { now?: numb
     facts: {
       // Cards AND work items: the Kanban tab shows both, so the numbers must too.
       openCards: open.length + workItems.length,
+      // A review item stays in the Kanban Waiting column even when fresh, so it is counted there only.
       inProgress: cards.filter((c) => c.status === 'in_progress' || c.status === 'testing').length
-        + currentWorkItems.length,
+        + currentWorkItems.filter((w) => w.status !== 'review').length,
       waiting: cards.filter((c) => c.status === 'waiting').length
         + workItems.filter((w) => w.status === 'review').length,
       overdue: open.filter((c) => c.dueAt != null && c.dueAt < now).length,
       pendingApprovals: approvals.length,
-      done: cards.filter((c) => c.status === 'done').length + doneWorkItems.length,
+      // A sent item shows in the Kanban Done column (same recent window), whatever its stored status says.
+      done: cards.filter((c) => c.status === 'done').length + doneWorkItems.length
+        + answeredWorkItems.filter((w) => w.updatedAt >= doneCut).length,
       activeWork: currentWork.filter((w) => w.claims.length || w.codeTasks.length).length
         + currentWorkItems.length,
       staleOpenCards: open.filter((c) => c.updatedAt > 0 && c.updatedAt < staleCut).length

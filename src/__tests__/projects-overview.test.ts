@@ -18,6 +18,7 @@ import { resetCodeBridgeTablesForTests, listCodeTasks } from '../web/code-bridge
 import { claimCardWork } from '../web/card-work-guard.js'
 import { createProject, linkObject, updateProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
+import { markSentManually } from '../workbench-docsent.js'
 import { submitWorkItemForApproval } from '../workbench-approval.js'
 import { listBoardWorkItems, buildWorkbenchOverview } from '../workbench-overview.js'
 import { summaryFacts } from '../project-summary.js'
@@ -148,7 +149,8 @@ describe('attekintes', () => {
     const ov = (await buildProjectOverview(p.id))!
     // a kartya (1) + draft + in_progress + review; a kesz es az idegen nem szamit
     expect(ov.facts.openCards).toBe(4)
-    expect(ov.facts.inProgress).toBe(3)
+    // the review item is counted in Waiting only (Kanban keeps it in its Waiting column): no double count
+    expect(ov.facts.inProgress).toBe(2)
     expect(ov.facts.waiting).toBe(1)
     // fresh (just touched) unsent items are current work: draft + running + review
     expect(ov.facts.activeWork).toBe(3)
@@ -168,6 +170,20 @@ describe('attekintes', () => {
     expect(isCurrentWorkItem({ ...base, due: { date: 'd', days: -2, level: 'overdue' } }, now)).toBe(true)
     expect(isCurrentWorkItem({ ...base, updatedAt: now - 3600_000 }, now)).toBe(true)
     expect(isCurrentWorkItem({ ...base, sent: true, status: 'in_progress', updatedAt: now }, now)).toBe(false)
+  })
+
+  it('an answered (sent) item with an open stored status counts as done, like the Kanban Done column, and is told to the summary', async () => {
+    const p = mustProject('Elkuldott')
+    const r = createWorkItem({ project_id: p.id, title: 'Elkuldott level', type: 'note', status: 'draft' })
+    if (!r.ok) throw new Error('nem jott letre')
+    markSentManually(r.item.id, 'test')
+    // an older item: the stored status is still open although it was sent
+    getDb().prepare("UPDATE work_items SET status = 'draft' WHERE id = ?").run(r.item.id)
+    const ov = (await buildProjectOverview(p.id))!
+    expect(ov.answeredWorkItems.map((w) => w.title)).toEqual(['Elkuldott level'])
+    expect(ov.facts.openCards).toBe(0)
+    expect(ov.facts.done).toBe(1)
+    expect(summaryFacts(p, ov, 'en')).toContain('Elkuldott level')
   })
 
   it('munkadarab nelkuli (friss) projekten a munkadarab-lista ures, nem hiba', async () => {

@@ -66,6 +66,11 @@ export function summaryFacts(p: ProjectRow, ov: ProjectOverview, lang: 'hu' | 'e
   L.push('Open work items (Workbench; newest change first):')
   if (!ov.workItems.length) L.push('- none')
   for (const w of ov.workItems) L.push(`- "${w.title}" (status ${w.status}, last change ${isoDay(w.updatedAt)})`)
+  if (ov.answeredWorkItems.length) {
+    L.push('')
+    L.push('Work items already sent (answered, closed in practice; not open):')
+    for (const w of ov.answeredWorkItems) L.push(`- "${w.title}" (last change ${isoDay(w.updatedAt)})`)
+  }
   if (ov.doneWorkItems.length) {
     L.push('')
     L.push('Work items finished recently:')
