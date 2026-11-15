@@ -11,6 +11,13 @@ vi.mock('../config.js', async () => {
   return { ...actual, STORE_DIR: store }
 })
 
+// Counts directory reads (passthrough) so a test can tell how many times the whole tree was walked.
+const readdirCalls: string[] = []
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  return { ...actual, readdir: ((p: unknown, ...a: unknown[]) => { readdirCalls.push(String(p)); return (actual.readdir as (...x: unknown[]) => unknown)(p, ...a) }) as typeof actual.readdir }
+})
+
 const { initDatabase } = await import('../db.js')
 const { createProject, updateProject } = await import('../projects.js')
 const { addProjectDoc, listProjectDocs } = await import('../workbench-doc-links.js')
@@ -115,6 +122,39 @@ describe('#873 linked document guard', () => {
     const r3 = await sweepLinkedDocs(deps)
     expect(r3.followed).toBe(1)
     expect(readMissingState()).toEqual({})
+  })
+
+  // #875: several missing documents in one sweep (a deleted folder) must share ONE walk of the whole tree, not walk it once each.
+  it('several missing documents in one sweep share one walk of the whole tree', async () => {
+    const extra = ['Család/Anna/Hatóságok/masik-1.pdf', 'Család/Anna/Hatóságok/masik-2.pdf', 'Család/Anna/Hatóságok/masik-3.pdf']
+    for (const [i, rel] of extra.entries()) {
+      writeFileSync(abs(rel), `OTHER-CONTENT-${i}-${'x'.repeat(i * 7)}`)
+      const r = await addProjectDoc(projectId, rel, { role: 'source' }, 't')
+      if (!r.ok) throw new Error('addProjectDoc ' + JSON.stringify(r))
+      await hashDocument(documentIdFor(rel)!)
+    }
+    for (const rel of [CERT, ...extra]) rmSync(abs(rel))
+    const before = readdirCalls.filter((p) => p === depot).length
+    const r = await sweepLinkedDocs(deps)
+    const walks = readdirCalls.filter((p) => p === depot).length - before
+    expect([r.missing, r.newlyMissing]).toEqual([4, 4])
+    expect(notices.length).toBe(1) // one notice for the sweep
+    expect(notices[0]!.length).toBe(4)
+    expect(walks).toBe(1)
+  })
+
+  it('a document found through the shared walk still follows its move', async () => {
+    mkdirSync(abs('Család/Anna/Archívum'), { recursive: true })
+    const other = 'Család/Anna/Hatóságok/masik.pdf'
+    writeFileSync(abs(other), 'OTHER-CONTENT-ZZ')
+    const r0 = await addProjectDoc(projectId, other, { role: 'source' }, 't')
+    if (!r0.ok) throw new Error('addProjectDoc')
+    await hashDocument(documentIdFor(other)!)
+    renameSync(abs(CERT), abs('Család/Anna/Archívum/igazolas.pdf')) // moved: found by content
+    rmSync(abs(other)) // deleted: reported
+    const r = await sweepLinkedDocs(deps)
+    expect([r.followed, r.newlyMissing]).toEqual([1, 1])
+    expect(notices).toEqual([[other]])
   })
 
   it('a linked FILE (left-behind link) follows an outside rename; its target is repointed', async () => {

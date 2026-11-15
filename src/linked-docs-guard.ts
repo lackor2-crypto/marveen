@@ -18,7 +18,7 @@ import { APP_LANG } from './config.js'
 import { readMissingState, writeMissingState, type MissingEntry, type MissingState } from './linked-docs-missing-state.js'
 import { getDb } from './db.js'
 import { logger } from './logger.js'
-import { documentById, documentIdFor, ensureDocumentId, ensureLifeDocTables, hashDocument, relocateDocument, verifyDocument } from './life-doc-ids.js'
+import { documentById, documentIdFor, ensureDocumentId, ensureLifeDocTables, hashDocument, newTreeSizeIndex, relocateDocument, verifyDocument } from './life-doc-ids.js'
 import { listMounts, repointFileMount } from './life-mounts.js'
 import { ensureProjectDocTables } from './workbench-doc-links.js'
 import { LINKED_PREFIX, linkedAnnexRows } from './workbench-docannex.js'
@@ -138,6 +138,7 @@ export async function sweepLinkedDocs(deps: SweepDeps = defaultDeps): Promise<Sw
     const next: MissingState = {}
     const fresh: MissingEntry[] = []
     let budget = HASH_PER_SWEEP
+    const tree = newTreeSizeIndex() // one read of the whole tree serves every missing document of this sweep
     for (const t of collectTracked()) {
       res.checked++
       let docId = t.docId
@@ -154,7 +155,7 @@ export async function sweepLinkedDocs(deps: SweepDeps = defaultDeps): Promise<Sw
           const known = state[t.key]
           // Already searched for and not found: not again on every sweep (a search walks the whole tree). Back at its old place is seen above, cheaply.
           const again = !known || (!known.ignored && Date.now() - (known.searchedAt ?? 0) > RESEARCH_MS)
-          const to = again ? await relocateDocument(docId).catch(() => null) : null
+          const to = again ? await relocateDocument(docId, tree).catch(() => null) : null
           if (to) {
             res.followed++
             place = to
