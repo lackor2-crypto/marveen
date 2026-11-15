@@ -20,12 +20,17 @@ import { onSentEvent } from './workbench-docsent.js'
 import { toWindowsPath } from './open-in-file-manager.js'
 import type { WorkItemRow } from './workbench.js'
 import { gatedInterval } from './background-gate.js'
+import { notifyChannel } from './notify.js'
 
 export const PACKAGE_MARKER = '.marveen-upload-package'
 export const PACKAGE_MAX_AGE_DAYS = 7
+/** The owner is told this many days before the automatic clean-up (a notice only, nothing is deleted by it). */
+export const PACKAGE_WARN_DAYS_BEFORE = 1
+/** Online forms often refuse bigger files: a file over this gets a WARNING on the page (the file is never changed or blocked). */
+export const UPLOAD_SIZE_WARN_BYTES = 10 * 1024 * 1024
 
 export interface UploadPackageFile { name: string; bytes: number }
-export interface UploadPackageView { item_id: string; dir: string; win_dir: string | null; created_at: number; files: UploadPackageFile[]; exists: boolean }
+export interface UploadPackageView { item_id: string; dir: string; win_dir: string | null; created_at: number; expires_at: number; files: UploadPackageFile[]; large: UploadPackageFile[]; size_warn_bytes: number; exists: boolean }
 type Row = { item_id: string; dir: string; created_at: number }
 
 let tableDb: unknown = null
@@ -33,7 +38,13 @@ function ensureTable(): void {
   const db = getDb()
   if (tableDb === db) return
   db.exec('CREATE TABLE IF NOT EXISTS wb_upload_package (item_id TEXT PRIMARY KEY, dir TEXT NOT NULL, created_at INTEGER NOT NULL)')
+  try { db.exec('ALTER TABLE wb_upload_package ADD COLUMN warned_at INTEGER') } catch { /* the column is there already */ }
   tableDb = db
+}
+
+/** The files over the size limit (pure). */
+export function largeFiles(files: UploadPackageFile[], limit = UPLOAD_SIZE_WARN_BYTES): UploadPackageFile[] {
+  return files.filter((f) => f.bytes > limit)
 }
 
 /** A file name Windows and Linux both accept, accents kept (a German "ä" is fine), at most `max` characters before the extension. */
@@ -166,7 +177,7 @@ export function uploadPackageInfo(itemId: string): UploadPackageView | null {
   if (exists) {
     try { files = readdirSync(row.dir).filter((n) => n !== PACKAGE_MARKER).sort().map((n) => ({ name: n, bytes: statSync(join(row.dir, n)).size })) } catch { /* listing is optional */ }
   }
-  return { item_id: itemId, dir: row.dir, win_dir: null, created_at: row.created_at, files, exists }
+  return { item_id: itemId, dir: row.dir, win_dir: null, created_at: row.created_at, expires_at: row.created_at + PACKAGE_MAX_AGE_DAYS * 86400, files, large: largeFiles(files), size_warn_bytes: UPLOAD_SIZE_WARN_BYTES, exists }
 }
 
 export async function uploadPackageView(itemId: string): Promise<UploadPackageView | null> {
@@ -213,11 +224,32 @@ export function sweepOldUploadPackages(nowMs = Date.now()): number {
   return n
 }
 
+/**
+ * One notice, a day before the clean-up, for a package nobody removed -- the folder must not vanish unannounced.
+ * The notice text goes to the owner's channel (Hungarian, like every owner message); `notify` is injectable for tests.
+ */
+export async function warnExpiringUploadPackages(nowMs = Date.now(), notify: (text: string) => Promise<void> = notifyChannel): Promise<number> {
+  ensureTable()
+  const db = getDb()
+  const rows = db.prepare('SELECT item_id, dir, created_at FROM wb_upload_package WHERE warned_at IS NULL').all() as Row[]
+  const warnAfter = (PACKAGE_MAX_AGE_DAYS - PACKAGE_WARN_DAYS_BEFORE) * 86400
+  let n = 0
+  for (const r of rows) {
+    if (nowMs / 1000 - r.created_at <= warnAfter || !existsSync(r.dir)) continue
+    db.prepare('UPDATE wb_upload_package SET warned_at = ? WHERE item_id = ?').run(Math.floor(nowMs / 1000), r.item_id)
+    const when = new Date((r.created_at + PACKAGE_MAX_AGE_DAYS * 86400) * 1000).toLocaleDateString('hu-HU')
+    await notify(`A munkadarab feltöltési/nyomtatási mappája (${r.dir}) magától törlődik ekkor: ${when} Ha még kell, másold ki belőle a fájlokat.`).catch((err) => logger.warn({ err: String((err as Error)?.message || err) }, '[upload-package] expiry notice failed'))
+    n++
+  }
+  return n
+}
+
 let sweepTimer: ReturnType<typeof setInterval> | null = null
 export function startUploadPackageSweep(): void {
   if (sweepTimer) return
-  sweepTimer = gatedInterval('workbench-upload-package', () => { try { sweepOldUploadPackages() } catch { /* next round */ } }, 6 * 3600 * 1000)
+  sweepTimer = gatedInterval('workbench-upload-package', () => { void warnExpiringUploadPackages().catch(() => undefined); try { sweepOldUploadPackages() } catch { /* next round */ } }, 6 * 3600 * 1000)
   sweepTimer.unref?.()
+  void warnExpiringUploadPackages().catch(() => undefined)
   try { sweepOldUploadPackages() } catch { /* next round */ }
 }
 

@@ -1780,7 +1780,9 @@
       return '<div class="wb-upload-package" style="flex-basis:100%;margin-top:6px"><strong>' + esc(t(print ? 'workbench.upload.ready_print' : 'workbench.upload.ready')) + '</strong> <code>' + esc(pkg.win_dir || pkg.dir) + '</code> '
         + '<span class="wb-muted">(' + esc(t('workbench.upload.files', { n: pkg.files.length })) + ')</span> '
         + btn('item-upload-package-open', 'workbench.upload.open') + ' ' + btn('item-upload-package-remove', 'workbench.upload.remove')
-        + '<div class="wb-hint">' + esc(t(print ? 'workbench.upload.pkg_hint_print' : 'workbench.upload.pkg_hint')) + '</div></div>'
+        + '<div class="wb-hint">' + esc(t(print ? 'workbench.upload.pkg_hint_print' : 'workbench.upload.pkg_hint')) + '</div>'
+        + (pkg.large && pkg.large.length ? '<div class="wb-hint" role="alert" style="color:var(--warning,#b45309)">\u26A0 ' + esc(t('workbench.upload.large_warn', { names: pkg.large.map(function (f) { return f.name + ' (' + (f.bytes / 1048576).toFixed(1) + ' MB)' }).join(', '), mb: Math.round((pkg.size_warn_bytes || 10485760) / 1048576) })) + '</div>' : '')
+        + (pkg.expires_at ? '<div class="wb-hint">' + esc(t('workbench.upload.expires', { date: new Date(pkg.expires_at * 1000).toLocaleDateString(window._lang === 'en' ? 'en-GB' : 'hu-HU', { year: 'numeric', month: 'long', day: 'numeric' }) })) + '</div>' : '') + '</div>'
     }
     return ' ' + btn('item-upload-package', makeKey)
   }

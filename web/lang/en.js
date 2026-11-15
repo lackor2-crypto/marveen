@@ -7584,6 +7584,8 @@ window._i18n.en = {
   "workbench.send.person_pkg_hint": "The Prepare for printing button makes a folder in your Downloads folder with the letter and the annexes, each as a PDF ready to print.",
   "workbench.upload.make": "Prepare for online upload",
   "workbench.upload.ready": "Upload folder ready:",
+  "workbench.upload.large_warn": "Warning: {names} is larger than {mb} MB. Online forms often refuse files this big, so check the form's size limit before uploading. The file was not changed.",
+  "workbench.upload.expires": "If you do not delete it, the folder is removed by itself on {date}.",
   "workbench.upload.files": "{n} files",
   "workbench.upload.open": "Open",
   "workbench.upload.remove": "Delete folder",

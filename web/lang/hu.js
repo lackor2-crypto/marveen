@@ -7658,6 +7658,8 @@ window._i18n.hu = {
   "workbench.send.person_pkg_hint": "Az „Előkészítés nyomtatáshoz” gomb egy mappát készít a Letöltések mappádba a levéllel és a mellékletekkel, egyenként nyomtatható PDF-ként.",
   "workbench.upload.make": "Előkészítés online feltöltéshez",
   "workbench.upload.ready": "Feltöltési mappa kész:",
+  "workbench.upload.large_warn": "Figyelem: {names} nagyobb, mint {mb} MB. Az online űrlapok gyakran visszautasítanak ekkora fájlt, ezért feltöltés előtt nézd meg az űrlap méretkorlátját. A fájlt nem változtattam meg.",
+  "workbench.upload.expires": "Ha nem törlöd, a mappa magától törlődik ekkor: {date}",
   "workbench.upload.files": "{n} fájl",
   "workbench.upload.open": "Megnyitás",
   "workbench.upload.remove": "Mappa törlése",
