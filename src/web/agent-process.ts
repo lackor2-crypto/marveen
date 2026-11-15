@@ -1116,7 +1116,7 @@ function runTmux(host: string | null, tmuxArgs: string[], opts: { timeout?: numb
     // rather than at each call site means no start/stop/restart path can
     // forget to do it -- the listing is only ever stale about changes made
     // OUTSIDE this process.
-    if (!host && SESSION_MUTATING_TMUX_VERBS.has(tmuxArgs[0])) localSessions.invalidate()
+    if (!host && SESSION_MUTATING_TMUX_VERBS.has(tmuxArgs[0])) { localSessions.invalidate(); localSessionStarts.invalidate() }
   }
 }
 
@@ -1140,14 +1140,19 @@ function captureTmux(host: string | null, tmuxArgs: string[], opts: { timeout?: 
 // only an outside change can be up to TTL stale.
 const LOCAL_SESSION_TTL_MS = 1500
 const localSessions = new SessionListCache(LOCAL_SESSION_TTL_MS)
+// The same listing with each session's creation time, read by every /api/agents and /api/settings request (#884:
+// one synchronous spawn per poll). Same stale-while-revalidate contract as `localSessions`.
+const START_TIMES_FORMAT = '#{session_name} #{session_created}'
+const localSessionStarts = new SessionListCache(LOCAL_SESSION_TTL_MS)
 
 /** Drop the cached local session list -- after any start, stop or kill. */
 export function invalidateLocalSessionCache(): void {
   localSessions.invalidate()
+  localSessionStarts.invalidate()
 }
 
 function listLocalSessions(): string {
-  return localSessions.get(Date.now(), () => captureTmux(null, ['list-sessions', '-F', '#{session_name}']), captureTmuxAsync)
+  return localSessions.get(Date.now(), () => captureTmux(null, ['list-sessions', '-F', '#{session_name}']), captureTmuxAsync())
 }
 
 // Async twin of captureTmux for pane reads on the prompt-injection path: the
@@ -1169,11 +1174,21 @@ function captureTmuxAsyncArgs(host: string | null, tmuxArgs: string[], opts: { t
 }
 
 /** The same `tmux list-sessions` as captureTmux(null, ...), but off the event loop (see SessionListCache.get). */
-function captureTmuxAsync(): Promise<string> {
-  const inv = buildTmuxInvocation(null, tmuxBin(), ['list-sessions', '-F', '#{session_name}'])
-  return new Promise((resolve, reject) => {
-    execFile(inv.file, inv.args, { timeout: 3000, encoding: 'utf-8' }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))))
-  })
+function captureTmuxAsync(format: string = '#{session_name}'): () => Promise<string> {
+  return () => captureTmuxAsyncArgs(null, ['list-sessions', '-F', format], { timeout: 3000 })
+}
+
+/**
+ * Host-aware, non-blocking twin of capturePane(): the fork runs off the event loop. Null on any error, exactly
+ * like capturePane(). Use it wherever an `async` function reads a pane in front of a prompt injection -- the
+ * synchronous form freezes every HTTP request for as long as tmux (or an ssh round-trip) takes (#884).
+ */
+export async function capturePaneOnHostAsync(session: string, host: string | null = null): Promise<string | null> {
+  try {
+    return await captureTmuxAsyncArgs(host, ['capture-pane', '-t', session, '-p'])
+  } catch {
+    return null
+  }
 }
 
 export function agentRunState(name: string): AgentRunState {
@@ -1260,7 +1275,11 @@ export function getAgentRunningSince(name: string): number | null {
 export function localSessionStartTimes(): Map<string, number> {
   const out = new Map<string, number>()
   try {
-    const raw = captureTmux(null, ['list-sessions', '-F', '#{session_name} #{session_created}'])
+    const raw = localSessionStarts.get(
+      Date.now(),
+      () => captureTmux(null, ['list-sessions', '-F', START_TIMES_FORMAT]),
+      captureTmuxAsync(START_TIMES_FORMAT),
+    )
     for (const line of raw.split('\n')) {
       const sp = line.lastIndexOf(' ')
       if (sp <= 0) continue
@@ -1943,8 +1962,8 @@ const SURVEY_MODAL_RX = /How is Claude doing this session/
 
 async function dismissSurveyModalIfPresent(session: string, host: string | null = null): Promise<void> {
   try {
-    const pane = captureTmux(host, ['capture-pane', '-t', session, '-p'])
-    if (!SURVEY_MODAL_RX.test(pane)) return
+    const pane = await capturePaneOnHostAsync(session, host)
+    if (pane == null || !SURVEY_MODAL_RX.test(pane)) return
     runTmux(host, ['send-keys', '-t', session, '0'], { timeout: 5000 })
     // Modal close is one frame; settle window so the next send-keys lands in
     // the prompt input, not the now-stale modal handler.
@@ -2005,8 +2024,8 @@ export function paneShowsLoginMethodMenu(pane: string): boolean {
 /** true, ha tenylegesen valaszoltunk a menure (tehat volt mire). */
 export async function answerLoginMethodMenu(session: string, host: string | null = null): Promise<boolean> {
   try {
-    const pane = captureTmux(host, ['capture-pane', '-t', session, '-p'])
-    if (!paneShowsLoginMethodMenu(pane)) return false
+    const pane = await capturePaneOnHostAsync(session, host)
+    if (pane == null || !paneShowsLoginMethodMenu(pane)) return false
     runTmux(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
     await delay(150)
     runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
@@ -2032,8 +2051,8 @@ export async function answerLoginMethodMenu(session: string, host: string | null
 // (pure detector, quoted-text-proof), so this adds no blind-injection surface.
 export async function dismissModelConsentDialogIfPresent(session: string, host: string | null = null): Promise<void> {
   try {
-    const pane = captureTmux(host, ['capture-pane', '-t', session, '-p'])
-    if (!detectsModelConsentDialog(pane)) return
+    const pane = await capturePaneOnHostAsync(session, host)
+    if (pane == null || !detectsModelConsentDialog(pane)) return
     runTmux(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
     await delay(150)
     runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
@@ -2202,7 +2221,7 @@ export async function waitForPaneIdle(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
-    const pane = capturePane(session, host)
+    const pane = await capturePaneOnHostAsync(session, host)
     if (pane != null && paneLooksIdle(pane)) return true
     if (Date.now() >= deadline) return false
     await delay(PANE_IDLE_POLL_MS)
@@ -2382,8 +2401,8 @@ export async function sendPromptToSession(
   // prove the buffer is clean, but proceeding without the clear is no
   // worse than the pre-fix status quo.
   try {
-    const preCapture = captureTmux(host, ['capture-pane', '-t', session, '-p'])
-    if (shouldClearTruncatedPreamble(preCapture)) {
+    const preCapture = await capturePaneOnHostAsync(session, host)
+    if (preCapture != null && shouldClearTruncatedPreamble(preCapture)) {
       logger.info({ session }, 'Cleared stale preamble from input buffer before sending prompt')
       await clearInputBuffer(session, host)
     }
