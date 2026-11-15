@@ -6954,6 +6954,11 @@ function cbRowTaskCounts(row) {
 // egyutt, es a "3 sorban" onmagaban is ertekesebb informacio, mint egy szam
 // egy menupont mellett: itt latszik, amikor a kartyat nezed.
 function cbCardNote(row) {
+  // #923: a paused project says so first; its queued commands are waiting, not lost.
+  if (row && row.paused === true) {
+    const c = cbRowTaskCounts(row)
+    return t('cb.card.paused_note', { n: c ? c.queued + c.running : 0 })
+  }
   // ELOSZOR a fuggoben levo le-/bekapcsolas: ez a kartyan KIVUL eddig sehol nem
   // latszott, pedig ez valtoztatja meg leginkabb, hogy mire szamit az ember.
   if (codeBridgeCards.savedEnabled === false && codeBridgeCards.state !== 'disabled') {
@@ -7523,6 +7528,8 @@ function cbEntryFromProject(r, ctx) {
     project: r.project,
     // #397: this project's own queued / running tasks (`null` = old server).
     taskCounts: cbRowTaskCounts(r),
+    // #923: this project alone is paused (its queued tasks wait, other projects keep running).
+    paused: r.paused === true,
     // Lehet `null` = nem latunk ra. A kettot a kiiras kulon mondja el.
     contextTokens: (typeof r.contextTokens === 'number' && r.contextTokens > 0) ? r.contextTokens : null,
     // NEM fix "claude code": az, amivel a beszelgetes eppen valaszolt.
@@ -7574,7 +7581,9 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
   if (codeBridgeCards.state === 'loading' || codeBridgeCards.state === 'absent') return
 
   const off = codeBridgeCards.state === 'disabled'
-  const rows = off ? [] : codeBridgeCards.projects
+  // #923: switching the whole bridge off must not make the project cards vanish
+  // (it hid the stock-trading programmer too). They stay, shown as stopped.
+  const rows = codeBridgeCards.projects
   // Nulla projekt mellett is KELL egy kartya. Enelkul a lap ugy nez ki,
   // mintha a kod-hid nem is letezne -- pontosan ez volt a panasz.
   const entries = rows.length
@@ -7603,7 +7612,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       : { running: codeBridgeCards.running, queued: codeBridgeCards.queued }
     const cbBusyNow = !!cbTc && (cbTc.running > 0 || (cbTc.queued > 0 && codeBridgeCards.workerOnline))
     // #394: dimmed like any other stopped agent (style.css .agent-card.is-stopped).
-    card.classList.toggle('is-stopped', cbRunDotClass() === 'stopped')
+    card.classList.toggle('is-stopped', cbRunDotClass() === 'stopped' || e.paused === true)
     // A szinkulcs SZANDEKOSAN a projekt aliasa marad: egy projekt egy szin,
     // akkor is, ha kozben botot cserelsz.
     const name = cbCardTitle(e.title)
@@ -7672,6 +7681,8 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       <div class="agent-card-actions">
         <button class="btn-secondary btn-compact code-bridge-open-btn">${escapeHtml(t('cb.card.settings'))}</button>
         ${e.roleHolder ? `
+        <button class="btn-secondary btn-compact cb-pause-btn" title="${escapeHtml(t(e.paused ? 'cb.card.resume_help' : 'cb.card.pause_help'))}">${escapeHtml(t(e.paused ? 'cb.card.resume' : 'cb.card.pause'))}</button>` : ''}
+        ${e.roleHolder ? `
         <button class="btn-secondary btn-compact cb-delete-btn" title="${escapeHtml(t('cb.card.delete_help'))}">${escapeHtml(t('cb.card.delete'))}</button>` : ''}
       </div>
       ${e.roleHolder ? cbTabsPickHtml(e) : ''}
@@ -7728,6 +7739,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     card.querySelector('.ctx-role-row')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.ctx-current')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.cb-delete-btn')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbDeleteProject(e.project) })
+    card.querySelector('.cb-pause-btn')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbPauseProject(e.project, !e.paused) })
     // A TOMORITES ES A TORLES GOMB IS KIVEVE A KARTYAROL.
     //
     // Boss, 2026-08-26: "hat magat a torles gombot torold ki onnan. akkor minek
@@ -7776,6 +7788,22 @@ function openCodeBridgeModal() {
   document.getElementById('cbModalClose')?.addEventListener('click', close)
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
 })()
+
+/** #923: pause / resume ONE project. The server keeps its queued commands and
+ *  hands out nobody else's differently; every other card is untouched. */
+async function cbPauseProject(project, paused) {
+  try {
+    const r = await fetch('/api/code/projects/' + encodeURIComponent(project) + '/pause', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused }),
+    })
+    if (!r.ok) throw new Error(String(r.status))
+    showToast(t(paused ? 'cb.toast.paused' : 'cb.toast.resumed', { project }), 'success')
+  } catch (err) {
+    showToast(t('cb.toast.pause_failed', { project }), 'error')
+  }
+  await loadCodeBridgeCards()
+  if (typeof loadAgents === 'function') loadAgents()
+}
 
 /** Failure-proof, mint a fooderacios lekeres: egy regi backend 404-je sem
  *  boritja fel a Csapat lapot, csak nem lesz kod-hid kartya. */
