@@ -9,9 +9,10 @@ const read = (p: string) => readFileSync(join(__dirname, '..', p), 'utf-8')
 
 describe('no synchronous stalls on startup / prompt path', () => {
   const ap = read('web/agent-process.ts')
-  it('claude --help probe is warmed in the background', () => {
-    expect(ap).toMatch(/function warmAutocompactProbe\(\)[\s\S]*?execFile\(claudeBin\(\), \['--help'\]/)
-    expect(ap).toMatch(/\nwarmAutocompactProbe\(\)\n/)
+  it('claude --help probe is warmed in the background and remembered on disk (behaviour: autocompact-probe.test.ts)', () => {
+    expect(ap).toMatch(/runHelpAsync:[\s\S]*?execFile\(claudeBin\(\), \['--help'\]/)
+    expect(ap).toMatch(/void autocompactProbe\.warm\(\)/)
+    expect(ap).toContain('.autocompact-probe.json')
   })
   it('resume-modal probe reads the pane asynchronously', () => {
     const fn = ap.slice(ap.indexOf('export async function dismissResumeSummaryModalIfPresent'))
