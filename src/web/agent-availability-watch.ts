@@ -16,7 +16,7 @@ import { MAIN_AGENT_ID, STORE_DIR } from '../config.js'
 import { mainAgentEffectiveConfigDir } from './agent-config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { createAgentMessage, getPendingMessages } from '../db.js'
-import { listBrokerCandidateNames, readAgentPane, readBrokerCandidate } from './context-broker-store.js'
+import { listBrokerCandidateNames, readAgentPane, readAgentPaneAsync, readBrokerCandidate } from './context-broker-store.js'
 import { paneShowsLimitBlock } from '../pane-state.js'
 import { detectReauthNeeded } from './reauth-detect.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
@@ -92,7 +92,8 @@ export function applyPaneEvidence(a: AgentAvailability, pane: string | null): Ag
 }
 
 /** Measure the whole fleet now (no I/O besides reading sessions and snapshots). */
-export function measureFleet(prev: Record<string, AgentAvailability>, now: number): AgentAvailability[] {
+/** `panes`: screens already read (asynchronously) by the caller; an agent missing from it is read synchronously. */
+export function measureFleet(prev: Record<string, AgentAvailability>, now: number, panes?: Record<string, string | null>): AgentAvailability[] {
   return listBrokerCandidateNames().map((agent) => {
     const snap = readRateLimitSnapshot(agent)
     const windows = [
@@ -102,7 +103,7 @@ export function measureFleet(prev: Record<string, AgentAvailability>, now: numbe
     ].filter((w): w is NonNullable<typeof w> => !!w)
     const cand = readBrokerCandidate(agent)
     const m = measureAvailability(cand, windows, now, prev[agent], agentSignedOut(agent))
-    const seen = applyPaneEvidence(m, m.available ? readAgentPane(agent) : null)
+    const seen = applyPaneEvidence(m, m.available ? (panes && agent in panes ? panes[agent]! : readAgentPane(agent)) : null)
     // Keep the previous "since" when the screen merely confirms the state that was already stored.
     return seen !== m && prev[agent]?.reason === seen.reason && prev[agent]?.available === seen.available ? { ...seen, since: prev[agent]!.since } : seen
   })
@@ -156,11 +157,11 @@ export function currentAvailability(now: number = Date.now()): AgentAvailability
  *  is a fair reason to try again from the start. */
 const notifyFailures = new Map<string, number>()
 
-export function availabilityTick(now: number = Date.now()): void {
+export function availabilityTick(now: number = Date.now(), panes?: Record<string, string | null>): void {
   try {
     const state = readAvailabilityState()
     const prev = state.agents
-    const next = measureFleet(prev, now)
+    const next = measureFleet(prev, now, panes)
     const retry = new Set<string>()
     for (const t of planTransitions(prev, next)) {
       let note = 'logged'
@@ -194,9 +195,20 @@ export function availabilityTick(now: number = Date.now()): void {
   }
 }
 
+/** #922: read every screen without blocking the event loop, then run the (now fork-free) tick. */
+export async function availabilityTickAsync(now: number = Date.now()): Promise<void> {
+  const panes: Record<string, string | null> = {}
+  try {
+    await Promise.all(listBrokerCandidateNames().map(async (agent) => {
+      try { panes[agent] = await readAgentPaneAsync(agent) } catch { /* not read: the tick reads it itself */ }
+    }))
+  } catch { /* fall through with what was read */ }
+  availabilityTick(now, panes)
+}
+
 export function startAvailabilityWatch(): NodeJS.Timeout | undefined {
   if (process.env.MARVEEN_AVAILABILITY_WATCH === '0') return undefined
-  setTimeout(() => availabilityTick(), AVAILABILITY_INITIAL_DELAY_MS).unref()
-  return setInterval(() => availabilityTick(), AVAILABILITY_INTERVAL_MS)
+  setTimeout(() => void availabilityTickAsync(), AVAILABILITY_INITIAL_DELAY_MS).unref()
+  return setInterval(() => void availabilityTickAsync(), AVAILABILITY_INTERVAL_MS)
 }
 
