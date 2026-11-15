@@ -3753,7 +3753,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(String(body['project_id'] ?? '').trim())
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = moveLooseFiles(project, body['rels'], body['folder'] === '\u0000box' ? '' : body['folder'], { allowItem: body['allow_item'] === true })
+    const r = moveLooseFiles(project, body['rels'], body['folder'] === '\u0000box' ? '' : body['folder'], { allowItem: body['allow_item'] === true }, await listWorkFoldersYielding(project, { outside: false }))
     if (!r.ok) {
       const code = r.code === 'no_box' ? 'folder_gone' : r.code === 'no_files' ? 'files_no_files' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, null)
@@ -3785,7 +3785,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(String(body['project_id'] ?? '').trim())
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = deleteLooseFiles(project, body['rels'])
+    const r = deleteLooseFiles(project, body['rels'], await listWorkFoldersYielding(project, { outside: false }))
     if (!r.ok) return failDetail(res, 400, r.code === 'no_box' ? 'folder_gone' : 'files_delete_none', lang, null)
     json(res, { ok: true, deleted: r.deleted, skipped: r.skipped, trash: r.trash, file_trash: listFileTrash(project.id), items: listWorkItems(project.id), work_folders: await listWorkFoldersYielding(project) })
     return true
@@ -3849,7 +3849,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(String(body['project_id'] ?? '').trim())
     if (!project) return fail(res, 404, 'project_not_found', lang)
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
-    const r = renameLooseFile(project, body['rel'], body['name'])
+    const r = renameLooseFile(project, body['rel'], body['name'], await listWorkFoldersYielding(project, { outside: false }))
     if (!r.ok) {
       const code = r.code === 'no_box' ? 'folder_gone' : r.code
       return failDetail(res, r.code === 'write_failed' ? 500 : r.code === 'file_name_taken' ? 409 : 400, code, lang, r.message ?? null)
@@ -4133,7 +4133,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(String(body['project_id'] ?? '').trim())
     if (!project) return fail(res, 404, 'project_not_found', lang)
     const names = (Array.isArray(body['names']) ? body['names'] : []).map((n) => String(n ?? '')).filter(Boolean).slice(0, 200)
-    const r = adviseUploadPlaces(project, body['folder'], names)
+    const r = adviseUploadPlaces(project, body['folder'], names, await listWorkFoldersYielding(project, { outside: false }))
     if (!r.ok) return fail(res, 400, r.code, lang)
     json(res, { ok: true, advice: r.advice })
     return true

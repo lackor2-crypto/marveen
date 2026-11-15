@@ -649,6 +649,9 @@ export function listWorkFolders(project: ProjectRow, opts: { outside?: boolean }
   return drainSteps(listWorkFoldersSteps(project, opts))
 }
 
+/** The listing the file actions work from; a request handler can pass one it listed with listWorkFoldersYielding. */
+export type WorkFoldersListing = ReturnType<typeof listWorkFolders>
+
 /** #860: same listing, but the disk walk gives the event loop back every few ms (the Munkapad tree polls every 20 s and the
  *  synchronous walk held the loop 2-3 s on the slow depot drive). */
 export function listWorkFoldersYielding(project: ProjectRow, opts: { outside?: boolean } = {}): Promise<WorkFoldersResult> {
@@ -1150,7 +1153,7 @@ function itemsUsingFolder(project: ProjectRow, dirRel: string, skipIds: string[]
  * `allowItem` (Boss TG 3001/3016) lets those files move out as well, also the ones the registry names (a material, a
  * finalised version's PDF or attachment, an annex, a source): every reference follows the file.
  */
-export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown, opts: { allowItem?: boolean } = {}): MoveFilesResult {
+export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unknown, opts: { allowItem?: boolean } = {}, listed?: WorkFoldersListing): MoveFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
   if (!want.length) return { ok: false, code: 'no_files' }
   const c = workFolderTarget(project, folder)
@@ -1159,7 +1162,7 @@ export function moveLooseFiles(project: ProjectRow, rels: unknown, folder: unkno
   if (isVersionsFolderKey(c.folder, itemFolders)) return { ok: false, code: 'folder_versions_protected' }
   const target = projectFileTarget(project, c.folder)
   if (!target.ok) return target
-  const wf = listWorkFolders(project, { outside: false })
+  const wf = listed ?? listWorkFolders(project, { outside: false })
   const loose = new Map<string, string>()
   const itemFiles = new Set<string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) { loose.set(f.rel, k); if (f.item) itemFiles.add(f.rel) }
@@ -1233,7 +1236,7 @@ export async function copyLooseFiles(project: ProjectRow, rels: unknown, folder:
   if (isVersionsFolderKey(c.folder, liveItemFolders(project))) return { ok: false, code: 'folder_versions_protected' }
   const target = projectFileTarget(project, c.folder)
   if (!target.ok) return target
-  const wf = listWorkFolders(project, { outside: false })
+  const wf = await listWorkFoldersYielding(project, { outside: false })
   const loose = new Map<string, string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.set(f.rel, k)
   const copied: string[] = []
@@ -1287,13 +1290,13 @@ export type DeleteFilesResult =
  * Only a file that really is loose in the box is deleted; a file the registry names (a deck picture, a version file,
  * a material) is deleted too, and the work items forget it (no limits; the Kuka keeps a copy).
  */
-export function deleteLooseFiles(project: ProjectRow, rels: unknown): DeleteFilesResult {
+export function deleteLooseFiles(project: ProjectRow, rels: unknown, listed?: WorkFoldersListing): DeleteFilesResult {
   const want = Array.isArray(rels) ? [...new Set(rels.map((r) => String(r ?? '')).filter(Boolean))].slice(0, WORK_FILES_TOTAL_MAX) : []
   if (!want.length) return { ok: false, code: 'no_files' }
   // #535: a project that has no work item yet has no work-items box either, but its own folder may hold files, and
   // those are deletable (Boss 2723, below). Only a project whose folder is gone has nothing to delete from.
   if (!findWorkItemsBox(project) && !projectFileTarget(project, '').ok) return { ok: false, code: 'no_box' }
-  const wf = listWorkFolders(project, { outside: false })
+  const wf = listed ?? listWorkFolders(project, { outside: false })
   const loose = new Set<string>()
   for (const k of Object.keys(wf.files)) for (const f of wf.files[k] ?? []) loose.add(f.rel)
   // A work item's own snapshot file (marveen-item.json) is deletable too, and it is NOT written back (Boss 2511).
@@ -1354,13 +1357,13 @@ export type RenameFileResult =
  * picture) is renamed too and every reference follows the new path, exactly like a move (#487); if the
  * references cannot be rewritten the rename is undone, so no link is left dead.
  */
-export function renameLooseFile(project: ProjectRow, rel: unknown, newName: unknown): RenameFileResult {
+export function renameLooseFile(project: ProjectRow, rel: unknown, newName: unknown, listed?: WorkFoldersListing): RenameFileResult {
   if (!findWorkItemsBox(project)) return { ok: false, code: 'no_box' }
   const from = String(rel ?? '')
   const seg = String(newName ?? '').trim()
   const clean = safeLifeName(seg)
   if (!seg || seg.includes('/') || seg.includes('\\') || !clean || clean === '_' || clean.startsWith('.') || clean.length > 120 || clean !== seg) return { ok: false, code: 'file_name' }
-  const wf = listWorkFolders(project, { outside: false })
+  const wf = listed ?? listWorkFolders(project, { outside: false })
   let folder: string | null = null
   for (const k of Object.keys(wf.files)) if ((wf.files[k] ?? []).some((f) => f.rel === from)) { folder = k; break }
   if (folder === null) return { ok: false, code: 'file_not_loose' }
@@ -3277,14 +3280,14 @@ function tryRemoveEmptyDir(abs: string): void {
 }
 
 /** #700: where would each of these uploaded file names rather go than `folder`? Reads only; nothing is moved or refused. */
-export function adviseUploadPlaces(project: ProjectRow, folder: unknown, names: string[]): { ok: true; advice: Record<string, UploadAdvice> } | { ok: false; code: WorkFolderError | 'bad_folder' } {
+export function adviseUploadPlaces(project: ProjectRow, folder: unknown, names: string[], listed?: WorkFoldersListing): { ok: true; advice: Record<string, UploadAdvice> } | { ok: false; code: WorkFolderError | 'bad_folder' } {
   const t = projectFileTarget(project, folder)
   if (!t.ok) return t
   const box = findWorkItemsBox(project)
   const advice: Record<string, UploadAdvice> = {}
   const rel = String(folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   if (!box) { for (const n of names) advice[n] = { ok: true }; return { ok: true, advice } }
-  const folders = listWorkFolders(project, { outside: false }).folders
+  const folders = (listed ?? listWorkFolders(project, { outside: false })).folders
   const items = liveItemFolders(project)
   for (const n of names) advice[n] = adviseUpload(box, rel, n, folders, items)
   return { ok: true, advice }
