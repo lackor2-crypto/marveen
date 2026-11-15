@@ -274,7 +274,11 @@ export function moveDocumentsPrefix(fromRel: string, toRel: string): number {
  * are a copy, and guessing which one is "the" document would be a lie.
  * Returns the new path when the record was moved there.
  */
-export async function relocateDocument(id: string): Promise<string | null> {
+export interface TreeSizeIndex { bySize?: Map<number, string[]> }
+/** One per sweep: the first search that needs the whole tree reads every file size once, the others look the size up. */
+export function newTreeSizeIndex(): TreeSizeIndex { return {} }
+
+export async function relocateDocument(id: string, shared?: TreeSizeIndex): Promise<string | null> {
   const v = await verifyDocument(id)
   if (!v || !v.missing) return null
   ensureLifeDocTables()
@@ -288,6 +292,7 @@ export async function relocateDocument(id: string): Promise<string | null> {
   const sameSize: string[] = []
   const seen = new Set<string>()
   let dirs = 0
+  let visit = (child: string, size: number): void => { if (size === row.size) sameSize.push(child) }
   const walk = async (rel: string, depth: number): Promise<void> => {
     if (depth > WALK_MAX_DEPTH || dirs >= WALK_MAX_DIRS || seen.has(rel)) return
     seen.add(rel)
@@ -305,14 +310,26 @@ export async function relocateDocument(id: string): Promise<string | null> {
     // The sizes of one folder are read side by side: one by one a 100k-file tree on a slow (9p) disk took ~12 minutes.
     for (let i = 0; i < files.length; i += 32) {
       await Promise.all(files.slice(i, i + 32).map(async (child) => {
-        try { if ((await stat(join(root, ...child.split('/')))).size === row.size) sameSize.push(child) } catch { /* gone meanwhile */ }
+        try { visit(child, (await stat(join(root, ...child.split('/')))).size) } catch { /* gone meanwhile */ }
       }))
     }
   }
   // Beside its old place first; the whole tree only if it is not there.
   const parent = row.rel.includes('/') ? row.rel.slice(0, row.rel.lastIndexOf('/')) : ''
   await walk(parent, WALK_MAX_DEPTH - 1)
-  if (!sameSize.length) { seen.clear(); await walk('', 0) }
+  if (!sameSize.length) {
+    seen.clear()
+    if (shared) {
+      // Several documents missing at once (a deleted folder): the tree is read ONCE for all of them, not once each.
+      if (!shared.bySize) {
+        const idx = new Map<number, string[]>()
+        visit = (child, size) => { const l = idx.get(size); if (l) l.push(child); else idx.set(size, [child]) }
+        await walk('', 0)
+        shared.bySize = idx
+      }
+      sameSize.push(...(shared.bySize.get(row.size) ?? []))
+    } else await walk('', 0)
+  }
 
   const matches: string[] = []
   for (const rel of [...new Set(sameSize)]) {
