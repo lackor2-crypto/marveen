@@ -89,13 +89,8 @@ export async function anchoredFolders(): Promise<string[]> {
   // #893: writeBlockReason walks up looking for a .git (several 9p calls per folder, a 3.4 s stall measured in
   // /api/perf/stalls with ~20 anchored folders). The candidates are gathered first, then checked one at a time with the
   // loop given back in between.
-  const candidates = new Set<string>()
-  const add = (rel: unknown): void => {
-    const r = norm(String(rel ?? ''))
-    if (!r) return
-    if (resolveMount(r)) return
-    candidates.add(r)
-  }
+  const raw: unknown[] = []
+  const add = (rel: unknown): void => { raw.push(rel) }
   for (const r of loadBackupRules().rules) add(r.path)
   for (const m of listMounts()) add(m.target)
   try {
@@ -106,11 +101,18 @@ export async function anchoredFolders(): Promise<string[]> {
     const { loadSyncConfig } = await import('./web/routes/drive-sync.js')
     for (const p of loadSyncConfig().pairs) if (p.backup) add(p.localPath)
   } catch { /* the sync module could not be loaded: skip its pairs this round */ }
+  // #887: the mount check (resolveMount reads the mount registry file on every call) is part of the per-folder step, so a
+  // slow drive pays it one folder at a time with the loop given back in between, not for all ~25 folders in one go.
+  const seen = new Set<string>()
   const out: string[] = []
-  for (const r of candidates) {
+  for (const rel of raw) {
+    await new Promise<void>((res) => setImmediate(res))
+    const r = norm(String(rel ?? ''))
+    if (!r || seen.has(r)) continue
+    seen.add(r)
+    if (resolveMount(r)) continue
     try { if (writeBlockReason(r)) continue } catch { continue }
     out.push(r)
-    await new Promise<void>((res) => setImmediate(res))
   }
   return out
 }

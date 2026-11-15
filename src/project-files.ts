@@ -563,24 +563,34 @@ export function triggerFolderFor(p: ProjectRow, itemFolder: string | null | unde
  *  (Finished materials, Attachments, Uploads, Agent, Debate), so each kind of file has its place before the first one
  *  arrives. Only EMPTY folders are made, existing ones (either name) are reused and never touched. Each one is best effort. */
 export function ensureItemStandardFolders(p: ProjectRow, itemFolder: string | null | undefined): void {
-  // A debate report is filed INTO the origin item's debate folder and shares it: five folders (with another "Debate"
-  // inside "Debate") there would only be clutter.
-  const last = String(itemFolder ?? '').split('/').pop() ?? ''
-  if ([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, DEBATE_REPORT_SUB_NAMES.hu, DEBATE_REPORT_SUB_NAMES.en].some(n => n === last)) return
-  for (const f of [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor, triggerFolderFor, receiptFolderFor]) {
+  for (const f of itemStandardFolderMakers(itemFolder)) {
     try { f(p, itemFolder) } catch { /* the folder is made on demand with its first file instead */ }
   }
 }
 
+/** #887: the makers behind ensureItemStandardFolders, one per folder, so the startup pass can hand the event loop back
+ *  between them (each one is several stat calls; on a cold Windows drive the seven together held the loop for 200+ ms). */
+export function itemStandardFolderMakers(itemFolder: string | null | undefined): Array<(p: ProjectRow, f: string | null | undefined) => unknown> {
+  // A debate report is filed INTO the origin item's debate folder and shares it: five folders (with another "Debate"
+  // inside "Debate") there would only be clutter.
+  const last = String(itemFolder ?? '').split('/').pop() ?? ''
+  if ([DEBATE_FOLDER_NAMES.hu, DEBATE_FOLDER_NAMES.en, ...DEBATE_FOLDER_OLD_NAMES, DEBATE_REPORT_SUB_NAMES.hu, DEBATE_REPORT_SUB_NAMES.en].some(n => n === last)) return []
+  return [finishedFolderFor, attachmentsFolderFor, uploadsFolderFor, agentRefsFolderFor, debateFolderFor, triggerFolderFor, receiptFolderFor]
+}
 
 /** #794 (Boss TG 4045, option B): a LETTER folder is a folder of its own for ONE official letter inside a case folder
  *  (the case keeps the shared Uploads / Agent / Attachments; the letter gets only what belongs to it): the trigger
  *  document (that letter), the finished materials (the answer to it) and the attachments (only for it). Same rules as
  *  the other standard folders: made once, existing ones (either name) reused, a deleted one stays deleted. */
 export function ensureLetterFolders(p: ProjectRow, letterFolder: string | null | undefined): void {
-  for (const f of [triggerFolderFor, finishedFolderFor, attachmentsFolderFor, receiptFolderFor]) {
+  for (const f of letterFolderMakers()) {
     try { f(p, letterFolder) } catch { /* made on demand with its first file instead */ }
   }
+}
+
+/** #887: one maker per letter folder (see itemStandardFolderMakers). */
+export function letterFolderMakers(): Array<(p: ProjectRow, f: string | null | undefined) => unknown> {
+  return [triggerFolderFor, finishedFolderFor, attachmentsFolderFor, receiptFolderFor]
 }
 
 /** #681: write down the standard subfolders an item folder has RIGHT NOW (the ones made before the registry existed), so
