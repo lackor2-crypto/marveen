@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { execFileSync, execFile } from 'node:child_process'
 import { OLLAMA_URL, AUTOCOMPACT_TOKENS } from '../config.js'
+import { createAutocompactProbe, binIdentityOf, type HelpRun } from './autocompact-probe.js'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import {
@@ -69,35 +70,38 @@ const claudeBin = makeLazyBinResolver('claude')
 // before using it: an unknown flag would make every agent fail to start, and a
 // context-size convenience must never be able to take the fleet down. Cached
 // for the process lifetime -- the binary does not change under us.
-let _autocompactSupported: boolean | null = null
-// `claude --help` can take many seconds on a loaded machine, and the sync probe
-// blocked the whole event loop on the first agent start after a restart (the
-// stall sampler showed autocompactFlag -> execFileSync, stuck 2-16 s). The probe
-// is therefore warmed in the background at load time; the sync fallback below
-// only runs if an agent starts before the warm-up has answered.
-function warmAutocompactProbe(): void {
-  if (AUTOCOMPACT_TOKENS <= 0 || _autocompactSupported !== null) return
-  try {
-    execFile(claudeBin(), ['--help'], { encoding: 'utf-8', timeout: 20_000 }, (err, stdout) => {
-      if (_autocompactSupported !== null) return
-      _autocompactSupported = err ? false : String(stdout).includes('--autocompact')
-    })
-  } catch { /* the sync fallback in autocompactFlag() decides */ }
+// `claude --help` can take many seconds on a loaded machine; see autocompact-probe.ts (#885) for how the
+// answer is remembered on disk and warmed in the background so a restart does not freeze the dashboard.
+const isTimeout = (e: unknown) => {
+  const x = e as { killed?: boolean; signal?: string; code?: string } | null
+  return !!x && (x.killed === true || x.signal === 'SIGTERM' || x.code === 'ETIMEDOUT')
 }
-warmAutocompactProbe()
+const autocompactProbe = createAutocompactProbe({
+  binIdentity: () => { try { return binIdentityOf(claudeBin()) } catch { return null } },
+  cacheFile: join(STORE_DIR, '.autocompact-probe.json'),
+  runHelpAsync: () => new Promise<HelpRun>((resolve) => {
+    try {
+      execFile(claudeBin(), ['--help'], { encoding: 'utf-8', timeout: 20_000 }, (err, stdout) =>
+        resolve({ ok: !err, timedOut: !!err && isTimeout(err), stdout: String(stdout ?? '') }))
+    } catch { resolve({ ok: false, timedOut: true, stdout: '' }) }
+  }),
+  runHelpSync: () => {
+    try {
+      return { ok: true, timedOut: false, stdout: execFileSync(claudeBin(), ['--help'], { encoding: 'utf-8', timeout: 20_000 }) }
+    } catch (e) { return { ok: false, timedOut: isTimeout(e), stdout: '' } }
+  },
+})
+if (AUTOCOMPACT_TOKENS > 0) void autocompactProbe.warm()
 
+let _autocompactLogged = false
 function autocompactFlag(): string {
   if (AUTOCOMPACT_TOKENS <= 0) return ''
-  if (_autocompactSupported === null) {
-    try {
-      const help = execFileSync(claudeBin(), ['--help'], { encoding: 'utf-8', timeout: 20_000 })
-      _autocompactSupported = help.includes('--autocompact')
-    } catch { _autocompactSupported = false }
-    if (!_autocompactSupported) {
-      logger.info('claude CLI has no --autocompact flag; relying on the gate and the end-of-turn hook alone')
-    }
+  const supported = autocompactProbe.get()
+  if (!supported && !_autocompactLogged) {
+    _autocompactLogged = true
+    logger.info('claude CLI has no --autocompact flag; relying on the gate and the end-of-turn hook alone')
   }
-  return _autocompactSupported ? `--autocompact ${AUTOCOMPACT_TOKENS} ` : ''
+  return supported ? `--autocompact ${AUTOCOMPACT_TOKENS} ` : ''
 }
 
 
@@ -1146,7 +1150,6 @@ function listLocalSessions(): string {
   return localSessions.get(Date.now(), () => captureTmux(null, ['list-sessions', '-F', '#{session_name}']), captureTmuxAsync)
 }
 
-/** The same `tmux list-sessions` as captureTmux(null, ...), but off the event loop (see SessionListCache.get). */
 // Async twin of captureTmux for pane reads on the prompt-injection path: the
 // event loop keeps serving requests while tmux answers.
 /** The pids of a local session's panes; empty when it could not be read (then the caller keeps the full wait). */
@@ -1165,6 +1168,7 @@ function captureTmuxAsyncArgs(host: string | null, tmuxArgs: string[], opts: { t
   })
 }
 
+/** The same `tmux list-sessions` as captureTmux(null, ...), but off the event loop (see SessionListCache.get). */
 function captureTmuxAsync(): Promise<string> {
   const inv = buildTmuxInvocation(null, tmuxBin(), ['list-sessions', '-F', '#{session_name}'])
   return new Promise((resolve, reject) => {

@@ -45,7 +45,7 @@ describe('backup inventory coverage', () => {
   it('the top-level layout of a long-running install is fully classified', () => {
     const fixture = [
       '*ledger*.db', '.agent-failures-gypsy', '.channel-keepalive', '.channel-last-respawn', '.cred-backup-win.json',
-      '.cred-switch-state', '.dashboard-token', '.default-projects-seeded', '.deployed-sha', '.env.bak-20260808-130100',
+      '.cred-switch-state', '.dashboard-token', '.default-projects-seeded', '.deployed-sha', '.autocompact-probe.json', '.env.bak-20260808-130100',
       '.fleet-memgate-alert', '.fleet-parked-agents', '.git-tokens.json', '.github-tokens.json', '.google-auth-pending.json',
       '.google-live-check.json', '.last-btime', '.morning-last-sent', '.ratelimit-alert-state.json', '.subagent-retry',
       '.vault-key', '.win-home', '.backup-key', 'accounts', 'agent-audit.jsonl', 'agent-msg-failures.log',

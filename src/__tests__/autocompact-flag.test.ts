@@ -65,9 +65,9 @@ describe('the flag is probed, never assumed', () => {
   // An unknown flag would stop an agent from starting at all. A context-size
   // convenience must never be able to take the fleet down.
   it('the dashboard checks --help before using it', () => {
-    const src = read('src/web/agent-process.ts')
-    expect(src).toMatch(/--help/)
-    expect(src).toContain("help.includes('--autocompact')")
+    expect(read('src/web/agent-process.ts')).toMatch(/--help/)
+    expect(read('src/web/autocompact-probe.ts')).toContain("includes(FLAG)")
+    expect(read('src/web/autocompact-probe.ts')).toContain("const FLAG = '--autocompact'")
   })
 
   for (const script of ['scripts/watchdog.sh', 'scripts/channel-watchdog.sh']) {
