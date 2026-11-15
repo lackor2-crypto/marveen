@@ -19,7 +19,8 @@ describe('e-mail full archive search', () => {
     expect(fn).toContain("t('email.search_failed'")
   })
   it('a failed mailbox read is not cached as empty', () => {
-    expect(app).toContain('if (Array.isArray(list)) emailScopedMailboxCache[cacheKey] = result')
+    expect(app).toContain('if (!Array.isArray(list)) return null')
+    expect(app).toContain('emailScopedMailboxCache[cacheKey] = list')
   })
 })
 
