@@ -146,6 +146,34 @@ describe('rate-limit-guard hook (behavioural)', () => {
     expect(entry.snapshot.fiveHour.usedPct).toBe(100)
   })
 
+  it('dates a preserved reading by when the FIGURES were measured, not by when the file was touched (#883)', () => {
+    // statusline.py bumps updatedAt on every render but keeps the old figures (and their windowsUpdatedAt)
+    // when Claude reports no rate_limits. Stamping the warning with updatedAt made a 40-minute-old number look
+    // like it was measured a second ago -- exactly how a stale 100% got repeated as fact.
+    const figuresAt = Date.now() - 40 * 60_000
+    writeSnapshot({
+      fiveHour: { usedPct: 100, resetsAt: Date.now() + 60 * 60_000 },
+      updatedAt: Date.now(),
+      windowsUpdatedAt: figuresAt,
+    })
+    const out = runHook()
+    const hh = (t: number) => new Date(t).toTimeString().slice(0, 8)
+    expect(out).toContain(`merve: ${hh(figuresAt)}`)
+    expect(out).not.toContain(`merve: ${hh(Date.now())}`)
+    expect(out).toMatch(/\d+ perce/)
+    const entry = JSON.parse(readFileSync(join(fakeRoot, 'store', 'rate-limit-guard.log'), 'utf-8').trim().split('\n').pop() as string)
+    expect(entry.figuresAgeMin).toBeGreaterThanOrEqual(39)
+  })
+
+  it('a fresh reading carries no age remark', () => {
+    writeSnapshot({
+      fiveHour: { usedPct: 97, resetsAt: Date.now() + 60 * 60_000 },
+      updatedAt: Date.now(),
+      windowsUpdatedAt: Date.now(),
+    })
+    expect(runHook()).not.toMatch(/\d+ perce/)
+  })
+
   it('writes no trace and no output below the caution threshold', () => {
     writeSnapshot({ fiveHour: { usedPct: 33, resetsAt: Date.now() + 60 * 60_000 }, updatedAt: Date.now() })
     expect(runHook()).toBe('')
