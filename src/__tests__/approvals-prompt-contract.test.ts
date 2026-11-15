@@ -88,7 +88,7 @@ describe('agent-scaffold.ts buildAutonomyBody: approval wiring content', () => {
     // generateClaudeMd must append the autonomy section with markers after LLM output
     const genFn = SCAFFOLD.slice(SCAFFOLD.indexOf('async function generateClaudeMd('))
     expect(genFn).toContain('AUTONOMY_BEGIN')
-    expect(genFn).toContain('buildAutonomyBody(name)')
+    expect(genFn).toContain('autonomyBlockBody(name)')
     expect(genFn).toContain('AUTONOMY_END')
   })
 

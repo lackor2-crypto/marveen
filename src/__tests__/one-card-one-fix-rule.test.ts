@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { withDetails } from './helpers/rule-details.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
 import { ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule } from '../web/agent-scaffold.js'
@@ -38,7 +39,7 @@ describe('ensureOneCardOneFixSection', () => {
   it('appends the rule to an existing agent CLAUDE.md, keeping the original content', () => {
     const path = seed('# zz-one-card-probe\n\nSajat tartalom.\n')
     ensureOneCardOneFixSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('EGY HIBA = EGY KARTYA')
     // Point 5 (Boss, 2026-09-16): a waiting-but-unfinished card is still to be
     // finished, not treated as hands-off.
@@ -58,12 +59,12 @@ describe('ensureOneCardOneFixSection', () => {
   it('is idempotent: no duplicate block and no rewrite on the second call', () => {
     const path = seed('# zz-one-card-probe\n\nSajat tartalom.\n')
     ensureOneCardOneFixSection(THROWAWAY)
-    const first = readFileSync(path, 'utf-8')
+    const first = withDetails(readFileSync(path, 'utf-8'))
     const mtimeBefore = statSync(path).mtimeMs
 
     ensureOneCardOneFixSection(THROWAWAY)
 
-    expect(readFileSync(path, 'utf-8')).toEqual(first)
+    expect(withDetails(readFileSync(path, 'utf-8'))).toEqual(first)
     expect(statSync(path).mtimeMs).toEqual(mtimeBefore)
     expect(first.split(MARKER).length - 1).toBe(1)
   })
@@ -71,11 +72,11 @@ describe('ensureOneCardOneFixSection', () => {
   it('never touches content outside the markers', () => {
     const path = seed('# fejlec\n\nELSO\n')
     ensureOneCardOneFixSection(THROWAWAY)
-    const withBlock = readFileSync(path, 'utf-8')
+    const withBlock = withDetails(readFileSync(path, 'utf-8'))
     writeFileSync(path, withBlock + '\nUTOLSO SOR\n')
 
     ensureOneCardOneFixSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('ELSO')
     expect(out).toContain('UTOLSO SOR')
   })
@@ -151,7 +152,7 @@ describe('ensureGlobalOneCardOneFixRule', () => {
 
   it('creates ~/.claude/CLAUDE.md on a fresh install where nothing exists yet', () => {
     ensureGlobalOneCardOneFixRule()
-    const out = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')
+    const out = withDetails(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8'))
     expect(out).toContain('EGY HIBA = EGY KARTYA')
   })
 
@@ -163,7 +164,7 @@ describe('ensureGlobalOneCardOneFixRule', () => {
     ensureGlobalOneCardOneFixRule()
     ensureGlobalOneCardOneFixRule()
 
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('NE NYULJ HOZZA')
     expect(out.split(MARKER).length - 1).toBe(1)
   })

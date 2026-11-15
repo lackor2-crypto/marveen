@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { withDetails } from './helpers/rule-details.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
 import { ensureKanbanWaitingMoveSection } from '../web/agent-scaffold.js'
@@ -36,7 +37,7 @@ describe('ensureKanbanWaitingMoveSection', () => {
   it('appends the rule to an existing agent CLAUDE.md', () => {
     const path = seed('# zz-kanban-waiting-move-probe\n\nSajat tartalom.\n')
     ensureKanbanWaitingMoveSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('KESZ KARTYA AZONNAL A VARAKOZOBA')
     expect(out).toContain('hazugsag a tablan')
     // The completeness duty: check every point, state all_points_done.
@@ -52,11 +53,11 @@ describe('ensureKanbanWaitingMoveSection', () => {
   it('is idempotent: no duplicate block and no rewrite on the second call', () => {
     const path = seed('# zz-kanban-waiting-move-probe\n\nSajat tartalom.\n')
     ensureKanbanWaitingMoveSection(THROWAWAY)
-    const first = readFileSync(path, 'utf-8')
+    const first = withDetails(readFileSync(path, 'utf-8'))
     const mtimeBefore = statSync(path).mtimeMs
 
     ensureKanbanWaitingMoveSection(THROWAWAY)
-    const second = readFileSync(path, 'utf-8')
+    const second = withDetails(readFileSync(path, 'utf-8'))
 
     expect(second).toEqual(first)
     expect(statSync(path).mtimeMs).toEqual(mtimeBefore)
@@ -67,11 +68,11 @@ describe('ensureKanbanWaitingMoveSection', () => {
   it('never touches content outside the markers', () => {
     const path = seed('# fejlec\n\nELSO\n')
     ensureKanbanWaitingMoveSection(THROWAWAY)
-    const withBlock = readFileSync(path, 'utf-8')
+    const withBlock = withDetails(readFileSync(path, 'utf-8'))
     writeFileSync(path, withBlock + '\nUTOLSO SOR\n')
 
     ensureKanbanWaitingMoveSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('ELSO')
     expect(out).toContain('UTOLSO SOR')
   })

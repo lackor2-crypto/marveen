@@ -7,6 +7,7 @@ import { channelStateDir } from '../channel-provider.js'
 import { LETTER_LAYOUT_RULES_EN } from '../letter-layout-rules.js'
 import { runAgent } from '../agent.js'
 import { atomicWriteFileSync } from './atomic-write.js'
+import { agentRuleBody, ruleBody, ruleDetailsDir } from './rule-digests.js'
 import { agentDir, agentConfigRoot, listAgentNames, readAgentCapabilities, mainAgentEffectiveConfigDir } from './agent-config.js'
 import { resolveProfilePlaceholders, type ProfileTemplate } from './profiles.js'
 import { sanitizeCapabilityTag, CAPABILITY_TAG_MAX_PER_AGENT } from '../prompt-safety.js'
@@ -1379,6 +1380,62 @@ function buildAutonomyBody(name: string): string {
   ].join('\n')
 }
 
+// Compact form of the autonomy block (#799). The full text (buildAutonomyBody)
+// goes to ~/.claude/rule-details/autonomy-<agent>.md; the CLAUDE.md block keeps
+// what an agent needs on every start: its own level wiring, the two curl
+// shapes and the doctrine headline. The category list is one line.
+function buildAutonomyDigest(name: string): string {
+  let config: AutonomyConfig | null = null
+  try {
+    config = loadAutonomyConfig()
+  } catch {
+    config = null
+  }
+  const admin = config ? isAdminAgent(name, config) : false
+  const gated = config ? config.categories.filter((c) => effectiveLevel(c, name, config!) < 3) : []
+  const selfdev = config?.categories.find((c) => c.key === MARVEEN_SELFDEV_KEY) ?? null
+  const who = !config
+    ? '**A jogosultsagi fajl nem volt olvashato** (store/autonomy-config.json): ne tippelj, nezd meg a fajlt, es szolj a tulajdonosnak.'
+    : admin
+      ? '**A TE JOGOSULTSAGOD: ADMIN** (minden agens az, modelltol fuggetlenul). Amit a kategoria 3. szinten enged, elvegzed es utana jelented. A szinteket a tulajdonos allitja (Beallitasok / Autonomia), az ott latott szam az igazsag.'
+      : '**A TE JOGOSULTSAGOD: ALAP** (a tulajdonos kezzel vette el az admin jogot): minden kategorian jovahagyast kersz elotte (2. szint).'
+  const lines = ['## Autonómia és jóváhagyás', '', who]
+  if (selfdev && config && effectiveLevel(selfdev, name, config) >= 3) {
+    lines.push(`Marveen sajat fejlesztesehez (kod, skill, szabaly, dashboard; kulcs: ${MARVEEN_SELFDEV_KEY}) NEM kell jovahagyas, de a kanban kartya es a teszt-verifikacio igen.`)
+  }
+  if (config) {
+    lines.push(gated.length === 0
+      ? 'Nalad egyetlen kategoria sem igenyel jovahagyast az API-n.'
+      : 'Jovahagyashoz kotott: ' + gated.map((c) => `\`${c.key}\` (${effectiveLevel(c, name, config!)})`).join(', ') + '. Penzmozgas, valodi cimzettnek meno uzenet es torles elott kotelezo a visszakerdezes is.')
+  }
+  lines.push(
+    'Szintek (store/autonomy-config.json): 1 = csak jelez, 2 = jovahagyas ELOTTE, 3 = autonom + utana jelent; cselekves elott nezd meg a kategoria szintjet.',
+    `Level 1 (csak jelez, a muveletet NEM vegzed el, ÁLLJ MEG): \`curl -s -X POST ${dashboardOrigin}/api/messages -H "Content-Type: application/json" -H "Authorization: Bearer $(cat ${tokenPath})" -d "{\\"from\\":\\"${name}\\",\\"to\\":\\"${MAIN_AGENT_ID}\\",\\"content\\":\\"[FELHÍVÁS] CATEGORY_KEY: MIT akartam elvégezni\\"}"\``,
+    `Level 2 (jovahagyas kerese): \`curl -s -X POST ${dashboardOrigin}/api/approvals -H "Content-Type: application/json" -H "Authorization: Bearer $(cat ${tokenPath})" -d '{"agent_id":"${name}","category":"CATEGORY_KEY","action_description":"Mit és miért","timeout_seconds":3600}'\`; dontes: \`GET ${dashboardOrigin}/api/approvals/<id>\` 60 mp-enkent (approved -> csinald, rejected/timeout -> ne).`,
+    '',
+    '## Flotta-doktrína (szabály, nem kapu)',
+    '',
+    '**Önütemezés** szabad, de minden ismétlődő futásnak legyen leállási feltétele és nyoma. **Idegen ágens vezérlése**: MÁS ágens tmux-ába/munkamenetébe/worktree-jébe nem írsz, folyamatát nem állítod le: inter-agent üzenet (/api/messages). **Gépszintű ütemezők** (crontab, at, systemd-run) csak a tulajdonos kérésére; a flotta ütemezője ~/.claude/scheduled-tasks. **E-mail**: csak IGAZOLT címre, a tulajdonos nevében nem írsz alá, senki nevében nem kérsz pénzt, küldés előtt címzett+tárgy+tartalom visszaolvasás.',
+  )
+  return lines.join('\n')
+}
+
+/** What a CLAUDE.md carries for the autonomy block: the digest, with the full
+ *  per-agent text kept in the details directory. */
+function autonomyBlockBody(name: string): string {
+  const full = buildAutonomyBody(name)
+  const key = `autonomy-${name}`
+  const file = join(ruleDetailsDir(), `${key}.md`)
+  try {
+    mkdirSync(ruleDetailsDir(), { recursive: true })
+    const current = existsSync(file) ? readFileSync(file, 'utf-8') : ''
+    if (current !== full + '\n') atomicWriteFileSync(file, full + '\n')
+  } catch {
+    /* never break the CLAUDE.md update */
+  }
+  return buildAutonomyDigest(name) + `\n\nTeljes szoveg (olvasd el, ha kell): ~/.claude/rule-details/${key}.md`
+}
+
 // The mandatory ask-back rule. Boss, 2026-08-24: "ha ketertelmu akkor
 // kotelezoen vissza kell kerdeznie! mindenhova tedd be."
 //
@@ -1519,7 +1576,7 @@ export function ensureAskBackSection(name: string): AskBackOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${ASKBACK_BEGIN}\n${buildAskBackBody()}\n${ASKBACK_END}`
+  const block = `${ASKBACK_BEGIN}\n${agentRuleBody('ask-back', buildAskBackBody())}\n${ASKBACK_END}`
 
   let existing: string
   try {
@@ -1553,7 +1610,7 @@ export function ensureAskBackSection(name: string): AskBackOutcome {
 export function ensureGlobalAskBackRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${ASKBACK_BEGIN}\n${buildAskBackBody()}\n${ASKBACK_END}`
+  const block = `${ASKBACK_BEGIN}\n${ruleBody('ask-back', buildAskBackBody())}\n${ASKBACK_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -1589,7 +1646,7 @@ export function ensureRecheckSection(name: string): AskBackOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${RECHECK_BEGIN}\n${buildRecheckBody()}\n${RECHECK_END}`
+  const block = `${RECHECK_BEGIN}\n${agentRuleBody('recheck', buildRecheckBody())}\n${RECHECK_END}`
 
   let existing: string
   try {
@@ -1615,7 +1672,7 @@ export function ensureWakeGreetingSection(name: string): AskBackOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${WAKE_GREETING_BEGIN}\n${buildWakeGreetingBody()}\n${WAKE_GREETING_END}`
+  const block = `${WAKE_GREETING_BEGIN}\n${agentRuleBody('wake-greeting', buildWakeGreetingBody())}\n${WAKE_GREETING_END}`
 
   let existing: string
   try {
@@ -1641,7 +1698,7 @@ export function ensureWakeGreetingSection(name: string): AskBackOutcome {
 export function ensureGlobalWakeGreetingRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${WAKE_GREETING_BEGIN}\n${buildWakeGreetingBody()}\n${WAKE_GREETING_END}`
+  const block = `${WAKE_GREETING_BEGIN}\n${ruleBody('wake-greeting', buildWakeGreetingBody())}\n${WAKE_GREETING_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -1673,7 +1730,7 @@ export function ensureGlobalWakeGreetingRule(): void {
 export function ensureGlobalRecheckRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${RECHECK_BEGIN}\n${buildRecheckBody()}\n${RECHECK_END}`
+  const block = `${RECHECK_BEGIN}\n${ruleBody('recheck', buildRecheckBody())}\n${RECHECK_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -1707,7 +1764,7 @@ export function ensureDelegateCheckSection(name: string): AskBackOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${DELEGATE_CHECK_BEGIN}\n${buildDelegateCheckBody()}\n${DELEGATE_CHECK_END}`
+  const block = `${DELEGATE_CHECK_BEGIN}\n${agentRuleBody('delegate-check', buildDelegateCheckBody())}\n${DELEGATE_CHECK_END}`
 
   let existing: string
   try {
@@ -1730,7 +1787,7 @@ export function ensureDelegateCheckSection(name: string): AskBackOutcome {
 export function ensureGlobalDelegateCheckRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${DELEGATE_CHECK_BEGIN}\n${buildDelegateCheckBody()}\n${DELEGATE_CHECK_END}`
+  const block = `${DELEGATE_CHECK_BEGIN}\n${ruleBody('delegate-check', buildDelegateCheckBody())}\n${DELEGATE_CHECK_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -1771,7 +1828,7 @@ export function ensureAutonomySection(name: string): void {
     : join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return
 
-  const body = buildAutonomyBody(name)
+  const body = autonomyBlockBody(name)
   const block = `${AUTONOMY_BEGIN}\n${body}\n${AUTONOMY_END}`
 
   let existing: string
@@ -1963,7 +2020,7 @@ Output ONLY the markdown content, no code fences.`
   // see or rewrite them. Single source of truth: same builders as the
   // ensure*Section() functions used on every subsequent respawn.
   const fleetBody = buildFleetRosterBody(name)
-  const autonomyBody = buildAutonomyBody(name)
+  const autonomyBody = autonomyBlockBody(name)
   cleaned = cleaned.trimEnd()
     + '\n\n' + FLEET_ROSTER_BEGIN + '\n' + fleetBody + '\n' + FLEET_ROSTER_END
     + '\n\n' + AUTONOMY_BEGIN + '\n' + autonomyBody + '\n' + AUTONOMY_END + '\n'
@@ -2180,7 +2237,7 @@ export function ensureNoStrayFilesSection(name: string): NoStrayOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${NO_STRAY_BEGIN}\n${buildNoStrayBody()}\n${NO_STRAY_END}`
+  const block = `${NO_STRAY_BEGIN}\n${agentRuleBody('no-stray-files', buildNoStrayBody())}\n${NO_STRAY_END}`
 
   let existing: string
   try {
@@ -2203,7 +2260,7 @@ export function ensureNoStrayFilesSection(name: string): NoStrayOutcome {
 export function ensureGlobalNoStrayFilesRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${NO_STRAY_BEGIN}\n${buildNoStrayBody()}\n${NO_STRAY_END}`
+  const block = `${NO_STRAY_BEGIN}\n${ruleBody('no-stray-files', buildNoStrayBody())}\n${NO_STRAY_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -2295,7 +2352,7 @@ export function ensureLandingSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${LANDING_BEGIN}\n${buildLandingBody()}\n${LANDING_END}`
+  const block = `${LANDING_BEGIN}\n${agentRuleBody('landing', buildLandingBody())}\n${LANDING_END}`
 
   let existing: string
   try {
@@ -2319,7 +2376,7 @@ export function ensureLandingSection(name: string): LandingOutcome {
 export function ensureGlobalLandingRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${LANDING_BEGIN}\n${buildLandingBody()}\n${LANDING_END}`
+  const block = `${LANDING_BEGIN}\n${ruleBody('landing', buildLandingBody())}\n${LANDING_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -2405,7 +2462,7 @@ export function ensureOneCardOneFixSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${ONECARD_BEGIN}\n${buildOneCardOneFixBody()}\n${ONECARD_END}`
+  const block = `${ONECARD_BEGIN}\n${agentRuleBody('one-card-one-fix', buildOneCardOneFixBody())}\n${ONECARD_END}`
 
   let existing: string
   try {
@@ -2429,7 +2486,7 @@ export function ensureOneCardOneFixSection(name: string): LandingOutcome {
 export function ensureGlobalOneCardOneFixRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${ONECARD_BEGIN}\n${buildOneCardOneFixBody()}\n${ONECARD_END}`
+  const block = `${ONECARD_BEGIN}\n${ruleBody('one-card-one-fix', buildOneCardOneFixBody())}\n${ONECARD_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -2490,7 +2547,7 @@ export function ensureAgentIdentitySection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${AGENT_IDENTITY_BEGIN}\n${buildAgentIdentityBody()}\n${AGENT_IDENTITY_END}`
+  const block = `${AGENT_IDENTITY_BEGIN}\n${agentRuleBody('agent-identity', buildAgentIdentityBody())}\n${AGENT_IDENTITY_END}`
 
   let existing: string
   try {
@@ -2514,7 +2571,7 @@ export function ensureAgentIdentitySection(name: string): LandingOutcome {
 export function ensureGlobalAgentIdentityRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${AGENT_IDENTITY_BEGIN}\n${buildAgentIdentityBody()}\n${AGENT_IDENTITY_END}`
+  const block = `${AGENT_IDENTITY_BEGIN}\n${ruleBody('agent-identity', buildAgentIdentityBody())}\n${AGENT_IDENTITY_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -2590,7 +2647,7 @@ export function ensureNoLiveTreeSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${NO_LIVE_TREE_BEGIN}\n${buildNoLiveTreeBody()}\n${NO_LIVE_TREE_END}`
+  const block = `${NO_LIVE_TREE_BEGIN}\n${agentRuleBody('no-live-tree', buildNoLiveTreeBody())}\n${NO_LIVE_TREE_END}`
 
   let existing: string
   try {
@@ -2614,7 +2671,7 @@ export function ensureNoLiveTreeSection(name: string): LandingOutcome {
 export function ensureGlobalNoLiveTreeRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${NO_LIVE_TREE_BEGIN}\n${buildNoLiveTreeBody()}\n${NO_LIVE_TREE_END}`
+  const block = `${NO_LIVE_TREE_BEGIN}\n${ruleBody('no-live-tree', buildNoLiveTreeBody())}\n${NO_LIVE_TREE_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -2668,7 +2725,7 @@ export function ensureCompletionReportSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${COMPLETION_REPORT_BEGIN}\n${buildCompletionReportBody()}\n${COMPLETION_REPORT_END}`
+  const block = `${COMPLETION_REPORT_BEGIN}\n${agentRuleBody('completion-report', buildCompletionReportBody())}\n${COMPLETION_REPORT_END}`
 
   let existing: string
   try {
@@ -2691,7 +2748,7 @@ export function ensureCompletionReportSection(name: string): LandingOutcome {
 export function ensureGlobalCompletionReportRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${COMPLETION_REPORT_BEGIN}\n${buildCompletionReportBody()}\n${COMPLETION_REPORT_END}`
+  const block = `${COMPLETION_REPORT_BEGIN}\n${ruleBody('completion-report', buildCompletionReportBody())}\n${COMPLETION_REPORT_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -2753,7 +2810,7 @@ export function ensureKanbanWaitingMoveSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${KANBAN_WAITING_MOVE_BEGIN}\n${buildKanbanWaitingMoveBody()}\n${KANBAN_WAITING_MOVE_END}`
+  const block = `${KANBAN_WAITING_MOVE_BEGIN}\n${agentRuleBody('kanban-waiting-move', buildKanbanWaitingMoveBody())}\n${KANBAN_WAITING_MOVE_END}`
 
   let existing: string
   try {
@@ -2776,7 +2833,7 @@ export function ensureKanbanWaitingMoveSection(name: string): LandingOutcome {
 export function ensureGlobalKanbanWaitingMoveRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${KANBAN_WAITING_MOVE_BEGIN}\n${buildKanbanWaitingMoveBody()}\n${KANBAN_WAITING_MOVE_END}`
+  const block = `${KANBAN_WAITING_MOVE_BEGIN}\n${ruleBody('kanban-waiting-move', buildKanbanWaitingMoveBody())}\n${KANBAN_WAITING_MOVE_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -2825,7 +2882,7 @@ export function ensureCardReferenceSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${CARD_REFERENCE_BEGIN}\n${buildCardReferenceBody()}\n${CARD_REFERENCE_END}`
+  const block = `${CARD_REFERENCE_BEGIN}\n${agentRuleBody('card-reference', buildCardReferenceBody())}\n${CARD_REFERENCE_END}`
 
   let existing: string
   try {
@@ -2848,7 +2905,7 @@ export function ensureCardReferenceSection(name: string): LandingOutcome {
 export function ensureGlobalCardReferenceRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${CARD_REFERENCE_BEGIN}\n${buildCardReferenceBody()}\n${CARD_REFERENCE_END}`
+  const block = `${CARD_REFERENCE_BEGIN}\n${ruleBody('card-reference', buildCardReferenceBody())}\n${CARD_REFERENCE_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3004,7 +3061,7 @@ export function ensureAvailabilitySection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${AVAILABILITY_BEGIN}\n${buildAvailabilityBody()}\n${AVAILABILITY_END}`
+  const block = `${AVAILABILITY_BEGIN}\n${agentRuleBody('availability', buildAvailabilityBody())}\n${AVAILABILITY_END}`
 
   let existing: string
   try {
@@ -3027,7 +3084,7 @@ export function ensureAvailabilitySection(name: string): LandingOutcome {
 export function ensureGlobalAvailabilityRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${AVAILABILITY_BEGIN}\n${buildAvailabilityBody()}\n${AVAILABILITY_END}`
+  const block = `${AVAILABILITY_BEGIN}\n${ruleBody('availability', buildAvailabilityBody())}\n${AVAILABILITY_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3086,7 +3143,7 @@ export function ensureShortReplySection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${SHORT_REPLY_BEGIN}\n${buildShortReplyBody()}\n${SHORT_REPLY_END}`
+  const block = `${SHORT_REPLY_BEGIN}\n${agentRuleBody('short-reply', buildShortReplyBody())}\n${SHORT_REPLY_END}`
 
   let existing: string
   try {
@@ -3109,7 +3166,7 @@ export function ensureShortReplySection(name: string): LandingOutcome {
 export function ensureGlobalShortReplyRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${SHORT_REPLY_BEGIN}\n${buildShortReplyBody()}\n${SHORT_REPLY_END}`
+  const block = `${SHORT_REPLY_BEGIN}\n${ruleBody('short-reply', buildShortReplyBody())}\n${SHORT_REPLY_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3173,7 +3230,7 @@ export function ensureBrowserClickthroughSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${BROWSER_CLICK_BEGIN}\n${buildBrowserClickthroughBody()}\n${BROWSER_CLICK_END}`
+  const block = `${BROWSER_CLICK_BEGIN}\n${agentRuleBody('browser-clickthrough', buildBrowserClickthroughBody())}\n${BROWSER_CLICK_END}`
 
   let existing: string
   try {
@@ -3196,7 +3253,7 @@ export function ensureBrowserClickthroughSection(name: string): LandingOutcome {
 export function ensureGlobalBrowserClickthroughRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${BROWSER_CLICK_BEGIN}\n${buildBrowserClickthroughBody()}\n${BROWSER_CLICK_END}`
+  const block = `${BROWSER_CLICK_BEGIN}\n${ruleBody('browser-clickthrough', buildBrowserClickthroughBody())}\n${BROWSER_CLICK_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3255,7 +3312,7 @@ export function ensureFollowReferenceSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${REF_FOLLOW_BEGIN}\n${buildFollowReferenceBody()}\n${REF_FOLLOW_END}`
+  const block = `${REF_FOLLOW_BEGIN}\n${agentRuleBody('follow-reference', buildFollowReferenceBody())}\n${REF_FOLLOW_END}`
 
   let existing: string
   try {
@@ -3278,7 +3335,7 @@ export function ensureFollowReferenceSection(name: string): LandingOutcome {
 export function ensureGlobalFollowReferenceRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${REF_FOLLOW_BEGIN}\n${buildFollowReferenceBody()}\n${REF_FOLLOW_END}`
+  const block = `${REF_FOLLOW_BEGIN}\n${ruleBody('follow-reference', buildFollowReferenceBody())}\n${REF_FOLLOW_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3335,7 +3392,7 @@ export function ensureNoHiddenLimitsSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${NOLIMIT_BEGIN}\n${buildNoHiddenLimitsBody()}\n${NOLIMIT_END}`
+  const block = `${NOLIMIT_BEGIN}\n${agentRuleBody('no-hidden-limits', buildNoHiddenLimitsBody())}\n${NOLIMIT_END}`
 
   let existing: string
   try {
@@ -3358,7 +3415,7 @@ export function ensureNoHiddenLimitsSection(name: string): LandingOutcome {
 export function ensureGlobalNoHiddenLimitsRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${NOLIMIT_BEGIN}\n${buildNoHiddenLimitsBody()}\n${NOLIMIT_END}`
+  const block = `${NOLIMIT_BEGIN}\n${ruleBody('no-hidden-limits', buildNoHiddenLimitsBody())}\n${NOLIMIT_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3406,7 +3463,7 @@ export function buildWebResearchSaveBody(): string {
   ].join('\n')
 }
 
-function webResearchBlock(): string { return `${WEBRES_BEGIN}\n${buildWebResearchSaveBody()}\n${WEBRES_END}` }
+function webResearchBlock(): string { return `${WEBRES_BEGIN}\n${ruleBody('web-research-save', buildWebResearchSaveBody())}\n${WEBRES_END}` }
 
 /** Bevisz egy agens sajat CLAUDE.md-jebe: a webes talalat a Kutatasba kerul. */
 export function ensureWebResearchSaveSection(name: string): LandingOutcome {
@@ -3467,7 +3524,7 @@ export function ensureTestSandboxSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${SANDBOX_BEGIN}\n${buildTestSandboxBody()}\n${SANDBOX_END}`
+  const block = `${SANDBOX_BEGIN}\n${agentRuleBody('test-sandbox', buildTestSandboxBody())}\n${SANDBOX_END}`
 
   let existing: string
   try {
@@ -3490,7 +3547,7 @@ export function ensureTestSandboxSection(name: string): LandingOutcome {
 export function ensureGlobalTestSandboxRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${SANDBOX_BEGIN}\n${buildTestSandboxBody()}\n${SANDBOX_END}`
+  const block = `${SANDBOX_BEGIN}\n${ruleBody('test-sandbox', buildTestSandboxBody())}\n${SANDBOX_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3542,7 +3599,7 @@ export function ensureRootCauseFixSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${ROOTFIX_BEGIN}\n${buildRootCauseFixBody()}\n${ROOTFIX_END}`
+  const block = `${ROOTFIX_BEGIN}\n${agentRuleBody('root-cause-fix', buildRootCauseFixBody())}\n${ROOTFIX_END}`
 
   let existing: string
   try {
@@ -3565,7 +3622,7 @@ export function ensureRootCauseFixSection(name: string): LandingOutcome {
 export function ensureGlobalRootCauseFixRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${ROOTFIX_BEGIN}\n${buildRootCauseFixBody()}\n${ROOTFIX_END}`
+  const block = `${ROOTFIX_BEGIN}\n${ruleBody('root-cause-fix', buildRootCauseFixBody())}\n${ROOTFIX_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3620,7 +3677,7 @@ export function ensureRegressionTestSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${REGTEST_BEGIN}\n${buildRegressionTestBody()}\n${REGTEST_END}`
+  const block = `${REGTEST_BEGIN}\n${agentRuleBody('regression-test', buildRegressionTestBody())}\n${REGTEST_END}`
 
   let existing: string
   try {
@@ -3643,7 +3700,7 @@ export function ensureRegressionTestSection(name: string): LandingOutcome {
 export function ensureGlobalRegressionTestRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${REGTEST_BEGIN}\n${buildRegressionTestBody()}\n${REGTEST_END}`
+  const block = `${REGTEST_BEGIN}\n${ruleBody('regression-test', buildRegressionTestBody())}\n${REGTEST_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3695,7 +3752,7 @@ export function ensureWorkItemFolderFilesSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${ITEMFILES_BEGIN}\n${buildWorkItemFolderFilesBody()}\n${ITEMFILES_END}`
+  const block = `${ITEMFILES_BEGIN}\n${agentRuleBody('workitem-folder-files', buildWorkItemFolderFilesBody())}\n${ITEMFILES_END}`
 
   let existing: string
   try {
@@ -3718,7 +3775,7 @@ export function ensureWorkItemFolderFilesSection(name: string): LandingOutcome {
 export function ensureGlobalWorkItemFolderFilesRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${ITEMFILES_BEGIN}\n${buildWorkItemFolderFilesBody()}\n${ITEMFILES_END}`
+  const block = `${ITEMFILES_BEGIN}\n${ruleBody('workitem-folder-files', buildWorkItemFolderFilesBody())}\n${ITEMFILES_END}`
 
   let existing = ''
   if (existsSync(path)) {
@@ -3774,7 +3831,7 @@ export function ensureLetterHeadSection(name: string): LandingOutcome {
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
   if (!existsSync(claudeMdPath)) return 'no-file'
 
-  const block = `${LETTERHEAD_BEGIN}\n${buildLetterHeadBody()}\n${LETTERHEAD_END}`
+  const block = `${LETTERHEAD_BEGIN}\n${agentRuleBody('letter-head', buildLetterHeadBody())}\n${LETTERHEAD_END}`
 
   let existing: string
   try {
@@ -3796,7 +3853,7 @@ export function ensureLetterHeadSection(name: string): LandingOutcome {
 export function ensureGlobalLetterHeadRule(): void {
   const dir = join(homedir(), '.claude')
   const path = join(dir, 'CLAUDE.md')
-  const block = `${LETTERHEAD_BEGIN}\n${buildLetterHeadBody()}\n${LETTERHEAD_END}`
+  const block = `${LETTERHEAD_BEGIN}\n${ruleBody('letter-head', buildLetterHeadBody())}\n${LETTERHEAD_END}`
 
   let existing = ''
   if (existsSync(path)) {

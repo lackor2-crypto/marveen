@@ -22,6 +22,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { withDetails } from './helpers/rule-details.js'
 import { MAIN_AGENT_ID } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
 import { ensureLandingSection, ensureGlobalLandingRule } from '../web/agent-scaffold.js'
@@ -45,7 +46,7 @@ describe('ensureLandingSection', () => {
   it('beirja a landolasi szabalyt egy meglevo agens CLAUDE.md-jebe', () => {
     const path = seed('# zz-landing-rule-probe\n\nSajat tartalom.\n')
     expect(ensureLandingSection(THROWAWAY)).toBe('written')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     // A negy dolog, ami nelkul az agens rossz utat valaszt:
     expect(out).toContain('scripts/land-pr.sh')          // MIVEL landol
     expect(out).toContain('DIREKT PUSH TILOS')           // amit NEM szabad
@@ -59,7 +60,7 @@ describe('ensureLandingSection', () => {
     ensureLandingSection(THROWAWAY)
     const firstWrite = statSync(path).mtimeMs
     expect(ensureLandingSection(THROWAWAY)).toBe('current')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out.split('BEGIN GENERATED: landing-rule').length - 1).toBe(1)
     expect(statSync(path).mtimeMs).toBe(firstWrite)
   })
@@ -72,7 +73,7 @@ describe('ensureLandingSection', () => {
       + '<!-- END GENERATED: landing-rule -->\n\nUTANA.\n',
     )
     expect(ensureLandingSection(THROWAWAY)).toBe('written')
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).not.toContain('regi szoveg')
     expect(out).toContain('scripts/land-pr.sh')
     expect(out).toContain('ELOTTE.')
@@ -91,7 +92,7 @@ describe('ensureLandingSection', () => {
       + '<!-- END GENERATED: recheck-rule -->\n',
     )
     ensureLandingSection(THROWAWAY)
-    const out = readFileSync(path, 'utf-8')
+    const out = withDetails(readFileSync(path, 'utf-8'))
     expect(out).toContain('IDEGEN SZABALY TARTALMA')
     expect(out).toContain('BEGIN GENERATED: recheck-rule')
     expect(out).not.toContain('regi landolas')
@@ -105,7 +106,7 @@ describe('ensureLandingSection', () => {
   it('a szoveg gepfuggetlen: nincs benne agens-nev, tulajdonos-nev, /home ut', () => {
     const path = seed('# zz-landing-rule-probe\n')
     ensureLandingSection(THROWAWAY)
-    const block = readFileSync(path, 'utf-8')
+    const block = withDetails(readFileSync(path, 'utf-8'))
     expect(block).not.toContain('/home/')
     expect(block).not.toContain('lackor')
     expect(block).not.toContain('Marvin')
@@ -125,12 +126,12 @@ describe('ensureGlobalLandingRule', () => {
       mkdirSync(join(home, '.claude'), { recursive: true })
       writeFileSync(path, '# Gepszintu\n\nMar itt levo sor.\n')
       ensureGlobalLandingRule()
-      const out = readFileSync(path, 'utf-8')
+      const out = withDetails(readFileSync(path, 'utf-8'))
       expect(out).toContain('Mar itt levo sor.')
       expect(out).toContain('scripts/land-pr.sh')
       // Masodszorra nem duplikal.
       ensureGlobalLandingRule()
-      expect(readFileSync(path, 'utf-8').split('BEGIN GENERATED: landing-rule').length - 1).toBe(1)
+      expect(withDetails(readFileSync(path, 'utf-8')).split('BEGIN GENERATED: landing-rule').length - 1).toBe(1)
     } finally {
       if (original === undefined) delete process.env['HOME']
       else process.env['HOME'] = original
@@ -144,7 +145,7 @@ describe('ensureGlobalLandingRule', () => {
     process.env['HOME'] = home
     try {
       ensureGlobalLandingRule()
-      expect(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')).toContain('scripts/land-pr.sh')
+      expect(withDetails(readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8'))).toContain('scripts/land-pr.sh')
     } finally {
       if (original === undefined) delete process.env['HOME']
       else process.env['HOME'] = original
