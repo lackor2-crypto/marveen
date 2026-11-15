@@ -8,7 +8,8 @@ describe('workbench list group tint', () => {
   const css = readFileSync(join(process.cwd(), 'web/workbench.css'), 'utf-8')
   it('folders, items and files inherit the group index', () => {
     expect(js).toContain('walk(f, depth + 1, g)')
-    expect(js).toContain('itemRowHtml(it, depth, grp)')
+    expect(js).toContain('itemRowHtml(it, depth, grp')  // #809: the row function also takes an isLink flag
+    expect(js).toContain('itemRowHtml(m.it, depth, grp)')
     expect(js).toContain('plainFileRowHtml(f, depth, grp)')
     expect(js).toContain('--wb-grp')
   })
