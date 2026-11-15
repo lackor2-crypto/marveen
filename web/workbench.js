@@ -22444,7 +22444,7 @@
     if (WB.frMenu && a !== 'fr-menu') WB.frMenu = null
     if (a === 'fr-menu') { var m = act.getAttribute('data-wb-m'); WB.frMenu = WB.frMenu === m ? null : m; render() }
     else if (a.indexOf('db-') === 0) dbAct(a, act)
-    else if (a === 'fr-tab') { var tb = act.getAttribute('data-wb-tab'); WB.frTab = WB.frTab === tb ? null : tb; WB.shTechWide = true; writePref('wb.fr.tab', WB.frTab || ''); render(); if (WB.frTab === 'brand' && !WB.brandOpen) { WB.brandOpen = true; render(); loadBrand() } if (WB.frTab === 'templates' && WB.templates === null) loadTemplates() }
+    else if (a === 'fr-tab') { var tb = act.getAttribute('data-wb-tab'); var closing = WB.frTab === tb || (!WB.frTab && !!WB.shMore && tb === 'projects' && !frPanelCollapsed()); WB.frTab = closing ? null : tb; WB.shTechWide = !(closing && WB.shMore); /* #906: closing the tab while the technical details are open folds the column away again */ writePref('wb.fr.tab', WB.frTab || ''); render(); if (WB.frTab === 'brand' && !WB.brandOpen) { WB.brandOpen = true; render(); loadBrand() } if (WB.frTab === 'templates' && WB.templates === null) loadTemplates() }
     else if (a === 'fr-live') { WB.frLive = !WB.frLive; render() }
     else if (a === 'fr-chat') { WB.frChat = !WB.frChat; writePref('wb.fr.chat', WB.frChat ? '1' : '0'); render() }
     else if (a === 'fr-add-text') frAddText(act.getAttribute('data-wb-arg'))
