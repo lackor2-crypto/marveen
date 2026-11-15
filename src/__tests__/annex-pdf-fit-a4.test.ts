@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fitPdfToA4, pageFitsA4, parsePdfPageSizes } from '../workbench-docpackage.js'
+import { annexContentPdf, fitPdfToA4, pageFitsA4, parsePdfPageSizes } from '../workbench-docpackage.js'
+import { resetLibreOfficeProbe } from '../office-convert.js'
 
 function hasPoppler(): boolean {
   try { execFileSync('pdfinfo', ['-v'], { stdio: 'ignore' }); execFileSync('pdftocairo', ['-v'], { stdio: 'ignore' }); return true } catch { return false }
@@ -66,5 +67,44 @@ describe('#882 PDF annex pages are fitted to A4', () => {
     const r = await fitPdfToA4(odd)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.pdf.equals(odd)).toBe(true)
+  })
+
+  // #882 (second part): an office annex whose own page setup is A3 comes out of LibreOffice as an A3 PDF -- it went into the
+  // package unchanged, so an A4 printer cut it off just like the A3 PDF annex. Every kind of annex goes through the same gate.
+  describe('an office annex with A3 pages', () => {
+    const saved: Record<string, string | undefined> = {}
+    let dir = ''
+    afterEach(() => {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+      resetLibreOfficeProbe()
+      if (dir) rmSync(dir, { recursive: true, force: true })
+      dir = ''
+    })
+    it.skipIf(!hasPoppler())('is scaled onto A4 by annexContentPdf', async () => {
+      dir = mkdtempSync(join(tmpdir(), 'fit-office-'))
+      for (const k of ['MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE']) saved[k] = process.env[k]
+      const a3 = join(dir, 'a3.pdf')
+      writeFileSync(a3, makePdf([[842, 1191], [842, 1191]]))
+      // fake LibreOffice: "converts" anything into the prepared A3 PDF
+      const fake = join(dir, 'soffice.sh')
+      writeFileSync(fake, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "LibreOffice 7.4.7.2 test"; exit 0; fi
+out=""; prev=""
+for a in "$@"; do if [ "$prev" = "--outdir" ]; then out="$a"; fi; prev="$a"; done
+cp "${a3}" "$out/doc.pdf"
+`)
+      chmodSync(fake, 0o755)
+      process.env['MARVEEN_SOFFICE'] = fake
+      process.env['MARVEEN_RENDER_CACHE'] = join(dir, 'cache')
+      resetLibreOfficeProbe()
+      const src = join(dir, 'tabla.docx'); writeFileSync(src, 'x')
+      const r = await annexContentPdf(src, 'tabla.docx')
+      expect(r.ok).toBe(true)
+      if (!r.ok) return
+      const f = join(dir, 'o.pdf'); writeFileSync(f, r.pdf)
+      const sizes = parsePdfPageSizes(execFileSync('pdfinfo', ['-f', '1', '-l', '9', f]).toString())
+      expect(sizes.length).toBe(2)
+      for (const z of sizes) expect(pageFitsA4(z.w, z.h)).toBe(true)
+    })
   })
 })

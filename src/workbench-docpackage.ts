@@ -111,20 +111,27 @@ export async function annexContentPdf(abs: string, name: string): Promise<{ ok: 
   const kind = annexPdfKind(name)
   if (!kind) return { ok: false, code: 'annex_unsupported', detail: name }
   try {
-    if (kind === 'pdf') {
-      const fit = await fitPdfToA4(readFileSync(abs))
-      return fit.ok ? { ok: true, pdf: fit.pdf } : { ok: false, code: 'annex_convert_failed', detail: fit.detail }
-    }
-    if (kind === 'text') {
-      const r = await renderFodtPdf(buildTextFodt(readFileSync(abs, 'utf-8'), name), PDF_FILTER_DRAFT)
-      return r.ok ? { ok: true, pdf: r.pdf } : { ok: false, code: 'annex_convert_failed', detail: r.detail, convert: r.code }
-    }
-    const r = await convertOfficeToPdf(abs, { anyFile: kind === 'image' })
-    if (!r.ok) return { ok: false, code: 'annex_convert_failed', detail: r.detail, convert: r.code }
-    return { ok: true, pdf: readFileSync(r.pdf) }
+    const made = await annexRawPdf(abs, name, kind)
+    if (!made.ok) return made
+    // #882: ONE gate for every kind of annex -- a PDF file, an office document with an A3 page setup, anything -- so no page
+    // larger than A4 reaches a package, a mail or a print.
+    const fit = await fitPdfToA4(made.pdf)
+    return fit.ok ? { ok: true, pdf: fit.pdf } : { ok: false, code: 'annex_convert_failed', detail: fit.detail }
   } catch (e) {
     return { ok: false, code: 'annex_convert_failed', detail: e instanceof Error ? e.message : String(e) }
   }
+}
+
+/** The annex as a PDF, with whatever page size its own file gave it. */
+async function annexRawPdf(abs: string, name: string, kind: 'pdf' | 'office' | 'image' | 'text'): Promise<{ ok: true; pdf: Buffer } | { ok: false; code: 'annex_convert_failed'; detail: string | null; convert?: string }> {
+  if (kind === 'pdf') return { ok: true, pdf: readFileSync(abs) }
+  if (kind === 'text') {
+    const r = await renderFodtPdf(buildTextFodt(readFileSync(abs, 'utf-8'), name), PDF_FILTER_DRAFT)
+    return r.ok ? { ok: true, pdf: r.pdf } : { ok: false, code: 'annex_convert_failed', detail: r.detail, convert: r.code }
+  }
+  const r = await convertOfficeToPdf(abs, { anyFile: kind === 'image' })
+  if (!r.ok) return { ok: false, code: 'annex_convert_failed', detail: r.detail, convert: r.code }
+  return { ok: true, pdf: readFileSync(r.pdf) }
 }
 
 /** PDF-ek egymas utan egy PDF-be (Poppler pdfunite). Egyetlen bemenet valtozatlanul jon vissza. */
