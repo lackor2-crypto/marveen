@@ -36,6 +36,7 @@ const IDENTITY_NAMES = new Set([lifeName('identity', 'hu'), lifeName('identity',
 
 let cached: { at: number; root: string; value: SignatureList } | null = null
 let running: { root: string; promise: Promise<SignatureList> } | null = null
+let generation = 0 // bumped by every "forget": a walk that began in an older generation must not write its answer back
 
 /**
  * The remembered paths (owner TG 6300: "once found, remember the path; next time hand the two signatures over at once,
@@ -68,11 +69,13 @@ function writeMemory(root: string, entries: SignatureFile[]): void {
 /** For tests and for the picker's "search again". Also forgets the remembered paths. */
 export function forgetSignatures(): void {
   cached = null
+  running = null
+  generation++
   try { if (existsSync(memoryPath())) rmSync(memoryPath(), { force: true }) } catch { /* nothing to forget */ }
 }
 
 /** Test hook: drops only the in-memory answer (what a restart does); the remembered paths on disk stay. */
-export function forgetInMemoryOnly(): void { cached = null; running = null }
+export function forgetInMemoryOnly(): void { cached = null; running = null; generation++ }
 
 /** Which of the remembered files are still where they were. One stat per entry: no tree walk. */
 async function stillThere(root: string, entries: SignatureFile[]): Promise<{ alive: SignatureFile[]; lost: SignatureFile[] }> {
@@ -170,6 +173,7 @@ export async function listSignatures(lang?: string, opts?: { fresh?: boolean; bu
   const maxFolders = opts?.maxFolders ?? MAX_FOLDERS
   const remembered = opts?.fresh ? [] : readMemory(root)
   const startWalk = (): Promise<SignatureList> => {
+    const startedIn = generation
     const promise = walk(root, lang, budgetMs, maxFolders)
       .then(async (value) => {
         // A complete walk replaces the memory; one cut short only ADDS to it (what it did not reach is not "gone").
@@ -177,6 +181,8 @@ export async function listSignatures(lang?: string, opts?: { fresh?: boolean; bu
         const { alive, lost } = await stillThere(root, old)
         const inTrash = await findInTrash(root, lost.filter((e) => !value.signatures.some((s) => s.name.toLowerCase() === e.name.toLowerCase())), lang)
         const kept = value.truncated ? mergeByRel(alive, value.signatures, inTrash) : mergeByRel(value.signatures, inTrash)
+        // Forgotten while it ran ("search again", a restart): its answer is stale, it must not overwrite what came since.
+        if (startedIn !== generation) return { signatures: kept, truncated: value.truncated }
         writeMemory(root, kept)
         // What is reused for the next ten minutes is what is remembered (a trashed signature included), not the bare walk.
         const merged: SignatureList = { signatures: kept, truncated: value.truncated }

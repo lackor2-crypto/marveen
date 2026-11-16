@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -27,7 +27,7 @@ vi.mock('node:fs/promises', async () => {
 })
 
 const { explorerRoot } = await import('../life-explorer.js')
-const { listSignatures, forgetSignatures } = await import('../workbench-signatures.js')
+const { listSignatures, forgetSignatures, forgetInMemoryOnly } = await import('../workbench-signatures.js')
 
 const root = explorerRoot() as string
 if (!root || !root.startsWith(depot)) throw new Error('not on the temp depot')
@@ -226,5 +226,29 @@ describe('#sigmem remembered signature paths', () => {
   it('the remembered paths are kept in store/signature-memory.json', async () => {
     await remember()
     expect(JSON.parse(readFileSync(join(store, 'signature-memory.json'), 'utf8')).entries[0].name).toBe('alairas laszlo.png')
+  })
+})
+
+// A walk that is still running when the picker forgets everything ("search again", a test's reset) must not write its
+// stale answer back afterwards: it would hide a signature that appeared since (and made #sigmem tests flaky: the walk
+// left behind by one test overwrote the next test's answer).
+describe('a forgotten walk does not write back', () => {
+  it('a walk started before forgetSignatures() leaves neither the memory file nor the in-memory answer behind', async () => {
+    const stale = listSignatures('hu') // starts the walk; nothing found yet
+    forgetSignatures()
+    await stale
+    expect(existsSync(join(store, 'signature-memory.json'))).toBe(false)
+    writeFileSync(join(root, 'Emberek', 'Nagymama', 'alairas.png'), 'x')
+    const r = await listSignatures('hu')
+    expect(r.signatures.map((s) => s.name)).toEqual(['alairas.png'])
+  })
+
+  it('the same for forgetInMemoryOnly() (a restart)', async () => {
+    const stale = listSignatures('hu')
+    forgetInMemoryOnly()
+    await stale
+    writeFileSync(join(root, 'Emberek', 'Nagymama', 'alairas.png'), 'x')
+    const r = await listSignatures('hu')
+    expect(r.signatures.map((s) => s.name)).toEqual(['alairas.png'])
   })
 })
