@@ -343,6 +343,11 @@
 .wb-chat-label { font-size: 0.85rem; font-weight: 600; }
 .wb-chat-head { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .wb-chat-statusline { flex: 1 0 100%; line-height: 1.25; }
+.wb-chat-ctx { margin-left: auto; display: flex; align-items: center; gap: 4px 6px; flex-wrap: wrap; justify-content: flex-end; }
+.wb-chat-ctx-max { display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; color: var(--muted, #6b7280); }
+.wb-chat-ctx-input { width: 4.5rem; padding: 2px 6px; font-size: 0.85rem; }
+.wb-chat-ctx .wb-mini-btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+.wb-turn-divider { text-align: center; font-size: 0.8rem; color: var(--muted, #6b7280); border-top: 1px dashed var(--border, #d1d5db); margin: 10px 0; padding-top: 4px; }
 .wb-chat-state { font-size: 0.8rem; color: var(--muted, #6b7280); }
 .wb-chat-state-bad { color: var(--danger, #d33); }
 .wb-chat-state-warn { color: var(--warn, #b7791f); }
