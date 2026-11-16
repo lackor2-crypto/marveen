@@ -79,7 +79,7 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     const h = workbenchHarness({ storage: { [KEY]: 'simple' } })
     await openWith(h, [ITEM])
     h.click({ 'data-wb-act': 'sh-more' })
-    const html = h.html()
+    let html = h.html()
     expect(html).toContain('wbShTech')
     for (const a of ['search-open', 'wk-open', 'tl-open', 'dec-open', 'brand-open', 'td-open', 'ho-open', 'caps-open']) {
       expect(html).toContain('data-wb-act="' + a + '"')
@@ -87,7 +87,11 @@ describe('Munkapad kinézet-kapcsoló (#462)', () => {
     // #756: the tree is drawn once, above (not repeated in the technical details)
     expect(html.split('wb-panel-items').length - 1).toBe(1)
     expect(html.indexOf('wb-panel-items')).toBeLessThan(html.indexOf('wbShTech'))
-    expect(html).toContain('wb-panel-context')
+    // #920: the project block starts folded (the details fit without scrolling); its heading opens it
+    expect(html).not.toContain('wb-panel-context')
+    h.click({ 'data-wb-act': 'sh-tech-fold', 'data-wb-arg': 'project' })
+    expect(h.html()).toContain('wb-panel-context')
+    html = h.html()
     // Tools and search sit at the top of the technical details, above the project part (Boss, TG 2397).
     expect(html.indexOf('data-wb-act="search-open"')).toBeLessThan(html.indexOf('wb-panel-context'))
     h.click({ 'data-wb-act': 'sh-more' })

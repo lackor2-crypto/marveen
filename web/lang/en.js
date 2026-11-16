@@ -8981,6 +8981,8 @@ window._i18n.en = {
   "workbench.sh.tech": "Technical details",
   "workbench.sh.tech_item": "This work item",
   "workbench.sh.tech_project": "The project",
+  "workbench.sh.tech_fold": "Fold this block",
+  "workbench.sh.tech_unfold": "Unfold this block",
   "workbench.sh.tech_tools": "Tools and search",
   "workbench.sh.recent": "Your recent work items",
   "workbench.sh.recent_none": "No work items yet. Describe above what you want to create.",

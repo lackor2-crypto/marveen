@@ -25,3 +25,58 @@ describe('technical details: compact layout and closing the column', () => {
     expect(css).toMatch(/\.wb-fr-center-tech \.wb-sh-tech-actions \.btn-secondary \{[^}]*font-size: 12px/)
   })
 })
+
+// #920 (the card was sent back: the details STILL needed scrolling, 1133 px in a 520 px column): the blocks of the details fold by
+// their heading, the tools and "this work item" start open and the whole project block starts folded; the choice is remembered.
+import { vi } from 'vitest'
+import { workbenchHarness, itemsBody, PROJECT } from './helpers/workbench-harness.js'
+
+const ITEM = { id: 'w1', title: 'Ajánlat', type: 'note', status: 'draft', current_version_id: 'v1' }
+const VIEW = 'marveen.workbench.view'
+
+async function openDetails(storage: Record<string, string> = {}) {
+  const h = workbenchHarness({ storage: { [VIEW]: 'simple', ...storage } })
+  h.respond((url) => {
+    if (url.includes('/preview')) return { status: 200, body: { available: false, reason: 'no_source', message: 'x' } }
+    if (url.includes('/api/workbench/items/w1')) return { status: 200, body: { item: ITEM, versions: [{ id: 'v1', version_no: 1, created_at: 1 }], parts: [], project: PROJECT } }
+    return { status: 200, body: itemsBody([ITEM]) }
+  })
+  h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+  await vi.waitFor(() => expect(h.html()).toMatch(/wb-root-simple|wb-items/))
+  h.click({ 'data-wb-item': 'w1' })
+  await vi.waitFor(() => expect(h.html()).toContain('wb-fr-center'))
+  h.click({ 'data-wb-act': 'sh-more' })
+  return h
+}
+
+describe('#920: the technical details fold by block', () => {
+  it('opens with the tools and the work item block open and the project block folded', async () => {
+    const h = await openDetails()
+    const html = h.html()
+    expect(html).toContain('data-wb-act="search-open"')
+    expect(html).toContain('data-wb-act="sh-tech-fold" data-wb-arg="project" aria-expanded="false"')
+    expect(html).toContain('data-wb-act="sh-tech-fold" data-wb-arg="tools" aria-expanded="true"')
+    expect(html).not.toContain('wb-panel-context')
+  })
+  it('the heading of a folded block opens it, and pressing it again folds it; the choice is remembered', async () => {
+    const h = await openDetails()
+    h.click({ 'data-wb-act': 'sh-tech-fold', 'data-wb-arg': 'project' })
+    expect(h.html()).toContain('wb-panel-context')
+    expect(h.storage['wb.sh.tech.shut']).toBe('')
+    h.click({ 'data-wb-act': 'sh-tech-fold', 'data-wb-arg': 'tools' })
+    expect(h.html()).not.toContain('data-wb-act="search-open"')
+    expect(h.storage['wb.sh.tech.shut']).toBe('tools')
+    h.click({ 'data-wb-act': 'sh-tech-fold', 'data-wb-arg': 'tools' })
+    expect(h.html()).toContain('data-wb-act="search-open"')
+  })
+  it('a remembered choice is used when the page is opened again', async () => {
+    const h = await openDetails({ 'wb.sh.tech.shut': 'tools,item' })
+    expect(h.html()).not.toContain('data-wb-act="search-open"')
+    expect(h.html()).toContain('wb-panel-context')
+  })
+  it('the fold hint exists in both languages', () => {
+    const hu = readFileSync(join(__dirname, '..', '..', 'web', 'lang', 'hu.js'), 'utf8')
+    const en = readFileSync(join(__dirname, '..', '..', 'web', 'lang', 'en.js'), 'utf8')
+    for (const k of ['workbench.sh.tech_fold', 'workbench.sh.tech_unfold']) { expect(hu).toContain('"' + k + '"'); expect(en).toContain('"' + k + '"') }
+  })
+})

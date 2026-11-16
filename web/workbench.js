@@ -162,6 +162,7 @@
     // --- kinezet: manualis | egyszeru (#462) ---
     view: readView(),
     shMore: false,      // egyszeru nezet: a "Technikai reszletek" terulet nyitva
+    shTechShut: readPref('wb.sh.tech.shut', 'project').split(',').filter(Boolean), // #920: the folded blocks of the technical details (tools / item / project); the project block starts folded so the details fit without scrolling
     shDocTab: 'draft',  // egyszeru nezet, dokumentum: draft | preview | sources | gaps
     docDrafts: {},      // dokumentum-lap: mentetlen szoveg (kulcs: b:<id> | s:<id> | new:<sec>:<pos>)
     docDraftRich: {},   // ugyanezek formazott (b/i/u/s) valtozata, ha van formazas
@@ -18793,8 +18794,15 @@
         + (it.status === 'review' && WB.detail.approval && WB.detail.approval.status === 'pending' ? approvalBoxHtml() : '')
         + '</div>'
       : ''
+    // #920: every block folds by its heading (the owner decides what stands open; the choice is remembered), so the details can
+    // fit the middle column without scrolling. The tools stand open, the whole project block starts folded.
     var grp = function (key, body) {
-      return body ? '<section class="wb-sh-tech-grp"><h3 class="wb-sh-tech-h">' + esc(t(key)) + '</h3>' + body + '</section>' : ''
+      if (!body) return ''
+      var id = key.replace('workbench.sh.tech_', '')
+      var shut = WB.shTechShut.indexOf(id) >= 0
+      return '<section class="wb-sh-tech-grp' + (shut ? ' wb-sh-tech-grp-shut' : '') + '"><h3 class="wb-sh-tech-h">'
+        + '<button type="button" class="wb-sh-tech-fold" data-wb-act="sh-tech-fold" data-wb-arg="' + escA(id) + '" aria-expanded="' + !shut + '" title="' + escA(t(shut ? 'workbench.sh.tech_unfold' : 'workbench.sh.tech_fold')) + '">'
+        + '<span aria-hidden="true">' + (shut ? '&#9656;' : '&#9662;') + '</span> ' + esc(t(key)) + '</button></h3>' + (shut ? '' : body) + '</section>'
     }
     var tools = '<div class="wb-head wb-sh-tech-actions">'
       // #756: no "pd" (Documents): it stands in the frame's top bar and in the Simple head already
@@ -22761,6 +22769,7 @@
     else if (a === 'text-save') { e.preventDefault(); saveTextEdit() }
     else if (a === 'text-cancel') { WB.textEdit = null; render() }
     else if (a === 'view-set') setView(act.getAttribute('data-wb-view'))
+    else if (a === 'sh-tech-fold') { var gid = act.getAttribute('data-wb-arg') || ''; var gi = WB.shTechShut.indexOf(gid); if (gi >= 0) WB.shTechShut.splice(gi, 1); else WB.shTechShut.push(gid); writePref('wb.sh.tech.shut', WB.shTechShut.join(',')); render() }
     else if (a === 'sh-more') { WB.shMore = !WB.shMore; WB.shTechWide = false; render() }
     else if (a === 'sh-recent-view') { WB.recentMode = act.getAttribute('data-wb-mode') === 'list' ? 'list' : 'grid'; saveRecentMode(WB.recentMode); render() }
     else if (a === 'sh-new') { WB.selectedId = null; WB.detail = null; WB.formOpen = false; WB.shMore = false; render() }
