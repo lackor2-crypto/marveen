@@ -47,6 +47,7 @@ import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { recentStalls, recentStallSamples, startEventLoopWatch, trackRequest } from './web/event-loop-watch.js'
+import { slowFsReport, startSlowFsWatch } from './web/slow-fs-watch.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { startTelegramReplyMetaPatcher } from './telegram-reply-meta-patch.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
@@ -191,6 +192,8 @@ export function startWebServer(port = 3420): http.Server {
   ensureDirs()
 
   startEventLoopWatch()
+  // #929: which synchronous call on a Windows drive (/mnt/*, 9p) holds the main thread? Shown at GET /api/perf/slow-fs.
+  startSlowFsWatch()
   const DASHBOARD_TOKEN = loadOrCreateDashboardToken()
   // #415: while we run, the file must hold the token we enforce -- agents read it.
   startDashboardTokenGuard(DASHBOARD_TOKEN)
@@ -291,6 +294,8 @@ export function startWebServer(port = 3420): http.Server {
     if (path === '/api/perf/stalls' && method === 'GET') {
       return json(res, { stalls: recentStalls(), samples: recentStallSamples(), pressure: currentPressure(), busy: machineBusy(), limits: pressureLimits(), gate: gateStats() })
     }
+
+    if (path === '/api/perf/slow-fs' && method === 'GET') return json(res, slowFsReport())
 
     if (path === '/api/network-info' && method === 'GET') {
       const tailscaleUrl = await detectTailscaleServeUrl(port)

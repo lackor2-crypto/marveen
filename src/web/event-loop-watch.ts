@@ -38,6 +38,8 @@ export const SAMPLER_POLL_MS = 250
 export const SAMPLE_AFTER_MS = 500
 /** No answer from the main thread this long after asking: write what the operating system shows meanwhile. */
 export const BLIND_AFTER_MS = 10_000
+/** #929: after this long without a tick the watcher writes what the operating system shows (once per stall). */
+export const OS_SNAPSHOT_MS = 1500
 /** A stall that goes on is sampled again this often, at most SAMPLE_MAX times. */
 export const RESAMPLE_MS = 30_000
 export const SAMPLE_MAX = 6
@@ -49,6 +51,10 @@ export type StallSample = {
   at: number; stuckMs: number; pid: number; stack: StackFrame[]; inflight?: string[]
   /** Set while the thread is still inside one system call: no stack yet, only what the OS shows (Linux). */
   noStackYet?: boolean; state?: string; waitingFor?: string[]
+  /** #929: 'os' = what the operating system showed while the main thread stood still (no stack in it). */
+  kind?: 'os'; wchan?: string; cpuTicksDuring?: number | null; load?: string
+  psi?: Record<string, string[] | null>; vmDelta?: Record<string, number>; vmDeltaOverMs?: number
+  hot?: Array<{ pid: number; state: string; cmd: string }>
 }
 
 /**
@@ -59,7 +65,7 @@ export const STALL_SAMPLER_SOURCE = `
 const { workerData, parentPort } = require('node:worker_threads')
 const inspector = require('node:inspector')
 const fs = require('node:fs')
-const { sab, file, root, pollMs, afterMs, resampleMs, max, frames, pid, blindMs } = workerData
+const { sab, file, root, pollMs, afterMs, resampleMs, max, frames, pid, blindMs, osMs } = workerData
 const beat = new Int32Array(sab)
 let last = Atomics.load(beat, 0), stuckSince = 0, taken = 0, nextAt = 0, busy = false, prevTick = performance.now()
 let askedAt = 0, blindTaken = 0, blindNextAt = 0
@@ -81,6 +87,75 @@ function blind(now) {
     try { parentPort.postMessage(rec) } catch {}
   } catch {}
   blindTaken++; blindNextAt = now + resampleMs
+}
+// #929: what did the OPERATING SYSTEM see while the main thread stood still? The stack is only taken when the call
+// returns (it names a trivial function), so say it from here: did the thread burn CPU or wait (state D, and for what:
+// wchan p9_client_rpc = a call to the Windows host over a /mnt drive), how loaded was the machine, who else was in
+// disk wait or running. Linux only; elsewhere every read fails quietly and nothing is written.
+let osTaken = false, cpuAtStart = -1, vmBase = null, vmBaseAt = 0
+function readTicks() {
+  try {
+    const stat = fs.readFileSync('/proc/' + pid + '/task/' + pid + '/stat', 'utf8')
+    const f = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+    return Number(f[11]) + Number(f[12])
+  } catch { return -1 }
+}
+function readVm() {
+  try {
+    const want = { pgmajfault: 1, pswpin: 1, pswpout: 1, allocstall_normal: 1, allocstall_movable: 1, pgscan_direct: 1 }
+    const out = {}
+    for (const l of fs.readFileSync('/proc/vmstat', 'utf8').split('\\n')) {
+      const p = l.split(' ')
+      if (want[p[0]]) out[p[0]] = Number(p[1])
+    }
+    return out
+  } catch { return null }
+}
+function psi(name) {
+  try { return fs.readFileSync('/proc/pressure/' + name, 'utf8').trim().split('\\n') } catch { return null }
+}
+function hotProcs() {
+  const out = []
+  try {
+    for (const d of fs.readdirSync('/proc')) {
+      const c = d.charCodeAt(0)
+      if (c < 48 || c > 57 || Number(d) === pid) continue
+      try {
+        const s = fs.readFileSync('/proc/' + d + '/stat', 'utf8')
+        const st = s.slice(s.lastIndexOf(')') + 2).split(' ')
+        if (st[0] !== 'D' && st[0] !== 'R') continue
+        let cmd = ''
+        try { cmd = fs.readFileSync('/proc/' + d + '/cmdline', 'utf8').split('\\0').filter(Boolean).slice(0, 3).join(' ').slice(0, 100) } catch {}
+        out.push({ pid: Number(d), state: st[0], cmd: cmd || s.slice(s.indexOf('(') + 1, s.lastIndexOf(')')) })
+      } catch {}
+      if (out.length >= 12) break
+    }
+  } catch {}
+  return out
+}
+function osSnapshot(now) {
+  osTaken = true
+  try {
+    const rec = { kind: 'os', at: Date.now(), stuckMs: now - stuckSince, pid, stack: [] }
+    try {
+      const stat = fs.readFileSync('/proc/' + pid + '/task/' + pid + '/stat', 'utf8')
+      rec.state = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0]
+    } catch {}
+    try { rec.wchan = fs.readFileSync('/proc/' + pid + '/task/' + pid + '/wchan', 'utf8').trim() } catch {}
+    const t = readTicks()
+    rec.cpuTicksDuring = t >= 0 && cpuAtStart >= 0 ? t - cpuAtStart : null
+    try { rec.load = fs.readFileSync('/proc/loadavg', 'utf8').trim().split(' ').slice(0, 4).join(' ') } catch {}
+    rec.psi = { cpu: psi('cpu'), io: psi('io'), memory: psi('memory') }
+    const vm = readVm()
+    if (vm && vmBase) {
+      rec.vmDelta = {}
+      for (const k of Object.keys(vm)) rec.vmDelta[k] = vm[k] - (vmBase[k] || 0)
+      rec.vmDeltaOverMs = Math.round(now - vmBaseAt)
+    }
+    rec.hot = hotProcs()
+    fs.appendFileSync(file, JSON.stringify(rec) + '\\n')
+    try { parentPort.postMessage(rec) } catch {}
+  } catch {}
 }
 const short = (url) => {
   let u = String(url || '').replace(/^file:\\/\\//, '')
@@ -126,15 +201,19 @@ setInterval(() => {
   Atomics.add(beat, 1, 1)
   const cur = Atomics.load(beat, 0)
   // This thread did not run either (the machine slept, or the whole process was stopped): no evidence of a stall.
-  if (ownGap > pollMs * 5) { last = cur; stuckSince = 0; taken = 0; return }
+  if (ownGap > pollMs * 5) { last = cur; stuckSince = 0; taken = 0; osTaken = false; return }
   if (cur !== last) {
     // The main thread runs again, yet the pause we asked for a minute ago never arrived: give that session up,
     // or this thread would wait for it forever and never sample again.
     if (busy && abandon && now - askedAt > 60000) abandon()
-    last = cur; stuckSince = 0; taken = 0; nextAt = 0; blindTaken = 0; blindNextAt = 0
+    last = cur; stuckSince = 0; taken = 0; nextAt = 0; blindTaken = 0; blindNextAt = 0; osTaken = false
+    // Healthy: remember the thread's CPU time and the kernel counters, so a stall can say what changed during it.
+    cpuAtStart = readTicks()
+    if (now - vmBaseAt > 5000) { vmBase = readVm(); vmBaseAt = now }
     return
   }
   if (!stuckSince) stuckSince = now - pollMs
+  if (!osTaken && osMs && now - stuckSince >= osMs) osSnapshot(now)
   if (busy && stuckSince && now - askedAt >= blindMs && blindTaken < max && now >= blindNextAt) blind(now)
   if (busy || taken >= max || now < nextAt || now - stuckSince < afterMs) return
   sample()
@@ -222,6 +301,11 @@ export function recentStallSamples(): StallSample[] {
 export function noteStallSample(rec: StallSample): void {
   samples.unshift(rec)
   if (samples.length > KEEP) samples.length = KEEP
+  if (rec.kind === 'os') {
+    logger.warn({ stuckMs: Math.round(rec.stuckMs), state: rec.state, wchan: rec.wchan, cpuTicksDuring: rec.cpuTicksDuring, load: rec.load, psi: rec.psi, vmDelta: rec.vmDelta, hot: rec.hot },
+      'event loop stalled (#929): what the operating system showed while the main thread stood still')
+    return
+  }
   if (rec.noStackYet) {
     logger.warn({ stuckMs: rec.stuckMs, state: rec.state, waitingFor: rec.waitingFor },
       'event loop stalled (#554): the main thread was inside one system call -- this is what the system showed')
@@ -260,7 +344,7 @@ function startStallSampler(): void {
       workerData: {
         sab, file: join(STORE_DIR, STALL_SAMPLE_FILE), root: PROJECT_ROOT, pollMs: SAMPLER_POLL_MS,
         afterMs: SAMPLE_AFTER_MS, resampleMs: RESAMPLE_MS, max: SAMPLE_MAX, frames: 14, pid: process.pid,
-        blindMs: BLIND_AFTER_MS,
+        blindMs: BLIND_AFTER_MS, osMs: OS_SNAPSHOT_MS,
       },
     })
     w.unref()
