@@ -6203,6 +6203,7 @@ window._i18n.en = {
   "workbench.folder.deleted": "Folder deleted.",
   "workbench.folder.trashed": "The folder went to the Trash with everything in it. You can restore it from there.",
   "workbench.folder.move_label": "Move folder to…",
+  "workbench.folder.move_here": "(it is here now)",
   "workbench.folder.moved": "Folder moved, with everything in it.",
   "workbench.folder.move_same": "The folder is already there.",
   "workbench.folder.rename": "Rename folder",

@@ -1901,13 +1901,29 @@
   }, true)
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeItemMenu() })
 
+  /** #928 (Boss TG 6456): the folders a "Move to folder..." list offers. The list used to hold EVERY folder of the box, the
+   *  standard subfolders of each work item (Agent, Finished materials, Uploads, ...) too: ~150 rows, the real groups (a
+   *  person's folder, its "Social office" folder) sat far down and looked missing. Now the list is the left tree's folders:
+   *  a work item's standard subfolders are system-managed and left out. */
+  function moveTargetFolders(wf) {
+    var holder = {}
+    ;(wf.own_folders || []).forEach(function (f) { holder[f] = true })
+    ;(WB.items || []).forEach(function (x) { var hf = x && (x.folder || x.container_folder); if (hf) holder[hf] = true })
+    return (wf.folders || []).filter(function (g) {
+      var i = g.lastIndexOf('/')
+      var b = g.slice(i + 1).toLowerCase()
+      if (b === 'verziók' || b === 'versions') return false
+      return !(STD_FOLDERS[b] && holder[g.slice(0, i)])
+    })
+  }
+
   /** The "Move to folder..." options: a prompt line, the box itself, then every folder indented by depth. */
   function folderOptionsHtml() {
     var wf = WB.workFolders || { box: null, folders: [] }
     var box = wf.box
     var opts = ['<option value="">' + esc(t('workbench.move.label')) + '</option>',
       '<option value="' + escA('\u0000box') + '">' + esc(t('workbench.folder.pick_default')) + '</option>']
-    ;(wf.folders || []).forEach(function (f) {
+    moveTargetFolders(wf).forEach(function (f) {
       var depth = f.split('/').length - 1 - (box.split('/').length - 1)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0')
       opts.push('<option value="' + escA(f) + '">' + pad + '\ud83d\udcc1 ' + esc(baseOf(f)) + '</option>')
@@ -1922,11 +1938,15 @@
     var box = wf.box
     var opts = ['<option value="">' + esc(t('workbench.folder.move_label')) + '</option>']
     if (f.lastIndexOf('/') !== box.length) opts.push('<option value="' + escA('\u0000box') + '">' + esc(t('workbench.folder.pick_default')) + '</option>')
-    ;(wf.folders || []).forEach(function (g) {
+    moveTargetFolders(wf).forEach(function (g) {
       if (g === f || g.indexOf(f + '/') === 0) return
-      if (g === f.slice(0, f.lastIndexOf('/'))) return
       var depth = g.split('/').length - 1 - (box.split('/').length - 1)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0')
+      // The folder it already sits in stays in the list, greyed and marked: it used to vanish, which looked like a bug.
+      if (g === f.slice(0, f.lastIndexOf('/'))) {
+        opts.push('<option value="" disabled>' + pad + '\ud83d\udcc1 ' + esc(baseOf(g)) + ' ' + esc(t('workbench.folder.move_here')) + '</option>')
+        return
+      }
       opts.push('<option value="' + escA(g) + '">' + pad + '\ud83d\udcc1 ' + esc(baseOf(g)) + '</option>')
     })
     return '<select class="wb-item-move" data-wb-move-folder="' + escA(f) + '" aria-label="' + escA(t('workbench.folder.move_label')) + '"'
@@ -2080,7 +2100,8 @@
   function dirOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? '' : String(path).slice(0, i) }
   function baseOf(path) { var i = String(path).lastIndexOf('/'); return i < 0 ? String(path) : String(path).slice(i + 1) }
   var STD_FOLDERS = { 'agent': 1, 'agentnek': 1, 'for the agent': 1, 'elkészített anyagok': 1, 'finished materials': 1, 'elkészített iratok': 1, 'finished documents': 1,
-    'feltöltések': 1, 'uploads': 1, 'kiváltó irat': 1, 'trigger document': 1, 'mellékletek': 1, 'attachments': 1, 'vitáztatás': 1, 'debate': 1, 'vitáztatás jelentés': 1, 'debate report': 1 }
+    'feltöltések': 1, 'uploads': 1, 'kiváltó irat': 1, 'trigger document': 1, 'mellékletek': 1, 'attachments': 1, 'vitáztatás': 1, 'debate': 1, 'vitáztatás jelentés': 1, 'debate report': 1,
+    'feladási bizonylatok': 1, 'proofs of submission': 1 }
   /** Show a Life-tree folder in the Explorer page. The Explorer is app.js's; when it is not there, say so -- a click
    *  that only changed the address bar and did nothing else looked like a dead button (#542). */
   function openInIntezo(folderRel) {

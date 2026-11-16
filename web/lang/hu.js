@@ -6277,6 +6277,7 @@ window._i18n.hu = {
   "workbench.folder.deleted": "A mappa törölve.",
   "workbench.folder.trashed": "A mappa a Kukába került a tartalmával együtt. Innen vissza tudod állítani.",
   "workbench.folder.move_label": "Mappa áthelyezése ide…",
+  "workbench.folder.move_here": "(itt van most)",
   "workbench.folder.moved": "A mappa áthelyezve, minden tartalmával együtt.",
   "workbench.folder.move_same": "A mappa már ott van.",
   "workbench.folder.rename": "Mappa átnevezése",
