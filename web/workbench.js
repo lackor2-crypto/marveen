@@ -17974,6 +17974,8 @@
   }
   /** What the marks were measured on: the document's content fingerprint (any change makes them old). */
   function dpPagesHash() { return (WB.detail && WB.detail.outline && WB.detail.outline.content_hash) || '' }
+  var DP_PAGES_RETRIES = 4 // #930: automatic new tries after a failed page measurement (the number of the pause grows: 8 s, 16 s, ...)
+  var DP_PAGES_RETRY_MS = 8000
   function dpPagesLoad() {
     var id = WB.selectedId
     if (!id || !dpPagesOn() || archived() || !dpPagesRoot()) return
@@ -17987,10 +17989,16 @@
       WB.dpPagesBusy = false
       if (WB.selectedId !== id) { dpPagesButtonState(); return }
       if (r.ok && r.data) {
+        WB.dpPagesFails = 0
         WB.dpPages = { item: id, hash: r.data.hash || want, marks: r.data.marks || [], pages: r.data.pages || 0 }
       } else {
         WB.dpPagesError = r.message || t('workbench.dp.pagebreak_failed')
-        window.showToast(WB.dpPagesError)
+        // #930: a failed measurement (a frozen dashboard, a slow PDF) must not leave the switch ON with no lines for good:
+        // say it once, then measure again by itself after a growing pause (the next redraw also tries again).
+        WB.dpPagesFails = (WB.dpPagesFails || 0) + 1
+        if (WB.dpPagesFails === 1) window.showToast(WB.dpPagesError)
+        clearTimeout(WB.dpPagesRetry)
+        if (WB.dpPagesFails <= DP_PAGES_RETRIES) WB.dpPagesRetry = setTimeout(function () { WB.dpPagesRetry = null; dpPagesLoad() }, DP_PAGES_RETRY_MS * WB.dpPagesFails)
       }
       dpPagesPaint()
       WB.twPages = null // the text changed: the translation lines are measured again
@@ -18013,7 +18021,7 @@
     dpPagesPaint()
     twPagesAfterRender()
     var d = WB.dpPages
-    if (!WB.dpPagesError && !WB.dpPagesBusy && (!d || d.item !== WB.selectedId || d.hash !== dpPagesHash())) dpPagesSoon()
+    if (!WB.dpPagesBusy && !WB.dpPagesRetry && (!d || d.item !== WB.selectedId || d.hash !== dpPagesHash())) dpPagesSoon() // #930: also after a failed measurement
   }
   // ---- #853 (Boss TG 4785): the translation page breaks into pages too, with the same "Pages" switch -------------------------
   // The lines are measured on the SAVED language version's draft PDF; the server turns them into "chapter of the original +
@@ -24132,6 +24140,8 @@
       act.classList.toggle('is-on', WB.dpPagesOn)
       act.setAttribute('aria-pressed', WB.dpPagesOn ? 'true' : 'false')
       WB.dpPagesError = ''
+      WB.dpPagesFails = 0
+      clearTimeout(WB.dpPagesRetry); WB.dpPagesRetry = null
       dpPagesPaint()
       twPagesPaint()
       if (WB.dpPagesOn) { dpPagesLoad(); twPagesAfterRender() }
