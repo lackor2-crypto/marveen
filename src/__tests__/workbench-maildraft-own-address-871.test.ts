@@ -19,7 +19,9 @@ import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, getWorkItem } from '../workbench.js'
 import { addBlock, addSection } from '../workbench-docmodel.js'
-import { defaultMailBody, firstForeignAddress, isOwnAddress, knownRecipient, saveMailDraft, withoutOwnAddresses } from '../workbench-maildraft.js'
+import { defaultMailBody, firstForeignAddress, forgetMailDraft, isOwnAddress, knownRecipient, saveDraftToMailbox, saveMailDraft, withoutOwnAddresses } from '../workbench-maildraft.js'
+import { getDb } from '../db.js'
+import { registerMailboxEngine } from '../mail-send.js'
 import { letterSignatory } from '../workbench-letterinfo.js'
 import { addAgentMessage, createAgentSession } from '../workbench-agent/sessions.js'
 
@@ -84,6 +86,28 @@ describe('#871 own addresses are never recipients', () => {
       const r = await saveMailDraft(item, input as never, 'owner')
       expect(r).toMatchObject({ ok: false, code: 'own_address' })
     }
+  })
+
+  // A draft row stored BEFORE the fix can still hold the own address: the Drafts folder must not receive it (the page shows it
+  // stripped, so what is written would differ from what the owner saw).
+  it('a stored draft row with an own address is never written into the mailbox Drafts folder', async () => {
+    block('Hiermit widerspreche ich.')
+    const item = getWorkItem(itemId)!
+    forgetMailDraft(itemId) // makes sure the table exists
+    getDb().prepare("INSERT INTO wb_doc_maildraft (work_item_id, from_account, from_addr, file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at) VALUES (?, 'a', 'lackor3@example.com', '', '', '', ?, ?, 'S', 'B', '[]', 1)")
+      .run(itemId, 'lackor3@example.com', '')
+    let called = 0
+    registerMailboxEngine({
+      accounts: () => [{ id: 'a', address: 'lackor3@example.com' }],
+      run: async () => ({ ok: false, detail: 'a draft test never sends' }),
+      sentFolder: async () => 'Sent',
+      changed: () => {},
+      async saveDraft() { called++; return { ok: true, mailbox: 'Drafts' } },
+    })
+    const r = await saveDraftToMailbox(item, 'hu')
+    registerMailboxEngine(null)
+    expect(r).toMatchObject({ ok: false, code: 'own_address' })
+    expect(called).toBe(0)
   })
 })
 
