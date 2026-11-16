@@ -236,6 +236,73 @@ export class LiveSessionPool {
     return true
   }
 
+  /**
+   * #924 "Torles": the conversation's context is dropped for good -- the standing process stops AND the saved session id
+   * is forgotten, so the next message starts a new, empty session. true = there was something to drop.
+   */
+  reset(key: string): boolean {
+    let had = false
+    const l = this.sessions.get(key)
+    if (l) { this.kill(l); had = true }
+    let ids: Record<string, SavedSession> = {}
+    try { ids = this.deps.loadIds() || {} } catch { ids = {} }
+    if (key in ids) had = true
+    this.forgetId(key)
+    return had
+  }
+
+  /**
+   * #924 "Tomorites": Claude Code's own `/compact` in the standing session. The CLI reports the size before and after
+   * (`compact_boundary`), which is what the owner is shown -- the wished size goes to the summary as an instruction, it is
+   * not a hard limit. `nothing` = no session with a context yet; `busy` = a turn is running.
+   */
+  async compact(spec: LiveStartSpec, instruction: string, timeoutMs = 180_000):
+    Promise<{ ok: true; pre: number | null; post: number | null } | { ok: false; code: 'nothing' | 'busy' | 'failed'; detail?: string }> {
+    const cur = this.sessions.get(spec.key)
+    if (cur && !cur.dead && cur.onLine) return { ok: false, code: 'busy' }
+    let saved: SavedSession | undefined
+    try { saved = (this.deps.loadIds() || {})[spec.key] } catch { saved = undefined }
+    const canResume = !!saved && saved.configDir === spec.configDir && saved.cwd === spec.cwd
+    if (!(cur && !cur.dead && !cur.fresh) && !canResume) return { ok: false, code: 'nothing' }
+    const l = this.acquire(spec, true)
+    if (l.fresh) { this.kill(l); return { ok: false, code: 'nothing' } }
+    const st = newStreamState()
+    let pre: number | null = null
+    let post: number | null = null
+    return await new Promise((resolve) => {
+      let done = false
+      const finish = (r: { ok: true; pre: number | null; post: number | null } | { ok: false; code: 'failed'; detail?: string }): void => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        l.onLine = null
+        l.onExit = null
+        l.lastUsed = this.deps.now()
+        resolve(r)
+      }
+      const timer = setTimeout(() => { this.kill(l); finish({ ok: false, code: 'failed', detail: 'timeout' }) }, timeoutMs)
+      l.onExit = (detail) => finish({ ok: false, code: 'failed', detail })
+      l.onLine = (line) => {
+        let o: Record<string, unknown> | null = null
+        try { o = JSON.parse(line) as Record<string, unknown> } catch { return }
+        mapStreamLine(line, st)
+        if (st.sessionId) this.rememberId(spec.key, st.sessionId, spec)
+        if (o.type === 'system' && o.subtype === 'compact_boundary') {
+          const m = (o.compact_metadata ?? {}) as Record<string, unknown>
+          pre = typeof m.pre_tokens === 'number' ? m.pre_tokens : null
+          post = typeof m.post_tokens === 'number' ? m.post_tokens : null
+        }
+        if (o.type === 'result') {
+          if (o.is_error === true) finish({ ok: false, code: 'failed', detail: String(o.result ?? '') })
+          else finish({ ok: true, pre, post })
+        }
+      }
+      try {
+        l.child.stdin?.write(JSON.stringify({ type: 'user', message: { role: 'user', content: `/compact ${instruction}`.trim() } }) + '\n')
+      } catch (e) { finish({ ok: false, code: 'failed', detail: e instanceof Error ? e.message : String(e) }) }
+    })
+  }
+
   stopAll(): void { for (const l of [...this.sessions.values()]) this.kill(l) }
 
   private kill(l: Live): void {

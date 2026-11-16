@@ -12540,6 +12540,8 @@
       st.error = null
       st.sessionId = r.data.session ? r.data.session.id : null
       var regi = (r.data.messages || []).filter(function (m) { return m.role !== 'tool' }).map(function (m) {
+        var dv = m.role === 'system' ? ctxDividerText(m.content) : null
+        if (dv) return { role: 'agent', divider: dv, text: '', tools: [], notices: [], error: null, done: true }
         // Regi (a #401 elotti) sor, ami csak nyers eszkozhivas-JSON volt: a
         // gepi szoveg helyett emberi eszkoz-sor (#406). Az eredmenyt nem
         // tudjuk, ezert nem is allitunk rola semmit.
@@ -12917,6 +12919,7 @@
   }
 
   function turnHtml(turn, index) {
+    if (turn.divider) return '<div class="wb-turn-divider" role="separator">' + esc(turn.divider) + '</div>'
     var who = turn.role === 'user' ? t('workbench.chat.you') : t('workbench.chat.agent')
     var body = ''
     if (turn.text) body += '<div class="wb-turn-text">' + esc(turn.text) + '</div>'
@@ -13142,6 +13145,57 @@
     return !!WB.chatHeadShut
   }
 
+  // ---- #924: the conversation's context -- Compact (to a wished size) and Clear ------------------------------------
+  var CTX_MAX_KEY = 'marveen.workbench.ctxMaxK'
+  function ctxMaxValue() {
+    if (WB.chatCtxMax === undefined) WB.chatCtxMax = readPref(CTX_MAX_KEY, '')
+    return WB.chatCtxMax
+  }
+  function chatCtxHtml() {
+    var busy = WB.chatCtxBusy
+    var off = busy || WB.chatStreaming || !WB.projectId ? ' disabled' : ''
+    return '<div class="wb-chat-ctx" role="group" aria-label="' + escA(t('workbench.ctx.group')) + '">'
+      + '<label class="wb-chat-ctx-max" title="' + escA(t('workbench.ctx.max_hint')) + '">' + esc(t('workbench.ctx.max_label'))
+      + ' <input type="number" min="1" step="1" inputmode="numeric" class="wb-input wb-chat-ctx-input" id="wbChatCtxMax" value="' + escA(ctxMaxValue()) + '"'
+      + ' placeholder="' + escA(t('workbench.ctx.max_placeholder')) + '" aria-label="' + escA(t('workbench.ctx.max_hint')) + '"></label>'
+      + '<button type="button" class="wb-mini-btn" data-wb-act="chat-ctx-compact" title="' + escA(t('workbench.ctx.compact_hint')) + '"' + off + '>'
+      + esc(busy === 'compact' ? t('workbench.ctx.compacting') : t('workbench.ctx.compact')) + '</button>'
+      + '<button type="button" class="wb-mini-btn wb-chat-ctx-clear" data-wb-act="chat-ctx-clear" title="' + escA(t('workbench.ctx.clear_hint')) + '"' + off + '>'
+      + esc(busy === 'clear' ? t('workbench.ctx.clearing') : t('workbench.ctx.clear')) + '</button>'
+      + '</div>'
+  }
+  function ctxK(n) { return (Math.round(n / 100) / 10).toLocaleString(window._lang === 'en' ? 'en-US' : 'hu-HU') }
+  function ctxDividerText(content) {
+    if (content === '[[context:cleared]]') return t('workbench.ctx.divider_cleared')
+    var m = /^\[\[context:compacted:(\d*):(\d*):(\d*)\]\]$/.exec(content || '')
+    if (!m) return null
+    var txt = m[1] && m[2] ? t('workbench.ctx.divider_compacted', { pre: ctxK(Number(m[1])), post: ctxK(Number(m[2])) }) : t('workbench.ctx.divider_compacted_plain')
+    if (m[3] && m[2] && Number(m[2]) > Number(m[3]) * 1000) txt += ' ' + t('workbench.ctx.over_target', { target: m[3] })
+    return txt
+  }
+  function ctxCall(kind) {
+    if (WB.chatCtxBusy || !WB.projectId) return
+    if (kind === 'clear' && !window.confirm(t('workbench.ctx.clear_confirm'))) return
+    var st = chatState()
+    var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, account: WB.chatAccount || 'auto' }
+    if (kind === 'compact') body.max_k = String(ctxMaxValue() || '').trim()
+    WB.chatCtxBusy = kind
+    renderChat()
+    api('POST', '/api/workbench/agent/context-' + kind, body).then(function (r) {
+      WB.chatCtxBusy = null
+      if (!r.ok) { window.showToast(r.text || r.message); renderChat(); return }
+      var d = r.data || {}
+      if (d.result === 'nothing') { window.showToast(d.message || t('workbench.ctx.nothing')); renderChat(); return }
+      var line = d.result === 'cleared'
+        ? t('workbench.ctx.divider_cleared')
+        : ctxDividerText('[[context:compacted:' + (d.pre_tokens || '') + ':' + (d.post_tokens || '') + ':' + (d.target_k || '') + ']]')
+      st.turns.push({ role: 'agent', divider: line, text: '', tools: [], notices: [], error: null, done: true })
+      window.showToast(line)
+      WB.chatForceBottom = true
+      renderChat()
+    }).catch(function () { WB.chatCtxBusy = null; window.showToast(t('workbench.ctx.failed')); renderChat() })
+  }
+
   function chatInnerHtml() {
     var streaming = WB.chatStreaming
     var max = (WB.chatStatus && WB.chatStatus.maxMessageChars) || 2000000
@@ -13154,6 +13208,7 @@
       + ' title="' + escA(t(shut ? 'workbench.chat.head_open' : 'workbench.chat.head_shut')) + '" aria-label="' + escA(t(shut ? 'workbench.chat.head_open' : 'workbench.chat.head_shut')) + '">' + (shut ? '\u25b8' : '\u25be') + '</button>'
       + '<label class="wb-chat-label" for="wbChatInput">' + esc(t('workbench.chat.title')) + '</label>'
       + (shut ? '' : '<button type="button" class="wb-mini-btn wb-chat-setup-btn" data-wb-act="chat-setup" aria-pressed="' + !!WB.chatSetupOpen + '">' + esc(t('workbench.chat.setup')) + '</button>')
+      + chatCtxHtml()
       + '<div class="wb-chat-statusline">' + chatStatusHtml() + '</div>'
       + '</div>'
       + (shut ? '' : '<div class="wb-chat-fold-box">' + chatSideHtml() + chatAccountHtml() + (WB.chatSetupOpen ? chatSetupHtml() : '') + '</div>')
@@ -21373,6 +21428,13 @@
     }
   }
 
+  // #924: the wished compaction size is remembered (this browser) as soon as it is typed, so a reload keeps it.
+  document.addEventListener('input', function (e) {
+    if (!e.target || e.target.id !== 'wbChatCtxMax') return
+    WB.chatCtxMax = String(e.target.value || '').trim()
+    writePref(CTX_MAX_KEY, WB.chatCtxMax)
+  })
+
   document.addEventListener('input', function (e) {
     if (!WB.open || !WB.db || !e.target) return
     var s = WB.db
@@ -23027,6 +23089,8 @@
     else if (a === 'chat-unqueue') unqueueChat(Number(act.getAttribute('data-wb-turn')))
     else if (a === 'chat-continue') continueChat()
     else if (a === 'chat-edit-queued') editQueuedChat(Number(act.getAttribute('data-wb-turn')))
+    else if (a === 'chat-ctx-compact') ctxCall('compact')
+    else if (a === 'chat-ctx-clear') ctxCall('clear')
     else if (a === 'chat-head-fold') {
       WB.chatHeadShut = !chatHeadShut()
       try { window.localStorage && window.localStorage.setItem(CHAT_HEAD_KEY, WB.chatHeadShut ? '1' : '0') } catch (_e) { /* only this session */ }

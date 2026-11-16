@@ -49,7 +49,7 @@ import { codeBridgeHealth, resolveProject, enqueueCodeTask, getCodeTask, cancelC
 import { projectFileTarget } from '../../project-files.js'
 import { updateWindowsClaudeForBridge, windowsUpdatePossible, type WindowsUpdateOutcome } from '../../windows-claude-updater.js'
 import {
-  ensureAgentTables, getAgentSession, listAgentMessages, listToolCalls, openSessionForWorkItem, listCaseMessages, listCaseToolCalls, followUiLanguage, projectSessionKey, addAgentMessage,
+  ensureAgentTables, getAgentSession, listAgentMessages, listToolCalls, openSessionForWorkItem, listCaseMessages, listContextMessages, CONTEXT_CLEARED_MARK, CONTEXT_COMPACTED_PREFIX, listCaseToolCalls, followUiLanguage, projectSessionKey, addAgentMessage,
   addAgentMessageOnce, startToolCall, finishToolCall,
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
@@ -620,6 +620,22 @@ const LOCAL_MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Nincs megadva, melyik munkadarabról van szó.',
     en: 'It is not given which work item this is about.',
   },
+  context_busy: {
+    hu: 'Az asszisztens épp válaszol: várd meg a végét (vagy nyomd meg a Leállítást), utána tömöríthetsz vagy törölhetsz.',
+    en: 'The assistant is answering right now: wait for it to finish (or press Stop), then you can compact or clear.',
+  },
+  context_nothing: {
+    hu: 'Ehhez a beszélgetéshez most nincs tömöríthető munkamenet (még nem volt üzenet, vagy a munkamenet már le van zárva), ezért nincs mit tömöríteni.',
+    en: 'There is no session to compact for this conversation right now (no message yet, or the session is already closed), so there is nothing to compact.',
+  },
+  context_compact_failed: {
+    hu: 'A tömörítés nem sikerült. A beszélgetés érintetlen maradt; próbáld újra, vagy használd a Törlést.',
+    en: 'The compaction did not work. The conversation is untouched; try again, or use Clear.',
+  },
+  context_max_invalid: {
+    hu: 'A megadott érték nem érvényes: egész számot írj (ezer tokenben), vagy hagyd üresen.',
+    en: 'That value is not valid: type a whole number (in thousands of tokens), or leave it empty.',
+  },
   no_known_settings: {
     hu: 'A kérés egyetlen ismert Munkapad-beállítást sem tartalmazott.',
     en: 'The request contained no known Workbench setting.',
@@ -832,6 +848,61 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     return true
   }
 
+  // --- #924: a beszelgetes kontextusa: Tomorites / Torles ---------------------
+  if ((path === '/api/workbench/agent/context-clear' || path === '/api/workbench/agent/context-compact') && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang, msg('bad_json', lang))
+    const projectId = String(body.project_id ?? '').trim()
+    if (!projectId) return fail(res, 400, 'project_required', lang)
+    const project = getProject(projectId)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const workItemId = body.work_item_id === undefined || body.work_item_id === null
+      ? null
+      : String(body.work_item_id).trim() || null
+    const item = workItemId ? getWorkItem(workItemId) : null
+    if (workItemId && !item) return fail(res, 404, 'work_item_not_found', lang, msg('work_item_not_found', lang))
+    const key = turnKey(project.id, workItemId)
+    const session = item
+      ? openSessionForWorkItem(project.id, item.id, lang)
+      : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
+    // No turn may run while the context is changed (the same lock a message takes).
+    if (!claimTurn(key)) return fail(res, 409, 'context_busy', lang)
+    try {
+      if (path.endsWith('/context-clear')) {
+        const had = livePool ? livePool.reset(key) : getLivePool().reset(key)
+        addAgentMessage(session.id, 'system', CONTEXT_CLEARED_MARK)
+        json(res, { ok: true, result: 'cleared', had_live_session: had })
+        return true
+      }
+      let target: number | null = null
+      const rawMax = body.max_k
+      if (rawMax !== undefined && rawMax !== null && String(rawMax).trim() !== '') {
+        const n = Number(rawMax)
+        if (!Number.isFinite(n) || n <= 0 || Math.floor(n) !== n) return fail(res, 400, 'context_max_invalid', lang)
+        target = n
+      }
+      const wantAccount = String(body.account ?? '').trim()
+      const account = wantAccount && wantAccount !== 'auto' && isKnownWorkbenchAccount(wantAccount) ? wantAccount : undefined
+      const folder = projectFileTarget(project, '')
+      const spec = liveResolver(key, folder && folder.ok ? folder.dirAbs : null, account)
+      if (!spec) { json(res, { ok: true, result: 'nothing', message: LOCAL_MESSAGES.context_nothing[lang] }); return true }
+      const instruction = target
+        ? `Summarize the whole conversation in at most ${target} thousand tokens. Keep the owner's decisions, the open tasks, the names of the documents and files worked on, and every fact the owner stated.`
+        : 'Keep the owner\'s decisions, the open tasks, the names of the documents and files worked on, and every fact the owner stated.'
+      const r = await getLivePool().compact(spec, instruction)
+      if (!r.ok) {
+        if (r.code === 'nothing') { json(res, { ok: true, result: 'nothing', message: LOCAL_MESSAGES.context_nothing[lang] }); return true }
+        if (r.code === 'busy') return fail(res, 409, 'context_busy', lang)
+        return fail(res, 502, 'context_compact_failed', lang)
+      }
+      addAgentMessage(session.id, 'system', `${CONTEXT_COMPACTED_PREFIX}${r.pre ?? ''}:${r.post ?? ''}:${target ?? ''}]]`)
+      json(res, { ok: true, result: 'compacted', pre_tokens: r.pre, post_tokens: r.post, target_k: target })
+      return true
+    } finally {
+      releaseTurn(key)
+    }
+  }
+
   // --- uzenet + streamelt valasz -------------------------------------------
   if (path === '/api/workbench/agent/message' && method === 'POST') {
     const body = await readJson(req)
@@ -964,7 +1035,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       send('session', { type: 'session', sessionId: session.id })
       // Az elozmeny a mentes ELOTT keszul, kulonben az uj uzenet ketszer
       // allna a promptban.
-      const history = prior ?? listCaseMessages(session.id)
+      const history = prior ?? listContextMessages(session.id)
       const text = input.message.trim()
       if (!prior) addAgentMessage(session.id, resumeCount !== undefined ? 'system' : 'user', text)
       if (!prior && resumeCount === undefined && item) { try { recordTaskFromChat(item, project, text) } catch { /* the notes never stop a chat turn */ } }
@@ -1220,7 +1291,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             const turnStartSec = Math.floor(Date.now() / 1000)
             const folder = projectFileTarget(project, '')
             const bridgeAssets = item ? await listWorkItemAssetsSyncedYielding(item.id).catch(() => []) : []
-            const history = listCaseMessages(session.id)
+            const history = listContextMessages(session.id)
             const prompt = buildCodeBridgePrompt({
               projectName: project.name || project.id,
               projectFolder: folder.ok ? folder.dirAbs : null,

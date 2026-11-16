@@ -291,6 +291,32 @@ export function listCaseMessages(sessionId: string, limit = 200): AgentMessageRo
   ).all(...ids, limit) as AgentMessageRow[]
 }
 
+/**
+ * #924: the owner can clear the assistant's context. The clear is a marker row in the chat; what the model is told of the
+ * conversation starts AFTER the last marker (the screen still shows the earlier messages, above a divider line).
+ * A compaction leaves a marker too, only for the screen (the live session keeps the compacted context itself).
+ */
+export const CONTEXT_CLEARED_MARK = '[[context:cleared]]'
+export const CONTEXT_COMPACTED_PREFIX = '[[context:compacted:'
+
+export function isContextMark(content: string): boolean {
+  return content === CONTEXT_CLEARED_MARK || content.startsWith(CONTEXT_COMPACTED_PREFIX)
+}
+
+/** The messages the model may be told: everything after the last "cleared" marker. */
+export function sinceContextClear<T extends { role: string; content: string }>(rows: T[]): T[] {
+  let cut = -1
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].role === 'system' && rows[i].content === CONTEXT_CLEARED_MARK) { cut = i; break }
+  }
+  return cut < 0 ? rows : rows.slice(cut + 1)
+}
+
+/** The conversation of the CASE as the model sees it (after the last clear). */
+export function listContextMessages(sessionId: string, limit = 200): AgentMessageRow[] {
+  return sinceContextClear(listCaseMessages(sessionId, limit))
+}
+
 /** The tool calls of the CASE chat, for showing them under the messages they belong to (#821). */
 export function listCaseToolCalls(sessionId: string): AgentToolCallRow[] {
   ensureAgentTables()

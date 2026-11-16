@@ -41,7 +41,7 @@ import { triggerStateOf, triggerBlocksWork } from '../workbench-trigger.js'
 import { pickAIProvider, whyNoAIProvider, type AIMessage, type AIProvider, type AIVia } from './provider.js'
 import {
   addAgentMessage, claimAwaitingCallsForApproval, finishToolCall, isApprovalRunInProgress, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
-  projectSessionKey, startToolCall, listCaseMessages,
+  projectSessionKey, startToolCall, listCaseMessages, listContextMessages,
   type AgentSessionRow,
 } from './sessions.js'
 import { decideTool, getTool } from './tools.js'
@@ -375,7 +375,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
     // #404 H2: a kozben eldontott jovahagyasok eredmenye MEG ez elott a
     // fordulo elott a beszelgetesbe kerul, hogy a modell is lassa.
     await settleWorkbenchApprovals(session.id).catch(() => 0)
-    const history = historyMessages(listCaseMessages(session.id))
+    const history = historyMessages(listContextMessages(session.id))
     // A kontextus-blokk az ELSO user-uzenet ele kerul, hogy a modell a
     // tenyeket a keressel egyutt lassa.
     const messages: AIMessage[] = history.length
