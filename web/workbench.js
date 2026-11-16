@@ -2828,7 +2828,7 @@
     var pick = WB.pickFolder || ''
     var opts = ['<option value=""' + (!pick || own[pick] ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_none')) + '</option>',
       '<option value="@project"' + (pick === '@project' ? ' selected' : '') + '>' + esc(t('workbench.folder.pick_project')) + '</option>']
-    ;(wf.folders || []).forEach(function (f) {
+    moveTargetFolders(wf).forEach(function (f) {
       if (own[f]) return
       var depth = f.split('/').length - 1 - (box ? box.split('/').length - 1 : 0)
       var pad = new Array(Math.max(depth, 0) + 1).join('\u00a0\u00a0\u00a0')
