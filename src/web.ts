@@ -10,7 +10,7 @@ import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
 import { startDashboardTokenGuard, stopDashboardTokenGuard } from './web/dashboard-token-guard.js'
 import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndpoint, type AuthResult } from './web/auth-gate.js'
 import { sweepExpiredSessions } from './web/auth-sessions.js'
-import { autoPurgeTrash, migrateLegacyTrash } from './life-explorer.js'
+import { autoPurgeTrash, explorerRoot, migrateLegacyTrash } from './life-explorer.js'
 import { prewarmOffThread } from './life-list-offthread.js'
 import { refreshAccountsInBackground, machineIdentityAsync } from './web/claude-auth-runner.js'
 import { getEffectiveSettingValue } from './settings-store.js'
@@ -48,6 +48,7 @@ import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { recentStalls, recentStallSamples, startEventLoopWatch, trackRequest } from './web/event-loop-watch.js'
 import { slowFsReport, startSlowFsWatch } from './web/slow-fs-watch.js'
+import { bumpDepotEpoch, listingCacheStats, startDepotWriteEpoch } from './web/work-folders-cache.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { startTelegramReplyMetaPatcher } from './telegram-reply-meta-patch.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
@@ -194,6 +195,8 @@ export function startWebServer(port = 3420): http.Server {
   startEventLoopWatch()
   // #929: which synchronous call on a Windows drive (/mnt/*, 9p) holds the main thread? Shown at GET /api/perf/slow-fs.
   startSlowFsWatch()
+  // #929: the shared Workbench tree listing is forgotten when the program writes under the depot itself.
+  startDepotWriteEpoch(explorerRoot)
   const DASHBOARD_TOKEN = loadOrCreateDashboardToken()
   // #415: while we run, the file must hold the token we enforce -- agents read it.
   startDashboardTokenGuard(DASHBOARD_TOKEN)
@@ -210,6 +213,8 @@ export function startWebServer(port = 3420): http.Server {
     const path = url.pathname
     const method = req.method || 'GET'
     trackRequest(req, res, path)
+    // #929: a request that can change something makes every remembered tree listing old (when it starts and when it ends).
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') { bumpDepotEpoch(); res.once('close', bumpDepotEpoch) }
 
     const origin = req.headers.origin
     // Emit CORS headers for allowlisted origins AND for genuinely same-origin
@@ -295,7 +300,7 @@ export function startWebServer(port = 3420): http.Server {
       return json(res, { stalls: recentStalls(), samples: recentStallSamples(), pressure: currentPressure(), busy: machineBusy(), limits: pressureLimits(), gate: gateStats() })
     }
 
-    if (path === '/api/perf/slow-fs' && method === 'GET') return json(res, slowFsReport())
+    if (path === '/api/perf/slow-fs' && method === 'GET') return json(res, { ...slowFsReport(), listing_cache: listingCacheStats() })
 
     if (path === '/api/network-info' && method === 'GET') {
       const tailscaleUrl = await detectTailscaleServeUrl(port)

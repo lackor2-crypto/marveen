@@ -109,6 +109,8 @@ export function validateTurn(input: TurnInput): TurnFailure | { ok: true } {
 /** Egy munkadarabhoz egyszerre egy fordulo fut. */
 const running = new Set<string>()
 export function isTurnRunning(key: string): boolean { return running.has(key) }
+/** #929: is ANY assistant turn running? (the Workbench tree then skips its remembered listing: the commands move files). */
+export function anyTurnRunning(): boolean { return running.size > 0 }
 /** A "fut mar" zar kulcsa: a munkadarab UGYE (mappaja, #821), vagy munkadarab nelkul a projekte.
  *  EGY helyen szamoljuk, hogy a teljes erteku mod, a felulet "fut-e meg"
  *  kerdese es a Leallitas ugyanazt a zarat lassa. */

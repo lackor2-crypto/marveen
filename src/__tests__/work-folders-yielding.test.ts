@@ -61,6 +61,7 @@ describe('listWorkFoldersYielding', () => {
 
   it('the route awaits the yielding listing for the tree poll', () => {
     const src = readFileSync(join(__dirname, '..', 'web', 'routes', 'workbench.ts'), 'utf8')
-    expect(src).toContain('work_folders: await listWorkFoldersYielding(project),')
+    // #929: still the yielding listing, now behind the shared cache (work-folders-cache-929.test.ts pins the wrapper).
+    expect(src).toContain('() => listWorkFoldersYielding(project)')
   })
 })
