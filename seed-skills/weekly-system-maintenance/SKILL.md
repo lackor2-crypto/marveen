@@ -1,8 +1,11 @@
 ---
 name: weekly-system-maintenance
-description: Heti egyszeri, automatikus Windows karbantartas WSL alol: rendszerhibak es lassulasi okok atnezese, biztonsagos beepitett javito/tisztito lepesek, meghajto-optimalizalas, majd rovid riport. Kockazatos/admin/reboot lepes CSAK jovahagyassal. Trigger: heti scheduled task, vagy "windows karbantartas / gyorsitsd fel a gepet".
+description: Heti egyszeri, automatikus Windows karbantartas WSL alol: rendszerhibak es lassulasi okok atnezese, biztonsagos beepitett javito/tisztito lepesek, meghajto-optimalizalas, majd rovid riport.
 scope: global
 ---
+
+> Teljes leírás / Full description: Heti egyszeri, automatikus Windows karbantartas WSL alol: rendszerhibak es lassulasi okok atnezese, biztonsagos beepitett javito/tisztito lepesek, meghajto-optimalizalas, majd rovid riport. Kockazatos/admin/reboot lepes CSAK jovahagyassal. Trigger: heti scheduled task, vagy "windows karbantartas / gyorsitsd fel a gepet".
+
 # Weekly System Maintenance (Windows, WSL alol)
 
 ## Mikor használd

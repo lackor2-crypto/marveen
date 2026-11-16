@@ -1,8 +1,10 @@
 ---
 name: context-broker-work-dispatch
-description: Munkakiosztas kontextusgeneratorral. Akkor hasznald, ha egy feladatot at akarsz adni egy masik (jellemzoen dragabb) agensnek, ha TE kaptal egy munkacsomagot es kevesnek talalod, vagy ha te vagy a kijelolt kontextusgenerator. Megadja a szerepeket (Haiku = beszelgetes/utemezes/kontextus, Sonnet = normal kodolas, Opus = melyproblema), a haram TILOS szabalyt, a munkacsomag formatumat es a visszakerdezes utjat.
+description: Munkakiosztas kontextusgeneratorral. Akkor hasznald, ha egy feladatot at akarsz adni egy masik (jellemzoen dragabb) agensnek, ha TE kaptal egy munkacsomagot es kevesnek talalod, vagy ha te vagy a kijelolt ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Munkakiosztas kontextusgeneratorral. Akkor hasznald, ha egy feladatot at akarsz adni egy masik (jellemzoen dragabb) agensnek, ha TE kaptal egy munkacsomagot es kevesnek talalod, vagy ha te vagy a kijelolt kontextusgenerator. Megadja a szerepeket (Haiku = beszelgetes/utemezes/kontextus, Sonnet = normal kodolas, Opus = melyproblema), a haram TILOS szabalyt, a munkacsomag formatumat es a visszakerdezes utjat.
 
 # Munkakiosztás kontextusgenerátorral
 

@@ -1,8 +1,10 @@
 ---
 name: delegate-availability-check
-description: KÖTELEZŐ ellenőrzés munkaátadás előtt. Mielőtt bárkinek (sub-agensnek, flotta-tagnak) munkát adnál át, ELŐSZÖR ellenőrizd élő forrásból, hogy a címzett egyáltalán tud-e most dolgozni -- fut-e, be van-e jelentkezve, nincs-e kimerült keretnél. Ez az ELSŐ lépés, még a feladat megfogalmazása előtt, nem utólagos ellenőrzés.
+description: KÖTELEZŐ ellenőrzés munkaátadás előtt. Mielőtt bárkinek (sub-agensnek, flotta-tagnak) munkát adnál át, ELŐSZÖR ellenőrizd élő forrásból, hogy a címzett egyáltalán tud-e most dolgozni -- fut-e, be van-e jelentkezve ...
 scope: global
 ---
+
+> Teljes leírás / Full description: KÖTELEZŐ ellenőrzés munkaátadás előtt. Mielőtt bárkinek (sub-agensnek, flotta-tagnak) munkát adnál át, ELŐSZÖR ellenőrizd élő forrásból, hogy a címzett egyáltalán tud-e most dolgozni -- fut-e, be van-e jelentkezve, nincs-e kimerült keretnél. Ez az ELSŐ lépés, még a feladat megfogalmazása előtt, nem utólagos ellenőrzés.
 
 # Munka átadása előtt kötelező ellenőrizni: online-e a címzett
 

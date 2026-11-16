@@ -1,8 +1,11 @@
 ---
 name: workitem-upload-to-context
-description: Everything uploaded or attached to a work item (any folder, annex, debate, chat, folder next to the item) must be read out (OCR for images), analysed and its facts written into the item's context file. Use whenever a file arrives at a work item.
+description: Everything uploaded or attached to a work item (any folder, annex, debate, chat, folder next to the item) must be read out (OCR for images), analysed and its facts written into the item's context file.
 scope: global
 ---
+
+> Teljes leírás / Full description: Everything uploaded or attached to a work item (any folder, annex, debate, chat, folder next to the item) must be read out (OCR for images), analysed and its facts written into the item's context file. Use whenever a file arrives at a work item.
+
 # Feltöltött anyag -> kontextus (kötelező)
 
 ## Mikor használd

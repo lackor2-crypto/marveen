@@ -1,8 +1,10 @@
 ---
 name: kanban-card-creation
-description: KÖTELEZŐ eljárás minden új kanban kártya létrehozásakor -- címke nélküli kártya soha nem jöhet létre, és kapcsolódó kártyát mindig be kell linkelni. Trigger -- bármikor amikor POST /api/kanban-ot hívnál, vagy {{OWNER_NAME}} ad egy feladatot amit fel kell venni a táblára.
+description: KÖTELEZŐ eljárás minden új kanban kártya létrehozásakor -- címke nélküli kártya soha nem jöhet létre, és kapcsolódó kártyát mindig be kell linkelni.
 scope: global
 ---
+
+> Teljes leírás / Full description: KÖTELEZŐ eljárás minden új kanban kártya létrehozásakor -- címke nélküli kártya soha nem jöhet létre, és kapcsolódó kártyát mindig be kell linkelni. Trigger -- bármikor amikor POST /api/kanban-ot hívnál, vagy {{OWNER_NAME}} ad egy feladatot amit fel kell venni a táblára.
 
 # Kanban kártya létrehozása -- címke és kapcsolat KÖTELEZŐ
 

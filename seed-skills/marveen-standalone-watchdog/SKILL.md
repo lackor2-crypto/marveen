@@ -1,8 +1,11 @@
 ---
 name: marveen-standalone-watchdog
-description: Amikor {{OWNER_NAME}}-nak olyan figyelő/riasztó kell ami AKKOR IS működjön ha a fő agent session épp nem fut/haldoklik/menübe akadt -- pl. "szólj Telegramon ha X" úgy hogy ne a session sajat fordulojaban dőljön el. Trigger -- proaktív Telegram-riasztás, önálló systemd-timer watchdog, "akkor is szóljon ha lefagyok".
+description: Amikor {{OWNER_NAME}}-nak olyan figyelő/riasztó kell ami AKKOR IS működjön ha a fő agent session épp nem fut/haldoklik/menübe akadt -- pl. "szólj Telegramon ha X" úgy hogy ne a session sajat fordulojaban dőljön el.
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor {{OWNER_NAME}}-nak olyan figyelő/riasztó kell ami AKKOR IS működjön ha a fő agent session épp nem fut/haldoklik/menübe akadt -- pl. "szólj Telegramon ha X" úgy hogy ne a session sajat fordulojaban dőljön el. Trigger -- proaktív Telegram-riasztás, önálló systemd-timer watchdog, "akkor is szóljon ha lefagyok".
+
 # Önálló (session-független) watchdog Telegram-riasztáshoz
 
 ## Mikor használd

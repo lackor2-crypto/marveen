@@ -1,8 +1,11 @@
 ---
 name: fleet-wide-capability
-description: Use when adding, changing or debugging any agent capability (hook, skill, gate, tool wiring) so that EVERY agent gets it, not just the one you were working on. Triggers - "kosd be a hookot", "adj hozza egy hookot", "csak Marvinnal mukodik", "a sub-agensnel nem megy", installing a hook script, editing settings.json, or noticing two agents behave differently.
+description: Use when adding, changing or debugging any agent capability (hook, skill, gate, tool wiring) so that EVERY agent gets it, not just the one you were working on.
 scope: global
 ---
+
+> Teljes leírás / Full description: Use when adding, changing or debugging any agent capability (hook, skill, gate, tool wiring) so that EVERY agent gets it, not just the one you were working on. Triggers - "kosd be a hookot", "adj hozza egy hookot", "csak Marvinnal mukodik", "a sub-agensnel nem megy", installing a hook script, editing settings.json, or noticing two agents behave differently.
+
 # Fleet-wide capability (agens-paritás)
 
 ## Mikor használd

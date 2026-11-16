@@ -1,8 +1,10 @@
 ---
 name: telegram-voice-transcribe-fallback
-description: Bejovo Telegram hanguzenet (voice) atirasa, ha a sajat agens-mappa scripts/voice/venv-je hianyzik. Hasznald amikor egy attachment_kind="voice" uzenetet kell atirni, de a `scripts/voice/stt.sh <file_id>` "No such file or directory" hibat ad a venv/bin/python-ra.
+description: Bejovo Telegram hanguzenet (voice) atirasa, ha a sajat agens-mappa scripts/voice/venv-je hianyzik. Hasznald amikor egy attachment_kind="voice" uzenetet kell atirni, de a `scripts/voice/stt.sh <file_id>` "No such ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Bejovo Telegram hanguzenet (voice) atirasa, ha a sajat agens-mappa scripts/voice/venv-je hianyzik. Hasznald amikor egy attachment_kind="voice" uzenetet kell atirni, de a `scripts/voice/stt.sh <file_id>` "No such file or directory" hibat ad a venv/bin/python-ra.
 
 # Telegram hanguzenet atirasa -- venv fallback
 

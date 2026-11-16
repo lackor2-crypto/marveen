@@ -1,8 +1,11 @@
 ---
 name: workbench-assistant-workmode
-description: The Workbench assistant's Work mode sheet (Settings -> AI Workbench -> Work mode) and the machine placement check after an upload, a finalisation or a Life-tree move. Use when you work on a work item for the owner, when you want a lasting working rule, or when you change how the Workbench assistant behaves.
+description: The Workbench assistant's Work mode sheet (Settings -> AI Workbench -> Work mode) and the machine placement check after an upload, a finalisation or a Life-tree move.
 scope: global
 ---
+
+> Teljes leírás / Full description: The Workbench assistant's Work mode sheet (Settings -> AI Workbench -> Work mode) and the machine placement check after an upload, a finalisation or a Life-tree move. Use when you work on a work item for the owner, when you want a lasting working rule, or when you change how the Workbench assistant behaves.
+
 # A Munkapad-asszisztens munkamódja
 
 ## Mikor használd

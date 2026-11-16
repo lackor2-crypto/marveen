@@ -1,8 +1,10 @@
 ---
 name: cheap-model-delegation
-description: A fo-agens NEM vegezheti el sajat maga az olyan reszfeladatot, ami delegalhato gyengebb/olcsobb retegnek. Nem merlegeles, hanem kotelezettseg. Triggerel: barmilyen kulon-hatarolhato reszfeladat (review, elemzes, kutatas, egyszeru kodmodositas, ellenorzes) mielott sajat kontextusban vagy a legerosebb modellel inditanad el.
+description: A fo-agens NEM vegezheti el sajat maga az olyan reszfeladatot, ami delegalhato gyengebb/olcsobb retegnek. Nem merlegeles, hanem kotelezettseg.
 scope: global
 ---
+
+> Teljes leírás / Full description: A fo-agens NEM vegezheti el sajat maga az olyan reszfeladatot, ami delegalhato gyengebb/olcsobb retegnek. Nem merlegeles, hanem kotelezettseg. Triggerel: barmilyen kulon-hatarolhato reszfeladat (review, elemzes, kutatas, egyszeru kodmodositas, ellenorzes) mielott sajat kontextusban vagy a legerosebb modellel inditanad el.
 
 # Kötelező delegálás olcsóbb rétegnek
 

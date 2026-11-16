@@ -1,8 +1,10 @@
 ---
 name: debate-adversarial-crossexam
-description: Hogyan vezess egy VALÓDI, adverzariális multi-model vitáztatást (scripts/debate.mjs) egy komoly, valós tétű kérdésen -- nem csak "kérdezd meg N modellt egyszer, fogadd el a választ". Használd, ha {{OWNER_NAME}} egy valódi döntést/jogi kérdést/tényállást akar körbejáratni több AI-modellel, és explicit vitát kér ("vitáztassuk meg", "ne csak egy kör legyen", "mondj ellent nekik").
+description: Hogyan vezess egy VALÓDI, adverzariális multi-model vitáztatást (scripts/debate.mjs) egy komoly, valós tétű kérdésen -- nem csak "kérdezd meg N modellt egyszer, fogadd el a választ".
 scope: global
 ---
+
+> Teljes leírás / Full description: Hogyan vezess egy VALÓDI, adverzariális multi-model vitáztatást (scripts/debate.mjs) egy komoly, valós tétű kérdésen -- nem csak "kérdezd meg N modellt egyszer, fogadd el a választ". Használd, ha {{OWNER_NAME}} egy valódi döntést/jogi kérdést/tényállást akar körbejáratni több AI-modellel, és explicit vitát kér ("vitáztassuk meg", "ne csak egy kör legyen", "mondj ellent nekik").
 
 # Adverzariális vitáztatás -- ne csak kérdezz, mondj ellent
 

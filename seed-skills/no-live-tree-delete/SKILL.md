@@ -1,8 +1,11 @@
 ---
 name: no-live-tree-delete
-description: Az élő checkoutban (a fő munkafa, amiből a dashboard fut) TILOS törölni, áthelyezni, csonkítani. Használd minden törlő parancs (rm, unlink, mv, truncate, find -delete, git clean) előtt, és minden tesztnél, ami adatbázist vagy fájlt töröl. Törlés csak worktree-ben, ABSZOLÚT úttal.
+description: Az élő checkoutban (a fő munkafa, amiből a dashboard fut) TILOS törölni, áthelyezni, csonkítani. Használd minden törlő parancs (rm, unlink, mv, truncate, find -delete, git clean) előtt, és minden tesztnél, ami ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Az élő checkoutban (a fő munkafa, amiből a dashboard fut) TILOS törölni, áthelyezni, csonkítani. Használd minden törlő parancs (rm, unlink, mv, truncate, find -delete, git clean) előtt, és minden tesztnél, ami adatbázist vagy fájlt töröl. Törlés csak worktree-ben, ABSZOLÚT úttal.
+
 # Törlés az élő fában tilos
 
 ## Mikor használd

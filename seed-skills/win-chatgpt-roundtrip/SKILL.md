@@ -1,8 +1,10 @@
 ---
 name: win-chatgpt-roundtrip
-description: Amikor {{OWNER_NAME}} azt kéri, hogy egy szöveget (pl. egy kontextus fájlt) illessz be a már nyitott ChatGPT-fülbe a Chrome-ban, kérdezd meg a ChatGPT-t, és HOZD VISSZA a válaszát (olvasd el, foglald össze, írd a munkadarab kontextus fájljába). A teljes kör: fül megkeresése, beillesztés, küldés, a válasz megvárása, kimásolása a vágólapon át, és a takarítás. Ne állj meg a küldésnél: a válasz visszahozása a feladat része.
+description: Amikor {{OWNER_NAME}} azt kéri, hogy egy szöveget (pl. egy kontextus fájlt) illessz be a már nyitott ChatGPT-fülbe a Chrome-ban, kérdezd meg a ChatGPT-t, és HOZD VISSZA a válaszát (olvasd el, foglald össze, írd a ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor {{OWNER_NAME}} azt kéri, hogy egy szöveget (pl. egy kontextus fájlt) illessz be a már nyitott ChatGPT-fülbe a Chrome-ban, kérdezd meg a ChatGPT-t, és HOZD VISSZA a válaszát (olvasd el, foglald össze, írd a munkadarab kontextus fájljába). A teljes kör: fül megkeresése, beillesztés, küldés, a válasz megvárása, kimásolása a vágólapon át, és a takarítás. Ne állj meg a küldésnél: a válasz visszahozása a feladat része.
 
 # ChatGPT-kör a Windows Chrome-ban: beillesztés, kérdés, a válasz VISSZAHOZÁSA
 

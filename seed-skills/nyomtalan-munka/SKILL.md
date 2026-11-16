@@ -1,8 +1,10 @@
 ---
 name: nyomtalan-munka
-description: Az életfát nem szemeteljük tele. Semmilyen fájl ne keletkezzen magától; ami a fejlesztéshez ideiglenesen kell, azt a végén TÖRÖLD; a lezárt munka végén hatásvizsgálat + bugkeresés, majd AZONNAL commit és push. Minden fejlesztés elején és KÖTELEZŐEN a végén fusd át.
+description: Az életfát nem szemeteljük tele. Semmilyen fájl ne keletkezzen magától; ami a fejlesztéshez ideiglenesen kell, azt a végén TÖRÖLD; a lezárt munka végén hatásvizsgálat + bugkeresés, majd AZONNAL commit és push.
 scope: global
 ---
+
+> Teljes leírás / Full description: Az életfát nem szemeteljük tele. Semmilyen fájl ne keletkezzen magától; ami a fejlesztéshez ideiglenesen kell, azt a végén TÖRÖLD; a lezárt munka végén hatásvizsgálat + bugkeresés, majd AZONNAL commit és push. Minden fejlesztés elején és KÖTELEZŐEN a végén fusd át.
 
 # Nyomtalan munka — az életfát nem szemeteljük tele
 

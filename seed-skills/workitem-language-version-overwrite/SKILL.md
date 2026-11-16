@@ -1,8 +1,11 @@
 ---
 name: workitem-language-version-overwrite
-description: Re-translating a work item into a language that already has a version overwrites that version; it never creates a second work item for the same language next to the original. Use when translating, re-translating or creating a language version.
+description: Re-translating a work item into a language that already has a version overwrites that version; it never creates a second work item for the same language next to the original.
 scope: global
 ---
+
+> Teljes leírás / Full description: Re-translating a work item into a language that already has a version overwrites that version; it never creates a second work item for the same language next to the original. Use when translating, re-translating or creating a language version.
+
 # Újrafordításkor a meglévő nyelvi változatot írjuk felül
 
 ## Mikor használd

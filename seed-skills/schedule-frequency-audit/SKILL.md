@@ -1,8 +1,10 @@
 ---
 name: schedule-frequency-audit
-description: {{OWNER_NAME}} arra kér, hogy nézd át/ritkítsd az ütemezett feladatokat (~/.claude/scheduled-tasks/), mert sok/gyakori automatizálás fut, vagy session-limitbe ütköztünk. Feltárja a leírás-vs-cron eltéréseket és a duplikált gyakoriságokat.
+description: {{OWNER_NAME}} arra kér, hogy nézd át/ritkítsd az ütemezett feladatokat (~/.claude/scheduled-tasks/), mert sok/gyakori automatizálás fut, vagy session-limitbe ütköztünk.
 scope: global
 ---
+
+> Teljes leírás / Full description: {{OWNER_NAME}} arra kér, hogy nézd át/ritkítsd az ütemezett feladatokat (~/.claude/scheduled-tasks/), mert sok/gyakori automatizálás fut, vagy session-limitbe ütköztünk. Feltárja a leírás-vs-cron eltéréseket és a duplikált gyakoriságokat.
 
 # Ütemezett feladatok gyakoriság-audit
 

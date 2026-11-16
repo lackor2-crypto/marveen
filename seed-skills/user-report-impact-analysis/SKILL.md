@@ -1,8 +1,11 @@
 ---
 name: user-report-impact-analysis
-description: Use the moment the user reports a symptom ("X doesn't work", "it shows the wrong number", "still Y after Ctrl-Shift-R"). Treat the report as fact, then run a mandatory end-to-end impact analysis and deep bug hunt. Never close a report as "works as intended" without investigating.
+description: Use the moment the user reports a symptom ("X doesn't work", "it shows the wrong number", "still Y after Ctrl-Shift-R"). Treat the report as fact, then run a mandatory end-to-end impact analysis and deep bug hunt.
 scope: global
 ---
+
+> Teljes leírás / Full description: Use the moment the user reports a symptom ("X doesn't work", "it shows the wrong number", "still Y after Ctrl-Shift-R"). Treat the report as fact, then run a mandatory end-to-end impact analysis and deep bug hunt. Never close a report as "works as intended" without investigating.
+
 # User report -> impact analysis + bug hunt
 
 ## When to use

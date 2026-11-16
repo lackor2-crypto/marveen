@@ -1,8 +1,10 @@
 ---
 name: bake-in-wizard-selfcheck
-description: KÖTELEZŐ minden Marveen- és Iroda-fejlesztésnél, ami új képességet, külső szolgáltatást (API-kulcs, token, fiók), telepítendő programot vagy beállítást hoz be. A fejlesztés kizárólag a Marveenbe beégetve, globálisan készül (friss telepítésen is ott van), és ugyanabban a munkában bekerül a Beállítások → Varázslóba ÉS az Áttekintés önellenőrzésébe. Trigger -- új API-kulcs vagy token, új integráció (kép-, videó-, hanggenerálás, keresés, felhő), új telepítendő program, új beállítás a config-registry-ben, vagy a kérdés "benne van-e a varázslóban / az önellenőrzésben?".
+description: KÖTELEZŐ minden Marveen- és Iroda-fejlesztésnél, ami új képességet, külső szolgáltatást (API-kulcs, token, fiók), telepítendő programot vagy beállítást hoz be.
 scope: global
 ---
+
+> Teljes leírás / Full description: KÖTELEZŐ minden Marveen- és Iroda-fejlesztésnél, ami új képességet, külső szolgáltatást (API-kulcs, token, fiók), telepítendő programot vagy beállítást hoz be. A fejlesztés kizárólag a Marveenbe beégetve, globálisan készül (friss telepítésen is ott van), és ugyanabban a munkában bekerül a Beállítások → Varázslóba ÉS az Áttekintés önellenőrzésébe. Trigger -- új API-kulcs vagy token, új integráció (kép-, videó-, hanggenerálás, keresés, felhő), új telepítendő program, új beállítás a config-registry-ben, vagy a kérdés "benne van-e a varázslóban / az önellenőrzésben?".
 
 # BEÉGETVE, VARÁZSLÓBAN, ÖNELLENŐRZÉSBEN
 

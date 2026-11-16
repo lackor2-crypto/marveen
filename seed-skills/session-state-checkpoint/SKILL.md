@@ -1,8 +1,11 @@
 ---
 name: session-state-checkpoint
-description: Mentsd ki a munkád strukturált állapotát MIELŐTT a kontextus elveszik. Használd task-határon (funkció kész, teszt zöld, commit megvan), hosszú feladat közben félidőben, és MINDIG mielőtt /clear-t vagy /compact-ot kérnél vagy elfogadnál. Trigger: "tisztítsd a kontextust", "tömörítés", commit után, több órás feladat, vagy ha a kontextusod a küszöb közelébe ér.
+description: Mentsd ki a munkád strukturált állapotát MIELŐTT a kontextus elveszik. Használd task-határon (funkció kész, teszt zöld, commit megvan), hosszú feladat közben félidőben, és MINDIG mielőtt /clear-t vagy /compact-ot ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Mentsd ki a munkád strukturált állapotát MIELŐTT a kontextus elveszik. Használd task-határon (funkció kész, teszt zöld, commit megvan), hosszú feladat közben félidőben, és MINDIG mielőtt /clear-t vagy /compact-ot kérnél vagy elfogadnál. Trigger: "tisztítsd a kontextust", "tömörítés", commit után, több órás feladat, vagy ha a kontextusod a küszöb közelébe ér.
+
 # Munkamenet-állapot checkpoint
 
 ## Mikor használd

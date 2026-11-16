@@ -1,8 +1,10 @@
 ---
 name: ask-back-when-ambiguous
-description: KÖTELEZŐ visszakérdezés. Ha egy utasításnak egynél több értelme van, vissza KELL kérdezned, MÉG AKKOR IS, ha érted és ki tudnád találni, melyiket akarta. Minden feladat elején fusd át; minden törlés, küldés, átállítás, pénzmozgás és tömeges művelet előtt kötelező.
+description: KÖTELEZŐ visszakérdezés. Ha egy utasításnak egynél több értelme van, vissza KELL kérdezned, MÉG AKKOR IS, ha érted és ki tudnád találni, melyiket akarta.
 scope: global
 ---
+
+> Teljes leírás / Full description: KÖTELEZŐ visszakérdezés. Ha egy utasításnak egynél több értelme van, vissza KELL kérdezned, MÉG AKKOR IS, ha érted és ki tudnád találni, melyiket akarta. Minden feladat elején fusd át; minden törlés, küldés, átállítás, pénzmozgás és tömeges művelet előtt kötelező.
 
 # Kötelező visszakérdezés kétértelműségnél
 

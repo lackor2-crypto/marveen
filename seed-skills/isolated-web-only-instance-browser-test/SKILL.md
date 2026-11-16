@@ -1,8 +1,10 @@
 ---
 name: isolated-web-only-instance-browser-test
-description: Fejlesztett dashboard-funkció kipróbálása böngészőben (Playwright) egy KÜLÖN, üres adatú web-only példányon, az élő rendszer érintése nélkül. Akkor használd, ha egy ellenőrzés "böngészős próbát" kér, vagy egy UI-funkciót valódi oldalon kell végigvinni.
+description: Fejlesztett dashboard-funkció kipróbálása böngészőben (Playwright) egy KÜLÖN, üres adatú web-only példányon, az élő rendszer érintése nélkül.
 scope: global
 ---
+
+> Teljes leírás / Full description: Fejlesztett dashboard-funkció kipróbálása böngészőben (Playwright) egy KÜLÖN, üres adatú web-only példányon, az élő rendszer érintése nélkül. Akkor használd, ha egy ellenőrzés "böngészős próbát" kér, vagy egy UI-funkciót valódi oldalon kell végigvinni.
 
 # Böngészős próba külön, üres példányon
 

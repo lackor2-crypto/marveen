@@ -1,8 +1,10 @@
 ---
 name: windows-desktop-input
-description: Valódi kattintás + gépelés + Enter szimulálása egy Windows desktop-appban (pl. WhatsApp Desktop üzenetküldés) WSL-ből, Task Scheduler Interactive-mintával. KOCKÁZATOSABB mint a windows-desktop-screenshot skill -- ez ténylegesen KÜLDHET/MÓDOSÍTHAT valamit, harmadik fél felé is látható lehet (pl. egy WhatsApp-kontaktnak). Csak akkor használd, ha {{OWNER_NAME}} explicit engedélyezte az adott konkrét küldést/kattintást.
+description: Valódi kattintás + gépelés + Enter szimulálása egy Windows desktop-appban (pl. WhatsApp Desktop üzenetküldés) WSL-ből, Task Scheduler Interactive-mintával.
 scope: global
 ---
+
+> Teljes leírás / Full description: Valódi kattintás + gépelés + Enter szimulálása egy Windows desktop-appban (pl. WhatsApp Desktop üzenetküldés) WSL-ből, Task Scheduler Interactive-mintával. KOCKÁZATOSABB mint a windows-desktop-screenshot skill -- ez ténylegesen KÜLDHET/MÓDOSÍTHAT valamit, harmadik fél felé is látható lehet (pl. egy WhatsApp-kontaktnak). Csak akkor használd, ha {{OWNER_NAME}} explicit engedélyezte az adott konkrét küldést/kattintást.
 
 # Windows desktop input (kattintás + gépelés) WSL-ből
 

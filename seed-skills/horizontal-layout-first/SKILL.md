@@ -1,8 +1,10 @@
 ---
 name: horizontal-layout-first
-description: Felület építésekor (menü, panel, gombsor, munkadarab-nézet) vízszintesen gondolkodj: a dokumentum/tartalom a lehető legfeljebb kezdődjön, ne tolja le egy külön sor, fejléc vagy kapcsoló. Használd minden dashboard/Munkapad UI-munkánál.
+description: Felület építésekor (menü, panel, gombsor, munkadarab-nézet) vízszintesen gondolkodj: a dokumentum/tartalom a lehető legfeljebb kezdődjön, ne tolja le egy külön sor, fejléc vagy kapcsoló.
 scope: global
 ---
+
+> Teljes leírás / Full description: Felület építésekor (menü, panel, gombsor, munkadarab-nézet) vízszintesen gondolkodj: a dokumentum/tartalom a lehető legfeljebb kezdődjön, ne tolja le egy külön sor, fejléc vagy kapcsoló. Használd minden dashboard/Munkapad UI-munkánál.
 
 # Vízszintesen gondolkodj, ne függőlegesen
 

@@ -1,8 +1,10 @@
 ---
 name: letter-head-sender-recipient
-description: Bíróságnak, hivatalnak, hatóságnak szóló levél/beadvány/nyilatkozat (Munkapad munkadarab) MINDIG levélfejjel kezdődik - ablakos boríték fejjel: keretes Feladó jobbra fent, Címzett balra az ablak helyén, felirattal, hely+dátum, ügyszám/tárgy, megszólítás. Sima címsor nem elég.
+description: Bíróságnak, hivatalnak, hatóságnak szóló levél/beadvány/nyilatkozat (Munkapad munkadarab) MINDIG levélfejjel kezdődik - ablakos boríték fejjel: keretes Feladó jobbra fent, Címzett balra az ablak helyén, felirattal ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Bíróságnak, hivatalnak, hatóságnak szóló levél/beadvány/nyilatkozat (Munkapad munkadarab) MINDIG levélfejjel kezdődik - ablakos boríték fejjel: keretes Feladó jobbra fent, Címzett balra az ablak helyén, felirattal, hely+dátum, ügyszám/tárgy, megszólítás. Sima címsor nem elég.
 
 # Levélfej: feladó és címzett kiírva és keretezve
 

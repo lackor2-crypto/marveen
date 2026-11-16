@@ -1,8 +1,11 @@
 ---
 name: wsl-windows-claude-login-sync
-description: Amikor egy WSL alatt futó Claude Code ágens "hit limit"-en ragad, a gazda beloginol egy másik fiókkal, és az ágens mégsem indul újra. Vagy amikor login-állapotot kell szinkronban tartani WSL és Windows között. Trigger: "átloginoltam és mégis limit", "PowerShellből is lehessen loginolni", credential sync, /mnt/c fájlfigyelés.
+description: Amikor egy WSL alatt futó Claude Code ágens "hit limit"-en ragad, a gazda beloginol egy másik fiókkal, és az ágens mégsem indul újra. Vagy amikor login-állapotot kell szinkronban tartani WSL és Windows között.
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor egy WSL alatt futó Claude Code ágens "hit limit"-en ragad, a gazda beloginol egy másik fiókkal, és az ágens mégsem indul újra. Vagy amikor login-állapotot kell szinkronban tartani WSL és Windows között. Trigger: "átloginoltam és mégis limit", "PowerShellből is lehessen loginolni", credential sync, /mnt/c fájlfigyelés.
+
 # WSL <-> Windows Claude login szinkron
 
 ## Mikor használd

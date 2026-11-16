@@ -1,8 +1,10 @@
 ---
 name: card-reference-by-number
-description: Amikor kanban kártyát nevezel meg (Telegram, komment, commit, PR, jelentés, másik ágensnek küldött üzenet), MINDIG a kártya sorszámát írd (#369), ne a 8 karakteres belső azonosítót. A tulajdonos a táblán a sorszámot látja.
+description: Amikor kanban kártyát nevezel meg (Telegram, komment, commit, PR, jelentés, másik ágensnek küldött üzenet), MINDIG a kártya sorszámát írd (#369), ne a 8 karakteres belső azonosítót.
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor kanban kártyát nevezel meg (Telegram, komment, commit, PR, jelentés, másik ágensnek küldött üzenet), MINDIG a kártya sorszámát írd (#369), ne a 8 karakteres belső azonosítót. A tulajdonos a táblán a sorszámot látja.
 
 # Kártyára mindig a sorszámával hivatkozz (#N)
 

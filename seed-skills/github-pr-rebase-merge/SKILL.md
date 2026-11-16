@@ -1,8 +1,10 @@
 ---
 name: github-pr-rebase-merge
-description: Merge a stack of GitHub PRs sequentially when they share files and will cause cascading conflicts. Triggers when user says "merge the PRs sorban" or similar, and the PRs come from external forks (cannot push back to PR branch).
+description: Merge a stack of GitHub PRs sequentially when they share files and will cause cascading conflicts. Triggers when user says "merge the PRs sorban" or similar, and the PRs come from external forks (cannot push back to ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Merge a stack of GitHub PRs sequentially when they share files and will cause cascading conflicts. Triggers when user says "merge the PRs sorban" or similar, and the PRs come from external forks (cannot push back to PR branch).
 
 # GitHub PR rebase + merge for conflicting fork PRs
 

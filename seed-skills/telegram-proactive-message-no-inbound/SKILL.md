@@ -1,8 +1,11 @@
 ---
 name: telegram-proactive-message-no-inbound
-description: Amikor Telegram-uzenetet kell kuldeni (pl. ebredes-koszones, proaktiv jelzes), de a session-ben NINCS inbound <channel source="telegram"> blokk, tehat nincs ismert chat_id a reply toolhoz. Trigger -- scheduled-task/heartbeat ebresztes utan az elso koszones, vagy barmilyen onindiitasu Telegram-uzenet, ahol nem valasz-e egy bejovo uzenetre.
+description: Amikor Telegram-uzenetet kell kuldeni (pl. ebredes-koszones, proaktiv jelzes), de a session-ben NINCS inbound <channel source="telegram"> blokk, tehat nincs ismert chat_id a reply toolhoz.
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor Telegram-uzenetet kell kuldeni (pl. ebredes-koszones, proaktiv jelzes), de a session-ben NINCS inbound <channel source="telegram"> blokk, tehat nincs ismert chat_id a reply toolhoz. Trigger -- scheduled-task/heartbeat ebresztes utan az elso koszones, vagy barmilyen onindiitasu Telegram-uzenet, ahol nem valasz-e egy bejovo uzenetre.
+
 # Telegram proaktiv uzenet inbound chat_id nelkul
 
 ## Mikor hasznald

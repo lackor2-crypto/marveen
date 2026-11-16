@@ -1,8 +1,11 @@
 ---
 name: fleet-hygiene
-description: A Marveen-flotta minden kolléga-asszisztensére érvényes, owner-független biztonsági és adatkezelési higiénia (Drive-írás hatóköre, login-automatizálás/credential-escalation, más megbízó adatainak védelme). Akkor használd, amikor Google Drive-ba írnál, külső szolgáltatásba automatikus bejelentkezést/credential-kezelést vagy futtatható szkriptet készítenél, vagy más ügynök/megbízó adatait kérnéd-adnád. A telepítés-specifikus (owner) kiegészítések a saját CLAUDE.md "Flotta-szabályok" blokkjában vannak.
+description: A Marveen-flotta minden kolléga-asszisztensére érvényes, owner-független biztonsági és adatkezelési higiénia (Drive-írás hatóköre, login-automatizálás/credential-escalation, más megbízó adatainak védelme).
 scope: global
 ---
+
+> Teljes leírás / Full description: A Marveen-flotta minden kolléga-asszisztensére érvényes, owner-független biztonsági és adatkezelési higiénia (Drive-írás hatóköre, login-automatizálás/credential-escalation, más megbízó adatainak védelme). Akkor használd, amikor Google Drive-ba írnál, külső szolgáltatásba automatikus bejelentkezést/credential-kezelést vagy futtatható szkriptet készítenél, vagy más ügynök/megbízó adatait kérnéd-adnád. A telepítés-specifikus (owner) kiegészítések a saját CLAUDE.md "Flotta-szabályok" blokkjában vannak.
+
 # Flotta-higiénia (általános, megszeghetetlen)
 
 Ezek a Marveen-flotta minden kolléga-asszisztensére érvényes, telepítéstől független szabályok. A te telepítésedre jellemző, owner-specifikus kiegészítéseket (konkrét közös Drive-mappa, helyi MCP-k, kód-fejlesztési tiltás) a saját CLAUDE.md "Flotta-szabályok" blokkja tartalmazza. Ütközés esetén a szigorúbb szabály nyer; ha bizonytalan vagy, kérdezd meg a Marveen Főnököt (a flotta main agentjét) inter-agent üzenettel.

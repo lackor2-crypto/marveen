@@ -1,8 +1,10 @@
 ---
 name: fresh-install-usable
-description: KÖTELEZŐ minden fejlesztésnél. Minden funkciót úgy kell megírni, hogy egy FRISSEN TELEPÍTETT Marveenben is végig lehessen csinálni a felületről — üres adatbázissal, a fejlesztő adatai nélkül, terminál és API-hívás nélkül. Használd, amikor bármilyen új funkciót, oldalt, mappaszerkezetet, integrációt vagy beállítást építesz, és akkor is, amikor egy meglévőt bővítesz.
+description: KÖTELEZŐ minden fejlesztésnél. Minden funkciót úgy kell megírni, hogy egy FRISSEN TELEPÍTETT Marveenben is végig lehessen csinálni a felületről — üres adatbázissal, a fejlesztő adatai nélkül, terminál és API-hívás ...
 scope: global
 ---
+
+> Teljes leírás / Full description: KÖTELEZŐ minden fejlesztésnél. Minden funkciót úgy kell megírni, hogy egy FRISSEN TELEPÍTETT Marveenben is végig lehessen csinálni a felületről — üres adatbázissal, a fejlesztő adatai nélkül, terminál és API-hívás nélkül. Használd, amikor bármilyen új funkciót, oldalt, mappaszerkezetet, integrációt vagy beállítást építesz, és akkor is, amikor egy meglévőt bővítesz.
 
 # FRISSEN TELEPÍTETT MARVEENBEN IS MŰKÖDJÖN
 
