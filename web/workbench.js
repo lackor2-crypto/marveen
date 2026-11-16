@@ -11249,6 +11249,12 @@
     var g = finalTargetFor(WB.selectedId)
     return g ? g.id : WB.selectedId
   }
+  /** #870: the draft PDF of the OPEN item with its review mark (never the chosen language version's). */
+  function openItemReviewHref() {
+    var h = (WB.detail && WB.detail.outline && WB.detail.outline.content_hash) || ''
+    return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/outline/pdf?lang=' + encodeURIComponent(window._lang || 'hu')
+      + (h ? '&review=' + encodeURIComponent(h) : '')
+  }
   /** #794 (Boss, TG 3326): the language of the document that is opened, finalized and attached to the mail is the
    *  owner's choice, never the program's. Every language version is its own work item, so the choice lists this item
    *  and its siblings. Returns [] when there is only one language (nothing to choose). */
@@ -11623,8 +11629,8 @@
       var rvOpts = finalLangOptions(WB.detail && WB.detail.outline)
       if (rvOpts.length > 1 && ev) {
         ev.preventDefault()
-        var rvHref = act.getAttribute('href')
-        pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { WB.finalTarget = null; WB.docAccept = null; WB.docOverride = null; render(); var rvTab = null; try { rvTab = window.open('', '_blank') } catch (_e) { rvTab = null } openAuthed(rvHref, 'draft.pdf', false, rvTab); watchReview() }, selectFinalTarget)
+        // #870: the button's own href may point at an earlier chosen language version; "this one" always means the open item.
+        pickFinalLang(rvOpts, 'workbench.finalpick.purpose_open', function () { WB.finalTarget = null; WB.docAccept = null; WB.docOverride = null; render(); var rvTab = null; try { rvTab = window.open('', '_blank') } catch (_e) { rvTab = null } openAuthed(openItemReviewHref(), 'draft.pdf', false, rvTab); watchReview() }, selectFinalTarget)
         return
       }
       watchReview()

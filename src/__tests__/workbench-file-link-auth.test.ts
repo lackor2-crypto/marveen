@@ -16,7 +16,7 @@ describe('Workbench file links open through an authenticated fetch', () => {
     expect(js).not.toContain("window.open(a.getAttribute('href'), '_blank', 'noopener')")
   })
   it('the draft-PDF language pick and the language switch open the PDF through openAuthed, never a bare window.open of the link', () => {
-    expect(js).toContain("openAuthed(rvHref, 'draft.pdf', false, rvTab)")
+    expect(js).toContain("openAuthed(openItemReviewHref(), 'draft.pdf', false, rvTab)")
     expect(js).not.toContain("window.open(rvHref, '_blank', 'noopener')")
     expect(js).not.toContain("else window.open(href, '_blank', 'noopener')")
   })

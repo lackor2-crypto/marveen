@@ -27,4 +27,15 @@ describe('review confirmation box stays in sync with the recorded review', () =>
     expect(acc).not.toMatch(/WB\.detail && WB\.detail\.outline\n\s+WB\.docAccept/)
     expect(src).toContain('selectFinalTarget')
   })
+  // #870 follow-up: after another language was chosen, the review button's href points at THAT item (and its hash). Picking
+  // "this one" in the next dialog must open the PDF of the open item with the open item's hash, not the captured stale href.
+  it('choosing the open item again opens the open item review PDF, not the href of an earlier chosen language', () => {
+    const branch = src.slice(src.indexOf("a === 'outline-review'"), src.indexOf("a === 'outline-accept'"))
+    expect(branch).not.toContain("act.getAttribute('href')")
+    expect(src).toContain('function openItemReviewHref()')
+    const fn = src.slice(src.indexOf('function openItemReviewHref()'), src.indexOf('function openItemReviewHref()') + 600)
+    expect(fn).toContain('WB.selectedId')
+    expect(fn).toContain('WB.detail.outline.content_hash')
+    expect(branch).toContain('openItemReviewHref()')
+  })
 })
