@@ -123,7 +123,7 @@ describe('the sending block is burnt into Marveen (wiring)', () => {
   it('the e-mail panel takes recipient, subject and text from the block', () => {
     const s = src('workbench-maildraft.ts')
     expect(s).toContain('sendBlockRecipient(item)')
-    expect(s).toContain("sendTextFor(readSendDetails(item), sendLang(item), 'subject')")
-    expect(s).toContain("sendTextFor(readSendDetails(item), lang, 'body')")
+    expect(s).toContain("sendTextFor(readSendDetails(item), sendLang(item), 'subject', sendTextOpts(item))")
+    expect(s).toContain("sendTextFor(readSendDetails(item), lang, 'body', sendTextOpts(item))")
   })
 })

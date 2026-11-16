@@ -219,6 +219,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   maildraft_bad_input: { hu: 'A címzett vagy a másolatot kapó nem érvényes e-mail-cím, vagy a tárgy / a szöveg túl hosszú. Több címet vesszővel válassz el.', en: 'The recipient or the copy address is not a valid e-mail address, or the subject / text is too long. Separate several addresses with a comma.' },
   maildraft_own_address: { hu: 'Ez a cím a saját e-mail fiókjaid egyike, ezért nem lehet címzett vagy másolatot kapó. Írd be annak a címét, akinek a levél szól.', en: 'This address belongs to one of your own mail accounts, so it cannot be the recipient or a copy. Enter the address of the person the letter is for.' },
   maildraft_final_required: { hu: 'A levélpiszkozat a végleges PDF elkészülte után készülhet el, és a végleges PDF nyelvén íródik. Előbb készítsd el a Végleges PDF-et.', en: 'The e-mail draft can only be made after the final PDF exists, and it is written in the language of that PDF. Make the final PDF first.' },
+  maildraft_language_mismatch: { hu: 'Az e-mail tárgya vagy szövege nem a levél nyelvén íródott. Az e-mail mindig a levél nyelvén megy (német levélhez német, magyarhoz magyar, angolhoz angol tárgy és szöveg). Írd át a tárgyat és a szöveget a levél nyelvére, vagy töröld ki őket: akkor a rendszer a levél nyelvén tölti ki.', en: 'The e-mail subject or text is not in the language of the letter. The e-mail always goes in the letter\'s language (a German letter gets a German subject and text, a Hungarian one a Hungarian one, an English one an English one). Rewrite the subject and text in the letter\'s language, or clear them: the system then fills them in the letter\'s language.' },
   maildraft_no_draft: { hu: 'Előbb készítsd el a levélpiszkozatot (Levélpiszkozat készítése).', en: 'Make the e-mail draft first.' },
   maildraft_no_account: { hu: 'Válaszd ki a feladót (melyik e-mail fiókból menjen a levél), és mentsd a piszkozatot.', en: 'Choose the sender (which e-mail account the message goes from), and save the draft.' },
   maildraft_save_failed: { hu: 'Nem sikerült a fiók Piszkozatok mappájába tenni a levelet. A pontos ok a részletekben van.', en: 'The message could not be put into the account Drafts folder. The exact reason is in the details.' },
@@ -4743,6 +4744,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         if (r.code === 'bad_input') return failDetail(res, 400, 'maildraft_bad_input', lang, r.detail)
         if (r.code === 'final_required') return fail(res, 409, 'maildraft_final_required', lang)
         if (r.code === 'own_address') return failDetail(res, 400, 'maildraft_own_address', lang, r.detail)
+        if (r.code === 'mail_language_mismatch') return failDetail(res, 400, 'maildraft_language_mismatch', lang, r.detail)
         if (r.code === 'no_folder' || r.code === 'write_failed') return failDetail(res, r.code === 'no_folder' ? 409 : 500, 'maildraft_' + r.code, lang, r.detail)
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }

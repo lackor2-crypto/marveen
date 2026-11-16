@@ -7,10 +7,12 @@ import { hasDocModel, listBlocks } from './workbench-docmodel.js'
 export type LetterLang = 'hu' | 'en' | 'de'
 
 // Whole-word markers of each language; the language of the TEXT is the one with the most hits.
+// Unicode-aware word edges: a plain \b does not see an accented letter (é, ő, ü) as a letter, so "és" or "für" never matched.
+const W = (words: string): RegExp => new RegExp(`(?<![\\p{L}])(?:${words})(?![\\p{L}])`, 'giu')
 const LANG_WORDS: Record<LetterLang, RegExp> = {
-  de: /\b(der|die|das|und|nicht|ich|sie|bitte|mit|für|von|zu|ist|ein|eine|auf|dem|den|bezüglich|sehr|geehrte)\b/gi,
-  hu: /\b(és|hogy|nem|egy|az|vagy|van|meg|kérem|tisztelt|szeretném|mert|volt|ezt)\b/gi,
-  en: /\b(the|and|of|to|is|for|with|that|this|please|dear|was|are|have)\b/gi,
+  de: W('der|die|das|und|nicht|ich|sie|bitte|mit|für|von|zu|ist|ein|eine|auf|dem|den|bezüglich|sehr|geehrte|anbei|ihnen|ihre|ihrer|wir|dass|auch|oder|werden|wird|freundlichen|grüßen|schreiben|hilfe|sache'),
+  hu: W('és|hogy|nem|egy|az|vagy|van|meg|kérem|tisztelt|szeretném|mert|volt|ezt|mellékelten|levelemet|levelet|köszönöm|előre|tisztelettel|kérek|segítséget|ügyemben|amelyben|vagyok|szeretnék|továbbítsa|szíves'),
+  en: W('the|and|of|to|is|for|with|that|this|please|dear|was|are|have|you|your|attached|kindly|regards|sincerely'),
 }
 
 /** The language a text is written in, null when it cannot be told (too little text). */
