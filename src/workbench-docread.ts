@@ -27,7 +27,7 @@
  */
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import { getDb } from './db.js'
@@ -312,8 +312,24 @@ async function processDocument(abs: string, name: string, sha: string, kind: Doc
 let queue: Promise<unknown> = Promise.resolve()
 const inFlight = new Map<string, Promise<void>>()
 
+// #929: a hash a MAIN szalon fut, es a teljes fajl beolvasasa a Windows-lemezrol (9p) tobb masodpercig
+// allhat (merve: 2,7 s a closeSync-ben, tetlen gepen). A forras-ellenorzes minden idezetnel minden iratot
+// ujra hash-elt, ezert a lenyomatot (utvonal + meret + modositasi ido) megjegyezzuk; csak valtozaskor olvasunk ujra.
+const SHA_CACHE_MAX = 500
+const shaCache = new Map<string, { size: number; mtimeMs: number; sha: string }>()
+
 export function sha256OfFile(abs: string): string {
-  return createHash('sha256').update(readFileSync(abs)).digest('hex')
+  let size = -1
+  let mtimeMs = -1
+  try { const st = statSync(abs); size = st.size; mtimeMs = st.mtimeMs } catch { /* nincs stat: nem cache-elunk */ }
+  const hit = size >= 0 ? shaCache.get(abs) : undefined
+  if (hit && hit.size === size && hit.mtimeMs === mtimeMs) return hit.sha
+  const sha = createHash('sha256').update(readFileSync(abs)).digest('hex')
+  if (size >= 0) {
+    if (shaCache.size >= SHA_CACHE_MAX) shaCache.delete(shaCache.keys().next().value as string)
+    shaCache.set(abs, { size, mtimeMs, sha })
+  }
+  return sha
 }
 
 export type StartOutcome =
