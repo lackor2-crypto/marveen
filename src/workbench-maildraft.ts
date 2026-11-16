@@ -21,7 +21,7 @@ import { getDb } from './db.js'
 import { currentOwnerName, OWNER_NAME_PLACEHOLDER } from './config.js'
 import { getProject } from './projects.js'
 import { readItemContext, readSendDetails } from './workbench-item-context.js'
-import { sendEmailOf, sendTextFor } from './workbench-send-block.js'
+import { sendEmailOf, sendTextFor, type SendTextOptions } from './workbench-send-block.js'
 import { finishedFolderFor, freeFileName, projectFileTarget } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
@@ -144,16 +144,37 @@ function sendLang(item: WorkItemRow): DocLang | null {
   try { return variantOf(item.id) ? docLangFor(item, 'hu') : textLanguageOf(item) } catch { return null }
 }
 
+/**
+ * Boss 2026-11-16 (the language lock): the options that keep a plain line of the sending block, written in ANOTHER language,
+ * out of this letter's mail. A language version (a translation) shares its original's context file, whose plain subject / text
+ * is in the ORIGINAL's language, so a version takes only a line recognised as its own language.
+ */
+function sendTextOpts(item: WorkItemRow): SendTextOptions {
+  let strict = false
+  try { strict = !!variantOf(item.id) } catch { /* not a version */ }
+  return { detect: detectTextLanguage, strict }
+}
+
+/**
+ * Boss 2026-11-16: the mail text (subject or body) is in the language of the letter -- always. True when `text` is not
+ * positively recognised as another language than `lang` (a short or mixed text that cannot be told passes; the lock is only for
+ * a text that is clearly written in the wrong language).
+ */
+export function mailTextFitsLanguage(text: string, lang: DocLang): boolean {
+  const said = detectTextLanguage(text)
+  return !said || said === lang
+}
+
 export function mailSubject(item: WorkItemRow): string {
   // Boss 2026-11-14: the "Sending details" block at the top of the context file names the mail's subject; the letter's own subject line is the fallback.
-  try { const b = sendTextFor(readSendDetails(item), sendLang(item), 'subject'); if (b) return b } catch { /* no context file */ }
+  try { const b = sendTextFor(readSendDetails(item), sendLang(item), 'subject', sendTextOpts(item)); if (b) return b } catch { /* no context file */ }
   if (hasDocModel(item.id)) return letterSubject(item.id)
   return hasDocxFinalPanel(item) ? subjectFromLines(docxParagraphs(item)) : ''
 }
 
 export function defaultMailBody(item: WorkItemRow, lang: DocLang, annexCount: number): string {
   // The covering text written into the "Sending details" block (in the mail's language) wins over the generic default.
-  try { const b = sendTextFor(readSendDetails(item), lang, 'body'); if (b) return b } catch { /* no context file */ }
+  try { const b = sendTextFor(readSendDetails(item), lang, 'body', sendTextOpts(item)); if (b) return b } catch { /* no context file */ }
   // #794 (Boss TG 4081): the closing name is the one the LETTER carries (its signatory), never the dashboard owner's nickname.
   return (DEFAULT_BODY[lang] || DEFAULT_BODY.en)(mailSubject(item), annexCount, hasDocModel(item.id) ? letterSignatory(item.id) : '')
 }
@@ -658,6 +679,11 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   const bodyRaw = input.body === undefined ? (prev ? shownBody(item, prev.body) : '') : String(input.body)
   if (bodyRaw.length > TEXT_MAX) return { ok: false, code: 'bad_input', detail: 'body' }
   const body = bodyRaw.trim() ? bodyRaw : defaultMailBody(item, lang, listAnnexes(item.id).length)
+  // Boss 2026-11-16 (the language lock): the mail is in the language of the letter, never another. A subject or text clearly written in
+  // another language is refused here, whoever wrote it (the page, the agent, an old stored row), so it can never go out.
+  for (const [what, text] of [['subject', subject], ['body', body]] as const) {
+    if (!mailTextFitsLanguage(text, lang)) return { ok: false, code: 'mail_language_mismatch', detail: `${what}:${detectTextLanguage(text) ?? '?'}->${lang}` }
+  }
 
   const made = await collectAttachments(item, ui)
   if (!made.ok) return made

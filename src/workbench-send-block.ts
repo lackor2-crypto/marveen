@@ -71,12 +71,34 @@ export function parseSendDetails(text: string): SendDetails | null {
 
 const isPlaceholder = (v: string): boolean => /^\(.*\)$/.test(v.trim())
 
-/** The subject / body for a letter language: its own line when there is one, else the plain line. '' when nothing is filled. */
-export function sendTextFor(d: SendDetails | null, lang: string | null | undefined, key: 'subject' | 'body'): string {
+export interface SendTextOptions {
+  /** Tells the language a text is written in (null when it cannot be told). With it the PLAIN (language-less) line is never taken for a letter of another language. */
+  detect?: (text: string) => string | null
+  /**
+   * The letter is a LANGUAGE VERSION (a translation): the plain line of the block belongs to the ORIGINAL's language, so it is taken
+   * only when its text is positively recognised as the version's own language (an undetectable short line is NOT assumed to fit).
+   */
+  strict?: boolean
+}
+
+/**
+ * The subject / body for a letter language: its own line when there is one, else the plain line -- but only when the plain line is
+ * not in ANOTHER language (Boss 2026-11-16: a German letter's e-mail opened with the Hungarian subject and text of its original,
+ * because the language versions share one context file and the plain line was Hungarian). '' when nothing fits.
+ */
+export function sendTextFor(d: SendDetails | null, lang: string | null | undefined, key: 'subject' | 'body', opts: SendTextOptions = {}): string {
   if (!d) return ''
-  const own = lang ? d.byLang[lang.toLowerCase()]?.[key] : ''
-  let v = (own || d[key] || '').trim()
-  if (isPlaceholder(v)) v = '' // the empty plain line of the block reads "(not filled in yet)": that is no text
+  const own = lang ? (d.byLang[lang.toLowerCase()]?.[key] ?? '').trim() : ''
+  let v = own
+  if (!v || isPlaceholder(v)) {
+    v = (d[key] || '').trim()
+    if (isPlaceholder(v)) v = '' // the empty plain line of the block reads "(not filled in yet)": that is no text
+    if (v && lang && opts.detect) {
+      const said = opts.detect(v)
+      const want = lang.toLowerCase()
+      if (said ? said !== want : !!opts.strict) v = '' // the plain line is in another language: never used for this letter
+    }
+  }
   // The letter's language is unknown (no detectable text yet) and there is no plain line: when the block holds exactly ONE
   // language's text, that is the one the agent wrote for this letter; never lose it just because the language could not be told.
   if (!v && !lang) {
