@@ -744,6 +744,10 @@ export async function saveDraftToMailbox(item: WorkItemRow, ui: 'hu' | 'en'): Pr
   const row = getRow(item.id)
   if (!row) return { ok: false, code: 'no_draft', detail: null }
   if (!row.from_account) return { ok: false, code: 'no_account', detail: null }
+  // #871: a row stored before the own-address rule (or by any other way) is refused here too, not only when it is saved.
+  const own = ownMailAddresses()
+  const ownHit = [...row.to_addr.split(/[,;\s]+/), ...row.cc_addr.split(/[,;\s]+/)].find((a) => a && own.has(a.toLowerCase()))
+  if (ownHit) return { ok: false, code: 'own_address', detail: ownHit }
   const made = await collectAttachments(item, ui)
   if (!made.ok) return made
   const work = mkdtempSync(join(tmpdir(), 'marveen-maildraft-'))

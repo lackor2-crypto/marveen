@@ -4755,6 +4755,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const r = await saveDraftToMailbox(item, lang)
       if (!r.ok) {
         if (r.code === 'docx_mail_no_pdf' || r.code === 'pdf_mail_no_file') return fail(res, 409, r.code, lang)
+        if (r.code === 'own_address') return failDetail(res, 400, 'maildraft_own_address', lang, r.detail)
         if (r.code === 'no_draft' || r.code === 'no_account' || r.code === 'save_failed') return failDetail(res, r.code === 'save_failed' ? 502 : 409, 'maildraft_' + r.code, lang, r.detail)
         return docPdfFail(res, r.code, lang, r.detail, r.label)
       }
