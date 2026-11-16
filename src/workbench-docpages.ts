@@ -123,6 +123,10 @@ export async function pdfPageTexts(pdf: Buffer): Promise<{ ok: true; pages: stri
 
 /** Where the pages of the draft PDF begin, in terms of the document's own chapters and blocks. */
 export async function pageBreaksFor(item: WorkItemRow, lang: 'hu' | 'en'): Promise<PageBreaksResult> {
+  // #852: the lines are measured on the SAME drawing as the draft PDF, which measures the page fit first (renderDraft); without
+  // this a language version with no / stale fit was measured loose, and a signature the real PDF keeps on its page showed
+  // on the next one in the sheet (or the other way round).
+  await ensureFitFor(item, lang)
   const outline = renderInputFor(item, true)
   const r = await renderOutlinePdf(outline, { title: docMetaTitle(item, lang), author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
   if (!r.ok) return { ok: false, code: r.code, detail: r.detail }
