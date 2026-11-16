@@ -43,9 +43,10 @@ export function fitOf(itemId: string): FitRow | null {
   return (getDb().prepare('SELECT * FROM wb_doc_fit WHERE work_item_id = ?').get(itemId) as FitRow | undefined) ?? null
 }
 
-export function fitLevelFor(itemId: string): number {
+/** The stored step, but only when it was measured on exactly these texts (`hash`): a step measured on older texts is no step. */
+export function fitLevelFor(itemId: string, hash: string): number {
   const r = fitOf(itemId)
-  return r && r.level > 0 && r.level <= FIT_MAX_LEVEL ? r.level : 0
+  return r && r.hash === hash && r.level > 0 && r.level <= FIT_MAX_LEVEL ? r.level : 0
 }
 
 export function saveFit(itemId: string, v: { hash: string; level: number; source_pages: number; pages: number; fits: boolean }): void {

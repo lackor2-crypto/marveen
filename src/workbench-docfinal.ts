@@ -29,6 +29,7 @@ import { consistencyIssues } from './workbench-doccheck.js'
 import { fitLevelFor, tightenOutline } from './workbench-docfit.js'
 import { imageSize, outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderImage, type RenderResult } from './workbench-docrender.js'
 import { variantOf } from './workbench-doclang.js'
+import { ensureFitFor } from './workbench-docpages.js'
 import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { attachAsset, deleteAssetFile, listWorkItemAssets, syncFolderAssets } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
@@ -75,13 +76,25 @@ export function resolverFor(item: WorkItemRow): FileResolver | undefined {
   return project ? (p: string) => resolveProjectFile(project, p) : undefined
 }
 
+/** #856: the fingerprint of the two texts a language version's stored page fit was measured on (the original's and its own). */
+export function fitHashOf(source: WorkItemRow, variant: WorkItemRow): string {
+  return `${contentHash(source)}|${contentHash(variant)}`
+}
+
+/** #856: the stored tightening step of a language version, 0 when it has none or it was measured on texts that changed since. */
+function storedFitLevel(item: WorkItemRow): number {
+  const v = variantOf(item.id)
+  const source = v ? getWorkItem(v.source_item_id) : null
+  return source ? fitLevelFor(item.id, fitHashOf(source, item)) : 0
+}
+
 /** Ami a PDF-be kerul: fejezetek, blokkok es a mellekletjegyzek (cimke + leiras). */
 export function renderInputFor(item: WorkItemRow, withImages = false, tighten: number | null = null): RenderOutline {
   const annexes = listAnnexes(item.id)
   const base = toRenderOutline(documentOutline(item.id))
   if (withImages) for (const sec of base.sections) for (const b of sec.blocks) if (b.kind === 'image') b.img = readDocImage(imageBlockParts(b.text).path)
   // #856: a language version is drawn at the tightening step that makes it fit the original's page count (`tighten` forces a step; the content hash uses 0, a different step is not a change of the content).
-  const tight = tightenOutline(base, tighten ?? fitLevelFor(item.id))
+  const tight = tightenOutline(base, tighten ?? storedFitLevel(item))
   return {
     ...tight,
     ...(annexes.length ? { annexes: annexes.map((a) => ({ label: a.label, title: a.title })), annexTitle: annexListTitle(docSettings(item.id), docLangFor(item, 'hu')) } : {}),
@@ -327,11 +340,13 @@ export function docxFileName(item: WorkItemRow, d = new Date()): string {
  * szerepelnek (a fajlok nem kerulnek bele).
  */
 export async function renderDocx(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DocxResult> {
+  await ensureFitFor(item, lang)
   return renderOutlineDocx(renderInputFor(item, true), { title: docMetaTitle(item, lang), author: documentAuthor(), lang: docLangFor(item, lang) })
 }
 
 /** The PDF twin of the Word copy (#636): the plain document, no watermark and no annex cover, for sending straight away. */
 export async function renderPlainPdf(item: WorkItemRow, lang: 'hu' | 'en'): Promise<RenderResult> {
+  await ensureFitFor(item, lang)
   return renderOutlinePdf(renderInputFor(item, true), { title: docMetaTitle(item, lang), author: documentAuthor(), draft: false, lang: docLangFor(item, lang) })
 }
 
@@ -348,6 +363,7 @@ function packageFail(e: PackageError & { ok: false }): { ok: false; code: string
 
 /** Piszkozat PDF (K-1.21): barmikor, vizjellel; mellekletek eseten boritolappal egyutt, egy PDF-ben (atnezesre). */
 export async function renderDraft(item: WorkItemRow, lang: 'hu' | 'en'): Promise<DraftResult> {
+  await ensureFitFor(item, lang)
   const outline = renderInputFor(item, true)
   const hash = contentHash(item)
   const r = await renderOutlinePdf(outline, { title: docMetaTitle(item, lang), author: documentAuthor(), draft: true, lang: docLangFor(item, lang) })
@@ -397,6 +413,7 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   const reused = reusableFinal(item, hash, input.lang)
   if (reused) return finalizeFromExisting(item, reused, { hash, review, check, by: input.by, lang: input.lang })
 
+  await ensureFitFor(item, input.lang)
   const outline = renderInputFor(item, true)
   const r = await renderOutlinePdf(outline, { title: docMetaTitle(item, input.lang), author: documentAuthor(), draft: false, lang: docLangFor(item, input.lang) })
   if (!r.ok) return { ok: false, code: 'docpdf_failed', detail: r.detail, convert: r.code }
