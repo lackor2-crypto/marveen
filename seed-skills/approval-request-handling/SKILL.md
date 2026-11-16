@@ -1,8 +1,10 @@
 ---
 name: approval-request-handling
-description: A fő-ágens eljárása, amikor egy sub-ágens jóváhagyást kér az approval API-n keresztül ([APPROVAL_REQUEST] inter-agent üzenet). Kiküldi a kérést a tulajdonosnak, feldolgozza a szöveges válaszát, és lezárja az approvalt. Akkor használd, ha [APPROVAL_REQUEST] kezdetű inter-agent üzenetet kapsz.
+description: A fő-ágens eljárása, amikor egy sub-ágens jóváhagyást kér az approval API-n keresztül ([APPROVAL_REQUEST] inter-agent üzenet).
 scope: global
 ---
+
+> Teljes leírás / Full description: A fő-ágens eljárása, amikor egy sub-ágens jóváhagyást kér az approval API-n keresztül ([APPROVAL_REQUEST] inter-agent üzenet). Kiküldi a kérést a tulajdonosnak, feldolgozza a szöveges válaszát, és lezárja az approvalt. Akkor használd, ha [APPROVAL_REQUEST] kezdetű inter-agent üzenetet kapsz.
 
 # Approval kérés kezelése (fő-ágens)
 

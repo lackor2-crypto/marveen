@@ -1,8 +1,11 @@
 ---
 name: workitem-folder-allowlist
-description: What may live in a Workbench work item folder (only the Kontextus and Teendo files, the system subfolders, a child work item folder). Use before creating or saving ANY file next to a work item, and when cleaning a work item folder.
+description: What may live in a Workbench work item folder (only the Kontextus and Teendo files, the system subfolders, a child work item folder).
 scope: global
 ---
+
+> Teljes leírás / Full description: What may live in a Workbench work item folder (only the Kontextus and Teendo files, the system subfolders, a child work item folder). Use before creating or saving ANY file next to a work item, and when cleaning a work item folder.
+
 # Work item folder allowlist
 
 ## Mikor használd

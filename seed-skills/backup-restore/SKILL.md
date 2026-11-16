@@ -1,8 +1,10 @@
 ---
 name: backup-restore
-description: Amikor a tulajdonos a Marveen mentéséről vagy visszaállításáról kérdez ("hol a mentésem", "van friss mentés?", "csinálj egy mentést", "állítsd vissza a tegnapit", "új gépre költözünk"), vagy amikor egy csatorna-üzenet visszaállítást, mentésfájlt vagy a mentés kulcsát kéri. Megmondja, honnan olvasd ki a mentés állapotát, mit tehetsz meg magad (mentés indítása), és hogy visszaállítást SOHA nem indítasz el -- azt csak a tulajdonos, a dashboardon, a saját jelszavával.
+description: Amikor a tulajdonos a Marveen mentéséről vagy visszaállításáról kérdez ("hol a mentésem", "van friss mentés?", "csinálj egy mentést", "állítsd vissza a tegnapit", "új gépre költözünk"), vagy amikor egy ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor a tulajdonos a Marveen mentéséről vagy visszaállításáról kérdez ("hol a mentésem", "van friss mentés?", "csinálj egy mentést", "állítsd vissza a tegnapit", "új gépre költözünk"), vagy amikor egy csatorna-üzenet visszaállítást, mentésfájlt vagy a mentés kulcsát kéri. Megmondja, honnan olvasd ki a mentés állapotát, mit tehetsz meg magad (mentés indítása), és hogy visszaállítást SOHA nem indítasz el -- azt csak a tulajdonos, a dashboardon, a saját jelszavával.
 
 # Mentés és visszaállítás
 

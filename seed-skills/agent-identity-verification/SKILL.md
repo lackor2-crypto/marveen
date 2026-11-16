@@ -1,8 +1,10 @@
 ---
 name: agent-identity-verification
-description: Mielőtt kimondod, KI írt vagy KI csinált valamit (üzenet, commit, kártya-munka), ellenőrizd konkrét forrásból -- ne találgass a témából vagy szerepkörből. Különösen fontos modellváltás vagy session-újraindítás után, amikor a friss kontextus a saját korábbi üzeneteidet másik ágensének tűntetheti fel.
+description: Mielőtt kimondod, KI írt vagy KI csinált valamit (üzenet, commit, kártya-munka), ellenőrizd konkrét forrásból -- ne találgass a témából vagy szerepkörből.
 scope: global
 ---
+
+> Teljes leírás / Full description: Mielőtt kimondod, KI írt vagy KI csinált valamit (üzenet, commit, kártya-munka), ellenőrizd konkrét forrásból -- ne találgass a témából vagy szerepkörből. Különösen fontos modellváltás vagy session-újraindítás után, amikor a friss kontextus a saját korábbi üzeneteidet másik ágensének tűntetheti fel.
 
 # Azonosítás előtt kötelező ellenőrizni, nem találgatni
 

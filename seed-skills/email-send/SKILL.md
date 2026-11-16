@@ -1,8 +1,11 @@
 ---
 name: email-send
-description: Amikor egy email-küldő eszközzel rendelkező ágensnek emailt kell küldenie. KÖZVETLENÜL küld, a fő ágens közvetítése és a régi governance-gate nélkül. Kikényszeríti a címzett/tárgy/tartalom megerősítési protokollt: ami hiányzik vagy nem egyértelmű, arra rákérdez; amit a felhasználó már megadott, azt nem kérdezi újra; email-címet sosem talál ki.
+description: Amikor egy email-küldő eszközzel rendelkező ágensnek emailt kell küldenie. KÖZVETLENÜL küld, a fő ágens közvetítése és a régi governance-gate nélkül.
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor egy email-küldő eszközzel rendelkező ágensnek emailt kell küldenie. KÖZVETLENÜL küld, a fő ágens közvetítése és a régi governance-gate nélkül. Kikényszeríti a címzett/tárgy/tartalom megerősítési protokollt: ami hiányzik vagy nem egyértelmű, arra rákérdez; amit a felhasználó már megadott, azt nem kérdezi újra; email-címet sosem talál ki.
+
 # Email küldése (közvetlen, felhasználói megerősítéssel)
 
 ## Mikor használd

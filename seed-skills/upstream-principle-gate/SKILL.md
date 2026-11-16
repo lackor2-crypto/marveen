@@ -1,8 +1,10 @@
 ---
 name: upstream-principle-gate
-description: Use BEFORE merging or installing upstream (Szotasz/marveen) changes into this fork. Reviews each incoming change against this fork's baked-in principles (agent equality, host-agnosticism, no forced context cap, no auto-done, ...) and against a committed denylist -- NOT just textual conflict. Auto-excludes hard violations, flags weaker signals for the owner, keeps protective wallet/data guards. Runs identically on a fresh install.
+description: Use BEFORE merging or installing upstream (Szotasz/marveen) changes into this fork. Reviews each incoming change against this fork's baked-in principles (agent equality, host-agnosticism, no forced context cap, no ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Use BEFORE merging or installing upstream (Szotasz/marveen) changes into this fork. Reviews each incoming change against this fork's baked-in principles (agent equality, host-agnosticism, no forced context cap, no auto-done, ...) and against a committed denylist -- NOT just textual conflict. Auto-excludes hard violations, flags weaker signals for the owner, keeps protective wallet/data guards. Runs identically on a fresh install.
 
 # Upstream principle gate
 

@@ -1,8 +1,10 @@
 ---
 name: win-browser-control
-description: Amikor {{OWNER_NAME}} Telegramon (telefonrol) arra ker, hogy nyisd meg a bongeszot / egy weboldalt / egy Youtube videot A GEPEN (nem a telefonjan) -- pl. "indits el egy videot a szamitogepemen", "nyisd meg a bongeszot es menj fel X oldalra" -- vagy hogy ALLITSD LE amit korabban elinditottal ("allitsd le a videot"). Marveen WSL2-ben fut {{OWNER_NAME}} sajat Windows gepen, tehat kepes kozvetlenul a Windows asztalra hatni, nem csak linket kuldeni. Uj nyitasnal az elozo ablakot automatikusan bezarja, hogy ne szoljon ket hang egyszerre.
+description: Amikor {{OWNER_NAME}} Telegramon (telefonrol) arra ker, hogy nyisd meg a bongeszot / egy weboldalt / egy Youtube videot A GEPEN (nem a telefonjan) -- pl.
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor {{OWNER_NAME}} Telegramon (telefonrol) arra ker, hogy nyisd meg a bongeszot / egy weboldalt / egy Youtube videot A GEPEN (nem a telefonjan) -- pl. "indits el egy videot a szamitogepemen", "nyisd meg a bongeszot es menj fel X oldalra" -- vagy hogy ALLITSD LE amit korabban elinditottal ("allitsd le a videot"). Marveen WSL2-ben fut {{OWNER_NAME}} sajat Windows gepen, tehat kepes kozvetlenul a Windows asztalra hatni, nem csak linket kuldeni. Uj nyitasnal az elozo ablakot automatikusan bezarja, hogy ne szoljon ket hang egyszerre.
 
 # Windows böngésző-vezérlés WSL-ből
 

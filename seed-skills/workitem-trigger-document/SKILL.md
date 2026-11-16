@@ -1,8 +1,10 @@
 ---
 name: workitem-trigger-document
-description: Minden munkadarabnak van egy "Kiváltó irat" mappája: az az irat (hatósági határozat, hiánypótlás, megválaszolandó levél), ami a munkadarabot kiváltotta. Használd minden munkadarab megnyitásakor, és mielőtt a munkába kezdesz; ha nincs belinkelve kiváltó irat és nincs "nincs kiváltó irat" jelölés, előbb szólj a tulajdonosnak.
+description: Minden munkadarabnak van egy "Kiváltó irat" mappája: az az irat (hatósági határozat, hiánypótlás, megválaszolandó levél), ami a munkadarabot kiváltotta.
 scope: global
 ---
+
+> Teljes leírás / Full description: Minden munkadarabnak van egy "Kiváltó irat" mappája: az az irat (hatósági határozat, hiánypótlás, megválaszolandó levél), ami a munkadarabot kiváltotta. Használd minden munkadarab megnyitásakor, és mielőtt a munkába kezdesz; ha nincs belinkelve kiváltó irat és nincs "nincs kiváltó irat" jelölés, előbb szólj a tulajdonosnak.
 
 # Kiváltó irat
 

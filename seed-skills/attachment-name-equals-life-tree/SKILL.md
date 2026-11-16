@@ -1,8 +1,11 @@
 ---
 name: attachment-name-equals-life-tree
-description: An annex or attachment goes into a letter or e-mail under EXACTLY the file name it has in the Life tree. A rename (e.g. Hungarian to German for a German authority) is done in the Life tree first, then the renamed file is attached unchanged. Use when attaching, renaming or sending annexes.
+description: An annex or attachment goes into a letter or e-mail under EXACTLY the file name it has in the Life tree. A rename (e.g.
 scope: global
 ---
+
+> Teljes leírás / Full description: An annex or attachment goes into a letter or e-mail under EXACTLY the file name it has in the Life tree. A rename (e.g. Hungarian to German for a German authority) is done in the Life tree first, then the renamed file is attached unchanged. Use when attaching, renaming or sending annexes.
+
 # A melléklet neve = az Életfában lévő fájlnév, mindig
 
 ## Mikor használd

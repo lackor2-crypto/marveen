@@ -3,7 +3,7 @@ import { seedDefaultProjects } from './project-defaults.js'
 import http from 'node:http'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { execSync, execFileSync } from 'node:child_process'
 import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS, MAIN_AGENT_ID, STORE_DIR, APP_LANG, currentBrandName, CODE_WORKTREE_ROOT } from './config.js'
 import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
@@ -21,6 +21,7 @@ import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames, CorruptConfigError } from './web/agent-config.js'
 import { startDashboardBackup } from './backup/dashboard.js'
 import { compactAgentClaudeMds, compactClaudeMdFile } from './web/claude-md-compact.js'
+import { compactSkillsDir } from './web/skill-desc-digest.js'
 import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, watchEgressAllowlistForReaderRender, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureOwnerLanguageSection, ensureGlobalOwnerLanguageRule, ensureAvailabilitySection, ensureGlobalAvailabilityRule, ensureShortReplySection, ensureGlobalShortReplyRule, ensureBrowserClickthroughSection, ensureGlobalBrowserClickthroughRule, ensureFollowReferenceSection, ensureGlobalFollowReferenceRule, ensureNoHiddenLimitsSection, ensureGlobalNoHiddenLimitsRule, ensureTestSandboxSection, ensureGlobalTestSandboxRule, ensureWebResearchSaveSection, ensureGlobalWebResearchSaveRule, ensureRootCauseFixSection, ensureRegressionTestSection, ensureGlobalRegressionTestRule, ensureGlobalRootCauseFixRule, ensureWorkItemFolderFilesSection, ensureLetterHeadSection, ensureGlobalLetterHeadRule, ensureGlobalWorkItemFolderFilesRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
@@ -1152,6 +1153,8 @@ export function startWebServer(port = 3420): http.Server {
       try {
         if (!webOnly) compactClaudeMdFile(join(PROJECT_ROOT, 'CLAUDE.md'), 'main')
         compactAgentClaudeMds(join(PROJECT_ROOT, 'agents'))
+        // Same diet for the skill listing: long descriptions shrink, the original stays in the skill body.
+        if (!webOnly) compactSkillsDir(join(homedir(), '.claude', 'skills'))
       } catch (err) {
         logger.warn({ err }, 'claude-md compaction failed')
       }

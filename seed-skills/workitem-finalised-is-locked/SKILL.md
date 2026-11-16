@@ -1,8 +1,11 @@
 ---
 name: workitem-finalised-is-locked
-description: A finalised work item is locked for the owner AND for the assistant; editing it needs an explicit reopen. If the owner asks for a change, the assistant asks "reopen this work item?" first. Use when editing, translating or changing anything on a document that has a final version.
+description: A finalised work item is locked for the owner AND for the assistant; editing it needs an explicit reopen. If the owner asks for a change, the assistant asks "reopen this work item?" first.
 scope: global
 ---
+
+> Teljes leírás / Full description: A finalised work item is locked for the owner AND for the assistant; editing it needs an explicit reopen. If the owner asks for a change, the assistant asks "reopen this work item?" first. Use when editing, translating or changing anything on a document that has a final version.
+
 # Véglegesített munkadarab zárolva van, az asszisztensnek is
 
 ## Mikor használd

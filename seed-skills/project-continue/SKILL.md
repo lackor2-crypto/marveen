@@ -1,8 +1,10 @@
 ---
 name: project-continue
-description: Amikor {{OWNER_NAME}} egy meglevo projektet akar folytatni vagy rakerdez ("folytassuk a Kovacs weboldal projektet", "hol tartunk a X projekttel?", "mi van meg hatra a Y-ban?"). EGY hivassal lekeri a projekt teljes kontextusat a dashboardrol (mentett osszefoglalo, nyitott kartyak, fuggo jovahagyasok, futo munka, legutobbi esemenyek, kotott otletek/memoriak/vitak), es abbol dolgozik -- nem talalgat, nem kutat szet a fajlok kozott.
+description: Amikor {{OWNER_NAME}} egy meglevo projektet akar folytatni vagy rakerdez ("folytassuk a Kovacs weboldal projektet", "hol tartunk a X projekttel?", "mi van meg hatra a Y-ban?").
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor {{OWNER_NAME}} egy meglevo projektet akar folytatni vagy rakerdez ("folytassuk a Kovacs weboldal projektet", "hol tartunk a X projekttel?", "mi van meg hatra a Y-ban?"). EGY hivassal lekeri a projekt teljes kontextusat a dashboardrol (mentett osszefoglalo, nyitott kartyak, fuggo jovahagyasok, futo munka, legutobbi esemenyek, kotott otletek/memoriak/vitak), es abbol dolgozik -- nem talalgat, nem kutat szet a fajlok kozott.
 
 # Projekt folytatasa (Iroda -> Projektek)
 

@@ -1,8 +1,10 @@
 ---
 name: i18n-final-verification
-description: KÖTELEZŐ minden Marveen-fejlesztésnél, ami képernyőre kerülő szöveget hoz létre vagy módosít -- web/index.html, web/app.js, web/lang/*, ÉS a szerveroldali szövegtáblák (pl. src/life-hints.ts) vagy hibaüzenetek. Minden felületi szöveg kétnyelvű (HU+EN); ez a skill megmondja, hogyan kell megírni, és melyik teszt bukik el, ha nem így írtad meg. Trigger -- bármilyen felhasználónak látható szöveg (címke, gomb, tooltip, placeholder, súgó, hibaüzenet, toast, confirm).
+description: KÖTELEZŐ minden Marveen-fejlesztésnél, ami képernyőre kerülő szöveget hoz létre vagy módosít -- web/index.html, web/app.js, web/lang/*, ÉS a szerveroldali szövegtáblák (pl. src/life-hints.ts) vagy hibaüzenetek.
 scope: global
 ---
+
+> Teljes leírás / Full description: KÖTELEZŐ minden Marveen-fejlesztésnél, ami képernyőre kerülő szöveget hoz létre vagy módosít -- web/index.html, web/app.js, web/lang/*, ÉS a szerveroldali szövegtáblák (pl. src/life-hints.ts) vagy hibaüzenetek. Minden felületi szöveg kétnyelvű (HU+EN); ez a skill megmondja, hogyan kell megírni, és melyik teszt bukik el, ha nem így írtad meg. Trigger -- bármilyen felhasználónak látható szöveg (címke, gomb, tooltip, placeholder, súgó, hibaüzenet, toast, confirm).
 
 # Minden képernyőre kerülő szöveg kétnyelvű
 

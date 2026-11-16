@@ -1,8 +1,11 @@
 ---
 name: egress-blocked-external-lookup
-description: Akkor hasznald, ha egy kulso tenyet (ar, hivatalos adat, dokumentacio) kellene lekerned, es a WebFetch vagy a quarantine-reader "Egress TILTOTT" / "blocked" / "domain not on ... allowlist" hibat ad, vagy azt mondanad, hogy egy oldal "nincs az engedelyezett listan". Megmondja, hogy nyilvanos weboldalra NINCS domain-korlat, mit jelent a tiltas valojaban, es hogyan add meg a valaszt bizonyitva vagy bizonyitatlanul jelolve.
+description: Akkor hasznald, ha egy kulso tenyet (ar, hivatalos adat, dokumentacio) kellene lekerned, es a WebFetch vagy a quarantine-reader "Egress TILTOTT" / "blocked" / "domain not on ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Akkor hasznald, ha egy kulso tenyet (ar, hivatalos adat, dokumentacio) kellene lekerned, es a WebFetch vagy a quarantine-reader "Egress TILTOTT" / "blocked" / "domain not on ... allowlist" hibat ad, vagy azt mondanad, hogy egy oldal "nincs az engedelyezett listan". Megmondja, hogy nyilvanos weboldalra NINCS domain-korlat, mit jelent a tiltas valojaban, es hogyan add meg a valaszt bizonyitva vagy bizonyitatlanul jelolve.
+
 # Kulso adat lekerese -- nyilvanos weboldalra nincs korlat
 
 ## A szabaly (tulajdonosi dontes, 2026-10-24)

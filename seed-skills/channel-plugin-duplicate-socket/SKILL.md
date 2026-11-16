@@ -1,8 +1,11 @@
 ---
 name: channel-plugin-duplicate-socket
-description: Marveen flottában új channel plugin (slack-channel, telegram, stb.) telepítésekor a user-szintű ~/.claude/settings.json enabledPlugins minden agent-nek loadolja a plugin server-t, és ha az egy Socket Mode connection-t nyit (Slack), akkor TÖBB agent egyszerre nyit ugyanazon a workspace-en kapcsolatot. Akkor használd, ha egy agent Socket Mode-os channel plugin-t használ és inbound event-ek "fele eltűnik".
+description: Marveen flottában új channel plugin (slack-channel, telegram, stb.) telepítésekor a user-szintű ~/.claude/settings.json enabledPlugins minden agent-nek loadolja a plugin server-t, és ha az egy Socket Mode ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Marveen flottában új channel plugin (slack-channel, telegram, stb.) telepítésekor a user-szintű ~/.claude/settings.json enabledPlugins minden agent-nek loadolja a plugin server-t, és ha az egy Socket Mode connection-t nyit (Slack), akkor TÖBB agent egyszerre nyit ugyanazon a workspace-en kapcsolatot. Akkor használd, ha egy agent Socket Mode-os channel plugin-t használ és inbound event-ek "fele eltűnik".
+
 # Channel plugin duplicate Socket Mode connection
 
 ## Mikor használd

@@ -1,8 +1,10 @@
 ---
 name: letter-workitem-send-only-content
-description: Amikor a felhasználó levelet, beadványt, hiánypótlást, bírósági iratot kér "munkadarabként" (Munkapad), a munkadarab CSAK a küldendő szöveg legyen, betűre azonos a generált PDF-fel, és ALAPBÓL a Marveen felületének nyelvén (bal alsó sarok: hu / en) készüljön, a címzett nyelvétől függetlenül. Fordítás csak kérésre, utólag, nyelvi változatként.
+description: Amikor a felhasználó levelet, beadványt, hiánypótlást, bírósági iratot kér "munkadarabként" (Munkapad), a munkadarab CSAK a küldendő szöveg legyen, betűre azonos a generált PDF-fel, és ALAPBÓL a Marveen felületének ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor a felhasználó levelet, beadványt, hiánypótlást, bírósági iratot kér "munkadarabként" (Munkapad), a munkadarab CSAK a küldendő szöveg legyen, betűre azonos a generált PDF-fel, és ALAPBÓL a Marveen felületének nyelvén (bal alsó sarok: hu / en) készüljön, a címzett nyelvétől függetlenül. Fordítás csak kérésre, utólag, nyelvi változatként.
 
 # Levél-munkadarab: csak a küldendő szöveg, a felhasználó nyelvén
 

@@ -1,8 +1,11 @@
 ---
 name: workitem-final-pdf-overwrite
-description: Finalising a changed work item again replaces that item's own earlier final PDF in the Finished materials folder (no duplicates, no v1/v2 pile); PDFs of other work items in the same folder stay. Use when finalising, re-finalising or touching Finished materials.
+description: Finalising a changed work item again replaces that item's own earlier final PDF in the Finished materials folder (no duplicates, no v1/v2 pile); PDFs of other work items in the same folder stay.
 scope: global
 ---
+
+> Teljes leírás / Full description: Finalising a changed work item again replaces that item's own earlier final PDF in the Finished materials folder (no duplicates, no v1/v2 pile); PDFs of other work items in the same folder stay. Use when finalising, re-finalising or touching Finished materials.
+
 # Újravéglegesítéskor a saját régi PDF-et felülírjuk
 
 ## Mikor használd

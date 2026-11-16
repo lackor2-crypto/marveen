@@ -1,8 +1,10 @@
 ---
 name: browser-clickthrough-before-done
-description: KÖTELEZŐ minden felületet érintő munka (web/, dashboard, Munkapad, bármi, amit a felhasználó lát) végén, a "kész" és a waiting-be mozgatás ELŐTT. Valódi böngészős végigkattintás külön, üres web-only példányon, mint egy felhasználó; az eredmény kommentként a kártyára. Trigger -- UI-t érintő kártya tesztelése vagy befejezése, land-pr.sh után, "kész"-jelentés és waiting-mozgatás előtt.
+description: KÖTELEZŐ minden felületet érintő munka (web/, dashboard, Munkapad, bármi, amit a felhasználó lát) végén, a "kész" és a waiting-be mozgatás ELŐTT.
 scope: global
 ---
+
+> Teljes leírás / Full description: KÖTELEZŐ minden felületet érintő munka (web/, dashboard, Munkapad, bármi, amit a felhasználó lát) végén, a "kész" és a waiting-be mozgatás ELŐTT. Valódi böngészős végigkattintás külön, üres web-only példányon, mint egy felhasználó; az eredmény kommentként a kártyára. Trigger -- UI-t érintő kártya tesztelése vagy befejezése, land-pr.sh után, "kész"-jelentés és waiting-mozgatás előtt.
 
 # Felületet érintő munka: a végén valódi böngészős végigkattintás
 

@@ -1,8 +1,10 @@
 ---
 name: browser-control
-description: Weboldal megnyitása, kitöltése, szöveg kiolvasása, képernyőkép vagy PDF készítése a Marveen saját (Playwright/Chromium) böngészőjével, a dashboard /api/browser/* végpontjain át. Akkor használd, ha egy feladathoz weboldalt kell ténylegesen böngészni (bejelentkezés mögötti portál, űrlap, oldal PDF-be mentése). A visszafordíthatatlan lépés (küldés, fizetés, törlés) külön végpont és külön megerősítés.
+description: Weboldal megnyitása, kitöltése, szöveg kiolvasása, képernyőkép vagy PDF készítése a Marveen saját (Playwright/Chromium) böngészőjével, a dashboard /api/browser/* végpontjain át.
 scope: global
 ---
+
+> Teljes leírás / Full description: Weboldal megnyitása, kitöltése, szöveg kiolvasása, képernyőkép vagy PDF készítése a Marveen saját (Playwright/Chromium) böngészőjével, a dashboard /api/browser/* végpontjain át. Akkor használd, ha egy feladathoz weboldalt kell ténylegesen böngészni (bejelentkezés mögötti portál, űrlap, oldal PDF-be mentése). A visszafordíthatatlan lépés (küldés, fizetés, törlés) külön végpont és külön megerősítés.
 
 # Böngésző-vezérlés (Marveen, kártya #165)
 

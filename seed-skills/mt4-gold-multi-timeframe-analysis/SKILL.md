@@ -1,8 +1,11 @@
 ---
 name: mt4-gold-multi-timeframe-analysis
-description: Ütemezett arany (GOLD) technikai elemzés az ActivTrades MT4 terminal.exe-ből, top-down D1/H1/M15/M5 idősíkokkal, majd WhatsApp+email küldés Kiss Zoltánnak. Három sávos gyakoriság ({{OWNER_NAME}} 2026-08-10): hosszú táv (D1) 1x/nap reggel, középtáv (H1) 2x/nap 8h+15h, rövidtáv (M15/M5) 45 percenként. Trigger -- scheduled-task "arany-elemzes-30perc" vagy "arany-kozeptav-15h" heartbeat, vagy bármikor amikor MT4 chart idősíkot kell váltani koordináta-kattintással screenshothoz.
+description: Ütemezett arany (GOLD) technikai elemzés az ActivTrades MT4 terminal.exe-ből, top-down D1/H1/M15/M5 idősíkokkal, majd WhatsApp+email küldés Kiss Zoltánnak.
 scope: global
 ---
+
+> Teljes leírás / Full description: Ütemezett arany (GOLD) technikai elemzés az ActivTrades MT4 terminal.exe-ből, top-down D1/H1/M15/M5 idősíkokkal, majd WhatsApp+email küldés Kiss Zoltánnak. Három sávos gyakoriság ({{OWNER_NAME}} 2026-08-10): hosszú táv (D1) 1x/nap reggel, középtáv (H1) 2x/nap 8h+15h, rövidtáv (M15/M5) 45 percenként. Trigger -- scheduled-task "arany-elemzes-30perc" vagy "arany-kozeptav-15h" heartbeat, vagy bármikor amikor MT4 chart idősíkot kell váltani koordináta-kattintással screenshothoz.
+
 # MT4 arany multi-timeframe elemzés
 
 ## Mikor használd

@@ -1,8 +1,10 @@
 ---
 name: pre-push-gate-flaky-under-load
 scope: global
-description: A pre-push kapu (20-require-green-suite-main) sajat teljes-suite futasa nyomtalan-munka.test.ts onellenorzesen bukhat, HOLOTT a tartalom es a fuggetlen izolalt futas is zold -- ne higgy azonnal kod-hibanak, elobb ellenorizd terheles alatt.
+description: A pre-push kapu (20-require-green-suite-main) sajat teljes-suite futasa nyomtalan-munka.test.ts onellenorzesen bukhat, HOLOTT a tartalom es a fuggetlen izolalt futas is zold -- ne higgy azonnal kod-hibanak, elobb ...
 ---
+
+> Teljes leírás / Full description: A pre-push kapu (20-require-green-suite-main) sajat teljes-suite futasa nyomtalan-munka.test.ts onellenorzesen bukhat, HOLOTT a tartalom es a fuggetlen izolalt futas is zold -- ne higgy azonnal kod-hibanak, elobb ellenorizd terheles alatt.
 
 # Pre-push kapu: latszolagos hamis piros teljes-suite alatt
 

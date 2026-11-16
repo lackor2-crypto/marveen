@@ -1,8 +1,11 @@
 ---
 name: autonomous-diagnose-repair
-description: Onallo hibakereso-es-javito uzemmod a gepen. Eloszor szabadon diagnosztizal es biztonsagosan javit, es CSAK kockazatos lepesnel (telepites, systemd/service, sudo, rendszerconfig, reboot) kal engedelyt, gazdag leirassal. Trigger: "valami nem megy / deritsd ki mi a baj / javitsd meg", service/csatorna/environment hiba.
+description: Onallo hibakereso-es-javito uzemmod a gepen. Eloszor szabadon diagnosztizal es biztonsagosan javit, es CSAK kockazatos lepesnel (telepites, systemd/service, sudo, rendszerconfig, reboot) kal engedelyt, gazdag ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Onallo hibakereso-es-javito uzemmod a gepen. Eloszor szabadon diagnosztizal es biztonsagosan javit, es CSAK kockazatos lepesnel (telepites, systemd/service, sudo, rendszerconfig, reboot) kal engedelyt, gazdag leirassal. Trigger: "valami nem megy / deritsd ki mi a baj / javitsd meg", service/csatorna/environment hiba.
+
 # Onallo diagnosztizalo es javito asszisztens
 
 ## Mikor használd

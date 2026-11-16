@@ -1,8 +1,11 @@
 ---
 name: fleet-mjs-script-with-vitest
-description: Amikor egy uj, onallo scripts/*.mjs fleet-scriptet irsz, aminek van nem-trivialis tiszta logikaja (parse, aggregacio, meres) es unit-tesztet kell ra irni. Hogyan strukturald ugy, hogy importalhato es teszthelheto legyen, es milyen kapukkal ellenorizd landolas elott.
+description: Amikor egy uj, onallo scripts/*.mjs fleet-scriptet irsz, aminek van nem-trivialis tiszta logikaja (parse, aggregacio, meres) es unit-tesztet kell ra irni.
 scope: global
 ---
+
+> Teljes leírás / Full description: Amikor egy uj, onallo scripts/*.mjs fleet-scriptet irsz, aminek van nem-trivialis tiszta logikaja (parse, aggregacio, meres) es unit-tesztet kell ra irni. Hogyan strukturald ugy, hogy importalhato es teszthelheto legyen, es milyen kapukkal ellenorizd landolas elott.
+
 # Onallo fleet .mjs script vitest-teszttel
 
 ## Mikor hasznald

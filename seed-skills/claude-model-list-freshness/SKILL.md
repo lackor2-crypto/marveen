@@ -1,8 +1,11 @@
 ---
 name: claude-model-list-freshness
-description: Use when a newly released Claude model (e.g. a new Sonnet/Opus/Fable version) is missing from the dashboard model dropdowns, or when touching how Marvin learns about new models. Explains the update chain (installed Claude program -> discovery -> dropdown) and how to fix it.
+description: Use when a newly released Claude model (e.g. a new Sonnet/Opus/Fable version) is missing from the dashboard model dropdowns, or when touching how Marvin learns about new models.
 scope: global
 ---
+
+> Teljes leírás / Full description: Use when a newly released Claude model (e.g. a new Sonnet/Opus/Fable version) is missing from the dashboard model dropdowns, or when touching how Marvin learns about new models. Explains the update chain (installed Claude program -> discovery -> dropdown) and how to fix it.
+
 # Claude model list freshness
 
 ## When to use

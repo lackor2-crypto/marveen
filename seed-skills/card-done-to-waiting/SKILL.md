@@ -1,8 +1,10 @@
 ---
 name: card-done-to-waiting
-description: KÖTELEZŐ minden ágensnek ÉS minden VS Code / kód-híd sessionnek, amikor egy kanban kártyán dolgozik. A kártya oszlopát TE viszed -- in_progress -> testing (amint a tesztelésbe kezdesz) -> waiting (amint kész/landolt, UGYANABBAN a lépésben). Csak előre; waiting-ből vissza soha kérdés nélkül, done-ba soha. Trigger -- kártyán végzett munka tesztelése vagy befejezése, land-pr.sh után, "kész"-jelentés előtt.
+description: KÖTELEZŐ minden ágensnek ÉS minden VS Code / kód-híd sessionnek, amikor egy kanban kártyán dolgozik. A kártya oszlopát TE viszed -- in_progress -> testing (amint a tesztelésbe kezdesz) -> waiting (amint ...
 scope: global
 ---
+
+> Teljes leírás / Full description: KÖTELEZŐ minden ágensnek ÉS minden VS Code / kód-híd sessionnek, amikor egy kanban kártyán dolgozik. A kártya oszlopát TE viszed -- in_progress -> testing (amint a tesztelésbe kezdesz) -> waiting (amint kész/landolt, UGYANABBAN a lépésben). Csak előre; waiting-ből vissza soha kérdés nélkül, done-ba soha. Trigger -- kártyán végzett munka tesztelése vagy befejezése, land-pr.sh után, "kész"-jelentés előtt.
 
 # Kész kártya: testing -> waiting, azonnal
 

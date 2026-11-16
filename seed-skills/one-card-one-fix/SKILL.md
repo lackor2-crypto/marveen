@@ -1,8 +1,10 @@
 ---
 name: one-card-one-fix
-description: Egy hiba = egy kártya, és EGY PROJEKT = EGY KÁRTYA, azonnal és teljesen készre. Egy hibát nem szabdalunk szét több kártyára és nem tolunk át másik kártya alá; a kártyát félbehagyni tilos; ha a javítás közben új hiba jön elő, azt azonnal javítani kell, mintha a tulajdonos kérte volna. Fusd át minden kártya-munka elején.
+description: Egy hiba = egy kártya, és EGY PROJEKT = EGY KÁRTYA, azonnal és teljesen készre. Egy hibát nem szabdalunk szét több kártyára és nem tolunk át másik kártya alá; a kártyát félbehagyni tilos; ha a javítás közben új hiba ...
 scope: global
 ---
+
+> Teljes leírás / Full description: Egy hiba = egy kártya, és EGY PROJEKT = EGY KÁRTYA, azonnal és teljesen készre. Egy hibát nem szabdalunk szét több kártyára és nem tolunk át másik kártya alá; a kártyát félbehagyni tilos; ha a javítás közben új hiba jön elő, azt azonnal javítani kell, mintha a tulajdonos kérte volna. Fusd át minden kártya-munka elején.
 
 # Egy hiba = egy kártya, azonnal és teljesen készre
 
