@@ -14173,8 +14173,9 @@
       WB.detail.approval = (r.data && r.data.approval) || null
       if (r.data && r.data.versions) WB.detail.versions = r.data.versions
       window.showToast(t('workbench.approval.toast.' + action))
-      // #909: the Send panel of a PDF-made item opens by itself after the finalize, as a drafted document's does.
-      if (action === 'finalize' && WB.detail.item && isPdfDoneItem(WB.detail.item)) WB.docxMailFor = WB.detail.item.id
+      // #909 / #858: the Send panel of a finalized item (a PDF-made one, a Word one, anything with a mail panel) opens by itself
+      // after the finalize -- or after accepting the ticket, which finalizes too -- as a drafted document's does.
+      if ((action === 'finalize' || action === 'approve') && WB.detail.item && isMailDoneItem(WB.detail.item)) WB.docxMailFor = WB.detail.item.id
       render()
       load(WB.projectId)
     })

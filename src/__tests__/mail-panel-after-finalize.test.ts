@@ -14,6 +14,14 @@ describe('Boss TG 4865: the e-mail panel comes first right after the finalizatio
   })
 })
 
+describe('#858: the e-mail panel opens after EVERY finalize path, not only the outline one', () => {
+  it('the approval path (finalize / accept ticket) opens it for a Word item too, not only a PDF-made item', () => {
+    const at = js.indexOf('function approvalAction(')
+    const chunk = js.slice(at, js.indexOf('// ---- kereses', at))
+    expect(chunk).toMatch(/isMailDoneItem\(WB\.detail\.item\)[\s\S]{0,120}WB\.docxMailFor = WB\.detail\.item\.id/)
+  })
+})
+
 describe('Boss TG 4871: a long "Betreff:" line is no reason to leave the subject empty', () => {
   it('keeps a 251-character subject whole', () => {
     const subj = 'Antrag auf Einleitung des Statusfeststellungsverfahrens nach § 7a Abs. 1 SGB IV sowie Bitte um schriftliche rechtliche Prüfung der ab 01.04.2026 gemeldeten haushaltsnahen Beschäftigung (geringfügige Beschäftigung) mit einem Entgelt von monatlich 150 €'
