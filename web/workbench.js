@@ -577,9 +577,11 @@
     var last = String(f || '').split('/').pop()
     if (last !== 'Kiv\u00e1lt\u00f3 irat' && last !== 'Trigger document') return ''
     var parent = String(f).slice(0, String(f).lastIndexOf('/'))
-    var it = (WB.items || []).filter(function (x) { return x.folder === parent || (!x.folder && x.container_folder === parent) })[0]
+    var group = (WB.items || []).filter(function (x) { return x.folder === parent || (!x.folder && x.container_folder === parent) })
+    var it = group[0]
     if (!it) return ''
-    var on = it.no_trigger === 1
+    // #921: the tick is the folder's: shown when any item sharing the folder carries it (the server writes it for all of them).
+    var on = group.some(function (x) { return x.no_trigger === 1 })
     var answered = markOf(it.id).sent ? ' ' + answeredChipHtml() : ''
     return answered + '<label class="wb-trig-mark" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap;font-size:11px;font-weight:400;margin-left:6px;vertical-align:middle" title="' + escA(t('workbench.trigger.hint')) + '">'
       + '<input type="checkbox" data-wb-act="item-no-trigger" data-wb-id="' + escA(it.id) + '"' + (on ? ' checked' : '') + (archived() ? ' disabled' : '') + '> '

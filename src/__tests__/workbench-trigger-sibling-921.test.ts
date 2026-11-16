@@ -46,4 +46,25 @@ describe('#921 the no-trigger tick belongs to the folder', () => {
     expect(triggerBlocksWork(triggerStateOf(project, getWorkItem(b.id)!))).toBe(false)
     expect(triggerBlocksWork(triggerStateOf(project, getWorkItem(other.id)!))).toBe(true)
   })
+  it('unticking on one item clears the tick of its sibling too (the page draws one tick for the folder)', async () => {
+    const mk = async (title: string) => {
+      const r = await callWorkbench('/api/workbench/items', 'POST', JSON.stringify({ project_id: pid, type: 'document', title }), { 'content-type': 'application/json' })
+      expect(r.status).toBe(201)
+      return getWorkItem(r.body.item.id)!
+    }
+    const a = await mk('DE')
+    const b = await mk('HU')
+    getDb().prepare('UPDATE work_items SET folder = ? WHERE id = ?').run(a.folder, b.id)
+    mkdirSync(join(depot, 'Projektek', 'Iroda', a.folder!, 'Kiváltó irat'), { recursive: true })
+    const post = (id: string, on: boolean) => callWorkbench(`/api/workbench/items/${id}/no-trigger`, 'POST', JSON.stringify({ no_trigger: on }), { 'content-type': 'application/json' })
+    // the owner ticked on the second item (older data), then unticks the one the page shows
+    expect((await post(b.id, true)).status).toBe(200)
+    expect((await post(a.id, false)).status).toBe(200)
+    const project = getProject(pid)!
+    expect(triggerBlocksWork(triggerStateOf(project, getWorkItem(a.id)!))).toBe(true)
+    expect(triggerBlocksWork(triggerStateOf(project, getWorkItem(b.id)!))).toBe(true)
+    // and ticking on one item frees both again
+    expect((await post(a.id, true)).status).toBe(200)
+    expect(triggerBlocksWork(triggerStateOf(project, getWorkItem(b.id)!))).toBe(false)
+  })
 })
