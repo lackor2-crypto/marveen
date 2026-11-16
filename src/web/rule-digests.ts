@@ -9,8 +9,12 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { atomicWriteFileSync } from './atomic-write.js'
 
-/** Directory holding the full text of every digested rule. */
+/** Directory holding the full text of every digested rule. MARVEEN_RULE_DETAILS_DIR
+ *  overrides it (the test suite points it at a scratch directory, so no test ever
+ *  touches the operator's real ~/.claude/rule-details). */
 export function ruleDetailsDir(): string {
+  const override = process.env.MARVEEN_RULE_DETAILS_DIR?.trim()
+  if (override) return override
   return join(homedir(), '.claude', 'rule-details')
 }
 
