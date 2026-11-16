@@ -308,7 +308,7 @@ export function saveShownTranslation(source: WorkItemRow, lang: unknown, section
   for (const sec of list) {
     // #527 (Boss TG 2849): the same translation is already in the variant: nothing to write, and the caller says so.
     if (v.existing && translationAlreadySaved(v.item.id, { source_section: sec.source_section, title: sec.title, blocks: sec.blocks })) { unchanged++; continue }
-    const r = translateSection(v.item.id, { source_section: sec.source_section, title: sec.title, blocks: sec.blocks }, by)
+    const r = translateSection(v.item.id, { source_section: sec.source_section, title: sec.title, blocks: sec.blocks }, by, { titleOnlyOk: true })
     if (!r.ok) { failed.push({ source_section: String(sec.source_section ?? ''), detail: r.detail }); continue }
     saved++
     notCarried += r.result.claims_not_carried.length
