@@ -45,7 +45,7 @@ import { writeBlockReason } from './git-guard.js'
 import { ol } from './owner-lang.js'
 import { SNAPSHOT_FILE, SNAPSHOT_FALLBACK_DIR } from './workbench-snapshot.js'
 import { annotateMisplaced, adviseUpload, type Misplaced, type UploadAdvice } from './workbench-misplaced.js'
-import { folderWasMade, noteFolderMade, noteOneStandardFolder, itemStandardFolderNames, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, itemStandardFolderMakers, letterFolderMakers, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, receiptFolderFor, type FileErrorCode } from './project-files.js'
+import { folderWasMade, noteFolderMade, noteOneStandardFolder, standardFolderListing, itemStandardFolderNames, projectFileTarget, makeProjectFolder, writeProjectFile, safeFileName, type WriteOutcome, freeFileName, attachmentsFolderFor, finishedFolderFor, FINISHED_FOLDER_NAMES, FINISHED_FOLDER_OLD_NAMES, uploadsFolderFor, agentRefsFolderFor, DEBATE_FOLDER_NAMES, DEBATE_FOLDER_OLD_NAMES, ensureItemStandardFolders, ensureLetterFolders, itemStandardFolderMakers, letterFolderMakers, AGENT_REFS_FOLDER_NAMES, AGENT_REFS_FOLDER_OLD_NAMES, TRIGGER_FOLDER_NAMES, triggerFolderFor, ensureProjectHasFolder, versionsFolderFor, receiptFolderFor, type FileErrorCode } from './project-files.js'
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { listFolderLinks } from './workbench-folder-links.js'
@@ -1663,7 +1663,9 @@ function* ensureAllAttachmentsFolderSteps(): Steps<{ items: number }> {
         const it = getWorkItem(id)
         yield
         if (it) yield* provisionStandardFoldersSteps(p, it, folder)
-        for (const n of itemStandardFolderNames()) { yield; noteOneStandardFolder(p, folder, n) }
+        yield
+        const listing = standardFolderListing(p, folder)
+        for (const n of itemStandardFolderNames()) { yield; noteOneStandardFolder(p, folder, n, listing) }
         items++
       } catch { /* one unreadable folder never stops the rest */ }
     }
@@ -1679,7 +1681,9 @@ function* ensureAllAttachmentsFolderSteps(): Steps<{ items: number }> {
           yield
           triggerFolderFor(p, cf)
           receiptFolderFor(p, cf)
-          for (const n of itemStandardFolderNames()) { yield; noteOneStandardFolder(p, cf, n) }
+          yield
+          const listing = standardFolderListing(p, cf)
+          for (const n of itemStandardFolderNames()) { yield; noteOneStandardFolder(p, cf, n, listing) }
           items++
         }
       } catch { /* best effort */ }

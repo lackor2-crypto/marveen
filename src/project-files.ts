@@ -598,13 +598,30 @@ export function letterFolderMakers(): Array<(p: ProjectRow, f: string | null | u
 export function noteItemStandardFoldersSeen(p: ProjectRow, itemFolder: string | null | undefined): void {
   const base = String(itemFolder ?? '').trim()
   if (!base) return
-  for (const n of itemStandardFolderNames()) noteOneStandardFolder(p, base, n)
+  const listing = standardFolderListing(p, base)
+  for (const n of itemStandardFolderNames()) noteOneStandardFolder(p, base, n, listing)
 }
 
 /** #887: ONE probe of the pass above. The startup pass calls it per name and hands the event loop back in between, because
  *  every probe is several stat calls and on a cold Windows drive one item's ~20 probes held the loop for 1-2 s. */
-export function noteOneStandardFolder(p: ProjectRow, base: string, name: string): void {
+export function noteOneStandardFolder(p: ProjectRow, base: string, name: string, listing?: Set<string> | null): void {
+  // #929: with the folder's listing at hand, a name that is not in it (and is no mount) cannot be a folder: skip the
+  // probe instead of paying ~4 calls to the Windows drive to learn it does not exist.
+  if (listing && !listing.has(listingKey(name)) && !resolveMount(`${p.folder_path}/${base}/${name}`)) return
   if (projectFileTarget(p, `${base}/${name}`).ok) noteFolderMade(p, `${base}/${name}`)
+}
+
+const listingKey = (n: string): string => n.normalize('NFC').toLowerCase()
+
+/** #929: the names inside an item folder, read with ONE directory listing (lower-cased, NFC: the Windows drive is
+ *  case-insensitive, so a differently cased folder still counts). `null` when it cannot be listed: the caller then
+ *  probes every name as before, so an unreadable folder is never taken for an empty one. */
+export function standardFolderListing(p: ProjectRow, base: string): Set<string> | null {
+  try {
+    const t = projectFileTarget(p, base)
+    if (!t.ok) return null
+    return new Set(readdirSync(t.dirAbs).map(listingKey))
+  } catch { return null }
 }
 
 export function itemStandardFolderNames(): string[] {
