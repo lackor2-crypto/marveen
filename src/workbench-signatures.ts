@@ -167,7 +167,14 @@ export async function listSignatures(lang?: string, opts?: { fresh?: boolean; bu
   const root = explorerRoot()
   if (!root) return { signatures: [], truncated: false }
   const now = Date.now()
-  if (!opts?.fresh && cached && cached.root === root && now - cached.at < (cached.value.truncated ? SIGNATURE_PARTIAL_CACHE_MS : SIGNATURE_CACHE_MS)) return cached.value
+  if (!opts?.fresh && cached && cached.root === root && now - cached.at < (cached.value.truncated ? SIGNATURE_PARTIAL_CACHE_MS : SIGNATURE_CACHE_MS)) {
+    // A reused answer is only as good as the files it names: one stat each (no walk). If the owner moved or trashed a
+    // picture since (browser-measured, #919: the picker still showed the OLD place for the next ten minutes), the
+    // answer is dropped and the remembered paths below follow the move / the trash instead.
+    const { lost } = await stillThere(root, cached.value.signatures)
+    if (!lost.length) return cached.value
+    cached = null
+  }
   if (running && running.root === root) return running.promise
   const budgetMs = opts?.budgetMs ?? SIGNATURE_BUDGET_MS
   const maxFolders = opts?.maxFolders ?? MAX_FOLDERS

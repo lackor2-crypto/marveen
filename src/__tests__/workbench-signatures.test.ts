@@ -223,6 +223,25 @@ describe('#sigmem remembered signature paths', () => {
     expect(gone.signatures).toEqual([])
   })
 
+  // The owner's real order (browser-measured, #919): open the picker, move the picture in the Life tree, open the picker
+  // AGAIN within the 10 minutes the finished answer is reused. No restart in between, so the in-memory answer is still there:
+  // it must not hand over the place the picture was at last time.
+  it('a file moved or trashed while the finished answer is still reused is not handed over from its old place', async () => {
+    await remember()
+    mkdirSync(join(root, 'Család', 'Korpás László', 'Új hely'), { recursive: true })
+    const { renameSync } = await import('node:fs')
+    renameSync(join(root, 'Család', 'Korpás László', 'Identitás', 'alairas laszlo.png'), join(root, 'Család', 'Korpás László', 'Új hely', 'alairas laszlo.png'))
+    const moved = await listSignatures('hu')
+    expect(moved.signatures.map((s) => s.rel)).toEqual(['Család/Korpás László/Új hely/alairas laszlo.png'])
+    mkdirSync(join(root, 'Kuka', 'ma'), { recursive: true })
+    renameSync(join(root, 'Család', 'Korpás László', 'Új hely', 'alairas laszlo.png'), join(root, 'Kuka', 'ma', 'alairas laszlo.png'))
+    const trashed = await listSignatures('hu')
+    expect(trashed.signatures.map((s) => s.rel)).toEqual(['Kuka/ma/alairas laszlo.png'])
+    rmSync(join(root, 'Kuka', 'ma', 'alairas laszlo.png'))
+    const gone = await listSignatures('hu')
+    expect(gone.signatures).toEqual([])
+  })
+
   it('the remembered paths are kept in store/signature-memory.json', async () => {
     await remember()
     expect(JSON.parse(readFileSync(join(store, 'signature-memory.json'), 'utf8')).entries[0].name).toBe('alairas laszlo.png')
