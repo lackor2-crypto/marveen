@@ -2071,7 +2071,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 /* ---- #534: the translation next to the original is one continuous page, like the original ---- */
 .wb-tw-page { --pg-pt: 56px; --pg-pr: 64px; --pg-pb: 72px; --pg-pl: 72px; width: min(100%, 794px); margin: 0 auto; box-sizing: border-box; min-height: 320px; padding: var(--pg-pt) var(--pg-pr) var(--pg-pb) var(--pg-pl); background: #fff; color: #1b1b1f; border-radius: 2px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16); font-size: 15px; line-height: var(--wb-lh, 1.6); outline: none; }
 /* A chapter heading: the page puts 18px after every chapter (.wb-dp-sec) and nothing between the heading and its first line. */
-.wb-tw-page .wb-tw-h { margin: 18px 0 0; }
+/* #851: the chapter heading is sized like the work item page's (.wb-dp-edit: 1px / 4px padding, minimum line height), so the head of a letter below it
+   (sender table, recipient window) starts at the same height on both pages: measured 3.5 px higher on the translation page before. */
+.wb-tw-page .wb-tw-h { margin: 18px -4px 0; padding: 1px 4px; min-height: calc(var(--wb-lh, 1.6) * 1em); }
 .wb-tw-page > .wb-tw-h:first-child { margin-top: 0; }
 /* The block is spaced exactly like a block of the work item page (.wb-dp-edit): same minimum height, padding and wrapping, no extra gap between paragraphs. */
 .wb-tw-page .wb-tw-block { margin: 0 -4px; padding: 1px 4px; min-height: calc(var(--wb-lh, 1.6) * 1em); white-space: pre-wrap; overflow-wrap: anywhere; line-height: var(--wb-lh, 1.6); }

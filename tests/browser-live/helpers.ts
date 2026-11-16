@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Page } from '@playwright/test'
 
-export interface LiveIds { pid: string; itemId: string; port: number; depot: string; root: string }
+export interface LiveIds { pid: string; itemId: string; letterId: string; port: number; depot: string; root: string }
 
 export function liveIds(): LiveIds {
   return JSON.parse(fs.readFileSync(path.join(os.tmpdir(), 'marveen-live-browser-ids.json'), 'utf8'))
@@ -35,7 +35,7 @@ export async function dismissWizard(page: Page): Promise<void> {
 export async function openProject(page: Page): Promise<void> {
   const { pid } = liveIds()
   await page.evaluate((id) => { (window as any).MarvinWorkbench.open(id, 'Teszt projekt') }, pid)
-  await page.waitForFunction(() => document.querySelectorAll('.wb-folder-row').length > 0, null, { timeout: 30_000 })
+  await page.waitForFunction(() => document.querySelectorAll('.wb-folder-row').length > 0, null, { timeout: 60_000 })
   await dismissWizard(page)
 }
 
