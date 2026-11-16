@@ -51,6 +51,8 @@ import { APP_LANG, DASHBOARD_PUBLIC_URL, MAIN_AGENT_ID } from '../../config.js'
 import { executeTool, runTool } from '../../workbench-agent/execute.js'
 import { getTool, decideTool } from '../../workbench-agent/tools.js'
 import { auditWorkbench } from '../../workbench-agent/audit.js'
+import { anyTurnRunning } from '../../workbench-agent/orchestrator.js'
+import { sharedListing } from '../work-folders-cache.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject, registerSentItemsSource } from '../../projects.js'
 import {
@@ -3947,7 +3949,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       project: { id: project.id, name: project.name, archived: project.archived_at != null, sensitive: projectSensitive(project.id) },
       sensitive_items: sensitiveItemIds(project.id),
       folder_moves: folderMoves,
-      work_folders: await listWorkFoldersYielding(project),
+      // #929: one shared listing for every page that asks within a few seconds (see work-folders-cache.ts); fresh while an assistant turn runs.
+      work_folders: await sharedListing('folders:' + project.id, () => listWorkFoldersYielding(project), { bypass: anyTurnRunning() }),
       items: listWorkItems(project.id),
       item_marks: safeItemMarks(project.id),
       deleted: listDeletedWorkItems(project.id),
