@@ -52,6 +52,14 @@ describe('the translation page draws the table like the original', () => {
   })
 })
 
+describe('the chapter heading above the head is sized like the original page\'s (#851)', () => {
+  it('the translation heading has the work item page heading\'s padding and minimum height, so the head starts at the same height', () => {
+    // .wb-dp-edit (the work item page's heading and blocks): padding 1px 4px, margin 0 -4px, min-height calc(var(--wb-lh) * 1em)
+    expect(CSS).toMatch(/\.wb-tw-page \.wb-tw-h \{ margin: 18px -4px 0; padding: 1px 4px; min-height: calc\(var\(--wb-lh, 1\.6\) \* 1em\); \}/)
+    expect(CSS).toMatch(/\.wb-dp-edit \{[^}]*min-height: calc\(var\(--wb-lh, 1\.6\) \* 1em\);[^}]*padding: 1px 4px; margin: 0 -4px;/)
+  })
+})
+
 describe('the rule is burnt into every prompt', () => {
   it('the shared letter rules say a translation keeps the head of the original', () => {
     expect(LETTER_LAYOUT_RULES_EN).toContain('TRANSLATION (every language version)')

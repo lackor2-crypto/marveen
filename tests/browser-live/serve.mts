@@ -25,9 +25,10 @@ process.env.MARVEEN_DEPOT = depot
 process.env.WEB_ONLY = 'true'
 process.env.WEB_PORT = String(PORT)
 
-const [d, m, p, w, dm] = await Promise.all([
+const [d, m, p, w, dm, lh, dt] = await Promise.all([
   import(path.join(ROOT, 'src/db.ts')), import(path.join(ROOT, 'src/web.ts')), import(path.join(ROOT, 'src/projects.ts')),
   import(path.join(ROOT, 'src/workbench.ts')), import(path.join(ROOT, 'src/workbench-docmodel.ts')),
+  import(path.join(ROOT, 'src/workbench-letterhead.ts')), import(path.join(ROOT, 'src/workbench-doclang-translate.ts')),
 ])
 d.initDatabase()
 
@@ -47,6 +48,25 @@ if (!sec.ok) throw new Error('section ' + JSON.stringify(sec))
 const blk = (dm as any).addBlock(it.item.id, sec.section.id, { kind: 'paragraph', text: 'Tisztelt Hivatal!', author: 'agent' })
 if (!blk.ok) throw new Error('block ' + JSON.stringify(blk))
 
-fs.writeFileSync(IDS_FILE, JSON.stringify({ pid: pr.project.id, itemId: it.item.id, port: PORT, depot, root: ROOT }))
+// #851: an official letter with its window-envelope head (sender table top right, recipient below) and its saved German
+// version, so the spec can measure where the head stands on the original page and on the translation page.
+fs.mkdirSync(path.join(root, 'Ugy 01'), { recursive: true })
+const lt = (w as any).createWorkItem({ project_id: pr.project.id, title: 'Hivatalos level', type: 'document', container_folder: 'Ugy 01' })
+if (!lt.ok) throw new Error('letter item ' + JSON.stringify(lt))
+const lsec = (dm as any).addSection(lt.item.id, 'Level')
+if (!lsec.ok) throw new Error('letter section ' + JSON.stringify(lsec))
+const headHu = (lh as any).buildLetterHead('hu', ['Korpás László', 'Fő utca 1.', '1234 Budapest'], ['Minijob-Zentrale', '45115 Essen'])
+const headDe = (lh as any).buildLetterHead('de', ['Korpás László', 'Fő utca 1.', '1234 Budapest'], ['Minijob-Zentrale', '45115 Essen'])
+for (const [kind, text] of [['table', headHu.table], ['paragraph', headHu.paragraph], ['paragraph', 'Tisztelt Hölgyem!'], ['paragraph', 'Kérem a kérelmem elbírálását.']] as const) {
+  const r = (dm as any).addBlock(lt.item.id, lsec.section.id, { kind, text, author: 'agent' })
+  if (!r.ok) throw new Error('letter block ' + JSON.stringify(r))
+}
+const saved = (dt as any).saveShownTranslation((w as any).getWorkItem(lt.item.id), 'de', [{ source_section: lsec.section.id, title: 'Brief', blocks: [
+  { kind: 'table', text: headDe.table, claims: [] }, { kind: 'paragraph', text: headDe.paragraph, claims: [] },
+  { kind: 'paragraph', text: 'Sehr geehrte Damen!', claims: [] }, { kind: 'paragraph', text: 'Ich bitte um Pruefung meines Antrags.', claims: [] },
+] }], null)
+if (!saved.ok) throw new Error('letter translation ' + JSON.stringify(saved))
+
+fs.writeFileSync(IDS_FILE, JSON.stringify({ pid: pr.project.id, itemId: it.item.id, letterId: lt.item.id, port: PORT, depot, root: ROOT }))
 ;(m as any).startWebServer(PORT)
 console.log('LIVE-BROWSER-READY ' + PORT)
