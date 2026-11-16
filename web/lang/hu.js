@@ -9055,6 +9055,8 @@ window._i18n.hu = {
   "workbench.sh.tech": "Technikai részletek",
   "workbench.sh.tech_item": "Ez a munkadarab",
   "workbench.sh.tech_project": "A projekt",
+  "workbench.sh.tech_fold": "Összecsukás",
+  "workbench.sh.tech_unfold": "Kinyitás",
   "workbench.sh.tech_tools": "Eszközök és keresés",
   "workbench.sh.recent": "Legutóbbi munkadarabjaid",
   "workbench.sh.recent_none": "Még nincs munkadarabod. Írd le fent, mit szeretnél létrehozni.",

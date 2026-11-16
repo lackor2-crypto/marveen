@@ -2573,3 +2573,8 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
 .wb-fr-center-tech .wb-panel-context { display: block; column-width: 300px; column-gap: 14px; }
 .wb-fr-center-tech .wb-panel-context > .wb-panel-title { column-span: all; margin: 0 0 4px; font-size: 14px; }
 .wb-fr-center-tech .wb-panel-context > * { break-inside: avoid; margin-top: 0; margin-bottom: 8px; }
+
+/* #920: the blocks of the technical details fold by their heading; a folded block is only its heading line. */
+.wb-sh-tech-fold { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.wb-sh-tech-fold:focus-visible { outline: 2px solid var(--accent, #5b5bd6); outline-offset: 2px; }
+.wb-sh-tech-grp-shut { gap: 0; }
