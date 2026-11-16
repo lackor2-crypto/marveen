@@ -47,12 +47,15 @@ export default defineConfig({
     //    the live-install gate above: that one inspects the CHECKOUT, and ~/.ssh is
     //    HOME-scoped -- a clean worktree run leaked 62 real keys (ENROLL813,
     //    2026-09-15). A seam, not a gate: it sets state, so it lives in its own file.
+    //  - rule-details-dir-seam: point MARVEEN_RULE_DETAILS_DIR at a scratch directory so no
+    //    test reads/writes the operator's REAL ~/.claude/rule-details (#868 follow-up).
     // One scratch TMPDIR per run, removed at the end (see that file's header, card #683).
     globalSetup: ['./src/__tests__/setup/vitest-tmpdir-global.ts'],
     setupFiles: [
       './src/__tests__/setup/assert-not-live-install.ts',
       './src/__tests__/setup/assert-supported-node.ts',
       './src/__tests__/setup/default-ssh-dir-seam.ts',
+      './src/__tests__/setup/rule-details-dir-seam.ts',
     ],
   },
 })
