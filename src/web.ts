@@ -48,7 +48,7 @@ import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { recentStalls, recentStallSamples, startEventLoopWatch, trackRequest } from './web/event-loop-watch.js'
 import { slowFsReport, startSlowFsWatch } from './web/slow-fs-watch.js'
-import { bumpDepotEpoch, listingCacheStats, startDepotWriteEpoch } from './web/work-folders-cache.js'
+import { bumpDepotEpoch, listingCacheStats, requestMayChangeDepot, startDepotWriteEpoch } from './web/work-folders-cache.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { startTelegramReplyMetaPatcher } from './telegram-reply-meta-patch.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
@@ -214,7 +214,7 @@ export function startWebServer(port = 3420): http.Server {
     const method = req.method || 'GET'
     trackRequest(req, res, path)
     // #929: a request that can change something makes every remembered tree listing old (when it starts and when it ends).
-    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') { bumpDepotEpoch(); res.once('close', bumpDepotEpoch) }
+    if (requestMayChangeDepot(method, path)) { const cause = 'req ' + method + ' ' + path.replace(/\/[0-9a-f]{6,}.*$/i, '/:id').slice(0, 60); bumpDepotEpoch(cause); res.once('close', () => bumpDepotEpoch(cause)) }
 
     const origin = req.headers.origin
     // Emit CORS headers for allowlisted origins AND for genuinely same-origin

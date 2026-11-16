@@ -29,9 +29,21 @@ let hits = 0
 let misses = 0
 let joined = 0
 let bypassed = 0
+const bumpCauses = new Map<string, number>()
 
 /** Something may have changed on the disk or in the registry: every remembered answer is now old. */
-export function bumpDepotEpoch(): void { epoch++ }
+export function bumpDepotEpoch(cause = 'other'): void { epoch++; bumpCauses.set(cause, (bumpCauses.get(cause) ?? 0) + 1) }
+
+/**
+ * Requests that only poll or talk to other parts (the code bridge, the message queue, kanban, performance) never move
+ * a file in the depot, and they arrive every few seconds: counting them as changes kept the listing from ever being
+ * reused on the live dashboard (measured 2026-11-16: 0 hits, epoch +26..40 per 30 s). A file the program really moves
+ * is still seen by the synchronous write hook and by the other (file-moving) requests.
+ */
+export function requestMayChangeDepot(method: string, path: string): boolean {
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false
+  return !/^\/api\/(code|messages|kanban|perf|agents\/[^/]+\/(heartbeat|status)|rate-limit|memories|schedule|approvals)(\/|$)/.test(path)
+}
 
 export function currentDepotEpoch(): number { return epoch }
 
@@ -71,11 +83,11 @@ export async function sharedListing<T>(
   return promise
 }
 
-export function listingCacheStats(): { hits: number; misses: number; joined: number; bypassed: number; entries: number; epoch: number } {
-  return { hits, misses, joined, bypassed, entries: entries.size, epoch }
+export function listingCacheStats(): { hits: number; misses: number; joined: number; bypassed: number; entries: number; epoch: number; bump_causes: Record<string, number> } {
+  return { hits, misses, joined, bypassed, entries: entries.size, epoch, bump_causes: Object.fromEntries(bumpCauses) }
 }
 
-export function _resetListingCache(): void { entries.clear(); hits = misses = joined = bypassed = 0; epoch = 0 }
+export function _resetListingCache(): void { entries.clear(); hits = misses = joined = bypassed = 0; epoch = 0; bumpCauses.clear() }
 
 const WRITE_OPS = [
   'writeFileSync', 'appendFileSync', 'mkdirSync', 'renameSync', 'unlinkSync', 'rmSync', 'rmdirSync', 'copyFileSync',
@@ -105,7 +117,7 @@ export function startDepotWriteEpoch(getRoot: () => string | null): void {
           inDepot = (typeof a === 'string' && a.startsWith(root)) || (typeof b === 'string' && b.startsWith(root))
         }
       } catch { /* the check must never change the call */ }
-      if (inDepot) epoch++
+      if (inDepot) bumpDepotEpoch('fs-write')
       try {
         return (fn as (...x: unknown[]) => unknown).apply(this, args)
       } finally {
