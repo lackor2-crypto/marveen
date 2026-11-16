@@ -288,6 +288,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // #923: the project cards stay on the Team page when the whole bridge is switched off (they show as stopped),
     // so the read-only project list answers too. Moving a task stays behind the gate.
     || (path === '/api/code/projects' && method === 'GET')
+    // The cards keep their Pause / Resume button then, so pressing it must work: it only flips one project's flag.
+    || (method === 'POST' && /^\/api\/code\/projects\/[^/]+\/pause$/.test(path))
   if (!CODE_BRIDGE_ENABLED && !alwaysOn) {
     json(res, { error: 'code bridge disabled (CODE_BRIDGE_ENABLED=0)', errorKey: 'cb.err.bridge_disabled' }, 503)
     return true
