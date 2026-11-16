@@ -42,7 +42,7 @@ export function bumpDepotEpoch(cause = 'other'): void { epoch++; bumpCauses.set(
  */
 export function requestMayChangeDepot(method: string, path: string): boolean {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false
-  return !/^\/api\/(code|messages|kanban|perf|agents\/[^/]+\/(heartbeat|status)|rate-limit|memories|schedule|approvals)(\/|$)/.test(path)
+  return !/^\/api\/(code|messages|kanban|perf|tool-log|agents\/[^/]+\/(heartbeat|status|drain-inbox)|rate-limit|memories|schedule|approvals)(\/|$)/.test(path)
 }
 
 export function currentDepotEpoch(): number { return epoch }
