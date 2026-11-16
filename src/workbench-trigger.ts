@@ -36,6 +36,25 @@ export function siblingNoTrigger(projectId: string, base: string): boolean {
   } catch { return false }
 }
 
+/**
+ * #921: the tick is written for the whole Kiváltó irat FOLDER: every item of the project on the same base folder gets it (or loses
+ * it), so ticking and unticking mean the same on the page, in the assistant's hold and at finalizing. Returns the number of rows set.
+ */
+export function setFolderNoTrigger(item: Pick<WorkItemRow, 'id' | 'project_id' | 'folder' | 'container_folder'>, noTrigger: boolean): number {
+  const cf = String(item.container_folder ?? '').trim()
+  const base = String(item.folder ?? '').trim() || (cf && cf !== '@project' ? cf : '')
+  const v = noTrigger ? 1 : null
+  const db = getDb()
+  let n = db.prepare('UPDATE work_items SET no_trigger = ? WHERE id = ?').run(v, item.id).changes
+  if (base) {
+    n += db.prepare(
+      `UPDATE work_items SET no_trigger = ? WHERE project_id = ? AND id <> ?
+         AND (TRIM(COALESCE(folder, '')) = ? OR (TRIM(COALESCE(folder, '')) = '' AND TRIM(COALESCE(container_folder, '')) = ?))`,
+    ).run(v, item.project_id, item.id, base, base).changes
+  }
+  return n
+}
+
 export function triggerStateOf(project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'container_folder' | 'no_trigger'>): TriggerState {
   // An own-file item has no folder of its own: its container folder is the item folder.
   const cf = String(item.container_folder ?? '').trim()

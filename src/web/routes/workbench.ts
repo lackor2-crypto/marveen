@@ -54,7 +54,7 @@ import { auditWorkbench } from '../../workbench-agent/audit.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject, registerSentItemsSource } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, setWorkItemNoTrigger, listDeletedWorkItems, setWorkItemDeleted, setWorkItemTypePresentation, purgeWorkItem,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, setWorkItemTypePresentation, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -83,7 +83,7 @@ import { tombstoneSnapshot, restoreFromFolders, sweepSnapshots, snapshotStatus }
 import { pageBreaksFor } from '../../workbench-docpages.js'
 import { hasTextFinalPanel } from '../../workbench-notefinal.js'
 import { finalizeTableItem, hasTableFinalPanel } from '../../workbench-tablefinal.js'
-import { finalizeTriggerHeld } from '../../workbench-trigger.js'
+import { finalizeTriggerHeld, setFolderNoTrigger } from '../../workbench-trigger.js'
 import { hasDocxFinalPanel, hasPdfSource } from '../../workbench-docxfinal.js'
 import { decideWorkmodeProposal, DEFAULT_WORKMODE, getWorkmode, listWorkmodeProposals, resetWorkmode, setWorkmode, sheetWithRule, WORKMODE_MAX_CHARS } from '../../workbench-workmode.js'
 import { checkPlacementAfter, lifeMoveIssues } from '../../workbench-placement-check.js'
@@ -5206,7 +5206,8 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     let body: Record<string, unknown> = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
     if (typeof body['no_trigger'] !== 'boolean') return fail(res, 400, 'pin_bad_value', lang)
-    const updated = setWorkItemNoTrigger(item.id, body['no_trigger'])
+    setFolderNoTrigger(item, body['no_trigger'])
+    const updated = getWorkItem(item.id)
     if (!updated) return fail(res, 404, 'not_found', lang)
     json(res, { item: updated, items: listWorkItems(item.project_id) })
     return true
