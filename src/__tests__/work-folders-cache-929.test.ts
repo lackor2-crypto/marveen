@@ -141,7 +141,7 @@ describe('#929 the wiring (source contract)', () => {
 
 describe('#929 background polls do not make the listing old (measured live: 0 hits, epoch +26..40 per 30 s)', () => {
   it('the code bridge claim poll, the message queue and kanban do not forget the listing', () => {
-    for (const p of ['/api/code/tasks/claim', '/api/messages', '/api/kanban/cards/1/move', '/api/perf/stalls', '/api/approvals']) expect(requestMayChangeDepot('POST', p), p).toBe(false)
+    for (const p of ['/api/code/tasks/claim', '/api/messages', '/api/kanban/cards/1/move', '/api/perf/stalls', '/api/approvals', '/api/tool-log', '/api/agents/lackor2-bot/drain-inbox']) expect(requestMayChangeDepot('POST', p), p).toBe(false)
   })
   it('requests that move files in the depot still do', () => {
     for (const p of ['/api/workbench/folders', '/api/workbench/folders/move', '/api/workbench/items/ab12cd34/upload', '/api/life/move', '/api/projects/x']) expect(requestMayChangeDepot('POST', p), p).toBe(true)
