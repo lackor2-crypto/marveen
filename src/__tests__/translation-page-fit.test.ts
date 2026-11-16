@@ -53,7 +53,8 @@ describe('the stored fit follows the database handle (#856)', () => {
       const m = await import('../workbench-docfit.js')
       expect(m.fitOf('x')).toBeNull()
       m.saveFit('x', { hash: 'h', level: 2, source_pages: 2, pages: 2, fits: true })
-      expect(m.fitLevelFor('x')).toBe(2)
+      expect(m.fitLevelFor('x', 'h')).toBe(2)
+      expect(m.fitLevelFor('x', 'other texts')).toBe(0)
       vi.doUnmock('../db.js')
       vi.resetModules()
     }

@@ -15,7 +15,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { documentOutline, isPlaceholderSectionTitle, tableBlockParts } from './workbench-docmodel.js'
-import { documentAuthor, docLangFor, docMetaTitle, contentHash, renderInputFor } from './workbench-docfinal.js'
+import { documentAuthor, docLangFor, docMetaTitle, fitHashOf, renderInputFor } from './workbench-docfinal.js'
+import { getWorkItem } from './workbench.js'
+import { variantOf } from './workbench-doclang.js'
 import { renderOutlinePdf } from './workbench-docrender.js'
 import { FIT_MAX_LEVEL, fitOf, saveFit } from './workbench-docfit.js'
 import type { WorkItemRow } from './workbench.js'
@@ -145,7 +147,7 @@ async function pageCountOf(item: WorkItemRow, lang: 'hu' | 'en', level: number):
  * changed. Null when the pages cannot be counted (the caller then draws the version as it is).
  */
 export async function fitVariantToSource(source: WorkItemRow, variant: WorkItemRow, lang: 'hu' | 'en'): Promise<FitResult | null> {
-  const hash = `${contentHash(source)}|${contentHash(variant)}`
+  const hash = fitHashOf(source, variant)
   const cur = fitOf(variant.id)
   if (cur && cur.hash === hash) return { level: cur.level, source_pages: cur.source_pages, pages: cur.pages, fits: !!cur.fits }
   const srcPages = await pageCountOf(source, lang, 0)
@@ -160,4 +162,12 @@ export async function fitVariantToSource(source: WorkItemRow, variant: WorkItemR
   if (!best) return null
   saveFit(variant.id, { hash, ...best })
   return best
+}
+
+/** #856: before a language version is drawn for good (draft, Word, plain PDF, final PDF), its page fit is measured again when
+ *  the original or the version changed since it was stored; any other work item is left alone. */
+export async function ensureFitFor(item: WorkItemRow, lang: 'hu' | 'en'): Promise<void> {
+  const v = variantOf(item.id)
+  const source = v ? getWorkItem(v.source_item_id) : null
+  if (source) await fitVariantToSource(source, item, lang)
 }
