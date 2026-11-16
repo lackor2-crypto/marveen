@@ -490,7 +490,7 @@ export function translationAlreadySaved(variantId: string, input: { source_secti
  * allitasok a forrasaikkal atmasolodnak, es az osszekotes az eredeti MOSTANI
  * tartalmat rogziti (igy all vissza "friss"-re egy elavult fejezet).
  */
-export function translateSection(variantId: string, input: { source_section?: unknown; title?: unknown; blocks?: unknown }, by: string | null): ModelResult<{ result: TranslateOutcome }> {
+export function translateSection(variantId: string, input: { source_section?: unknown; title?: unknown; blocks?: unknown }, by: string | null, opts: { titleOnlyOk?: boolean } = {}): ModelResult<{ result: TranslateOutcome }> {
   ensureDocLangTables()
   const v = variantOf(variantId)
   if (!v) return { ok: false, code: 'bad_input', detail: 'this work item is not a language version; create one with doc.createVariant from the original' }
@@ -501,7 +501,8 @@ export function translateSection(variantId: string, input: { source_section?: un
   const raw = Array.isArray(input.blocks) ? input.blocks as TranslatedBlockInput[] : []
   // Egy csak cimbol allo eredeti fejezet forditasa maga a cim: blokk nelkul is mentheto.
   const srcBlocks = (getDb().prepare('SELECT COUNT(*) AS n FROM wb_doc_blocks WHERE section_id = ?').get(src.id) as { n: number }).n
-  if (!raw.length && srcBlocks > 0) return { ok: false, code: 'bad_input', detail: 'blocks: the translated blocks of the section, in order ({kind, text, claims: [{source_claim, text}]}); blocks: [] only when the original section has no blocks' }
+  // #866: the owner's own page (a pasted one-line translation leaves a heading and no paragraph) may save a heading alone; the agent paths keep the guard.
+  if (!raw.length && srcBlocks > 0 && !opts.titleOnlyOk) return { ok: false, code: 'bad_input', detail: 'blocks: the translated blocks of the section, in order ({kind, text, claims: [{source_claim, text}]}); blocks: [] only when the original section has no blocks' }
   const blocks: { kind: BlockKind; text: string; claims: { source_claim: string; text: string }[]; own: { rich?: unknown; align?: unknown; pfmt?: unknown } }[] = []
   for (const b of raw) {
     const kind = (b.kind === undefined || b.kind === null || b.kind === '') ? 'paragraph' : String(b.kind)
