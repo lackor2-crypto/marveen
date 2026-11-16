@@ -38,10 +38,10 @@
       "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "README.md": {
-      "blob": "27eccf3fd2869e59360e3a7e3230546ecd61b4c3",
+      "blob": "8e17b6adf13cee59f748fa0fded3305201478db1",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1, docs x1, feat x4.",
+      "card": "#932"
     },
     "SECURITY.md": {
       "blob": "2ef5bce27340217096600073e953674003952cbd",
@@ -86,10 +86,10 @@
       "card": "#620"
     },
     "docs/channels.md": {
-      "blob": "95cc09d26dd866d95282cf08794042eb61203ca9",
+      "blob": "e1577076773178e281901906bcaf963d672b4d74",
       "kind": "decided",
-      "reason": "Upstream docs/notes describing upstream-only behaviour, kept at ours (#731). Upstream commits on it: feat(telegram): replies go back into the topic a message came from in a private chat (TELEGRAM_TOPICS_ENABLED, off by default) (#1893); inbound-probe: run the deafness clock from the oldest unanswered probe (#1876); feat(telegram): named topics (/topic new) and scheduled task results into a topic (telegramTopic) (#1894).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: docs x1, feat x6, other x1.",
+      "card": "#932"
     },
     "docs/config-reference.md": {
       "blob": "8ef2979a7ee4944779106dab2ae062e8cb4f42d7",
@@ -116,10 +116,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "docs/custom-providers.md": {
-      "blob": "668c0ed6bea9d6ea7f6508a4739f9d55b81d25f7",
+      "blob": "a9570029344e1138de0d4f19d4a7f31b339b7aaa",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "docs/destruktiv-kapu-hamis-pozitiv-meres.md": {
       "blob": "7bfec4e5c21eadec34dcb9e7f2a7c21d3eed6b04",
@@ -176,10 +176,10 @@
       "card": "#731"
     },
     "docs/mcp-list-channel-plugin.md": {
-      "blob": "133d3b6dab87241598a3268591b04193303a5322",
+      "blob": "db7103985f8a0a74569c56bb44d1631ac5237fa8",
       "kind": "decided",
-      "reason": "Upstream docs/notes describing upstream-only behaviour, kept at ours (#620). Upstream commits on it: docs(channels): name the real cause of the dead channel poller -- any child claude, not only mcp list (CHILDCL.",
-      "card": "#620"
+      "reason": "Kept at ours (#932): only documentation of upstream features. Upstream commit types on it: docs x4.",
+      "card": "#932"
     },
     "docs/memoria-szuro-hamis-pozitiv-negativ-meres.md": {
       "blob": "bfccb86fb905d414080fc2ccf86d9ea40e18c2db",
@@ -1304,10 +1304,10 @@
       "card": "#731"
     },
     "scripts/hooks/memory-lookup-nudge.py": {
-      "blob": "291c96c00419b0cb6efb9dbf9e23ab857d6214c8",
+      "blob": "ed4f4d8f5f456f6a33c66673c323797e6a374165",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "scripts/hooks/memory_frontmatter_lib.py": {
       "blob": "6f924dc32fe6e74ea94b28148463a0e1d124e916",
@@ -2090,10 +2090,10 @@
       "card": "#620"
     },
     "skills/skill-factory/SKILL.md": {
-      "blob": "9eeda9110893dc78a50fc35c8fc7d3524305ade0",
+      "blob": "e2b4f4baf242c59d35f1dd1ec8aec058bf895163",
       "kind": "decided",
-      "reason": "Upstream docs/notes describing upstream-only behaviour, kept at ours (#620). Upstream commits on it: feat(skills): skill-lint, and the skill-writing rules in the template, the heartbeat and the skill-factory (SK.",
-      "card": "#620"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "src/__tests__/active-model-tail-scan.test.ts": {
       "blob": "c1faf3afb0f531604d06c65d3256536c2e49a328",
@@ -2222,10 +2222,10 @@
       "card": "#413"
     },
     "src/__tests__/agent-tool-deny.test.ts": {
-      "blob": "2fc2bb6efe27090fd3de195af9b066018f46c87c",
+      "blob": "6de92129cdade27bab9271f5fd674397846deb2d",
       "kind": "decided",
-      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. per-agent toolDeny (1abd45cf) restricts what an agent may run; agent equality rule.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "src/__tests__/agent-transcript-caller-gate.test.ts": {
       "blob": "6bc77d47fd8eae43b35fe4ded80ae69941041660",
@@ -2348,10 +2348,10 @@
       "card": "#620"
     },
     "src/__tests__/auth-gate.test.ts": {
-      "blob": "62252047e7491cde03a77aa06b4ab0da0ed996b5",
+      "blob": "8c2d8fd4a19f099e91cfc890126217098aa4efce",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: Security infra package.",
-      "card": "#620"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, other x1.",
+      "card": "#932"
     },
     "src/__tests__/auto-restart-failure-cap.test.ts": {
       "blob": "ff553576104f43fc0b222cffe8ff877cf76ff818",
@@ -2774,10 +2774,10 @@
       "card": "#413"
     },
     "src/__tests__/cli-update-offer.test.ts": {
-      "blob": "19fae474a46b973d068589a472c3770de1e00be1",
+      "blob": "54911250a04053394f7f1f6f426a90615f2df784",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "src/__tests__/command-task-async.test.ts": {
       "blob": "1327b2d861b4ddaf8ffe436152130cad274b57f0",
@@ -2804,10 +2804,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/commands-read.test.ts": {
-      "blob": "0010ee175dc9af1711a5d47456c719f4edc3c50e",
+      "blob": "b5df171b5e8bc6fd6a8a29002500e1fd23fa60b2",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1, feat x2.",
+      "card": "#932"
     },
     "src/__tests__/commands-registry.test.ts": {
       "blob": "817d7d00e469a9fd28a890a9e65a574485f7ac18",
@@ -3554,10 +3554,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/fleet-baseline-deny.test.ts": {
-      "blob": "0dbd770983c417079c88f6b5556837affe667c42",
+      "blob": "a05fcb82e4b5236c365bd063ea09ee99f308938b",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: feat(deny): a fleet-wide deny floor on every profile, with the sudo partner and both lists named (DENYARGS925).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "src/__tests__/fleet-helper-kanban-writes.test.ts": {
       "blob": "ec727fe9dc814a23b9d5f5bf1268d156e628d7ba",
@@ -3932,10 +3932,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/kanban-active-time.test.ts": {
-      "blob": "800bf037fb2e0997324e16f4258e44f8338d7d74",
+      "blob": "38d4b22c13b437727a09956cebf46cc65e23a876",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: feat(kanban): show time in progress on the card detail.",
-      "card": "#620"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, kanban x1.",
+      "card": "#932"
     },
     "src/__tests__/kanban-agent-filter-nocase.test.ts": {
       "blob": "af91823c475fbef950a6f8fcad16e7e0b43487bc",
@@ -4508,10 +4508,10 @@
       "card": "#413"
     },
     "src/__tests__/memory-lookup-nudge.test.ts": {
-      "blob": "678535ba0a74c1cb0955987691e618dd03e12583",
+      "blob": "3ff9974cb49649d044890e2940a10154f9804f8e",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "src/__tests__/memory-performance.test.ts": {
       "blob": "e161ce292ac5a345f73ad7d23f70c0953363537f",
@@ -4958,10 +4958,10 @@
       "card": "#620"
     },
     "src/__tests__/picker-cli-gate.test.ts": {
-      "blob": "68ccdccbd8a2b7f94f0e3c37009fc6634b45f4f6",
+      "blob": "79921d7bf2f27377556b3bbc2b0a268472f3d842",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: feat(models): Haiku 5.5 is selectable, gated to the CLI measured to launch it (HAIKU55SELECTOR1008).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x5.",
+      "card": "#932"
     },
     "src/__tests__/port-chain-no-hardcode.test.ts": {
       "blob": "b38b458d72afc0ad7d059996b44696b6d5afbc88",
@@ -5372,10 +5372,10 @@
       "card": "#620"
     },
     "src/__tests__/schedule-runner-main-agent-missing.test.ts": {
-      "blob": "93c3b08675941675dae157062fb006c19a3190be",
+      "blob": "3ca3232493f10d512e597066a216a347fd278c0b",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Pins upstream scheduler features this fork does not ship (Slack-bound channel, main-agent-missing branch, task-run completion records, ledger drain / identity). Our schedule runner keeps its own shape (C-31, owner decision A 2026-09-24); the one real upstream fix here (missing retry) was rebuilt separately.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, other x1.",
+      "card": "#932"
     },
     "src/__tests__/schedule-runner-main-respawn-hold.test.ts": {
       "blob": "48337252e81a1e1c148cb0bfef2577da72c6a0d3",
@@ -5726,10 +5726,10 @@
       "card": "#620"
     },
     "src/__tests__/status-system.test.ts": {
-      "blob": "898a180bd61121616d20c82a4d74c7524d942e16",
+      "blob": "01e234bd74783a8d1328e4d77c8449fde4ea07f2",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(telegram): replies go back into the topic a message came from in a private chat (TELEGRAM_TOPICS_ENABLED, off by default) (#1893).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x8.",
+      "card": "#932"
     },
     "src/__tests__/stop-authority.test.ts": {
       "blob": "905e6bf49dbc5d69511ac4178b21c8d5c0baff3b",
@@ -5786,16 +5786,16 @@
       "card": "#620"
     },
     "src/__tests__/system-directive-auth-section.test.ts": {
-      "blob": "71d6c80a74b4ee1c5e454e499fb96f22ad26f85e",
+      "blob": "49ea4f915e37de3aaddb287806c286339ee5a929",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x3, test x1.",
+      "card": "#932"
     },
     "src/__tests__/system-directive-verify-endpoint.test.ts": {
-      "blob": "21984b77fbb49566cfe3067ebe7e7109c6e6247f",
+      "blob": "59f97aee79191bc64254e8ae1cdbf03e8fa9e052",
       "kind": "decided",
-      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. system-directive authentication gate (41097033), only meaningful with the provenance gate, which is not wired here.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "src/__tests__/system-sender-allowlist.test.ts": {
       "blob": "d759e19881002f405faf10dc746c275c39868cf5",
@@ -5852,10 +5852,10 @@
       "card": "#731"
     },
     "src/__tests__/template-identity-hygiene.test.ts": {
-      "blob": "16d3f700bb5667aa98c4a2fdd9727269085784cf",
+      "blob": "fdad9f893849c3206c42d094eb2c1ecb93b48a18",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, test x2.",
+      "card": "#932"
     },
     "src/__tests__/tmux-chunk-boundary.test.ts": {
       "blob": "8d001acc2e35b2205ea8ce1f42858ebe3b607038",
@@ -5954,10 +5954,10 @@
       "card": "#413"
     },
     "src/__tests__/topic-commands.test.ts": {
-      "blob": "4aa060f4f1ab4c754a6b74c01208b5ccf789ec11",
+      "blob": "686060690a3e791509302b42c15796653f96ab5a",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(telegram): named topics (/topic new) and scheduled task results into a topic (telegramTopic) (#1894).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, test x1.",
+      "card": "#932"
     },
     "src/__tests__/transcript-progress.test.ts": {
       "blob": "4a89cbeaf8086774f020af296224af17cd361679",
@@ -6524,10 +6524,10 @@
       "card": "#620"
     },
     "src/web/auth-gate.ts": {
-      "blob": "57dc566c3ba7277eeadc478dbbe843043ebf0a79",
+      "blob": "66f18049ca8bbfcf14e61f3fd81d05c5757a087d",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(operator): the IT operator's endpoints, page and owner controls (DASHOPERATOR1005 PR-3); feat(auth): operator-scoped device keys behind a server-side gate, owner switches (DASHOPERATOR1005 PR-2); Security infra package; feat(dashboard): video review page for the owner, notes to the video agent (VIDEOREVIEW1002).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: approvals x1, auth x1, feat x4, other x1.",
+      "card": "#932"
     },
     "src/web/auto-restart-runner.ts": {
       "blob": "679540684b5bf96127a401148051d68f387dc456",
@@ -6542,16 +6542,16 @@
       "card": "#735"
     },
     "src/web/builtin-commands.ts": {
-      "blob": "d9610d8a6b7b4218ce9f87a2c7cb05495195e79b",
+      "blob": "9db682260d168cd86fa71179092353e15029994d",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1, feat x3.",
+      "card": "#932"
     },
     "src/web/channel-continue-policy.ts": {
-      "blob": "dedda0c17c5a20410811c8325392b8460d69b38e",
+      "blob": "00c9c609823a6959d715c22a60d98c3e3cde9192",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(agents): a sub-agent can co-listen on a second channel, e.g. Telegram + Slack (AGENTEXTRACH1006).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x3.",
+      "card": "#932"
     },
     "src/web/channel-intake-monitor.ts": {
       "blob": "2f6188ceee46ef6b6fc1b56f7fdaf414d1e371fe",
@@ -6620,10 +6620,10 @@
       "card": "#620"
     },
     "src/web/cli-update.ts": {
-      "blob": "e56096e89c43b9a6a04d7c482270e163a7a5a2f2",
+      "blob": "4c5bdb3dad6c2c82b8a25e6bb90d0dd546d30848",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
     },
     "src/web/command-task.ts": {
       "blob": "9b04df64e4f57ddac7affaff7946eb86caddface",
@@ -7100,10 +7100,10 @@
       "card": "#440"
     },
     "src/web/routes/ideas.ts": {
-      "blob": "06d261823e57a4b4ab9e434ca07aa3f579c7d1c4",
+      "blob": "1b622518a4e134ef3f48cfa3aa8e81c8711c5115",
       "kind": "decided",
-      "reason": "Decided (#413): kept at ours because the upstream version needs C-31 code (owner decision A, 2026-09-24). Every upstream commit on this file since the merge base was triaged under #413 (per commit, and per upstream test where it has one): the useful fixes are rebuilt in our code (PRs #446, #451-#465 on #413), the rest pin upstream features or new gates this fork does not ship.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1, feat x1.",
+      "card": "#932"
     },
     "src/web/routes/kanban-projects.ts": {
       "blob": "5e97878afaab269cb9328da2018f0f0a0625387e",
@@ -7214,10 +7214,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/web/routes/types.ts": {
-      "blob": "b521e60f8177c2aa504ce8f58eb2f2ddec0e379d",
+      "blob": "cd640624f65d738eb30d47d923335f2e04671ed1",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(auth): operator-scoped device keys behind a server-side gate, owner switches (DASHOPERATOR1005 PR-2); Security infra package.",
-      "card": "#620"
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: auth x1, feat x2, other x1.",
+      "card": "#932"
     },
     "src/web/routes/updates.ts": {
       "blob": "ffb3aa8a225396ab463f17d747ae69d884822b6d",
@@ -7500,6 +7500,2424 @@
       "kind": "decided",
       "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(dashboard): video review page for the owner, notes to the video agent (VIDEOREVIEW1002).",
       "card": "#620"
+    },
+    "src/__tests__/installer-gromzo-provider.test.ts": {
+      "blob": "5de28d022b862b4211c68131e1ab288ce128c040",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/installer-linux-teams.test.ts": {
+      "blob": "0688367105d524efc6f480032452b4df01c8a318",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helpers/route-owner-scan.ts": {
+      "blob": "d7edc66379a0c4814ff5b8707220e70a9c8ca53a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/route-owner-pin.test.ts": {
+      "blob": "e8e7742c687d990195882b09b66478664fa1e3fb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    ".github/workflows/docker-image.yml": {
+      "blob": "158508a9b51066a64a0ae61f7b92adc3135dcf75",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: ci x2.",
+      "card": "#932"
+    },
+    "scripts/__tests__/install-linux-admin-prereq.test.sh": {
+      "blob": "121841fbfbb902ae8029da0fd30c95231d47a5f0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/installer-mac-timeout.test.ts": {
+      "blob": "0f987e3cfbc0d77c2f5907d1e302e8a3d3a31282",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/homoglyph-invisible.test.ts": {
+      "blob": "aa7bf2f85833424d46dadcebb603d35c72885dc4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/homoglyph.ts": {
+      "blob": "104b77dfb54378cbe3dc328d88c7d549fd50a64f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/bridge-enroll-host.test.ts": {
+      "blob": "8942593cf2c04fc5e5a97143edd62b278896b6a4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/main-held-peer-alert.test.ts": {
+      "blob": "926dec02b2fb2a8f68a9c23e4a156f7c2914a0ff",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x3.",
+      "card": "#932"
+    },
+    "src/__tests__/schedule-runner-teams-stall-notice.test.ts": {
+      "blob": "1424cf0b303c607107a52fe36b1a8f74fb1f47ca",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/system-directive.test.ts": {
+      "blob": "a559628b88b7800875804cc9549ef66f77faefac",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/tmux-batch-dedupe.channel-health.test.ts": {
+      "blob": "8731413a3400a3ce5df2cbafeb792706138099a3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/tmux-batch-dedupe.channel-monitor.test.ts": {
+      "blob": "eb6ceb2fe924db210bc407b1103641137e382749",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/tmux-batch-dedupe.router.test.ts": {
+      "blob": "df32f8996bec3b767a003515424e8ccad1047035",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/tmux-batch-dedupe.stuck-tool.test.ts": {
+      "blob": "1dc987eabfdf2774389e8b9404a37f3db8b29140",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/unblocks-router-hold.test.ts": {
+      "blob": "0d747c6e4bc19ff7e1d2455483b1a3991636207d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/channels-dead-after-up-verdict.test.ts": {
+      "blob": "c25b0642559ced464601b40e70babf33bbee304e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1.",
+      "card": "#932"
+    },
+    "src/__tests__/reload-plugins-idle-guard.test.ts": {
+      "blob": "6d7039832218ddcfc89f26648c27d2ddde95fce4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1.",
+      "card": "#932"
+    },
+    "src/__tests__/pii-gate.test.ts": {
+      "blob": "a441f4c86f731206f840c4bd1f471dbe6b9046e3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/pii-push.test.ts": {
+      "blob": "27f311ab1d98c989cfb896c287f6732001c8ee85",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/security/pii-gate.ts": {
+      "blob": "f7dd359c71961fec745448a9c4fc4e2c92390660",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/security/pii-push.ts": {
+      "blob": "4c2298a9fdce8afecb8ae0cd22f7052355f58670",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memory-real-use.test.ts": {
+      "blob": "3a195ce9aeb9b4c9a261156d6d6722a5dfa70008",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memory-supersede-chain.test.ts": {
+      "blob": "38fc8c091bdf5dd40197b19e47d9f9fdb2b73608",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memory-tier-listing-and-stale-hot.test.ts": {
+      "blob": "1097b4bfb332ba75c68fcbf32019843eced5d407",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memory-title-line.test.ts": {
+      "blob": "5fa739299a803ce6d4f39a05cc264277f9840265",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/memory-supersede.ts": {
+      "blob": "60fd6bcbf040eae4798f7c1004d81d08db7fa795",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-board-summary.test.ts": {
+      "blob": "1127309c7180be26e1bbec641aeeb05f5ea0c6e1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/confirm-dialog.test.ts": {
+      "blob": "6426c224c63a33bd44c133ecd69c3367bdf23876",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x2, feat x10.",
+      "card": "#932"
+    },
+    "src/__tests__/idea-delete-comments.test.ts": {
+      "blob": "66c73a6faa8e0bca5c5276083049aec206e9ec0e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/idea-detail-status-label.test.ts": {
+      "blob": "ec95c73587c2b003a72c0a5503dc8de29caeba07",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/idea-form-save.test.ts": {
+      "blob": "181ee461031a6ee54502245e739e831a7933aa5e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/toast-type-word.test.ts": {
+      "blob": "84e654fe6fb4007555e888a82c04dea4ad3adb6e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/patch-telegram-plugin-pairtext.test.ts": {
+      "blob": "c7cbb4a8da996ee82690f5b1de90fcf1601948b8",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/patch-telegram-plugin-silent.test.ts": {
+      "blob": "eedbfffb9bd6fae03802812e7220a6a2076c8677",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x3.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-owner-relay.test.ts": {
+      "blob": "1cda4fdffdab0051cb44f527560215112ceb0a9b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-provider-parity.test.ts": {
+      "blob": "164a072645417afa8b399a2428e924ccfe1e670b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/channel-coordinator/provider-poller-match.ts": {
+      "blob": "d3cb40979c4e68b940b6910f77938fc443aa5849",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-main-reauth-wiring.test.ts": {
+      "blob": "5396b5515db6a40e6aedfd33ada6482f70f3dab5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    ".dockerignore": {
+      "blob": "260b785a02a6c06e049354ad2bb266e0e266c104",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "Dockerfile": {
+      "blob": "5bc76e46cde2493f79c33ddd972534d280feba7a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "docker/entrypoint.sh": {
+      "blob": "ae9da84a4016db4af040a48423fd78532f089184",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "docker/seed-refresh-docker.sh": {
+      "blob": "199653c70fb0e8ba6e7db57cae009b03ccdb38d8",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docker/seed-snapshot.sh": {
+      "blob": "4e9c376ff4b9ceaf839e2e77e6640b5cb3973f3e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/docker-seed-refresh.test.ts": {
+      "blob": "3a64351eac2bfb250fedfca82fe7aac3eaa96759",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "i18n/en/seed-skills/approval-request-handling/SKILL.md": {
+      "blob": "2bb80108ee02173019f263a91def8420049a08f5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-lang-per-post.test.ts": {
+      "blob": "87216f33cebbc82ac812bc52e992b9a16978d811",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-server-filed-lang.test.ts": {
+      "blob": "b7b8e2f00ca3f205316ffee7c07fa156abf8e744",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-slack-reply.test.ts": {
+      "blob": "4b92555cecec079c7144cff3d1df49fd512ce86c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-text-lang-explicit.test.ts": {
+      "blob": "74619093731d4ce4a5dcc147fa562f0e40b68707",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-texts-en.test.ts": {
+      "blob": "d2801e1f993e43c8db8018b0e5a337a9c2fb3097",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-texts-golden-hu.test.ts": {
+      "blob": "8d3b5bcc529000959b81e52f97fdf04d1196e358",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/review-action.test.ts": {
+      "blob": "d36ee4ac99babf26353356852566160d5575be5b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/approval-envelope.ts": {
+      "blob": "727b19e96e389fec67707890ad36280afc7ebde0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/approval-slack.ts": {
+      "blob": "b4547c51f6024826b30fd2004b01e784ad3cceea",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x3.",
+      "card": "#932"
+    },
+    "src/web/agent-text-lang.ts": {
+      "blob": "235026e8474f1c2d5b09748b11f8288fda333ca6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/web/approval-slack-route.ts": {
+      "blob": "154665acb0dfd58f610d76cb026861d8251691df",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x3.",
+      "card": "#932"
+    },
+    "src/web/approval-texts.ts": {
+      "blob": "db58b8a4b97d21df3c5b9f4fe853b2fc0f3a53cf",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/routes/review-action.ts": {
+      "blob": "26f3c87de1e87dab758e4f849cfde1d7628319a9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "i18n/en/scheduled-tasks/dream-engine/SKILL.md": {
+      "blob": "0b8e3273fb7c6e70abdc84640878e45cfa558be5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "i18n/en/scheduled-tasks/ledger-live-drain/SKILL.md": {
+      "blob": "93315850f293bb95b8581fd1bf098106108cfeb6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "i18n/en/scheduled-tasks/memoria-heartbeat/SKILL.md": {
+      "blob": "0e4d9175ae23f86ebd2758a69aea3a18c1e8a597",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "i18n/en/scheduled-tasks/reggeli-napindito/SKILL.md": {
+      "blob": "344d1d5ae6cbc0d2ea9660a4b0bb4b6f10daf60f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "i18n/en/seed-scheduled-tasks/kanban-audit/SKILL.md": {
+      "blob": "6783297ebae9227cf251028b5de7fe8fdc19fbb2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "i18n/en/seed-scheduled-tasks/kanban-audit/references/kanban-audit-buktatok.md": {
+      "blob": "cf8c2254ca4f63773137093609af88afffb7224f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "i18n/en/seed-scheduled-tasks/kanban-audit/references/kanban-audit-step4b-waiting.md": {
+      "blob": "0b3205324a7d9c67cca3b59465fb833c1c02db7a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "i18n/en/seed-skills/self-rename/SKILL.md": {
+      "blob": "08ca37f662674f0b7a0a9a786e1fc74faab9bf4b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/update-sh-pre-seed-a.sh": {
+      "blob": "fd227e0ccf86a444b5a60cf28dfd345aadcfb22f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/seed-lang-en-scaffold.test.ts": {
+      "blob": "8ccf0534c4439a03055f33603c9da595d4fb4fd7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/lib/persona-template.sh": {
+      "blob": "9df08ed314478e84068f55ea0d52634bc606ee5d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-text-lang.test.ts": {
+      "blob": "c6c6fbd4e9557e00c20e741d7a629cbc9197b843",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/generated-sections-en.test.ts": {
+      "blob": "3467c763f5c7d57d06c5dfca418bbaf426251c31",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/agent-scaffold-en.ts": {
+      "blob": "50a72a14fba234361917b78061eb227e207ecfb1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docker/ci-smoke.sh": {
+      "blob": "4e69749adaae9cebdac04ebcf7f5a8a43e58f39a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: ci x1.",
+      "card": "#932"
+    },
+    "templates/en/SOUL.md.template": {
+      "blob": "5b52b453f468f3824ff1ef7b394e552953e57c42",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docker-compose.yml": {
+      "blob": "bef31aef1ff501c512051a08d6675aaeeb9a7d6a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docker/Caddyfile": {
+      "blob": "e4874f9f3f440749af285d62033488899f99a1ce",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docker/code-sync.py": {
+      "blob": "9fcf39c9445dcaa116aec126c9cf81d907b9dcbc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docker/dashboard-link.sh": {
+      "blob": "1a1203c9169c0373c4180a8dfed63989984c6b81",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docker/supervisord.conf": {
+      "blob": "24a0a1102e1ef5655361f20faa31d145357a9267",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/docker.md": {
+      "blob": "cc4bc19de51734d8e30811185347bb7280636c61",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/docker-code-sync.test.ts": {
+      "blob": "b777db7ab73b08c7645ed5f0083405fe08bef49f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/deployment.ts": {
+      "blob": "b6090c50d19ff3ef5ce94b56f8b5ee3aaea7b3e9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helpers/fake-mxd-dash.ts": {
+      "blob": "e66f4460451513058dd69eb2ff1acf4eb46b2649",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "tests/browser/gromzoownerqr1030.spec.ts": {
+      "blob": "0b2b98113697fdcb7cfe020f9fbd521b49d066a3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/main-auth-switch-route.test.ts": {
+      "blob": "53247bc839d3ba7e487b7bf40dbd1b3a10f31852",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/main-auth-switch.test.ts": {
+      "blob": "ec1d585eb57747a8a8ec3073995c588b4b9659d5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/main-auth-switch.ts": {
+      "blob": "98a8892305be64d3b744b6ecfc3f7d524cadba81",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/uptime-monitor.py": {
+      "blob": "839aee3d8b707f3509be068b3ba282d8ef2df95b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/owner-alert-chat.test.ts": {
+      "blob": "60730dd7a1ef1d8c74b365d730f6ecc9bf5eb66e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/alert-chat-format.ts": {
+      "blob": "2fae8ec9011f631a6c0012373999053678e9a070",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/hooks/hook_switches.py": {
+      "blob": "cdfd74f003a159f6862945661aeca3e0a54d619d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x4.",
+      "card": "#932"
+    },
+    "scripts/hooks/mxd-path-gate.mjs": {
+      "blob": "feafa9af960aeb2342b39fe943bedbe815a81a6e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/mxd-path-gate.test.ts": {
+      "blob": "5c1c6f04a8c19d8ae7477c75a1730cde628672e4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/lib/gromzo-protection-check.sh": {
+      "blob": "bb1ba059788fd76c653a57d558550fab3ea993d1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-protection-doctor.test.ts": {
+      "blob": "b76639d89a6ee9c0dcd34ddcf1b61e32ecf7157d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/main-gromzo.ts": {
+      "blob": "5fc4ff7c733f23261b5353e1252ce2545aa4fe31",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-missing-provider.test.ts": {
+      "blob": "993375aaeb2b4baad611946cf5b0cdb20b805e3d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-wizard-custom-provider.test.ts": {
+      "blob": "e30c0478df8b94f8aa1f9abb7239358d99286e93",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/custom-providers-used-by.test.ts": {
+      "blob": "5803ab77d0958c2ec4c79f519815961d09f328a0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/providers-page.test.ts": {
+      "blob": "c9e276d51de1a15286b77788e1a632985ed31ad2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/unblocks-interrupt.test.ts": {
+      "blob": "e659e8d4b42616f4034abbac3f65339a56efb0fc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/unblocks-route-device-key.test.ts": {
+      "blob": "f63ae098c31b124448d14f7ef1689825fcdabb17",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/unblocks-interrupt.ts": {
+      "blob": "77ee186d4895171c82c96080556a1820d3c071b5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/vault.md": {
+      "blob": "0caef3462c40f2388c6f87e9e88830048af8b103",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1, feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-edit-form-layout.test.ts": {
+      "blob": "0bd4d7e659b37222baf2402cb2fea445647896c3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-page-i18n.test.ts": {
+      "blob": "1d571ef06953ad484445c62fa69828b83b91f5c7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-ssh-keygen-close.test.ts": {
+      "blob": "293fa2faa7baa88f0065ffe2ee924100b0a423e9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/support-mail-attach.test.py": {
+      "blob": "33db5deb81f80a91e92da6503a4b0d7d09482475",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/install-linux-admin-prereq.container.sh": {
+      "blob": "5f837991e20d1936fd389f8de59882e91c0946b3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/backup-agent-state-and-nightly.test.sh": {
+      "blob": "94956a3b561f5f273461729c7a75e37390ccfb7b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/backup-nightly.sh": {
+      "blob": "c70134f6f7c5ba6e0a7398fb3a4cef850c0c6af3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-slack-reply-route.test.ts": {
+      "blob": "9db320551a6682900566da497de20d6f3723dc23",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/install-drift-repair.test.ts": {
+      "blob": "ce1a94fa116e29982c17ec109e3fd4efdee7b48f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/install-drift-repair.ts": {
+      "blob": "5c43c93f98e68777cfd9c0fd4a68787e96ac0461",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-marketplace.test.ts": {
+      "blob": "0c75a950373896e1a0f2df121cf18e55925e4edf",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/gromzo-marketplace.ts": {
+      "blob": "a100e2f4f140d09973bc4eeb8abf7ddad81819b6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/kiallitasi-kapu.test.py": {
+      "blob": "532d46a365dad4e66ff53cdee730c9db84ca62f9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/billingo/kiallitasi-kapu.py": {
+      "blob": "d8dcc49a7c90d1e3a66101c41734a825b08a5afd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/helper-path-edge.test.sh": {
+      "blob": "17d64d1f4cb60e608f7b487b59dcf0594fcd6b71",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/helper-plist-path.test.sh": {
+      "blob": "9451723d53fb2cc660124fda3de9a501fdaaeaca",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/template-kanban-close-answer.test.ts": {
+      "blob": "5e0ea45492a21c5bde35f6d606748ea08234369d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only documentation of upstream features. Upstream commit types on it: docs x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-envelope.test.ts": {
+      "blob": "908a61e0ce4bbb14ea53a41f61e893b402d8bb38",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-slack-owner.test.ts": {
+      "blob": "7f5927834eac3ed7f9cd2f6e24cad5c5f80371c1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-slack-route.test.ts": {
+      "blob": "55551eba942c7bd66a759750f30f781af2dbdd62",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/approval-slack.test.ts": {
+      "blob": "7de713ac85aeabc8fd2532f5d7ef2380be141f73",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/bridge-owner-login-offer.test.ts": {
+      "blob": "c80ac9c4971171a33dbb3aa13c924f0e1050ce37",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/skills-propose-route.test.ts": {
+      "blob": "e026cedb115971fc5ef953926ae897f096db3b4b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/skills-propose-files-readback.test.ts": {
+      "blob": "ae6f83a5d635162e28151017f3fc66497ce3beb7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-avatar.test.ts": {
+      "blob": "e628b86315a369095c887a02ee049d1780fac86e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/gromzo-avatar.ts": {
+      "blob": "1108c4452743e8afbab44deaada7d9213b2027cb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/liveness-async-ps-failure.test.ts": {
+      "blob": "a75375b14c210a1d0defc59aab9101e7f3636876",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/liveness-async.test.ts": {
+      "blob": "2efd79abaac6c50c4335d08e04231fa8686cd7b7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/requeue-abandoned.test.ts": {
+      "blob": "5e89fea91de587ffdf69d49042447e66e325fff1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/requeue-notice.ts": {
+      "blob": "012d2698614166595b50d4c51301c0cf783a82e2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-patch-label-route.test.ts": {
+      "blob": "4fa614f2119c4225a2b0465e1ef112374a1781e2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-patch-label.api.test.ts": {
+      "blob": "0e5bd7f80e092b73df9920a4122ac4903446e5fe",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-update-label.test.ts": {
+      "blob": "eb74b38509d389c1c402bf3ebdff00deb4e7bfc7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/hooks/shell-rescan-guard.py": {
+      "blob": "162d166dfc507f2c0046d25902c39d432f9a8203",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/hooks/shell_rescan_lib.py": {
+      "blob": "972ffad1f8bf0fa115d1115d9cc2f85fd675e215",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/shell-rescan-guard.test.ts": {
+      "blob": "53fe8e7ccd1399448758bdc4216be3a13bb16bb4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memories-dedup.test.ts": {
+      "blob": "1a4dd39ea3e2335b5d49cea084f104e871cb6e29",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memory-dedup-unit.test.ts": {
+      "blob": "c4e9c04c7cf77c33550e0f40cc1924dfbe749ca7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/memory-dedup.ts": {
+      "blob": "35c574678f5e692994f29810421916038168ec3f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/channel-continue-optout.test.ts": {
+      "blob": "77ecb01b9b1ee557a6415e91b00df76bff04fc04",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agents-activity-cache.test.ts": {
+      "blob": "624efa886de2b277daeb6cd7ae3068d102dccdd4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agents-route-tmux-spawns.test.ts": {
+      "blob": "d27e2ea0f00ccc2520f27b491c64d14203b7a20a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/tmux-batch-run-as.test.ts": {
+      "blob": "1d192be5653e997cf0fef92db4e3a63594bb369f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/tmux-batch.test.ts": {
+      "blob": "d5bd7ce8d0f08472ee1910657c717e832683ce2c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/self-pace-protected-store-files.test.ts": {
+      "blob": "f7bbdd45ccc24838f6d2cf732c113f10143514db",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/bash-egress-measure.test.ts": {
+      "blob": "37b52fc3f97c4ab252be48b6badcf20d21f555e9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/mxd-dash.test.ts": {
+      "blob": "c2f0f658c524b884118853b62615a70207f527e5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-summary-run-as-user.test.ts": {
+      "blob": "6a416a3ada83833230479ecdffd988306719afa0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/channels-native-autoupdate.test.sh": {
+      "blob": "eb0fa7827ccf147e068631e6bab10917b88d6be0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/self-pace-transient-unit.test.ts": {
+      "blob": "087aa1c8a10fe9d3c8e8f3112a96c68abcbee90b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/precompact-prompt-2340.txt": {
+      "blob": "53c9997b83eb2a4dea1771800672255ab69eda3b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/skill-propose-instructions.test.ts": {
+      "blob": "28db40678956a94e381551b8e0f8a6009881e5e9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "templates/retired-claude-md-sections.json": {
+      "blob": "c05b827bce2b87a1f9cd5cc9ce1ad098a3a86e82",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memory-retract.test.ts": {
+      "blob": "e2a91e550b01d8726b361bbbb2616b87c4567013",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/en/heavy-job-gate.md": {
+      "blob": "d7058f11c53186009091196a4124ca1a0009766e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1, scripts x1.",
+      "card": "#932"
+    },
+    "docs/heavy-job-gate.md": {
+      "blob": "502d4c7f6ef216990fa2e384b1b0f35951af96c1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1, scripts x1.",
+      "card": "#932"
+    },
+    "src/__tests__/heavy-job-hold.test.ts": {
+      "blob": "24f90bb7776f8300c42a6508e6d421c1498c2f69",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1.",
+      "card": "#932"
+    },
+    "src/__tests__/heavy-job-owner.test.ts": {
+      "blob": "ca7a5f310aac627bdf594dc87dd9ee316e537326",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1.",
+      "card": "#932"
+    },
+    "src/web/heavy-job-hold.ts": {
+      "blob": "db5a78706a03278500d8c9cf5bb84a59a4d639f0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1.",
+      "card": "#932"
+    },
+    "src/web/heavy-job-owner.ts": {
+      "blob": "444c99999d22959f33333d30e76837fb980e0ef9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1.",
+      "card": "#932"
+    },
+    "src/__tests__/opensource-inventory-route.test.ts": {
+      "blob": "710f96effdee593712948dde724cc33886c709ed",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: auth x1, feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/slow-request-log.test.ts": {
+      "blob": "61a34cc48d5090707a29cdbd6f563c72b0fde3ea",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: auth x1, feat x1.",
+      "card": "#932"
+    },
+    "docs/README.md": {
+      "blob": "4f51eddeb2e68af5ee0399713e9c09828790b2d1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x5, scripts x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/heavy-job-gate.test.py": {
+      "blob": "59dec69fca333b91070f2277c88f0e693a118b64",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: scripts x1.",
+      "card": "#932"
+    },
+    "scripts/heavy-job-gate.py": {
+      "blob": "98f6f766ff5c618154530484823a2f0ca0670842",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: scripts x1.",
+      "card": "#932"
+    },
+    "scripts/heavy-job-gate.sh": {
+      "blob": "c3d5c611ed31d65b4ea22bae6f35da92d525d0d6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: scripts x1.",
+      "card": "#932"
+    },
+    "docs/en/hook-metadata.md": {
+      "blob": "32f99d81c91011236bc69688fc950974a87824cb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/hook-metaadatok.md": {
+      "blob": "a630e4e4a675143ec256f7355b6a171dc1489ac1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/hook-metadata.test.py": {
+      "blob": "fd0e4fbd59dc263337facab426e6a23b0290ee6e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/hook-metadata.py": {
+      "blob": "ddcb85311b96959546a520356c5410b99ceefad2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-start-restart-incomplete-body.test.ts": {
+      "blob": "544740a732c91104127f6241da0e7d72fa613153",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: web x1.",
+      "card": "#932"
+    },
+    "src/__tests__/read-body-early-close.test.ts": {
+      "blob": "a0ae317e49ea950829a306014e944c4214261e45",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: web x1.",
+      "card": "#932"
+    },
+    "src/__tests__/settings-reset-route.test.ts": {
+      "blob": "86ab6fa28756b247d3e46463a0a15a94bc62d4cf",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, web x1.",
+      "card": "#932"
+    },
+    "src/__tests__/updates-preflight-async.test.ts": {
+      "blob": "ddb28290c7b980b48b02249ce304104ece71e78c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1, test x1, web x1.",
+      "card": "#932"
+    },
+    "scripts/google-consent.example.json": {
+      "blob": "5ddc5f5b34c7ee666fe081e7b92763d106ad0814",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-sudo-optout.test.ts": {
+      "blob": "e3f4b2e1bd1fd2d90db73e96f4425b1b157e12b7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/en/meta-graph-read.md": {
+      "blob": "f6f186be4b0033a4ac7d1a9a306ab0b9d3d96c51",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/meta-graph-olvasas.md": {
+      "blob": "a91e133c607f26ecde6f5de11cade9931b9b7c4e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/graph-read.test.py": {
+      "blob": "0809d2e106740ffa9bf95fafa24c2d9b6a319372",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/graph-read.py": {
+      "blob": "48cc209208bd14add8da315d087f77bf08b55e26",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/opensource-inventory.test.py": {
+      "blob": "ae34bb7c964182f04000740479ca52171d4b2c8c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/opensource-inventory.py": {
+      "blob": "83b6e1575e228cd36861fe3da9b0a9cc1ec47934",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/routes/opensource-inventory.ts": {
+      "blob": "98647ff3f16cd2c72812a7f67208bdc0060de039",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/notify-delivery-result.test.ts": {
+      "blob": "0cce185e442be468b4df59466ff0f36ee1adcbce",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/safe-vitest.test.sh": {
+      "blob": "4f439e5ae386fe430ed5fbf5191dc70597569c80",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "scripts/safe-vitest.sb": {
+      "blob": "1c87f116f83fc6d6edac943ecf5019eedbe96d50",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "scripts/safe-vitest.sh": {
+      "blob": "274d960ca351aa7ceb562b4b2797a4b5c52ded92",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helpers/safe-rm-tmp.ts": {
+      "blob": "9d710c7c0dce6f2708656905e6eb38f14289914a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/safe-rm-tmp.test.ts": {
+      "blob": "30185e7d844a6acb82e250ac0fcac6665c433930",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/schedule-registry-server-rewrite.test.ts": {
+      "blob": "6ffda7e814de63188871678b7bb15f1fede42c12",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, test x1.",
+      "card": "#932"
+    },
+    "src/web/schedule-registry.ts": {
+      "blob": "d0042ee58245c707401266c4a0ae0a4184935877",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, schedules x1.",
+      "card": "#932"
+    },
+    "src/__tests__/extra-hook-entries-wiring.test.ts": {
+      "blob": "aa0ed103a19af7d4aee3ed5596a9d2ed4b3afecd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/extra-hook-entries.ts": {
+      "blob": "c7e7347bf07250112a30e869a151f6602ee63fb1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/ideabox.md": {
+      "blob": "c5e9f859512bb64a31ee18fcb12c6fa3c7d86bc3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/commit-identity-gate.test.sh": {
+      "blob": "cc58828e42708630da91f8e0be38aafa24f077d3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/install-commit-identity-hook.sh": {
+      "blob": "bed4bc4ecc6c001f4eb35824dd237b3c16c0e133",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/disk-free-watch.test.py": {
+      "blob": "5ac9b71cb2e2533177738bf053a783428e4a099f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/disk-free-watch.py": {
+      "blob": "df1f9add89522138a1aa0a299504526851d8ff9c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/sender-role-gate-config.test.ts": {
+      "blob": "47c36821c819b93290e3d460c14b96e97da6fac6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/background-checkpoint-section.test.ts": {
+      "blob": "cf7bab39d5da95dada2252e89a121aa5e74fe8a1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-single-card-and-filters.test.ts": {
+      "blob": "56fae4999badfe1e91d11a589c9c71fa36334498",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/schedules-list-without-prompt.test.ts": {
+      "blob": "8a9ab5dd70e626a1ea7ef777f569279ee362ce78",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/slow-request-log.ts": {
+      "blob": "d58fe153b09965cfff5f677474aed1d1f01e2792",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/teams-dashboard-send.test.ts": {
+      "blob": "5dafb12cbc5c07b10e0f9504fd9e7e3567f99e7f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/schedule-runner-autostart.test.ts": {
+      "blob": "73ffd893ef28db8a100204d748cdfd672efdded1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2, other x1.",
+      "card": "#932"
+    },
+    "src/__tests__/worksource-reader-scheduler.test.ts": {
+      "blob": "79018fab3adfe3257ec63fddfa9dfa9b570de97d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/worksource-queue.ts": {
+      "blob": "579e4521cfd65bc2b632fb1f7d5de474e29b3887",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-terminal-liveness-async.test.ts": {
+      "blob": "52fc69435e8d943d08571c8da5fb3b35b82914a2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/hook-failure-scan.test.ts": {
+      "blob": "5ffd5ac3e3368df74ac9493ac43649d10f2b9962",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1, test x1.",
+      "card": "#932"
+    },
+    "docs/agent-budgets.md": {
+      "blob": "d0113a57f84ed9690e8cddba77599c9a434a9946",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-budget-enforcement.test.ts": {
+      "blob": "71dea5d2a0144a9f0305d0a5198fead9ac2474c0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/costops/agent-budgets.ts": {
+      "blob": "a7ba64374a06b5570324ce97c4c522a92b3984ab",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/costops/config.ts": {
+      "blob": "eeb8ad30d488e64583c5af3b9fa0fcb9ab3d5925",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/web/agent-budget-alerts.ts": {
+      "blob": "fce6bdfb27d10c1df0a94669f7e354417b460400",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-budget-alerts.test.ts": {
+      "blob": "b66970292eef6c15bb4123168974008364e9f1b2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/costops-agent-budgets.test.ts": {
+      "blob": "11c298bf97fe0346af607d73b40d0cd483c71fae",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/costops/ledger.ts": {
+      "blob": "4ee772e3388fb0c56af0b9654f5fcff1428a6549",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/patch-discord-plugin.py": {
+      "blob": "8f65aeea40224e73f38171576eb280b529270e18",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/discord-plugin-0.0.4/server.ts.txt": {
+      "blob": "ff943c91af4ae1b900315f1065969be99c185572",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/teams-credentials.test.ts": {
+      "blob": "3212b7f3cc2cde40cb056c7abdb38c8b32b814fb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/teams-credential-monitor.ts": {
+      "blob": "7345a10de0bc35cff6db401ecbf1d99e8cb80b96",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/kartya-done-evidence.test.py": {
+      "blob": "74b0ec5d52694dd5a1c68d4b1cdce2a9fc113700",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-dispatch-skip.test.ts": {
+      "blob": "2636d90a7a527ea07dbedac111e6baefa63c9997",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "src/__tests__/message-seen-sweep.test.ts": {
+      "blob": "ce03bc674bcfb7b3ba36ddcc72b2694072e5e2fe",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/message-seen-sweep.ts": {
+      "blob": "79a623bbd436c2510cdd0cae0b4754cd3afa0861",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-resolve-dashboard.test.ts": {
+      "blob": "0f1f8e99f7a56a645f78d36fefbfc52261ef36c3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-resolve-route.test.ts": {
+      "blob": "116907e6814beed644dc3cf84064aef5315e44fc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/second-reviewer-wiring.test.ts": {
+      "blob": "30649b01a6a81d7035e8fd3efe2711498241f750",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "config-examples/team-nicknames.example.json": {
+      "blob": "faea2dd56417692abdf6766929f229b6caf02861",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-owner-strip-lanes.test.ts": {
+      "blob": "38bfd9c9ce92244ed63b7d15ebee22a17aadfe6d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-owner-strip.test.ts": {
+      "blob": "6a1182ae8ff17e674fa4be3943ced970588e1b01",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/team-nicknames.test.ts": {
+      "blob": "1817fca112618fed9745964ce7fcf8ee5d9d2064",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/team-nicknames.ts": {
+      "blob": "11f4e48804d1e95dfb9efa68908b12476afa192d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/message-injection-flag.test.ts": {
+      "blob": "24e5b91d925fb37815c350710420b5f54bb6d7f9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/setup-token-pty.py": {
+      "blob": "eaae1e34c4b27cf4cfbda4ab87ace2477e597460",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/setup-token-cli-2.1.308/README.md": {
+      "blob": "d3235468ec4eda9f9d60bbd9466579de7e943f17",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/setup-token-cli-2.1.308/start.txt": {
+      "blob": "44618cc76e3774ba12e23935bb99a8d346ef2973",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/setup-token-login.test.ts": {
+      "blob": "9550b1e70ab5b307aa104529faacdccdf869ec3b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/setup-token-pty-relay.test.ts": {
+      "blob": "fb5cf44e32fd8819cd53f0913f09f98975f1a049",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/setup-token-login.ts": {
+      "blob": "c16a7cc648bb758eaa2455b90574145ed7258c94",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/bash-sandbox-e2e.sh": {
+      "blob": "71a780f53c9038e3a112977406070e6ceefe1df6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/bash-sandbox.test.ts": {
+      "blob": "3fe96ad45930effbf0802a3b5098fd1ac0f5c6f0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/pdf-render.test.ts": {
+      "blob": "0d201861cde919a16d0471534db2cc34c1cf1973",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/bash-sandbox.ts": {
+      "blob": "ec584bc89c7c25c7ec3fb34abc206877a140eaf2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/pdf-render.ts": {
+      "blob": "303ca821cd465a6d348ad4aa0eb242b6ec94846f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/routes/pdf-render.ts": {
+      "blob": "367942e7d737083e64fe8dcfcfd5cc56be71b84a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-dispatch-skip-settings.test.ts": {
+      "blob": "df6a6327dcf2b4a65a28c7cc75eccef33001dc6b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/guard-run.test.sh": {
+      "blob": "275a05ee4f5a007ca0f6e1c3dc81f31f57d9dccf",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/guard-run.sh": {
+      "blob": "b9af92110d2411898abd79228d6fa5f64c290663",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/hooks/fleet-freeze-gate.sh": {
+      "blob": "722cc5e4f920857e6fa28fc192fd5b92280d7b69",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/fleet-freeze.ts": {
+      "blob": "5443ca62f39d5a174d7ba8dd10af4204af74f339",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/worker-liveness.ts": {
+      "blob": "e7581627433caac458abf9b097d05ddf777de77e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "tests/browser/killswitch1022.spec.ts": {
+      "blob": "027ffdf0d844ff99e2f7f7eb9ce6890100e0ca8f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/en/macos-spotlight.md": {
+      "blob": "a0a4f039bee9dc3c665f682b2c1ff7f504405a19",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/macos-spotlight.md": {
+      "blob": "2050534429f21e7b5c09304c47393627f43b520d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/spotlight-check.test.sh": {
+      "blob": "25df7bbe0b69eb189ecfb13b44ab8b243dba87f8",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/lib/spotlight-check.sh": {
+      "blob": "2dc4fbd2a70f56d10b5b7bf8563e90a9d8362eff",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/auth-recovery.test.ts": {
+      "blob": "cc929ff2fdbcb3c85f0c409ec730a060dd069ec5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: auth x1.",
+      "card": "#932"
+    },
+    "tests/browser/devkeymint1022.spec.ts": {
+      "blob": "ceb331342264886d406891e6a885f3c75e49dd6c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: auth x1.",
+      "card": "#932"
+    },
+    "src/__tests__/yt-dlp-ingest-switch.test.ts": {
+      "blob": "0415d0eed83c0f09335cce14d628929ee354ef06",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/host-resource-heartbeat.test.py": {
+      "blob": "f6a9e34e27908357731997bd22f2e681d3b75cf1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/host-resource-heartbeat.py": {
+      "blob": "bd4d94b8be2272399831090ed2ddced3fefdce06",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/memory-system.md": {
+      "blob": "a62f56631fb125fc9a9fc90ab187a798dfed2b42",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/daily-log-backfill-memories.ts": {
+      "blob": "35e5b068466dcb3390417acafdabc2b3cfd1c6c2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/daily-log-memory-mirror.test.ts": {
+      "blob": "72e726e2ab0c57457b5702f61519abfa635e1f94",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/date-range.test.ts": {
+      "blob": "0035a922c63746be6858d21745031e47f79b7836",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memory-date-filter.test.ts": {
+      "blob": "13e91a2792785e1721277ab432e1a6bb60fee468",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/date-range.ts": {
+      "blob": "c15d871b417efd4300e489d0b3d8dd55b1bed96f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/routes/daily-log.ts": {
+      "blob": "6ae150a4c448c24acf087b8e980cfd736d40fab3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x2.",
+      "card": "#932"
+    },
+    "docs/uptime-monitor.md": {
+      "blob": "ed7b83c8b9c2bdb2c9e7b96be95e16e74ed9aa01",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/uptime-monitor.test.py": {
+      "blob": "a94bdb38a24c21908c13108f5d820d17a0f7b58d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/systemd/uptime-monitor.service": {
+      "blob": "84207bab65dc0de6a315841f7e108671b8c7ea50",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/systemd/uptime-monitor.timer": {
+      "blob": "922cd5aeab9ca0f231e1cafa04f5a3f64e276496",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/uptime-targets.example.json": {
+      "blob": "29662e0acf836ff35a8817f165bb8b3e58b78a1d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/yt-ingest.test.py": {
+      "blob": "309d9af3e521b5c251dbfd03d0761a07378405d5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/yt-ingest/yt-ingest.sh": {
+      "blob": "4a2096f89c2e64cb0a10379b5d6b9ac84c058db5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/yt-ingest/yt-read.sh": {
+      "blob": "b67c49ca1e92f66b8618fed9419ba85ea4d700f2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/yt-ingest/yt_ingest_lib.py": {
+      "blob": "dbb08f7b947e9baacf4acf7168c9c93a6f47b76e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/hook-failures.ts": {
+      "blob": "421b8435729be341ed95be60f499143a429695fb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/hook-failure-report.ts": {
+      "blob": "dbf493e13992113f07005def3bcc8bccf4405b47",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/hook-failure-scan.ts": {
+      "blob": "ab7caa1faec85e0a10d337a4d66b088f70829491",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/memory-embed-prefix-weights.test.ts": {
+      "blob": "73d75202fd222e52680b32af990b5fb5914b18b2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-version-guard.test.ts": {
+      "blob": "9f3d15542d007ff824e82adafc406e8f431f2774",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vector-search-cache.test.ts": {
+      "blob": "d156c2b9d06531766bb4d701f22f36070c2d2246",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/event-loop-lag-monitor.test.ts": {
+      "blob": "0ae20376b8d7330deaf0863a7d1da2a15b2a7c68",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/user-turns.test.ts": {
+      "blob": "c1d0a553aed51c9c56f8d652fccae7121262129a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/web/user-turns.ts": {
+      "blob": "eeda496feda080ca00895277bde0e44c69a1fa88",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/bash-egress-host-allow.test.ts": {
+      "blob": "bc9a00b4f9354d8628919c2a439c047c79b4e599",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/curl-k-2080-rendered.json": {
+      "blob": "055b348b3b8a74cdae26ce3433d5095adafd9756",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/intel-registry.md": {
+      "blob": "5ee41b83cf532393242304e4630ee1e2d70dfafb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/precheck-trust.ts": {
+      "blob": "0b5ce35c1b52c8902a680d9b0310746de822f32d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/schedule-registry-cli.ts": {
+      "blob": "1544e0512a775260747163170847ed0d8a67b592",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/schedule-registry-rewrite.ts": {
+      "blob": "2e419df481a186dd14de3f1a477cbc7de0d5f055",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/resume-delivery.test.ts": {
+      "blob": "215bdbb15859e5902132f21a351f66d4afc0f77c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/resume-delivery.ts": {
+      "blob": "ed7152b2053ad644e0411eee7bb70cd3364ebf1f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/taskstate-stub.test.sh": {
+      "blob": "08dce19c0792994724991b5fcf2cd8edc2a0eca7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/hooks/taskstate-stub.py": {
+      "blob": "39c849ac1f84beb5ce1fb60181cc89edb466d147",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/permission-summary-never-command.test.ts": {
+      "blob": "c097796a41887d939492f12bb7e62d1ec5d005aa",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/outgoing-copy-gate-ekezet1018.test.py": {
+      "blob": "d1af736c88cb5a37ea43ea29d8a3892b1757c09f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/outgoing-copy-gate-kapues1018-hatar.test.py": {
+      "blob": "0cbf38bbb240f62f5788ea143e8ecb8090f21c2e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/outgoing-copy-gate-maszk1018.test.py": {
+      "blob": "aea0bf7d0e6aee3b0473573321aac1c868b59805",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/configurable-brand.test.ts": {
+      "blob": "ab1b26eecb8fdb88d716ffdf042e585599b8bb7e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "docs/telegram-reaction.md": {
+      "blob": "2cbcfd5cf908744511de999302af05e65373fd51",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "plugins/telegram-reaction/.claude-plugin/marketplace.json": {
+      "blob": "e6b262b3447b7b8480e1b76855a723685f68c83d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "plugins/telegram-reaction/.claude-plugin/plugin.json": {
+      "blob": "16209829d24cace4b39fac23cf0b026b602cbb10",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "plugins/telegram-reaction/.gitignore": {
+      "blob": "d2dd67c0494534c41cdff66ab06ba9ff21fec635",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "plugins/telegram-reaction/hooks/hooks.json": {
+      "blob": "5fcba7ce39fb8380e1221ae37d1fdf75e25e375e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "plugins/telegram-reaction/hooks/register.ts": {
+      "blob": "ac2a0ca2d8b39276662eb658678bf9068f346554",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "plugins/telegram-reaction/tests/reaction.test.ts": {
+      "blob": "b18dd80aef3002d3b4b42e6361240981f690a5fc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/settings-store.test.ts": {
+      "blob": "6fd32b89cdee4ff9843d5d53a0a4da282b283830",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-start-date.test.ts": {
+      "blob": "b63dc005b05df443719ae2423c9bdc414770f42c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/jegyzetek.test.py": {
+      "blob": "5a5f2a856764e75c4ac5538241eff533d9682d86",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/jegyzetek.py": {
+      "blob": "7bf1f4dd157325c93c24e2e29021acf76d13809d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/team-notes-escape.test.ts": {
+      "blob": "194592b3805961ceb5af0489348ea34ad7a74020",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/team-notes-fleet-transfer.test.ts": {
+      "blob": "116fc25d9b8ff677f6a9fbe95605e780ff7521bd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/team-notes-page.test.ts": {
+      "blob": "6e7d1bfe6f28bcae9ed6a507b1d9152f8076459d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/team-notes-routes.test.ts": {
+      "blob": "f43d54a17cca85a94aa48b00122e8524080aadca",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/routes/notes.ts": {
+      "blob": "9fe0990212e304ea7555ff57e87ebb48a2e3a844",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/subagent-wait-alert.test.ts": {
+      "blob": "70671e76aa7538b36cb595969110a4a97132ccd0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fleet-import-kanban-real-db.test.ts": {
+      "blob": "a2f9abc3ea32255981982847b975579334f0977b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/supabase-logs.test.py": {
+      "blob": "119d4a9c5f4d5f9c2905306b980d9a97c5d812be",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/supabase-logs.py": {
+      "blob": "f2f840d53ec1986ee56d770618369c6a880c7967",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/write-built-commit.cjs": {
+      "blob": "4a7f9387398a423acbabfb5ce258d2fbe88da48e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: build x1.",
+      "card": "#932"
+    },
+    "src/__tests__/message-batch-inject.test.ts": {
+      "blob": "4499f82108ae51a0d59694aa53e13a56a13ba6a6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/model-suggest-signals.test.ts": {
+      "blob": "d5e01ed9efe93023a9381fd715b53a94bf7f17fd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/web/model-suggest-signals.ts": {
+      "blob": "d6c55a9468936b68faf46f72cf923dcf7d435adf",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-msg-get-freshness.test.ts": {
+      "blob": "ac75b6ad5d16d60427d9a46afcbef53132354c60",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/dash-audit-scan.test.py": {
+      "blob": "711271dae2f4f91b6b358173f7d0aed6a640a16d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/dash-audit-scan.py": {
+      "blob": "087141f2fa645b449f086e6c9065dc87152a32f1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/egress-drift-scan.test.py": {
+      "blob": "e8220ff6ea13bcfc25e5ab157caa0cf6b7b367ac",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/egress-drift-scan.py": {
+      "blob": "0e52c8f78f857c6f90f7d9f670a93e0631870782",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/enroll-port-follows-web-port.test.ts": {
+      "blob": "a4424ee64dc309cb4191e2cb8718aeceb7c3f24f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/log-rotation.test.ts": {
+      "blob": "fe3b093fcae70a0bc0bb8f26d82bc56c5a21d209",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/log-rotation.ts": {
+      "blob": "c625e9cd0a28c6fc4375c6a1066b5b7a3b5cfd04",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/graph-mail.ts": {
+      "blob": "404a00bb580a7eeed6f95ba2f11a051eb7539427",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "plugins/worksource/.claude-plugin/plugin.json": {
+      "blob": "febb81394c61a774eac7749be4c6041a11136f32",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/channel-event-log.ts": {
+      "blob": "5f9ecdf07e77ad586af8a462d0920ce998f8987a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/.gitignore": {
+      "blob": "2995e5ccee174fb4a565f4f2b3b2dd3f47000e09",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/LICENSE": {
+      "blob": "31c022e6df15fb923ac7b756e04db3b2e85a8753",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/README.md": {
+      "blob": "6e3d51a2c62351d1c170c98035d8e5e57dd8508e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/VENDOR.md": {
+      "blob": "fda8ee88ad0620132d8406c54d3c47ab695885bd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/email-export.js": {
+      "blob": "baf65a629d23680871f5416c63e37a612f5a5416",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/filter-manager.js": {
+      "blob": "8b93486ef9d363f19265a61281546e45b8c346b2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/index.js": {
+      "blob": "42a146cdc688637c53ae60c0d56a6690b4bf113f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/label-manager.js": {
+      "blob": "65cfa0894fd4918ebda9f12dbac08f77268d49cc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/reply-all-helpers.js": {
+      "blob": "0edf11211e578aa082f270e88e69d4bdc8955a24",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/scopes.js": {
+      "blob": "84f90177df678ad13ea1e528829d704dc4f799bc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/tool-prefix.js": {
+      "blob": "4c880593986e025167e3ee16ab699e6e5c3a28c7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/tools.js": {
+      "blob": "25d5a05ef27d9ad9dc818c10050bdbcaa36e0efb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/dist/utl.js": {
+      "blob": "8e58e7f69f40b4f46cdc069422d7f86b67cd3566",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/package-lock.json": {
+      "blob": "c76a84ab8227a2a3489864c9e639dd19e3f1d1f8",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/package.json": {
+      "blob": "a20dde8f9befebb691b6979f5c2ed465eea20b62",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/run.sh": {
+      "blob": "abbb4683f88a6403491048f1aaff07678d6a0e30",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/delete-scopes.test.ts": {
+      "blob": "9f7d152c5f78763e76255b2eb587d46695ebb8ed",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/download-email.test.ts": {
+      "blob": "52820587c44d7f403973e658a13643194fa289bf",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/email-export.ts": {
+      "blob": "a640f026167dc60524edc06b83c64e02f3c36c44",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/filter-manager.ts": {
+      "blob": "0805d416071bd3589a875023db08a6656df47a49",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/index.ts": {
+      "blob": "8ac7759fbdcfbe3fb5770b9dff1ff970cf3c08f1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/inline-images.test.ts": {
+      "blob": "cf6a3f9e480e447452919fc52b2cae1fcb6087a1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/label-manager.ts": {
+      "blob": "c94f49bccb89bd3dacabe1c9aaf6a70b676f9656",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/phishing-tools.test.ts": {
+      "blob": "05f3884f989cc3ff636a7baf7babbb5067b8fa7d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/reply-all-helpers.test.ts": {
+      "blob": "65aaa0303f982e74024b1d3a4e34840c2a7d4565",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/reply-all-helpers.ts": {
+      "blob": "4d0b5ada6e48fa8d81be87891761022cb0b02ff3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/scopes.ts": {
+      "blob": "6e5b19e59756f6bb5765b08bd262061c678b296a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/thread-tools.test.ts": {
+      "blob": "d5a0966331e5d855dd976ba272557f96cb4660fb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/tool-prefix.test.ts": {
+      "blob": "edac6e7b04cdc9723fff4107164f04424055913f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/tool-prefix.ts": {
+      "blob": "98c3e716fba8ea9519198949834fab4ecd3e38fd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/tools.ts": {
+      "blob": "0095f85d97f060d077be6e20be5ac7d7e2bf59fd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/utl.test.ts": {
+      "blob": "bb506f1b52fcbc45e4f698d9b88b2d7d5a05df99",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/src/utl.ts": {
+      "blob": "2dc9dcc47ef71b300cae217d797bd60bd3f72702",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "vendor/gmail-mcp-fork/tsconfig.json": {
+      "blob": "8c47b241a44b7f59b25c6e84a4d7c7fe3f65b78b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/schedules-summary.test.ts": {
+      "blob": "1a3101baa587f0397fb4b5b93d30fc521da3f957",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/homoglyph-gate.test.ts": {
+      "blob": "80ec69228d70bb91c3413bc8bc79ef90cb9e9300",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/routes/homoglyphs.ts": {
+      "blob": "944a110ccc14654f2c37142b9a1b4dc621126e2e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/fetch-budget.py": {
+      "blob": "26f1069911b42311a41ccf46473315262270356d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "REBUILD_PROMPT_V3.md": {
+      "blob": "483100bf1c9317f1031668bb36bfabc820144774",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/restart-recovery-brief.test.ts": {
+      "blob": "67f49732ddf0977e9dc43eed5982405c9ce89ed1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1.",
+      "card": "#932"
+    },
+    "docs/upstream-ledger.md": {
+      "blob": "2f123f1694474009d98d60d284741fb607084803",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/upstream-new.sh": {
+      "blob": "a0e19c7f5b51e29d26a39724d551407bc427c050",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/desktop-lock-gate.test.ts": {
+      "blob": "8348830b75597d96172495ad1018ea2d1672a5dd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/desktop-lock.ts": {
+      "blob": "dc892a1e84c503b1d5c985ee055103729e890627",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/heartbeat-calendar-route.test.ts": {
+      "blob": "9d51cbf1443a08916cf61e4f69fb49c49d049fe3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/web/system-directive.ts": {
+      "blob": "7b69015ec8f1942349f9f912bfda228fb01ee771",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/fixtures/email-extract-body-latin1.txt": {
+      "blob": "3fcf214819e091f2e7b98567cf36664d937b0b61",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: refactor x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/fixtures/email-extract-body.txt": {
+      "blob": "44b5bf85ebcbf2cc46b1d831aa431decf457c8b4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: refactor x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/fixtures/email-extract-golden.json": {
+      "blob": "89823f80129b301b3c57ab23ba40ec174133b66a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: refactor x1.",
+      "card": "#932"
+    },
+    "scripts/__tests__/helpers/gen-email-extract-golden.py": {
+      "blob": "37059a0a7d99dad344b5c268996a998ae7b7a919",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: refactor x1.",
+      "card": "#932"
+    },
+    "scheduled-tasks/reggeli-napindito/SKILL.md": {
+      "blob": "edf0605d40c482bbc580a089395028a721112589",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x2.",
+      "card": "#932"
+    },
+    "src/__tests__/json-dup-keys.test.ts": {
+      "blob": "545a9c2be3628f1ffe1e9b72bd2b85cabbc043d8",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "src/web/json-dup-keys.ts": {
+      "blob": "1ef336f45b09861565e6305d60e9257e158650ad",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only tests for upstream code this fork does not carry. Upstream commit types on it: test x1.",
+      "card": "#932"
+    },
+    "docs/external-skill-catalog.md": {
+      "blob": "30f546adb95bef45620755932408c525aa13d2f8",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): only documentation of upstream features. Upstream commit types on it: docs x1.",
+      "card": "#932"
+    },
+    ".agents/product-marketing.md.example": {
+      "blob": "c72281f3ee7d76173ffdd190b757cdcab6353d92",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1.",
+      "card": "#932"
+    },
+    "scripts/support-mail/html_wrap.py": {
+      "blob": "99aaa54e054b753d4073be50f383d813afabb89d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: chore x1.",
+      "card": "#932"
+    },
+    "src/quota-snapshot.ts": {
+      "blob": "00162ac69178f07dee3e3cd4f269225e1280ddf4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "docs/telegram-reply-enforcement-2026-08-02.md": {
+      "blob": "5986c3b21cdf6c743f5a7ae3e2ca075a84ac6df3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/installer-token-probe.test.ts": {
+      "blob": "dc82b77694882af3ebda1cc773123d0ee349c603",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
     }
   }
 }
