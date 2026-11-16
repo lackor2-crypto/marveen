@@ -18555,12 +18555,17 @@
     })
     // 2026-10-10: the search is cut short on a big / slow tree. An empty list then means "I did not get to the end",
     // not "there is none" -- say which, and offer to search again.
-    var loadSigns = function (fresh) {
+    // #919: the first answer may come at once from the remembered paths (`refreshing`) while the server still walks the tree
+    // behind it; a moved picture is not in it yet. So the picker asks ONCE more (quiet: no "loading" flash, no error text over
+    // a good list) -- that request waits for the walk and brings the new place.
+    var loadSigns = function (fresh, quiet) {
       var box0 = ov.querySelector('.wb-sign-list')
-      if (box0) box0.innerHTML = '<p>' + esc(t('workbench.sign.loading')) + '</p>'
+      if (box0 && !quiet) box0.innerHTML = '<p>' + esc(t('workbench.sign.loading')) + '</p>'
       api('GET', '/api/workbench/signatures' + (fresh ? '?fresh=1' : '')).then(function (r) {
         var box = ov.querySelector('.wb-sign-list')
         if (!box) return
+        if (quiet && !r.ok) return
+        if (!quiet && r.ok && r.data && r.data.refreshing) loadSigns(false, true)
         if (!r.ok) { box.innerHTML = '<p>' + esc(r.message || t('workbench.sign.failed')) + '</p>'; return }
         var list = (r.data && r.data.signatures) || []
         var part = !!(r.data && r.data.truncated)
