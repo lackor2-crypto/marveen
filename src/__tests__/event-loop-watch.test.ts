@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -44,7 +44,7 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
   afterEach(() => _resetEventLoopWatch())
 
   /** A throwaway process: main thread ticks, then blocks in `culprit`, then exits. Returns the sampled stacks. */
-  function runBlocked(culpritBody: string): Array<{ stuckMs: number; pid: number; noStackYet?: boolean; state?: string; waitingFor?: string[]; stack: Array<{ fn: string; file: string; line: number }> }> {
+  function runBlocked(culpritBody: string, withOs = false): Array<{ kind?: string; wchan?: string; cpuTicksDuring?: number | null; load?: string; psi?: Record<string, string[] | null>; hot?: unknown[]; stuckMs: number; pid: number; noStackYet?: boolean; state?: string; waitingFor?: string[]; stack: Array<{ fn: string; file: string; line: number }> }> {
     const dir = mkdtempSync(join(tmpdir(), 'stall-sampler-'))
     try {
       const out = join(dir, 'stalls.jsonl')
@@ -55,7 +55,7 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
         const sab = new SharedArrayBuffer(8)
         const beat = new Int32Array(sab)
         new Worker(${JSON.stringify(STALL_SAMPLER_SOURCE)}, { eval: true, workerData: {
-          sab, file: ${JSON.stringify(out)}, root: ${JSON.stringify(dir)}, pollMs: 100, afterMs: 300, resampleMs: 60000, max: 3, frames: 14, pid: process.pid, blindMs: 400,
+          sab, file: ${JSON.stringify(out)}, root: ${JSON.stringify(dir)}, pollMs: 100, afterMs: 300, resampleMs: 60000, max: 3, frames: 14, pid: process.pid, blindMs: 400, osMs: ${withOs ? 300 : 0},
         } }).unref()
         const tick = setInterval(() => Atomics.add(beat, 0, 1), 20)
         function culprit() { ${culpritBody} }
@@ -63,7 +63,8 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
         setTimeout(() => { startupStepThatCallsIt(); setTimeout(() => { clearInterval(tick); process.exit(0) }, 400) }, 300)
       `)
       execFileSync(process.execPath, [script], { timeout: 30_000 })
-      return readFileSync(out, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      const all = readFileSync(out, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      return withOs ? all : all.filter((r: { kind?: string }) => r.kind !== 'os')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -95,6 +96,26 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
       expect((blind[0].waitingFor || []).join(' ')).toContain('setTimeout')
     }
   }, 40_000)
+
+  // #929: the stack is taken when the blocking call RETURNS, so it names a trivial function; the watcher says what the
+  // operating system saw meanwhile: did the thread burn CPU or wait, and how loaded the machine was.
+  it('#929: a stall leaves an operating-system snapshot taken WHILE it lasted (state, CPU burnt, load, pressure)', () => {
+    if (process.platform !== 'linux') return
+    const spin = runBlocked('const end = Date.now() + 1500; while (Date.now() < end) { /* spin */ }', true).filter((r) => r.kind === 'os')
+    expect(spin.length).toBe(1)
+    expect(spin[0].state).toMatch(/^[A-Za-z]$/)
+    expect(spin[0].stuckMs).toBeGreaterThanOrEqual(300)
+    expect(spin[0].stack).toEqual([])
+    expect(typeof spin[0].load).toBe('string')
+    expect(Array.isArray(spin[0].hot)).toBe(true)
+    // A thread that spins burns CPU during the stall ...
+    expect(spin[0].cpuTicksDuring).toBeGreaterThanOrEqual(10)
+    // ... one that only waits (a child process sleeping) does not: that difference is how a disk wait is told from a loop.
+    const wait = runBlocked(`execFileSync(process.execPath, ['-e', 'setTimeout(() => {}, 1500)'])`, true).filter((r) => r.kind === 'os')
+    expect(wait.length).toBe(1)
+    expect(wait[0].cpuTicksDuring).toBeLessThan(10)
+    if (existsSync('/proc/pressure/io')) expect((spin[0].psi?.io || []).join(' ')).toContain('some')
+  }, 60_000)
 
   it('a healthy process leaves no sample behind', () => {
     const dir = mkdtempSync(join(tmpdir(), 'stall-sampler-'))
