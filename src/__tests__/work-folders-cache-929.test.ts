@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  WORK_FOLDERS_FRESH_MS, _resetListingCache, _stopDepotWriteEpoch, bumpDepotEpoch, listingCacheStats, sharedListing, startDepotWriteEpoch,
+  WORK_FOLDERS_FRESH_MS, _resetListingCache, requestMayChangeDepot, _stopDepotWriteEpoch, bumpDepotEpoch, listingCacheStats, sharedListing, startDepotWriteEpoch,
 } from '../web/work-folders-cache.js'
 
 const ROOT = path.join(__dirname, '..', '..')
@@ -133,7 +133,23 @@ describe('#929 the wiring (source contract)', () => {
   })
   it('every request that can change something forgets the listing, at its start and its end', () => {
     const src = read('src/web.ts')
-    expect(src).toMatch(/method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'\) \{ bumpDepotEpoch\(\); res\.once\('close', bumpDepotEpoch\) \}/)
+    expect(src).toMatch(/if \(requestMayChangeDepot\(method, path\)\) \{/)
+    expect(src).toMatch(/res\.once\('close', \(\) => bumpDepotEpoch\(cause\)\)/)
     expect(src).toMatch(/startDepotWriteEpoch\(explorerRoot\)/)
+  })
+})
+
+describe('#929 background polls do not make the listing old (measured live: 0 hits, epoch +26..40 per 30 s)', () => {
+  it('the code bridge claim poll, the message queue and kanban do not forget the listing', () => {
+    for (const p of ['/api/code/tasks/claim', '/api/messages', '/api/kanban/cards/1/move', '/api/perf/stalls', '/api/approvals']) expect(requestMayChangeDepot('POST', p), p).toBe(false)
+  })
+  it('requests that move files in the depot still do', () => {
+    for (const p of ['/api/workbench/folders', '/api/workbench/folders/move', '/api/workbench/items/ab12cd34/upload', '/api/life/move', '/api/projects/x']) expect(requestMayChangeDepot('POST', p), p).toBe(true)
+    expect(requestMayChangeDepot('DELETE', '/api/workbench/folders')).toBe(true)
+  })
+  it('reads never do', () => { expect(requestMayChangeDepot('GET', '/api/workbench/items')).toBe(false) })
+  it('every cause of a forgotten listing is counted so the live report names the culprit', () => {
+    bumpDepotEpoch('req POST /api/x'); bumpDepotEpoch('req POST /api/x')
+    expect(listingCacheStats().bump_causes['req POST /api/x']).toBe(2)
   })
 })
