@@ -37,6 +37,34 @@ describe('the translation page has page-break lines too (#853)', () => {
     expect(c).toContain("el.classList.contains('wb-dp-pagebreak')")
     expect(c.indexOf("wb-dp-pagebreak")).toBeLessThan(c.indexOf("var role = el.getAttribute('data-tw')"))
   })
+  it('#854 (run, not text): twCollect reads the page back WITHOUT the page-break lines -- "2. oldal" does not become a paragraph, however many redraws', () => {
+    const from = JS.indexOf('function twCollect()')
+    const fn = JS.slice(from, JS.indexOf('function twPanelInnerHtml', from))
+    const el = (cls: string, attrs: Record<string, string>, text: string) => ({
+      nodeType: 1, innerText: text, textContent: text, tagName: 'DIV', classList: { contains: (c: string) => c === cls },
+      getAttribute: (k: string) => (k in attrs ? attrs[k] : null),
+    })
+    const title = el('', { 'data-tw': 'title', 'data-tw-sec': 's1' }, 'Sachverhalt')
+    const para = (txt: string) => el('', { 'data-tw': 'block', 'data-tw-sec': 's1', 'data-tw-kind': 'paragraph' }, txt)
+    const band = () => el('wb-dp-pagebreak', {}, '2. oldal')
+    const read = (src: string) => {
+      const page = {
+        childNodes: [title, para('Die Klage ist eingereicht.'), band(), para('Zweiter Absatz.'), band(), band()],
+        getAttribute: (k: string) => (k === 'data-tw-shown' ? 'w1:de|s1' : null),
+      }
+      const tw = { lang: 'de', note: '', prev: { 'w1:de:s1': { title: 'Sachverhalt', sig: 'x', fresh: false, blocks: [] as { kind: string; text: string }[] } } as Record<string, { blocks: { kind: string; text: string }[] }> }
+      // eslint-disable-next-line no-new-func
+      new Function('document', 'WB', 'twState', 'twKey', 't', 'dpFmtOf', 'dpPfmtOf', 'DP_ALIGNS', 'dpTableParts', 'dpTableText', 'twTableLines', 'dpCanonText', 'DP_BLANK', 'twSig', src + '; twCollect()')(
+        { getElementById: () => page }, { detail: { outline: { sections: [{ id: 's1' }] } }, selectedId: 'w1' }, () => tw,
+        (id: string) => 'w1:de:' + id, (k: string) => k, () => ({}), () => ({}), [], (x: string) => ({ text: x }), (x: string) => x, () => null, (x: string) => String(x).trim(), '\u200B', () => 'x',
+      )
+      return tw.prev['w1:de:s1'].blocks.map((b) => b.text)
+    }
+    // with the fix: only the two real paragraphs are saved
+    expect(read(fn)).toEqual(['Die Klage ist eingereicht.', 'Zweiter Absatz.'])
+    // without the skip the lines' words are saved (once per line) -- the bug: "2. oldal" five times after a few redraws
+    expect(read(fn.replace("if (el.classList.contains('wb-dp-pagebreak')) continue", ''))).toContain('2. oldal')
+  })
   it('#854: the page-break line says just "N. oldal" everywhere, no explanation', () => {
     expect(JS).not.toContain('pagebreak_inside')
   })
