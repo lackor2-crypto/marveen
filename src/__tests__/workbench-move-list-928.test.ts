@@ -52,4 +52,11 @@ describe('move target list (#928)', () => {
     expect(src).toContain("t('workbench.folder.move_here')")
     for (const l of ['hu', 'en']) expect(readFileSync(join(__dirname, `../../web/lang/${l}.js`), 'utf8')).toContain('"workbench.folder.move_here"')
   })
+
+  it('the "+ New work" folder pick list uses it too (same ~150-row list, same root cause)', () => {
+    const m = src.match(/function folderPickHtml\(pickOnly\) \{[\s\S]*?\n  \}\n/)
+    if (!m) throw new Error('folderPickHtml missing')
+    expect(m[0]).toMatch(/moveTargetFolders\(wf\)\.forEach\(function \(f\)/)
+    expect(m[0]).not.toMatch(/\(wf\.folders \|\| \[\]\)\.forEach/)
+  })
 })
