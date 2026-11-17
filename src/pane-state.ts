@@ -439,6 +439,28 @@ const BOX_SEP_RX = /^─{10,}/
 // admitting the NBSP and any other horizontal Unicode space the TUI emits.
 const PARKED_INPUT_RX = /❯[^\S\r\n]+\S/
 
+// QUEUED MESSAGES: Claude Code holds prompts typed during a running turn in a
+// queue and renders them ABOVE the box, putting this hint INSIDE the (otherwise
+// empty) live input box. The hint is DIM, exactly like the autocomplete ghost,
+// so idleConsideringDimGhost strips it and the pane reads 'idle' -- while the
+// session in fact has unprocessed input waiting. Every writer (nudge watcher,
+// scheduler, router, keepalive) then believes the session is free and types
+// ANOTHER line, which just joins the queue.
+//
+// Observed 2026-08-04: the main agent ran one 32-minute turn; three inbox
+// nudges were "sent" into it 5 minutes apart, all three queued unprocessed,
+// and the watcher escalated to the owner claiming a broken drain hook -- while
+// nothing was broken and no message was lost. The second half of the misread
+// is that with the queued block rendered, the busy spinner is pushed to the
+// edge of (and sometimes past) the BUSY_LIVE_REGION_LINES window, so the
+// spinner check cannot be relied on to catch this state either.
+//
+// MUST stay scoped to the live input box, never whole-pane: an incident report
+// or a chat log quoting this very sentence would otherwise pin an idle session
+// busy forever (the same self-contamination that made the `esc to interrupt`
+// check region-scoped above).
+const QUEUED_MESSAGES_HINT_RX = /Press up to edit queued messages/
+
 // Strip Claude Code's DIM (SGR 2) "ghost suggestion" autocomplete from a
 // COLOURED pane capture (`tmux capture-pane -e -p`), then remove every
 // remaining ANSI escape, yielding plain text equivalent to `capture-pane -p`
@@ -920,6 +942,12 @@ export function detectPaneState(
     }
     if (topSep >= 0 && bottomSep > topSep) {
       const inputLines = lines.slice(topSep + 1, bottomSep)
+      // Queued messages first: the hint lives in the box and would otherwise
+      // read as parked text ('typing'), which idleConsideringDimGhost then
+      // rescues to 'idle' because the hint is dim -- the exact false-ready
+      // path this guards. 'busy' is the honest answer: input IS waiting, it
+      // just isn't ours to submit. See QUEUED_MESSAGES_HINT_RX.
+      if (inputLines.some(l => QUEUED_MESSAGES_HINT_RX.test(l))) return 'busy'
       if (inputLines.some(l => PARKED_INPUT_RX.test(l))) {
         return opts.mergeTypingAsBusy ? 'busy' : 'typing'
       }
@@ -1700,6 +1728,12 @@ export interface StuckInputActionFacts {
   allowPlainReinject: boolean
   /** parkedInputText(pane) != null -- there is collapsed text to re-inject. */
   hasPlainText: boolean
+  /** parkedMachineOriginInput(pane): the park is POSITIVELY machine-injected.
+   * STUCKINPUT805: reinject-plain requires this. Without positive origin the
+   * park may be a human draft (agent-terminal reaches sub-agent panes too),
+   * and clearing or re-injecting a human's text destroys work nothing will
+   * re-deliver. Uncertain origin -> hands off. */
+  machineOrigin: boolean
   /** parkedScheduledTaskInput(pane): a scheduled-task tick is parked. Clear-only
    * is safe on ANY session (the next schedule fire re-delivers). */
   scheduledTaskBlock: boolean
@@ -1718,7 +1752,9 @@ export interface StuckInputActionFacts {
  *   - A TRUNCATED <channel> block (chat_id unrecoverable) must not be
  *     re-injected; multi-row truncated holds (awaiting the keystroke fix),
  *     single-row keeps the harmless legacy Enter.
- *   - Otherwise a bare Enter is the swallowed-Enter remedy, but only single-row.
+ *   - A bare Enter is the swallowed-Enter remedy, but only single-row AND only
+ *     with positive machine origin: an unidentified park may be the operator's
+ *     own draft, and Enter would submit it half-typed (GH #717).
  */
 export function decideStuckInputAction(f: StuckInputActionFacts): StuckInputAction {
   const multiRow = f.rowCount > 1
@@ -1727,24 +1763,63 @@ export function decideStuckInputAction(f: StuckInputActionFacts): StuckInputActi
   if (f.blockComplete) {
     return f.escalate || multiRow ? 'reinject-block' : 'enter'
   }
-  // Sub-agent non-channel parked text: clear + re-inject is safe (no human draft).
-  if (f.allowPlainReinject && f.hasPlainText && !f.blockTruncated) {
-    return f.escalate || multiRow ? 'reinject-plain' : 'enter'
-  }
-  // Parked scheduled-task tick (main session reaches here: no plain re-inject).
-  // Clear-only -- re-injecting risks TUI mid-text truncation corrupting the
-  // instruction, while a dropped tick is re-delivered by the next schedule
-  // fire. Single-row still tries the harmless Enter first.
+  // Parked scheduled-task tick: clear-only on EVERY session, and this check
+  // must sit ABOVE the plain-reinject branch. STUCKINPUT805: on a sub-agent
+  // pane the old order routed a parked tick into reinject-plain, whose text is
+  // parkedInputText = a scrape of the VISIBLE box -- and the TUI drops the
+  // HEAD rows of an overfull box, so the scrape is a tail fragment. That
+  // produced the byte-identical head-lost/tail-doubled deliveries measured at
+  // 15:06 and 16:00 on 2026-08-05 (10,509-char prompt reduced to its last
+  // ~400 chars, twice). A dropped tick is re-delivered WHOLE by the next
+  // schedule fire; a re-injected fragment is corruption nothing repairs.
+  // Single-row still tries the harmless Enter first.
   if (f.scheduledTaskBlock) {
     return f.escalate || multiRow ? 'clear-scheduled' : 'enter'
+  }
+  // Sub-agent non-channel parked text: clear + re-inject, but ONLY with
+  // POSITIVE machine origin (prefix or unmistakable wrapper marker). The old
+  // "sub-agent means no human draft" assumption is false -- agent-terminal
+  // types into sub-agent panes too -- and an uncertain park must not be
+  // destroyed: a human's text has no re-delivery. Machine-but-unrecognized
+  // (e.g. a head-lost inter-agent frame with no surviving marker) lands in
+  // 'hold' below: it cannot be re-injected whole (the scrape is lossy) and
+  // must not be cleared (the queue will not re-send a delivered message).
+  if (f.allowPlainReinject && f.hasPlainText && !f.blockTruncated && f.machineOrigin) {
+    return f.escalate || multiRow ? 'reinject-plain' : 'enter'
   }
   // Truncated safety preamble: clear only (never re-inject a stale preamble).
   if (f.truncatedPreamble && f.escalate) return 'clear-preamble'
   // Truncated <channel> block: hold a multi-row (Enter would corrupt; re-inject
-  // would answer the wrong chat_id), keep the harmless legacy Enter single-row.
+  // would answer the wrong chat_id), keep the Enter single-row. The Enter is
+  // safe here for the same reason the branches above are: a <channel> block,
+  // even a truncated one, IS positive evidence that we put the text there.
   if (f.blockTruncated) return multiRow ? 'hold' : 'enter'
-  // Default swallowed-Enter remedy -- never on multi-row.
-  return multiRow ? 'hold' : 'enter'
+  // Nothing above identified the park. GH #717: this default used to bare-Enter
+  // any single-row box, which submits an operator's half-typed draft the moment
+  // they pause past the confirm window. The reporter measured it repeatedly from
+  // a `tmux attach` on the main session; the remaining text is lost from the
+  // prompt and the agent answers a fragment.
+  //
+  // Every branch above establishes origin before it acts -- a channel block, a
+  // scheduled-task tick, a registry match, or an explicit machine-origin marker
+  // -- and the plain re-inject path already refuses to touch an uncertain park
+  // for exactly this reason ("a human's text has no re-delivery"). That rule was
+  // applied to the branches that clear or re-type and not to the one that
+  // presses Enter, even though submitting a half-typed draft destroys the same
+  // work. This closes that gap: no positive origin, no keystroke.
+  //
+  // What this costs, stated plainly: a genuine swallowed-Enter delivery whose
+  // parked text carries no recognisable marker is no longer rescued by the
+  // watcher. That failure is a DELAY and it has a safety net -- the ledger
+  // live-drain returns unanswered inbound to the running session on its own
+  // cycle. Submitting an operator's unfinished sentence is irreversible and
+  // goes out under the owner's name. The two are not the same weight.
+  //
+  // The hard-restart busy-guard is unaffected: applyStuckRestartBusyGuard only
+  // allows a restart on a 'typing' pane when machineOrigin is true, so an
+  // unidentified park (a suspected human draft) still yields 'skip' there --
+  // the same signal now gates both paths, which is the point.
+  return !multiRow && f.machineOrigin ? 'enter' : 'hold'
 }
 
 // Would the soft stuck-input recovery have ANY submitting/clearing move for
@@ -1766,6 +1841,7 @@ export function parkedMainInputHasRemedy(pane: string): boolean {
     allowPlainReinject: false,
     hasPlainText: false,
     scheduledTaskBlock: parkedScheduledTaskInput(pane),
+    machineOrigin: parkedMachineOriginInput(pane),
   }
   return decideStuckInputAction(facts) !== 'hold'
 }

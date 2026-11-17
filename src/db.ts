@@ -3052,12 +3052,19 @@ export function listTaskRunHistory(name: string, limit: number): TaskRunHistoryE
   })
 }
 
+// Runs that actually happened. A tick the scheduler dropped without running
+// anything ('skipped', 'skipped-precheck', 'skipped-usage-limit', ...) or a
+// 'missed' slot is a log line, not a run: counting them made the overview's
+// "tasks today" tile report hundreds of runs on a quiet install whose
+// 2-minute ledger drain is almost always skipped by its token-free preCheck.
+const RAN_STATUS_SQL = "status NOT LIKE 'skipped%' AND status != 'missed'"
+
 export function countTaskRunsBetween(fromTs: number, toTs?: number): number {
   if (toTs === undefined) {
-    const row = db.prepare('SELECT COUNT(*) as c FROM task_runs WHERE ts >= ?').get(fromTs) as { c: number }
+    const row = db.prepare(`SELECT COUNT(*) as c FROM task_runs WHERE ts >= ? AND ${RAN_STATUS_SQL}`).get(fromTs) as { c: number }
     return row.c
   }
-  const row = db.prepare('SELECT COUNT(*) as c FROM task_runs WHERE ts >= ? AND ts < ?').get(fromTs, toTs) as { c: number }
+  const row = db.prepare(`SELECT COUNT(*) as c FROM task_runs WHERE ts >= ? AND ts < ? AND ${RAN_STATUS_SQL}`).get(fromTs, toTs) as { c: number }
   return row.c
 }
 
@@ -4025,8 +4032,10 @@ export function queryAuditLog(opts: {
     const logRows = db.prepare(logSql).all(...logParams) as Array<{ id: number; agent_id: string; content: string; created_at: number }>
     for (const r of logRows) parts.push({ id: r.id, source: 'diary', created_at: r.created_at, agent_id: r.agent_id, content: r.content, entry_type: 'log' })
 
-    // memories
-    let memSql = 'SELECT id, agent_id, content, category, keywords, created_at FROM memories WHERE 1=1'
+    // memories. A daily-log entry's `[Napló ...]` mirror (linked in daily_log_memory)
+    // is the same entry the log rows above already list, so it is left out here, the
+    // way recall leaves it out (#2428). Real memories and unmirrored log rows stay.
+    let memSql = `SELECT id, agent_id, content, category, keywords, created_at FROM memories WHERE ${NOT_MIRROR}`
     const memParams: unknown[] = []
     if (from)  { memSql += ' AND created_at >= ?'; memParams.push(from) }
     if (to)    { memSql += ' AND created_at <= ?'; memParams.push(to) }
