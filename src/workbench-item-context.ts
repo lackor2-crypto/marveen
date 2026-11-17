@@ -465,7 +465,8 @@ export function kickItemContextSweep(): void {
 }
 
 let timer: ReturnType<typeof setInterval> | null = null
-export const ITEM_CONTEXT_MS = 120_000
+/** #929 (Boss voice, TG 6785): every 3 minutes, not 2 -- the pass walks every item on the slow F: drive (~86 000 file calls / 42 min measured). */
+export const ITEM_CONTEXT_MS = 180_000
 export function startItemContexts(): void {
   if (timer) return
   gatedTimeout('workbench-item-context', () => { void sweepItemContexts().catch(() => { /* retried */ }) }, 20_000).unref?.()
