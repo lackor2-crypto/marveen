@@ -5,6 +5,7 @@ import { PROJECT_ROOT, STORE_DIR, CHANNEL_PROVIDER, MAIN_AGENT_ID } from '../../
 import { logger } from '../../logger.js'
 import { resolveFromPath } from '../../platform.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
+import { assertEnvEntry, isSingleLineEnvValue } from '../../env.js'
 import { channelStateDir, readChannelToken } from '../../channel-provider.js'
 import { sessionExistsOnHost } from '../agent-process.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
@@ -105,6 +106,7 @@ function agentsRunning(): boolean {
 // Atomic, idempotent .env update for one key: drop any prior line for the key,
 // keep every other line verbatim, append the new value, chmod 600. Never sed.
 function setEnvKey(key: string, value: string): void {
+  assertEnvEntry(key, value)
   let lines: string[] = []
   try { lines = readFileSync(ENV_FILE, 'utf-8').split('\n') } catch { /* fresh .env */ }
   const kept = lines.filter((l) => l.length > 0 && !l.startsWith(key + '='))
@@ -301,6 +303,8 @@ export async function tryHandleOnboarding(ctx: RouteContext): Promise<boolean> {
     const token = (body.token ?? '').trim()
     const apiKey = (body.apiKey ?? '').trim()
     if (!token && !apiKey) { json(res, { error: 'token vagy apiKey szukseges.', reason: 'missing' }, 400); return true }
+    // A line break in the value would add a line of the caller's choosing to .env: refuse before the live probe and any write.
+    if (!isSingleLineEnvValue(token) || !isSingleLineEnvValue(apiKey)) { json(res, { error: 'A kulcs nem lehet tobb soros.', reason: 'bad-key' }, 400); return true }
     if (token && !/^sk-ant-oat/.test(token)) { json(res, { error: 'A setup-token formatuma nem stimmel (sk-ant-oat...).', reason: 'bad-token' }, 400); return true }
     if (apiKey && !/^sk-ant-/.test(apiKey)) { json(res, { error: 'Az API-kulcs formatuma nem stimmel (sk-ant-...).', reason: 'bad-key' }, 400); return true }
 

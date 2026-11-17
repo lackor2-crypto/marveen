@@ -45,7 +45,7 @@ import { ensureTelegramReplyMeta } from '../telegram-reply-meta-patch.js'
 import { CHANNEL_STATE_ENV_VAR, CHANNEL_TOKEN_ENV_VARS, channelStateNowhereDirs } from './mcp-probe-env.js'
 import { getProvider, getProviderType, channelStateDir, readChannelToken, type ChannelProviderType } from '../channel-provider.js'
 import { CHANNEL_PROVIDER, MAIN_AGENT_ID, STORE_DIR, PROJECT_ROOT, SUBAGENT_INBOX_TEE } from '../config.js'
-import { readEnvFile } from '../env.js'
+import { readEnvFile, isSingleLineEnvValue } from '../env.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { loadProfileTemplate } from './profiles.js'
 import { resolveAgentSecurityProfile } from './agent-team.js'
@@ -109,6 +109,23 @@ function autocompactFlag(): string {
 // (execFileSync) pauses in the tmux-driving injection hot-path so a pacing wait
 // no longer parks the libuv event loop (the dashboard-accepts-TCP-but-never-
 // services-HTTP-under-load starvation). Never throws.
+
+// Keep TEAMS_BOT_DISPLAY_NAME in a teams channel .env equal to the agent's display name. Idempotent: writes only
+// on drift. Returns true when it wrote. A name with a line break (or NUL) is refused: .env is line-based, so it
+// would add a line of the caller's choosing. The replacement is a function so a `$` in the name stays literal.
+export function syncTeamsDisplayName(envPath: string, displayName: string): boolean {
+  if (!displayName || !isSingleLineEnvValue(displayName)) return false
+  const raw = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : ''
+  const current = raw.match(/^TEAMS_BOT_DISPLAY_NAME=(.*)$/m)?.[1]?.trim()
+  if (current === displayName) return false
+  const line = `TEAMS_BOT_DISPLAY_NAME=${displayName}`
+  const next = current !== undefined
+    ? raw.replace(/^TEAMS_BOT_DISPLAY_NAME=.*$/m, () => line)
+    : (raw === '' || raw.endsWith('\n') ? raw + line + '\n' : raw + '\n' + line + '\n')
+  writeFileSync(envPath, next)
+  return true
+}
+
 export function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
@@ -1470,17 +1487,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
   // (not the generic fallback). Idempotent; writes only on drift, non-fatal.
   if (agentProvider === 'teams' && hasChannel) {
     try {
-      const envPath = join(agentChannelDir, '.env')
-      const displayName = readAgentDisplayName(name)
-      const raw = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : ''
-      const current = raw.match(/^TEAMS_BOT_DISPLAY_NAME=(.*)$/m)?.[1]?.trim()
-      if (displayName && current !== displayName) {
-        const line = `TEAMS_BOT_DISPLAY_NAME=${displayName}`
-        const next = current !== undefined
-          ? raw.replace(/^TEAMS_BOT_DISPLAY_NAME=.*$/m, line)
-          : (raw === '' || raw.endsWith('\n') ? raw + line + '\n' : raw + '\n' + line + '\n')
-        writeFileSync(envPath, next)
-      }
+      syncTeamsDisplayName(join(agentChannelDir, '.env'), readAgentDisplayName(name))
     } catch { /* best-effort name-sync; never block launch */ }
   }
 
