@@ -67,6 +67,23 @@ def find_project_root(cwd):
         d = parent
 
 
+def wake_note(snap, now_ms):
+    """Boss, 2026-11-17 (4th time): at 100% the agent stopped and WAITED, then kept saying "no quota" after the window had
+    reset, so the work never resumed. The window end is known (resetsAt): say it, and order a self-wake for it, so the
+    work continues by itself the moment the frame is back (never wait for someone to speak)."""
+    w = snap.get('fiveHour')
+    resets_at = w.get('resetsAt') if isinstance(w, dict) else None
+    if not isinstance(resets_at, (int, float)) or resets_at <= now_ms:
+        return ''
+    minutes = max(1, int((resets_at - now_ms) // 60_000) + 1)
+    clock = time.strftime('%H:%M', time.localtime(resets_at / 1000))
+    return (
+        f" Az ablak {clock}-kor (kb. {minutes} perc mulva) lejar. NE ALLJ MEG es NE VARJ masra: allits azonnal ScheduleWakeup-ot "
+        f"(delaySeconds={min(3600, minutes * 60 + 90)}) a folyamatban levo feladatra; ebredeskor ELOSZOR olvasd ujra a merofajlt, "
+        "es ha az ablak lejart / a szazalek kisebb, FOLYTASD a munkat magadtol. 'Nincs keretem' csak ujramert, jelenlegi adatbol mondhato."
+    )
+
+
 def main():
     cwd = os.getcwd()
     project_root = find_project_root(cwd)
@@ -155,7 +172,7 @@ def main():
 
     if worst >= CRITICAL_THRESHOLD_PCT:
         print(
-            f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CRITICAL_THRESHOLD_PCT}%).{note} "
+            f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CRITICAL_THRESHOLD_PCT}%).{note}{wake_note(snap, now_ms)} "
             "A tulajdonos szabalya: most NE vegezz kodolast/programozast -- csak info, kereses, egyeztetes. "
             "Ha kodolasi feladatot kernek, jelezd hogy a keret miatt most csak arra van mod hogy megbeszeljetek/felkesziljetek ra."
         )

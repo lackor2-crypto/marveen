@@ -179,4 +179,13 @@ describe('rate-limit-guard hook (behavioural)', () => {
     expect(runHook()).toBe('')
     expect(existsSync(join(fakeRoot, 'store', 'rate-limit-guard.log'))).toBe(false)
   })
+
+  it('at the critical level it names the window end and orders a self-wake, so work resumes by itself (#934 follow-up, Boss TG 6752)', () => {
+    const now = Date.now()
+    writeSnapshot({ updatedAt: now, windowsUpdatedAt: now, fiveHour: { usedPct: 100, resetsAt: now + 30 * 60_000 }, sevenDay: { usedPct: 10, resetsAt: now + 3 * 86_400_000 } })
+    const out = runHook()
+    expect(out).toContain('ScheduleWakeup')
+    expect(out).toMatch(/delaySeconds=1[89]\d\d/)
+    expect(out).toContain('FOLYTASD')
+  })
 })
