@@ -16,4 +16,11 @@ describe('#843 no check for statements without a verified source', () => {
     expect(read('web/lang/hu.js')).not.toContain('⚠ nincs igazolt forrása"')
     expect(read('src/workbench-check-todos.ts')).not.toContain('unsupported_claims')
   })
+  it('the assistant tool description (doc.check) no longer promises a check for claims without a verified source', () => {
+    const tools = read('src/workbench-agent/tools.ts')
+    const m = tools.match(/name: 'doc\.check',\s*description: '([^\n]*)',\n/)
+    expect(m).not.toBeNull()
+    expect(m![1]).not.toMatch(/claim without a verified source/i)
+    expect(m![1]).toContain('every quote machine-verified')
+  })
 })
