@@ -545,7 +545,7 @@ if [ -n "$CARD_REF" ]; then
   else
     # MINDEN kartya, az archivaltakat is beleertve: a /api/kanban szandekosan
     # kihagyja az archivaltakat, es egy regen lezart kartyara hamisan riasztott.
-    CARDS_JSON="$(curl -s -m 5 -H "Authorization: Bearer $(cat "$TOKF")" "http://localhost:$PORT/api/kanban/card-ids" 2>/dev/null || true)"
+    CARDS_JSON="$(curl -s -m 5 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$TOKF")") "http://localhost:$PORT/api/kanban/card-ids" 2>/dev/null || true)"
     [ -z "$CARDS_JSON" ] && LOOKUP_ERR="a dashboard nem valaszolt a localhost:$PORT cimen"
   fi
   CARD_LINE="$(printf '%s' "$CARDS_JSON" | node "$CARD_REMINDER" "$TITLE" "$LOOKUP_ERR" 2>/dev/null || true)"

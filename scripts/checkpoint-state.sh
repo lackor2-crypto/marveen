@@ -52,7 +52,7 @@ fi
 URL="http://localhost:${PORT}/api/agent-taskstate/${AGENT}"
 
 if [ "$ARG" = "--clear" ]; then
-  CODE="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$URL" -H "Authorization: Bearer $TOKEN" || true)"
+  CODE="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$URL" -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") || true)"
   [ "$CODE" = "200" ] && { echo "OK $AGENT cleared"; exit 0; }
   echo "FAIL clear http=$CODE"; exit 1
 fi
@@ -75,7 +75,7 @@ print(json.dumps(d))
 ')" || { echo "FAIL invalid payload"; exit 1; }
 
 RESP="$(curl -s -X POST "$URL" -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" -d "$BODY" -w $'\n%{http_code}' 2>/dev/null || true)"
+  -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") -d "$BODY" -w $'\n%{http_code}' 2>/dev/null || true)"
 CODE="$(printf '%s' "$RESP" | tail -n1)"
 JSON="$(printf '%s' "$RESP" | sed '$d')"
 

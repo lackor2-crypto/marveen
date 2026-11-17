@@ -203,7 +203,7 @@ shed_candidates() {
   [[ -z "$token" ]] && return 0
   command -v python3 >/dev/null 2>&1 || return 0
   command -v curl >/dev/null 2>&1 || return 0
-  curl -s --max-time 10 -H "Authorization: Bearer $token" \
+  curl -s --max-time 10 -H @<(printf 'Authorization: Bearer %s\n' "$token") \
     "http://127.0.0.1:${DASH_PORT}/api/agents/activity" 2>/dev/null \
     | python3 -c 'import json,sys
 try: rows = json.load(sys.stdin)
@@ -405,7 +405,7 @@ case "$MODE" in
     # run-state, so the 60s reconcile loop does not start the agent right back
     # up and turn this into an oscillation.
     stop_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST \
-      -H "Authorization: Bearer $(dash_token)" \
+      -H @<(printf 'Authorization: Bearer %s\n' "$(dash_token)") \
       "http://127.0.0.1:${DASH_PORT}/api/agents/${best}/stop" 2>/dev/null)"
     if [[ "$stop_code" == "200" ]]; then
       echo "$(date '+%Y-%m-%d %H:%M:%S') ${best} rss=${best_mb}MB used=${used_pct}% avail=${avail_mb}MB" \
