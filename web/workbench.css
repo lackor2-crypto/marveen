@@ -2487,6 +2487,14 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-pin-more { display: none; position: absolute; right: 4px; top: 6px; z-index: 9; padding: 0 8px; line-height: 1.2; font-size: 0.9rem;
   background: var(--bg-card); border: 1px solid var(--border, #d0d5dd); border-radius: 6px; cursor: pointer; color: inherit; }
 .wb-pin-slot.wb-pin-clipped .wb-pin-more, .wb-pin-slot.wb-pin-open .wb-pin-more { display: block; }
+/* #836: on the Simple start page the left panel is only as tall as its content and clips (overflow:auto) what drops out of it.
+   A near-empty project -- exactly when the owner rebuilds missing work items -- gave a panel shorter than the dropdown, so the
+   "Rebuild" button sat below the panel's edge and no scrolling reached it. While a dropdown is open the panel keeps room for
+   it (--wb-pop-room), and the dropdown never grows past that room (it scrolls inside itself). Same for the trash and the forms. */
+.wb-sh-start-tree { --wb-pop-room: max(80vh, 480px); }
+.wb-sh-start-tree > .wb-sh-tree:has(.wb-pin .wb-pop) { min-height: var(--wb-pop-room); }
+.wb-sh-start-tree .wb-panel-items .wb-pin .wb-pop { max-height: calc(var(--wb-pop-room) - 300px); }
+@media (max-width: 900px) { .wb-sh-start-tree { --wb-pop-room: max(50vh, 480px); } }
 .wb-pin-acts .wb-new-btn { width: auto; padding: 4px 9px; }
 .wb-pin-slot.wb-pin-clipped .wb-blk-top, .wb-pin-slot.wb-pin-open .wb-blk-top { padding-right: 34px; }
 .wb-panel-items .wb-pin .wb-blk-top { background-color: var(--bg-card); background-image: linear-gradient(rgba(127, 127, 127, 0.1), rgba(127, 127, 127, 0.1)); }
