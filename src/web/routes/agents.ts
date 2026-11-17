@@ -113,7 +113,7 @@ import {
   sendPromptToSession,
   capturePane,
   capturePaneAsync, answerLoginMethodMenu, paneShowsLoginMethodMenu } from '../agent-process.js'
-import { addDesiredAgent, removeDesiredAgent } from '../agent-desired-state.js'
+import { addDesiredAgent, getDesiredAgents, removeDesiredAgent } from '../agent-desired-state.js'
 import { RemoteStatusCache, BackgroundCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextReadingFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
@@ -2690,6 +2690,24 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       return true
     }
     if (!existsSync(agentDir(name))) { json(res, { error: 'Agent not found' }, 404); return true }
+    // #932 (upstream e9db88432, RESTARTSTOPPED1005): a restart must not resurrect
+    // an agent that was stopped on purpose. restartAgentProcess() starts a
+    // non-running agent outright, so a caller that walks the whole agent list (a
+    // token-swap or maintenance script) brought back every agent an operator had
+    // stopped. A running agent restarts as before; a stopped one that is still
+    // desired is started, as the reconciler would; a stopped one that is NOT
+    // desired is refused (409), /start is the one door that runs it. A remote
+    // agent whose host does not answer gets its own answer (503): nobody knows
+    // whether it runs, and a restart over a dead ssh link cannot succeed.
+    const runStateNow = agentRunState(name)
+    if (runStateNow === 'unreachable') {
+      json(res, { error: 'Agent runs on a remote host that is not reachable right now, so its run state is unknown; nothing was restarted', code: 'host-unreachable' }, 503)
+      return true
+    }
+    if (runStateNow !== 'running' && !getDesiredAgents().has(name)) {
+      json(res, { error: 'Agent is not running and was stopped on purpose (not in the desired run-state); use /start to run it', code: 'stopped-not-desired' }, 409)
+      return true
+    }
     // Optional { "fresh": true } body -> no `--continue` (see /start note).
     let restartFresh = false
     try { restartFresh = JSON.parse((await readBody(req)).toString() || '{}').fresh === true } catch {}
