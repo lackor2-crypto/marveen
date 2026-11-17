@@ -230,6 +230,8 @@ def main():
     raw = sys.stdin.read()
     try:
         ev = json.loads(raw)
+        if not isinstance(ev, dict):  # valid JSON that is no object: same path as unparseable input
+            raise ValueError("hook payload is not a JSON object")
     except Exception:
         ev = {}
     sid = ev.get("session_id") or "default"

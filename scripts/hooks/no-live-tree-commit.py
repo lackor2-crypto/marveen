@@ -96,13 +96,16 @@ def main():
 
     try:
         payload = json.load(sys.stdin)
+        if not isinstance(payload, dict):  # valid JSON that is no object: same path as unparseable input
+            raise ValueError("hook payload is not a JSON object")
     except Exception:
         allow()
 
     if payload.get("tool_name") != "Bash":
         allow()
 
-    command = (payload.get("tool_input") or {}).get("command")
+    tool_input = payload.get("tool_input")
+    command = (tool_input if isinstance(tool_input, dict) else {}).get("command")
     if not isinstance(command, str) or not command.strip():
         allow()
 

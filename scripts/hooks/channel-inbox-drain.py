@@ -225,9 +225,10 @@ PREFIX = "[Telegram inbox drain -- %d fuggoben levo uzenet erkezett mikozben a s
 
 def _load_payload():
     try:
-        return json.load(sys.stdin)
+        loaded = json.load(sys.stdin)
     except Exception:
         return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 def _is_main_session(payload):

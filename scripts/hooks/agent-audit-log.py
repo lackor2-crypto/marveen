@@ -84,6 +84,8 @@ def main():
 
     try:
         payload = json.load(sys.stdin)
+        if not isinstance(payload, dict):  # valid JSON that is no object: same path as unparseable input
+            raise ValueError("hook payload is not a JSON object")
     except Exception:
         sys.exit(0)
 
@@ -96,7 +98,9 @@ def main():
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     cwd = payload.get("cwd") or os.getcwd()
     agent = resolve_agent(install_dir, cwd)
-    tool_input = payload.get("tool_input") or {}
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        tool_input = {}
 
     if tool == "Bash":
         command = (tool_input.get("command") or "")

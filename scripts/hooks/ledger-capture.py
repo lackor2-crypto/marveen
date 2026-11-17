@@ -77,6 +77,8 @@ def _attr(attrs, name):
 def main():
     try:
         payload = json.load(sys.stdin)
+        if not isinstance(payload, dict):  # valid JSON that is no object: same path as unparseable input
+            raise ValueError("hook payload is not a JSON object")
     except Exception:
         _trace("payload-unparseable")
         sys.exit(0)

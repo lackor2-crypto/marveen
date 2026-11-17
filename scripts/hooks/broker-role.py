@@ -266,6 +266,8 @@ tolti a kontextusablakot, es olcso modellen ugyanaz jon ki belole."""
 def main():
     try:
         payload = json.load(sys.stdin)
+        if not isinstance(payload, dict):  # valid JSON that is no object: same path as unparseable input
+            raise ValueError("hook payload is not a JSON object")
     except Exception:
         payload = {}
     cwd = payload.get("cwd") or os.getcwd()

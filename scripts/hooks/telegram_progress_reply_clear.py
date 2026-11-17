@@ -53,6 +53,8 @@ def api(tok, method, payload):
 def main():
     try:
         ev = json.loads(sys.stdin.read())
+        if not isinstance(ev, dict):  # valid JSON that is no object: same path as unparseable input
+            raise ValueError("hook payload is not a JSON object")
     except Exception:
         return
     tool = ev.get("tool_name") or ev.get("toolName") or ""
