@@ -3962,10 +3962,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/kanban-archived-writes.test.ts": {
-      "blob": "9f985f2fe3425602b80a976fadecc75d1618d011",
+      "blob": "292d847b1f26db82d2181be7ec99fd62bf38c431",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(kanban): say when a write lands on an archived card, and read one card by id (2dd78397) (#1807).",
-      "card": "#731"
+      "reason": "Taken over from upstream 1b0878897 (#1807) and adapted: our waiting gates (all_points_done, click-through) are not under test, so the archived move goes to testing; the rest is the upstream test. Same behaviour pinned here: archived:true on a write to an archived card, GET one card by id.",
+      "card": "#932"
     },
     "src/__tests__/kanban-audit-stuck-wiring.test.ts": {
       "blob": "f7d7667260b385e01d802a8b2b479aced45a0937",

@@ -48,6 +48,7 @@ export type CreateCardOutcome =
   | { ok: false; code: 'related_required'; error: string; similar: CardCandidate[] }
   | { ok: false; code: 'same_project'; error: string; cards: CardCandidate[] }
   | { ok: false; code: 'project_required'; error: string; projects: ProjectCandidate[] }
+  | { ok: false; code: 'id_taken'; error: string; id: string; archived: boolean }
 
 export interface ProjectCandidate { id: string; name: string }
 
@@ -246,7 +247,23 @@ export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome 
   }
   cardFields.description = withCrossLink(description, relatedCards)
 
-  createKanbanCard({ ...(cardFields as unknown as { title: string }), id })
+  try {
+    createKanbanCard({ ...(cardFields as unknown as { title: string }), id })
+  } catch (err) {
+    // Rebuilt from upstream adb24fb3b (#2116): a caller-supplied id that is already taken is the
+    // caller's conflict, not a server fault. Answer it with the id and whether the existing card is
+    // archived: GET /api/kanban hides archived cards, so "not in the list" does not mean "free".
+    // Caught on the INSERT (not checked before it), so a card created by another process in between
+    // is answered the same way. A generated id colliding is not the caller's doing and stays an error.
+    if (suppliedId && (err as { code?: unknown })?.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+      return {
+        ok: false, code: 'id_taken', id,
+        error: 'A card with this id already exists (GET /api/kanban/<id> returns it, archived or not) / Ezzel az azonositoval mar van kartya',
+        archived: getKanbanCard(id)?.archived_at != null,
+      }
+    }
+    throw err
+  }
   applyCardLabels(id, labels.labelIds)
 
   // A masik irany: a hivatkozas a MASIK kartyaba is bekerul -- az egyiranyu
