@@ -30,6 +30,11 @@ import { familyLines } from '../../workbench-agent/context.js'
 import { variantLanguageRule } from '../../workbench-agent/doc-language.js'
 import { variantOf } from '../../workbench-doclang.js'
 import { msg, type Lang } from '../../workbench-agent/messages.js'
+import { detectsUsageLimit } from '../../model-fallback.js'
+import {
+  scheduleLimitResume, cancelLimitResume, setLimitResumeFile, startLimitResumeWatcher, tickLimitResumes, MAX_AGE_MS as LIMIT_RESUME_MAX_AGE_MS,
+  type LimitResumeEntry,
+} from '../../workbench-agent/limit-resume.js'
 import { settleWorkbenchApprovals } from '../../workbench-agent/approved-runner.js'
 import { pickAIProvider, whyNoAIProvider } from '../../workbench-agent/provider.js'
 import { OFF_BUDGET, getRemaining } from '../../workbench-agent/usage-manager.js'
@@ -40,7 +45,7 @@ import {
 import { decideWorkbenchBackend, isWindowsDriveBridgePath } from '../../workbench-agent/backend-router.js'
 import { runCodeBridgeTurn, incompleteAnswerText, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, claimsOutsideWait, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
 import {
-  setBridgeContinuationHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
+  setBridgeContinuationHandler, setBridgeLimitWaitHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
 } from '../../workbench-agent/bridge-continuation.js'
 import { LiveSessionPool, realLiveDeps, guardSettingsJson, type LiveStartSpec } from '../../workbench-agent/live-session.js'
 import { effectiveWorkbenchModel, liveModelLaunch, loggedInConfigDir, ollamaUnreachable, STRIPPED_ENV, workbenchRoute } from '../../workbench-agent/provider-anthropic.js'
@@ -329,6 +334,73 @@ async function resumeTurn(key: string, t: InflightTurn): Promise<void> {
   }
 }
 
+/**
+ * Boss, Workbench chat 2026-11-17: "amikor visszater az 5 oras keret, automatikusan tudd folytatni a felbemaradt
+ * munkat." A turn that ended on the usage limit with no other account to switch to used to stop for good: the owner
+ * had to type "continue". It is now remembered (limit-resume.ts, survives a restart) and continued by itself, in the
+ * same chat and with the same context, as soon as an account can work again.
+ */
+const limitAttempts = new Map<string, number>()
+
+function scheduleTurnForLimitResume(key: string, t: { projectId: string; workItemId: string | null; account?: string; lang: Lang; actor: string }): void {
+  const attempts = limitAttempts.get(key) ?? 0
+  const ok = scheduleLimitResume({ key, projectId: t.projectId, workItemId: t.workItemId, account: t.account, lang: t.lang, actor: t.actor, attempts })
+  try {
+    const session = openSessionForWorkItem(t.projectId, t.workItemId ?? projectSessionKey(t.projectId), t.lang)
+    // The first schedule says it once; a retry of the same wait stays quiet (the chat is not flooded each hour).
+    if (!ok) addAgentMessage(session.id, 'system', msg('limit_resume_gave_up', t.lang, { why: t.lang === 'en' ? `${attempts} tries` : `${attempts} próbálkozás` }))
+    else if (attempts === 0) addAgentMessage(session.id, 'system', msg('limit_resume_scheduled', t.lang))
+  } catch { /* the note never stops the turn */ }
+}
+
+async function runLimitResume(e: LimitResumeEntry): Promise<void> {
+  const body = { project_id: e.projectId, work_item_id: e.workItemId, message: msg('limit_resume_prompt', e.lang), account: e.account ?? '' }
+  const req = Readable.from([Buffer.from(JSON.stringify(body), 'utf-8')]) as unknown as RouteContext['req']
+  const sink = new Writable({ write(_c, _e, cb) { cb() } })
+  const res = Object.assign(sink, { writeHead() { return res } }) as unknown as RouteContext['res']
+  const url = new URL(`http://localhost/api/workbench/agent/message?lang=${e.lang}`)
+  limitAttempts.set(e.key, e.attempts + 1)
+  resumingTurns.set(e.key, 0)
+  try {
+    await tryHandleWorkbenchAgent({
+      req, res, path: url.pathname, method: 'POST', url,
+      auth: { kind: 'session', user: e.actor },
+    } as unknown as RouteContext)
+  } finally {
+    resumingTurns.delete(e.key)
+  }
+}
+
+/** Is there, by the LIVE account state, an account that can take the work now? */
+function limitResumeCanWork(e: LimitResumeEntry): boolean {
+  const statuses = workbenchAccountStatuses()
+  if (e.account) return statuses.some((s) => s.agent === e.account && s.status !== 'limited')
+  if (!statuses.some((s) => s.status !== 'limited')) return false
+  const project = getProject(e.projectId)
+  const folder = project ? projectFileTarget(project, '') : null
+  return !!liveResolver(e.key, folder && folder.ok ? folder.dirAbs : null, undefined)
+}
+
+/** Called once at server start (web.ts): the waiting continuations survive a restart and are looked at every minute. */
+export function startWorkbenchLimitResume(): void {
+  if (!process.env.VITEST) setLimitResumeFile(join(STORE_DIR, 'workbench-limit-resume.json'))
+  const deps = {
+    canWork: limitResumeCanWork,
+    isBusy: (key: string) => isTurnRunning(key),
+    run: runLimitResume,
+    before: () => refreshLiveAccountUsage({ force: true }),
+    expired: (e: LimitResumeEntry) => {
+      const session = openSessionForWorkItem(e.projectId, e.workItemId ?? projectSessionKey(e.projectId), e.lang)
+      const days = Math.round(LIMIT_RESUME_MAX_AGE_MS / 86_400_000)
+      addAgentMessage(session.id, 'system', msg('limit_resume_gave_up', e.lang, { why: e.lang === 'en' ? `waited ${days} days` : `${days} napig vártam` }))
+    },
+  }
+  startLimitResumeWatcher(deps, 60_000)
+}
+
+/** Test only: one look at the waiting continuations with injected deps. */
+export { tickLimitResumes as tickWorkbenchLimitResumesForTest }
+
 /** The Workbench turn a code-bridge task belongs to (its chat session). */
 function bridgeTaskTurn(task: CodeTask): { key: string; projectId: string; workItemId: string | null; lang: Lang } | null {
   const session = task.chatId ? getAgentSession(task.chatId) : undefined
@@ -437,6 +509,11 @@ function continueBridgeTaskInBackground(task: CodeTask): boolean {
   return true
 }
 setBridgeContinuationHandler((task) => continueBridgeTaskInBackground(task))
+setBridgeLimitWaitHandler((task) => {
+  const turn = bridgeTaskTurn(task)
+  if (!turn || String(getEffectiveSettingValue('WORKBENCH_FULL_AGENT')) !== '1') return
+  scheduleTurnForLimitResume(turn.key, { projectId: turn.projectId, workItemId: turn.workItemId, lang: turn.lang, actor: task.requestedBy || 'dashboard' })
+})
 
 /** `skip`: a fordulo alatt mar limitbe futott fiokok config-konyvtarai (#434). */
 type LiveResolver = (key: string, projectFolder: string | null, account: string | undefined, skip?: ReadonlySet<string>) => LiveStartSpec | null
@@ -1062,6 +1139,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         turnCap = setTimeout(() => ac.abort(), LIVE_IDLE_MAX_MS)
       }
       stillAlive()
+      if (resumeCount === undefined) { cancelLimitResume(key); limitAttempts.delete(key) }
       markInflight(key, {
         projectId: project.id, workItemId, account, lang, actor: input.actor,
         startedAt: Date.now(), resumes: resumeCount ?? 0,
@@ -1142,6 +1220,14 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         }
         if (answer.trim()) addAgentMessage(session.id, 'assistant', stripCompletionMarker(answer))
         if (failed) addAgentMessage(session.id, 'system', failed)
+        // Boss, 2026-11-17: ended on the usage limit with no account left to switch to: the work is NOT over, it
+        // continues by itself when the limit is back (limit-resume.ts); a normal end clears the wait.
+        if (failed && !ac.signal.aborted && modelRoute === 'claude' && detectsUsageLimit(failed)) {
+          scheduleTurnForLimitResume(key, { projectId: project.id, workItemId, account, lang, actor: input.actor })
+        } else if (!failed) {
+          cancelLimitResume(key)
+          limitAttempts.delete(key)
+        }
         // An empty turn (no text, no tool, no error, not stopped by the owner) used to leave nothing
         // behind and the page showed a bare red "no answer" (Boss TG 5074): say it in the chat itself.
         // Boss, Workbench chat 2026-11-10: a restart (update) left the chat with only "the session ended without
