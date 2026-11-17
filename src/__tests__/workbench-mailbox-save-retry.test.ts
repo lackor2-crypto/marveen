@@ -86,12 +86,12 @@ describe('workbench mailbox draft save', () => {
     expect(d.calls).toEqual([])
   })
 
-  it('the route\'s compose goes through himalayaRead (the transient-error retry), not himalayaOnce', () => {
+  it('the route\'s compose retries the transient error but checks the folder first, so a landed draft is never filed twice (#934)', () => {
     const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'email.ts'), 'utf8')
-    // #797: the Drafts save is the shared sender's mailbox engine now (registerMailboxEngine), with the same retry.
+    // #797: the Drafts save is the shared sender's mailbox engine now (registerMailboxEngine).
     const port = route.slice(route.indexOf('registerMailboxEngine({'), route.indexOf('// #741: the workbench asks the Sent mailbox'))
     expect(port).toContain('saveDraftToFolder(')
-    expect(port).toContain('await himalayaRead(args)')
-    expect(port).not.toContain('himalayaOnce(')
+    expect(port).toContain('isTransientImapError(text)')
+    expect(port).toContain('composeLandedInFolder(args, t0)')
   })
 })
