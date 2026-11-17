@@ -147,6 +147,10 @@ export function isEgressBlocked(toolName, toolInput, runtimeList = { domains: []
 export function isInternalHost(hostname) {
   let host = String(hostname).trim().toLowerCase()
   if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  // A fully qualified name may end in a dot (`localhost.`, `printer.local.`, `127.0.0.1.`): the resolver treats
+  // it as the same host, so it must be judged as the same host. Without this the last label was empty, matched
+  // no internal suffix, and the internal target went through.
+  host = host.replace(/\.+$/, '')
   if (!host) return true
   if (host.includes(':')) return true                       // any IPv6 literal (loopback, ULA, link-local)
   if (/^\d+(\.\d+)*$/.test(host)) {                         // IPv4 literal or bare number
