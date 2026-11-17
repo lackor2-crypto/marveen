@@ -184,6 +184,8 @@ def main():
         allow()
     try:
         payload = json.load(sys.stdin)
+        if not isinstance(payload, dict):  # valid JSON that is no object: same path as unparseable input
+            raise ValueError("hook payload is not a JSON object")
     except Exception:
         allow()
     tool = payload.get("tool_name")
