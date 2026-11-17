@@ -10836,6 +10836,12 @@
       "kind": "decided",
       "reason": "Kept at ours (#932): the test needs scripts/lib/marveen_api.py, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: feat x1, fix x5.",
       "card": "#932"
+    },
+    "src/__tests__/egress-gate-internal-names.test.ts": {
+      "blob": "0fab948c79f36e0c7a335ee645dc8e7aeb188cb2",
+      "kind": "decided",
+      "reason": "Tests isQuarantineDenied, which this fork does not have; its isInternalHost already refuses every IPv6 literal (stricter than upstream) and the trailing-dot gap it covers is fixed and locked by egress-gate-trailing-dot.test.ts.",
+      "card": "#932"
     }
   }
 }
