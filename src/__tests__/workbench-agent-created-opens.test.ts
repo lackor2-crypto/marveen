@@ -41,6 +41,34 @@ describe('agent-created work item opens', () => {
     f.openAgentCreated()
     expect(sel).toEqual([])
   })
+  // Measured in a real browser (#844 check): the swap refresh that runs WHILE the turn streams opened the new item at once,
+  // the chat column switched to that item's empty chat and showed "idle" while the turn was still running.
+  it('does not switch the middle and the chat while the turn still streams; opens at the turn end', () => {
+    const WB: any = { projectId: 'p', selectedId: null, chatStreaming: true, items: [] }
+    const sel: string[] = []
+    const f = build(WB, sel)
+    f.agentWatchStart()
+    WB.items = [{ id: 'n', created_at: '2026-11-02' }]
+    f.openAgentCreated()
+    expect(sel).toEqual([])
+    WB.chatStreaming = false
+    f.openAgentCreated()
+    expect(sel).toEqual(['n'])
+  })
+  it('an item seen during turn 1 still opens when a queued turn 2 starts right behind it', () => {
+    const WB: any = { projectId: 'p', selectedId: null, chatStreaming: true, items: [] }
+    const sel: string[] = []
+    const f = build(WB, sel)
+    f.agentWatchStart()
+    WB.items = [{ id: 'n', created_at: '2026-11-02' }]
+    f.openAgentCreated() // deferred: the turn is still streaming
+    f.agentWatchStart() // turn 2 starts at once (flushChatQueue), the list already holds the new item
+    f.openAgentCreated()
+    expect(sel).toEqual([])
+    WB.chatStreaming = false
+    f.openAgentCreated()
+    expect(sel).toEqual(['n'])
+  })
   it('is wired into load, refreshTree and the chat turn start', () => {
     expect(SRC).toMatch(/openAgentCreated\(\)\n\s+render\(\)/g)
     expect((SRC.match(/openAgentCreated\(\)/g) || []).length).toBeGreaterThanOrEqual(3)

@@ -418,6 +418,10 @@
    *  (owner TG 4518, 2026-11-02): nem elég, hogy a fan megjelenik. A chat-forduló indulásakor megjegyezzük az akkori
    *  munkadarabokat; ami azota ÚJ, azt megnyitjuk -- de csak ha a tulajdonos azota nem valasztott mast. */
   function agentWatchStart() {
+    // A queued turn that starts right behind one that already saw a new item keeps that watch: the item is on the list
+    // by now, so a fresh snapshot would count it as old and it would never open.
+    var old = WB.agentWatch
+    if (old && old.deferred && old.pid === WB.projectId) { old.at = Date.now(); return }
     WB.agentWatch = { pid: WB.projectId, sel: WB.selectedId || null, at: Date.now(), ids: (WB.items || []).map(function (x) { return x.id }) }
   }
   function openAgentCreated() {
@@ -427,6 +431,10 @@
     if ((WB.selectedId || null) !== w.sel) return
     var fresh = (WB.items || []).filter(function (x) { return w.ids.indexOf(x.id) < 0 })
     if (!fresh.length) return
+    // While the turn still streams, the middle and the chat column must not switch: the chat would show the new item's
+    // empty chat as "idle" and the running answer would vanish from view. The turn's end (finishChatTurn) opens it.
+    if (WB.chatStreaming) { w.deferred = true; return }
+    w.deferred = false
     fresh.forEach(function (x) { w.ids.push(x.id) })
     fresh.sort(function (a, b) { return String(b.created_at || '') < String(a.created_at || '') ? -1 : 1 })
     w.sel = fresh[0].id
