@@ -69,6 +69,38 @@ export function composeArgs(account: string, from: string, mail: OutgoingMail, o
   return args
 }
 
+/**
+ * What a `compose --save` call was asked to put into a folder (read back from its arguments), or null when it saves nothing.
+ * Used to decide, after himalaya exited non-zero, whether the message nevertheless landed (#934).
+ */
+export function composeTarget(args: string[]): { account: string; folder: string; subject: string; to: string } | null {
+  if (args[2] !== 'message' || args[3] !== 'compose') return null
+  const at = (flag: string): string => { const i = args.indexOf(flag); return i >= 0 ? String(args[i + 1] ?? '') : '' }
+  const folder = at('--save')
+  if (!folder) return null
+  return { account: args[1] ?? '', folder, subject: at('-s'), to: at('-t') }
+}
+
+/**
+ * Is the message of `target` among `envelopes` (the newest ones of its folder), stored since `sinceMs`?
+ * Measured 2026-11-17 (#934): himalaya v2.0.0 stores/sends a message of 0.3 MB or more and then exits 1 with
+ * "Resource temporarily unavailable (os error 11)", so the exit code alone says nothing about the folder. The folder does.
+ */
+export function envelopeLanded(
+  envelopes: Array<{ subject?: unknown; date?: unknown; to?: Array<{ email?: string }> }>,
+  target: { subject: string; to: string },
+  sinceMs: number,
+): boolean {
+  const want = (target.to.split(/[;,]/)[0] || '').trim().toLowerCase()
+  return envelopes.some((e) => {
+    if (String(e.subject ?? '').trim() !== target.subject.trim()) return false
+    const t = Date.parse(String(e.date ?? ''))
+    if (Number.isFinite(t) && t < sinceMs) return false
+    if (!want) return true
+    return (e.to || []).some((x) => String(x.email || '').toLowerCase() === want)
+  })
+}
+
 // ---- the Google engine (scripts/gmail-send.py) ---------------------------------------------------------
 
 export type GoogleRunner = (mode: 'send' | 'draft', mail: OutgoingMail, accountKey: string) => Promise<{ ok: true; id: string } | { ok: false; detail: string }>

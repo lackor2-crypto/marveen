@@ -28,7 +28,7 @@ import { getSecret } from '../vault.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import type { RouteContext } from './types.js'
 import { registerRecoveryMailPort } from '../password-recovery.js'
-import { registerMailboxEngine, sendMail, saveDraft, replyOrForward, sendingAccounts } from '../../mail-send.js'
+import { registerMailboxEngine, sendMail, saveDraft, replyOrForward, sendingAccounts, composeTarget, envelopeLanded } from '../../mail-send.js'
 import { registerSentMailPort } from '../../workbench-sent-detect.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
@@ -165,6 +165,23 @@ async function himalayaRead(args: string[]): Promise<HimalayaResult> {
 }
 const himalaya = himalayaOnce
 
+/** #934: after a failed `compose --save`, is the message in the folder anyway? Unknown (lookup failed) counts as "no". */
+async function composeLandedInFolder(args: string[], sinceMs: number): Promise<boolean> {
+  const target = composeTarget(args)
+  if (!target) return false
+  // A just-appended message can take a moment to show in the folder listing (measured 2026-11-17: the first look came up
+  // empty, the draft was there a second later and a retry then filed it twice), so look a few times before saying "no".
+  for (let i = 0; i < 4; i++) {
+    if (i > 0) await new Promise(res => setTimeout(res, 1500))
+    const r = await himalayaRead(['-a', target.account, 'envelope', 'list', '-m', target.folder, '-p', '1', '-s', '20', '--json'])
+    if (!r.ok) continue
+    try {
+      if (envelopeLanded((JSON.parse(r.stdout).envelopes || []) as Array<{ subject?: unknown; date?: unknown; to?: Array<{ email?: string }> }>, target, sinceMs - 120_000)) return true
+    } catch { /* look again */ }
+  }
+  return false
+}
+
 function isKnownAccount(id: string | null): boolean {
   return !!id && getAccounts().some(a => a.id === id)
 }
@@ -198,7 +215,15 @@ registerRecoveryMailPort({
 registerMailboxEngine({
   accounts: () => getAccounts().map((a) => ({ id: a.id, address: accountEmail(a.id) })),
   // A send runs ONCE (himalayaOnce): a retried `--send` could send the letter twice.
-  run: async (args) => { const r = await himalaya(args); return { ok: r.ok, detail: r.ok ? '' : himalayaErrorText(r) } },
+  run: async (args) => {
+    const t0 = Date.now()
+    const r = await himalaya(args)
+    if (r.ok) return { ok: true, detail: '' }
+    const text = himalayaErrorText(r)
+    // #934: a big message is sent/saved and himalaya then exits 1 -- the folder, not the exit code, tells.
+    if (await composeLandedInFolder(args, t0)) { logger.warn(`[email] himalaya exited non-zero but the message is in its folder, treated as done: ${text}`); return { ok: true, detail: '' } }
+    return { ok: false, detail: text }
+  },
   sentFolder: (account) => mailboxFor(account, 'sent'),
   changed: (account, folder) => invalidateEnvelopeCache(account, folder),
   // #725/#726 (Boss TG 4003: the first press did not put the draft in, the second did): the folder lookup and the compose call
@@ -208,7 +233,20 @@ registerMailboxEngine({
     accountEmail,
     resolveFolders: (id) => resolveSpecialMailboxes(id),
     fallbackFolder: FALLBACK_MAILBOX.drafts,
-    compose: async (args) => { const r = await himalayaRead(args); return { ok: r.ok, text: r.ok ? '' : himalayaErrorText(r) } },
+    // #934: a retry of a compose that already landed would file the draft twice, so every failure checks the folder first.
+    compose: async (args) => {
+      let text = ''
+      for (let i = 0; i <= TRANSIENT_RETRY_ATTEMPTS; i++) {
+        const t0 = Date.now()
+        const r = await himalayaOnce(args)
+        if (r.ok) return { ok: true, text: '' }
+        text = himalayaErrorText(r)
+        if (await composeLandedInFolder(args, t0)) { logger.warn(`[email] himalaya exited non-zero but the draft is in its folder, treated as saved: ${text}`); return { ok: true, text: '' } }
+        if (!isTransientImapError(text)) break
+        await new Promise(res => setTimeout(res, TRANSIENT_RETRY_BASE_MS * 2 ** i + Math.random() * 200))
+      }
+      return { ok: false, text }
+    },
     onSaved: (id, folder) => invalidateEnvelopeCache(id, folder),
     warn: (t) => logger.warn(t),
   }, accountId, { to: m.to, cc: m.cc || '', subject: m.subject, body: m.body, files: m.attachments || [] }),
