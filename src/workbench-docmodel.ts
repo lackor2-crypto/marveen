@@ -1068,9 +1068,11 @@ export function documentCheck(itemId: string, resolve?: FileResolver): { ready: 
   // point -> to-do list (#751), never a gate on finalizing.
   const headMissing = letterHeadMissing(blocks)
   if (headMissing) items.push({ key: 'letter_head_missing', ok: false, count: headMissing })
-  // LETTER SPACING (Boss, 2026-11-03): subject, references, salutation and closing stand apart by blank lines. To-do, never a gate.
+  // LETTER SPACING (Boss, 2026-11-03): subject, references, salutation and closing stand apart by blank lines. A content point ->
+  // to-do list (#751), never a gate on finalizing. ok:false on purpose (#848): an ok:true row is skipped by the to-do list and by the
+  // open-points box, and the check list would show it with a tick.
   const spacingMissing = letterSpacingMissing(blocks)
-  if (spacingMissing) items.push({ key: 'letter_spacing_missing', ok: true, count: spacingMissing })
+  if (spacingMissing) items.push({ key: 'letter_spacing_missing', ok: false, count: spacingMissing })
   // KOVETKEZETESSEG (K-1.19): nevek, ugyszam, datumok, osszegek, cimek. A tulajdonos
   // altal szandekosnak jelolt elteres nem allitja meg a veglegesitest.
   const cons = consistencyIssues(itemId)
