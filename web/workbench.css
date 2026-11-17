@@ -2477,7 +2477,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-pin-acts .wb-treeup, .wb-pin-acts .wb-trash { margin: 0; }
 .wb-pin-acts .btn-secondary, .wb-pin-acts .btn-primary, .wb-pin-acts .wb-trash-toggle { padding: 4px 9px; font-size: 0.85rem; line-height: 1.3; }
 .wb-pin-acts .wb-new-btn { align-self: center; }
-.wb-panel-items .wb-pin .wb-pop { position: absolute; left: 0; right: 0; top: 100%; z-index: 7; max-height: 60vh; overflow-y: auto; margin-top: 4px;
+.wb-panel-items .wb-pin .wb-pop { position: absolute; left: 0; right: 0; top: 100%; z-index: 7; max-height: min(60vh, var(--wb-pop-fit, 60vh)); overflow-y: auto; margin-top: 4px;
   padding: 10px; background: var(--bg-card); border: 1px solid var(--border, #d0d5dd); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
 .wb-panel-items .wb-pin .wb-treeup-panel.wb-pop { margin-top: 4px; }
 /* #833: the slot keeps the box at (at most) the old top box height; the "more" arrow shows only when something is clipped. */
@@ -2493,7 +2493,7 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
    it (--wb-pop-room), and the dropdown never grows past that room (it scrolls inside itself). Same for the trash and the forms. */
 .wb-sh-start-tree { --wb-pop-room: max(80vh, 480px); }
 .wb-sh-start-tree > .wb-sh-tree:has(.wb-pin .wb-pop) { min-height: var(--wb-pop-room); }
-.wb-sh-start-tree .wb-panel-items .wb-pin .wb-pop { max-height: calc(var(--wb-pop-room) - 300px); }
+.wb-sh-start-tree .wb-panel-items .wb-pin .wb-pop { max-height: min(calc(var(--wb-pop-room) - 300px), var(--wb-pop-fit, 9999px)); }
 @media (max-width: 900px) { .wb-sh-start-tree { --wb-pop-room: max(50vh, 480px); } }
 .wb-pin-acts .wb-new-btn { width: auto; padding: 4px 9px; }
 .wb-pin-slot.wb-pin-clipped .wb-blk-top, .wb-pin-slot.wb-pin-open .wb-blk-top { padding-right: 34px; }
