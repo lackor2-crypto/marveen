@@ -20,10 +20,10 @@ function extract(name: string): string {
 const store: Record<string, string> = {}
 const t = (k: string, p?: Record<string, unknown>) => (p ? `${k}:${p.type ?? p.ext ?? ''}:${p.n ?? ''}` : k)
 const names = ['_intezoSortState', '_intezoDirSizeEntry', '_intezoKnownDirBytes', '_intezoDirSizeText',
-  '_intezoCompare', '_intezoOrder', '_intezoTypeText', '_intezoBytes', '_intezoVisibleRows', '_intezoSelectRange']
+  '_intezoCompare', '_intezoStdFirst', '_intezoOrder', '_intezoTypeText', '_intezoBytes', '_intezoVisibleRows', '_intezoSelectRange']
 type Row = { name: string; rel: string }
 // eslint-disable-next-line no-new-func
-const mod = new Function('t', 'localStorage', `
+const mod = new Function('t', 'localStorage', 'window', `
   const _INTEZO_SORT_KEYS = ['name', 'modified', 'type', 'size']
   let _intezoDirSizes = {}
   let _intezoPath = '', _intezoShown = null, _intezoListing = null
@@ -42,7 +42,7 @@ const mod = new Function('t', 'localStorage', `
 `)(t, {
   getItem: (k: string) => store[k] ?? null,
   setItem: (k: string, v: string) => { store[k] = v },
-}) as {
+}, {} /* window: no Workbench script, so the standard-folder block (#847) is a no-op here */) as {
   order: (L: unknown) => { rows: Row[]; heads: Record<string, string> }
   bytes: (n: number) => string
   sizes: Record<string, unknown>

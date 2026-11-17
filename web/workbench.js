@@ -25947,6 +25947,8 @@
 
   window.MarvinWorkbench = {
     open: openWorkbench,
+    // #847: the standard folder names of a work item; the Explorer (app.js) keeps them in one block too.
+    stdFolders: STD_FOLDERS,
     // #826: the same sent chip + deadline badge the tree draws, for the project overview's work rows.
     markBadgesHtml: function (sent, due) {
       return (sent ? answeredChipHtml() : '') + (!sent && due ? dueBadgeHtml(due) : '')
