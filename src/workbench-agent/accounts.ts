@@ -120,9 +120,11 @@ function withObservedLimits(cands: ClaudeAccount[], now: number): ClaudeAccount[
       marks.delete(c.agent)
       return c
     }
+    // The mark carries its own end (`until`): the laid-over 100% lives until then,
+    // whatever the stale measured reset time of the window says.
     return mk.window === 'five'
-      ? { ...c, fiveHourPct: 100, usageAt: now }
-      : { ...c, sevenDayPct: 100, usageAt: now }
+      ? { ...c, fiveHourPct: 100, fiveHourResetsAt: mk.until, usageAt: now }
+      : { ...c, sevenDayPct: 100, sevenDayResetsAt: mk.until, usageAt: now }
   })
 }
 
@@ -239,10 +241,21 @@ export function workbenchAccountStatuses(now: number = Date.now()): WorkbenchAcc
   // rankModelTier >= 200). Enelkul a valaszto olyan fiokot kinalna, amivel a
   // hivas elhasalna.
   const rows: WorkbenchAccountStatus[] = cands.filter((c) => rankModelTier(c.model) >= 200).map((c) => {
-    const weeklyDead = c.sevenDayPct != null && c.sevenDayPct >= 100
-    const fiveCritical = c.fiveHourPct != null && c.fiveHourPct >= WORKBENCH_LIMIT_PCT
-    const fiveWarn = c.fiveHourPct != null && c.fiveHourPct >= WORKBENCH_WARN_PCT
-    const noMeasure = c.fiveHourPct == null && (c.sevenDayPct == null)
+    // A window whose reset time has passed is a FINISHED window: its reading no
+    // longer says anything about the account (within a window usedPct only grows
+    // until the reset, so a 100% stays true only while resetsAt is in the future;
+    // same rule as snapshotShowsQuotaExhausted). Without this a 100% captured
+    // before the reset kept the account red in the Workbench picker for as long
+    // as nobody worked in that agent's own terminal (Boss, 2026-11-17: red "your
+    // quota is used up" while the account was working at 70%). Such a reading is
+    // "unknown" (not green, not red), until a fresh one arrives.
+    const rolled = (resetsAt: number | null | undefined): boolean => resetsAt != null && resetsAt <= now
+    const fiveRolled = rolled(c.fiveHourResetsAt)
+    const sevenRolled = rolled(c.sevenDayResetsAt)
+    const weeklyDead = c.sevenDayPct != null && c.sevenDayPct >= 100 && !sevenRolled
+    const fiveCritical = c.fiveHourPct != null && c.fiveHourPct >= WORKBENCH_LIMIT_PCT && !fiveRolled
+    const fiveWarn = c.fiveHourPct != null && c.fiveHourPct >= WORKBENCH_WARN_PCT && !fiveRolled
+    const noMeasure = (c.fiveHourPct == null || fiveRolled) && (c.sevenDayPct == null || sevenRolled)
     // An old reading is not a green light: the numbers only refresh while that
     // agent works in its own terminal, while the Workbench keeps spending the
     // same login (#434: 83% at 01:45, out of limit by 02:11, still green).

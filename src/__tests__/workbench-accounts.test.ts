@@ -150,3 +150,31 @@ describe('live account usage beats the statusline file (#434)', () => {
     expect(workbenchAccountStatuses(now)[0].status).toBe('online')
   })
 })
+
+// Boss 2026-11-17: the Workbench assistant panel showed a red "your quota is used up" for an account that was working.
+describe('a finished window is not red (stale reading past its reset)', () => {
+  it('a 100% five-hour reading whose reset has passed is unknown, not limited', () => {
+    const past = now - 60_000
+    setWorkbenchAccountListerForTest(() => [{ ...acc('usalackor', 100, 40, 'claude-sonnet-5-5'), fiveHourResetsAt: past, sevenDayResetsAt: now + 3_600_000 }] as never)
+    expect(workbenchAccountStatuses(now)[0].status).toBe('online')
+  })
+  it('the same reading before its reset stays limited', () => {
+    setWorkbenchAccountListerForTest(() => [{ ...acc('usalackor', 100, 40, 'claude-sonnet-5-5'), fiveHourResetsAt: now + 60_000, sevenDayResetsAt: now + 3_600_000 }] as never)
+    expect(workbenchAccountStatuses(now)[0].status).toBe('limited')
+  })
+  it('a 100% weekly reading whose reset has passed is not limited', () => {
+    setWorkbenchAccountListerForTest(() => [{ ...acc('usalackor', 10, 100, 'claude-sonnet-5-5'), fiveHourResetsAt: now + 60_000, sevenDayResetsAt: now - 1000 }] as never)
+    expect(workbenchAccountStatuses(now)[0].status).not.toBe('limited')
+  })
+})
+
+describe('the Workbench chat status refreshes itself', () => {
+  it('web/workbench.js re-fetches the status on a timer and repaints only the status line and account row', async () => {
+    const { readFileSync } = await import('node:fs')
+    const js = readFileSync('web/workbench.js', 'utf8')
+    expect(js).toMatch(/var CHAT_STATUS_POLL_MS = \d+/)
+    expect(js).toMatch(/setInterval\(refreshChatStatusQuiet, CHAT_STATUS_POLL_MS\)/)
+    expect(js).toMatch(/line\.innerHTML = chatStatusHtml\(\)/)
+    expect(js).toMatch(/row\.outerHTML = chatAccountHtml\(\)/)
+  })
+})

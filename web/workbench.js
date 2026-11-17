@@ -12535,6 +12535,37 @@
     })
   }
 
+  /** Chat status poll. The status (account dots, "your quota is used up") used to be
+   *  fetched only when the panel opened and when a chat turn ended, so a long turn
+   *  (or an idle open page) kept showing a red "quota used up" that the server had
+   *  long since stopped saying (Boss, 2026-11-17: the account read red while the
+   *  chat was working). Every CHAT_STATUS_POLL_MS the panel measures again. The old
+   *  status stays on screen until the new one arrives, and only the status line and
+   *  the account select are repainted, so typed text, focus and scroll stay. */
+  var CHAT_STATUS_POLL_MS = 30000
+  function chatStatusSig(s) {
+    return JSON.stringify(s ? [s.accounts, s.usage, s.allowed, s.blockedReason, s.provider] : null)
+  }
+  function refreshChatStatusQuiet() {
+    if (!WB.open || !WB.projectId || !WB.chatStatus || WB.chatStatusPolling) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    var pid = WB.projectId
+    WB.chatStatusPolling = true
+    api('GET', '/api/workbench/agent/status?project=' + encodeURIComponent(pid)).then(function (r) {
+      WB.chatStatusPolling = false
+      if (!r || !r.ok || !WB.open || WB.projectId !== pid || !WB.chatStatus) return
+      if (chatStatusSig(r.data) === chatStatusSig(WB.chatStatus)) return
+      WB.chatStatus = r.data
+      var line = document.querySelector('.wb-chat-statusline')
+      if (line) line.innerHTML = chatStatusHtml()
+      var sel = document.getElementById('wbChatAccount')
+      var row = sel && sel.closest ? sel.closest('.wb-chat-account-row') : null
+      if (row) row.outerHTML = chatAccountHtml()
+    }, function () { WB.chatStatusPolling = false })
+  }
+  if (typeof setInterval === 'function') setInterval(refreshChatStatusQuiet, CHAT_STATUS_POLL_MS)
+  /** end of chat status poll */
+
   /** A mar lezajlott beszelgetes visszaolvasasa. URES LISTA NEM UGYANAZ, mint a
    *  "nem latok oda": a hibat kulon mondjuk ki. */
   function loadChatHistory() {
