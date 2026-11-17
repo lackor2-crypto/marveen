@@ -4549,13 +4549,14 @@ export function listApprovalVerifications(approvalId: string): ApprovalVerificat
 
 /**
  * Boss (TG 10319, #774; TG 3389, #802): take back the reviews that are still running on an approval. Removes the
- * PENDING and NO-RESPONSE rows (the amber ones: the answer never came, but the VS Code task behind them may still hold the executor) (finished pass/fail answers stay: they are results, not running work) and returns
+ * PENDING, NO-RESPONSE (amber: the answer never came, but the VS Code task behind them may still hold the executor)
+ * and FAILED (red) rows; only PASS results stay (Boss TG 3389: the X is on every row that has something to take back) and returns
  * them, so the caller can also call off the queued VS Code tasks behind them.
  */
 export function deletePendingApprovalVerifications(approvalId: string): ApprovalVerification[] {
-  const rows = db.prepare("SELECT * FROM approval_verifications WHERE approval_id = ? AND status IN ('pending', 'noresponse')")
+  const rows = db.prepare("SELECT * FROM approval_verifications WHERE approval_id = ? AND status IN ('pending', 'noresponse', 'fail')")
     .all(approvalId) as ApprovalVerification[]
-  if (rows.length) db.prepare("DELETE FROM approval_verifications WHERE approval_id = ? AND status IN ('pending', 'noresponse')").run(approvalId)
+  if (rows.length) db.prepare("DELETE FROM approval_verifications WHERE approval_id = ? AND status IN ('pending', 'noresponse', 'fail')").run(approvalId)
   return rows
 }
 
