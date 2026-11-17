@@ -10276,7 +10276,7 @@
     "src/__tests__/onboarding-env-single-line.test.ts": {
       "blob": "b57b081c6e64fb399e8487ab7590db6ee6eeac95",
       "kind": "decided",
-      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2, web x1.",
+      "reason": "Adapted copy kept: only the single-line .env guard is taken over; the owner-gate and incomplete-body blocks of the upstream file test features this fork does not have.",
       "card": "#932"
     },
     "src/__tests__/owner-gate-round2.test.ts": {

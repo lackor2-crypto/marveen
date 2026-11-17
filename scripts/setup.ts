@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { homedir, platform } from 'node:os'
+import { writeEnvFileFresh, assertEnvEntry } from '../src/env.js'
 import { SERVICE_ID, BRAND_NAME, appServiceLabel, LEGACY_SERVICE_ID, LEGACY_APP_SERVICE_LABEL } from '../src/config.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -210,9 +211,10 @@ async function main() {
   header('4. .env fajl irasa')
   let envContent = '# Marveen konfiguracio\n'
   for (const [key, value] of Object.entries(config)) {
+    assertEnvEntry(key, String(value))
     envContent += `${key}=${value}\n`
   }
-  writeFileSync(envPath, envContent, { mode: 0o600 })
+  writeEnvFileFresh(envPath, envContent)
   ok('.env fajl letrehozva (0600)')
 
   // CLAUDE.md szerkesztes
@@ -354,9 +356,10 @@ WantedBy=default.target`
   const chatIdLabel = provider === 'telegram' ? 'ALLOWED_CHAT_ID' : 'SLACK_CHANNEL_ID'
   const chatId = await ask(`${chatIdLabel} (Enter a kihagyashoz, kesobb is megadhatod):`)
   if (chatId) {
+    assertEnvEntry(chatIdLabel, chatId)
     let envData = readFileSync(envPath, 'utf-8')
     envData += `${chatIdLabel}=${chatId}\n`
-    writeFileSync(envPath, envData)
+    writeEnvFileFresh(envPath, envData)
     ok(`${chatIdLabel} mentve: ${chatId}`)
   } else {
     warn(`${chatIdLabel} kesobb megadhato a .env fajlban`)

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync, copyFileSync, renameSync } from 'node:fs'
+import { isSingleLineEnvValue } from '../../env.js'
 import { join, extname, dirname } from 'node:path'
 import { homedir, platform, tmpdir } from 'node:os'
 import { exec } from 'node:child_process'
@@ -1719,6 +1720,9 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       if (!saKeyPath?.trim() || !projectId?.trim() || !subscription?.trim() || !owner?.trim()) {
         json(res, { error: 'Google Chat: saKeyPath, projectId, subscription és owner kötelező' }, 400); return true
       }
+      if (![saKeyPath, projectId, subscription].every((v) => isSingleLineEnvValue(v))) {
+        json(res, { error: 'Google Chat: az ertekek nem lehetnek tobb sorosak' }, 400); return true
+      }
       const gcDir = isMain ? channelStateDir(provider) : channelStateDir(provider, agentDir(name))
       mkdirSync(gcDir, { recursive: true })
       const gcEnv =
@@ -1759,6 +1763,8 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
 
     const { botToken, appToken, channelId } = JSON.parse(body.toString()) as { botToken: string; appToken?: string; channelId?: string }
     if (!botToken?.trim()) { json(res, { error: 'botToken is required' }, 400); return true }
+    // .env is line-based: a line break in a value would add a line of the caller's choosing. Refuse before any network call or write.
+    if (![botToken, appToken ?? '', channelId ?? ''].every((v) => isSingleLineEnvValue(String(v)))) { json(res, { error: 'A token es az azonositok nem lehetnek tobb sorosak.' }, 400); return true }
 
     // Discord-specific channelId guard: the dashboard ships the channel where
     // the bot will post by default; without it the plugin spins up but cannot
