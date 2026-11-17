@@ -1,6 +1,7 @@
 // #916 (Boss 2026-11-14): after the final PDF, the e-mail panel takes the recipient, the subject and the covering text from the
 // "Sending details" block at the top of the context file. Clicked through in a real browser: the block is filled the way the
 // agent's context.send does (the file on disk), the item is opened like the owner opens it, and the panel's own fields are read.
+// #931: the test item is a Hungarian letter, so the plain subject / text are written in Hungarian (the language lock refuses a text clearly in another language).
 // Runs after zz-finalize (file name order): the panel needs the final PDF the finalise spec made.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -38,7 +39,7 @@ test('the e-mail panel after the final PDF shows the recipient, subject and text
   fill('Címzett e-mail', 'sozialamt@stadt-chemnitz.de')
   fill('Címzett postai címe', 'Weg 1, 09111 Chemnitz')
   fill('E-mail tárgya', 'Widerspruch Az. 12 browsertest')
-  text = text.replace(/^- E-mail szövege:.*$/m, '- E-mail szövege:\n  Sehr geehrte Damen und Herren,\n\n  anbei mein Widerspruch browsertest.')
+  text = text.replace(/^- E-mail szövege:.*$/m, '- E-mail szövege:\n  Tisztelt Hivatal,\n\n  mellékelten küldöm a fellebbezésemet browsertest.')
   fs.writeFileSync(file, text)
 
   // open the item again: the panel is built from the server's answer
@@ -52,7 +53,7 @@ test('the e-mail panel after the final PDF shows the recipient, subject and text
   await expect(to).toBeVisible({ timeout: 30_000 })
   await expect(to).toHaveValue('sozialamt@stadt-chemnitz.de')
   await expect(page.locator('#wbMailSubject')).toHaveValue('Widerspruch Az. 12 browsertest')
-  await expect(page.locator('#wbMailBody')).toHaveValue(/anbei mein Widerspruch browsertest\./)
+  await expect(page.locator('#wbMailBody')).toHaveValue(/mellékelten küldöm a fellebbezésemet browsertest\./)
   await page.screenshot({ path: path.join(liveIds().depot, 'send-block-mail-panel.png') })
   expect(errors).toEqual([])
 })
