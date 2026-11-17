@@ -177,7 +177,7 @@ export function checkUpdatePreflight(git: GitRunner): PreflightResult {
       reason: 'detached-head',
       message:
         'Repository is in a detached-HEAD state. ' +
-        'Check out a release branch before updating, e.g.: git switch main || git switch -c main --track origin/main',
+        'Check out a release branch before updating, e.g.: git checkout main',
     }
   }
 
@@ -200,7 +200,7 @@ export function checkUpdatePreflight(git: GitRunner): PreflightResult {
       message:
         `Branch '${branch}' does not exist on origin, so there is nothing to ` +
         'pull. Updates can only run from a branch that origin also has, e.g.: ' +
-        'git switch main || git switch -c main --track origin/main',
+        'git checkout main',
     }
   }
 
