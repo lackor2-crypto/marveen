@@ -156,7 +156,7 @@ import { tryHandleProjects } from './web/routes/projects.js'
 import { tryHandleWorkbench } from './web/routes/workbench.js'
 import { tryHandleBackup } from './web/routes/backup.js'
 import { tryHandleBackupRestore } from './web/routes/backup-restore.js'
-import { tryHandleWorkbenchAgent, resumeInterruptedWorkbenchTurns } from './web/routes/workbench-agent.js'
+import { tryHandleWorkbenchAgent, resumeInterruptedWorkbenchTurns, startWorkbenchLimitResume } from './web/routes/workbench-agent.js'
 import { migrateAllWorkItemFoldersAsync, ensureAllAttachmentsFoldersAsync } from './workbench-assets.js'
 import { tryHandleEmail, warmEmailCaches } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
@@ -848,6 +848,9 @@ export function startWebServer(port = 3420): http.Server {
     const resumed = resumeInterruptedWorkbenchTurns()
     if (resumed.length) logger.info({ resumed }, '[workbench] interrupted turns resume')
   } catch (err) { logger.warn({ err }, '[workbench] resume of interrupted turns failed') }
+
+  // Boss, 2026-11-17: a work that stopped on the usage limit continues by itself when the limit is back.
+  try { startWorkbenchLimitResume() } catch (err) { logger.warn({ err }, '[workbench] limit resume watcher failed to start') }
 
   // #406, 13. pont: minden aktiv projektnek magatol elkeszul a mult heti
   // osszefoglalo, akkor is, ha senki nem nyitja meg a Munkapadot.

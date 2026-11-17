@@ -52,6 +52,19 @@ export const MESSAGES = {
     hu: 'A Marveen újraindult (frissítés), és ez megszakította a munkádat. Folytasd a félbeszakadt munkát onnan, ahol abbamaradt; ha már kész volt, röviden írd meg az eredményt.',
     en: 'Marveen restarted (update) and that cut off your work. Continue the interrupted work from where it stopped; if it was already done, briefly report the result.',
   },
+  // --- a keret visszateresekor a felbemaradt munka magatol folytatodik (Boss, 2026-11-17) ---
+  limit_resume_scheduled: {
+    hu: 'A keret elfogyott, a munka félbemaradt. Nem kell szólnod: amint visszatér a keret, ebben a beszélgetésben magamtól folytatom onnan, ahol abbamaradt.',
+    en: 'The usage limit ran out and the work stopped half way. You do not need to say anything: as soon as the limit is back, I continue by myself in this conversation from where it stopped.',
+  },
+  limit_resume_prompt: {
+    hu: 'A keret visszatért, és ez a munka a keret kifogyása miatt maradt félbe. Folytasd a félbemaradt munkát onnan, ahol abbamaradt, és vidd végig az egészet; ha már kész volt, röviden írd meg az eredményt.',
+    en: 'The usage limit is back, and this work stopped because it ran out. Continue the interrupted work from where it stopped and carry it through to the end; if it was already done, briefly report the result.',
+  },
+  limit_resume_gave_up: {
+    hu: 'A keret elfogyása miatt félbemaradt munkát nem tudtam magamtól folytatni ({why}). Írj egy sort, és onnan megyek tovább; amit addig csináltam, az a munkamappában és a beszélgetésben megvan.',
+    en: 'I could not continue by myself the work that the usage limit cut off ({why}). Write a line and I go on from there; what I did so far is in the working folder and in this conversation.',
+  },
   live_session_failed: {
     hu: 'A teljes értékű ügynök munkamenete megszakadt: {detail}. Írd újra az üzeneted -- a beszélgetés folytatódik.',
     en: 'The full agent session stopped: {detail}. Send your message again -- the conversation continues.',

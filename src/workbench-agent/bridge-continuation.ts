@@ -43,6 +43,11 @@ let handler: Handler | null = null
 
 export function setBridgeContinuationHandler(h: Handler | null): void { handler = h }
 
+/** Boss, 2026-11-17: when NO account can take a limit-cut task now, the work still must not stay stopped: this hook
+ *  schedules the automatic continuation for when the limit is back (limit-resume.ts). */
+let limitWaitHandler: ((task: CodeTask) => void) | null = null
+export function setBridgeLimitWaitHandler(h: ((task: CodeTask) => void) | null): void { limitWaitHandler = h }
+
 export function watchBridgeTask(id: string): void { watching.add(id) }
 export function unwatchBridgeTask(id: string): void { watching.delete(id) }
 export function isBridgeTaskWatched(id: string): boolean { return watching.has(id) }
@@ -56,6 +61,7 @@ export function resetBridgeContinuationForTest(): void {
   continued.clear()
   errorContinues.clear()
   handler = null
+  limitWaitHandler = null
 }
 
 /**
@@ -83,6 +89,7 @@ export function continueBridgeTaskElsewhere(task: CodeTask): boolean {
   if (!handler) return false
   let started = false
   try { started = handler(task) } catch { started = false }
+  if (!started && kind === 'limit' && limitWaitHandler) { try { limitWaitHandler(task) } catch { /* the limit line still shows */ } }
   if (started) {
     continued.add(task.id)
     if (kind === 'error' || kind === 'incomplete') errorContinues.set(task.chatId, (errorContinues.get(task.chatId) ?? 0) + 1)
