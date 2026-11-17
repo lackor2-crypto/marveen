@@ -375,12 +375,20 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       if (out.code === 'related_required') { json(res, { error: out.error, similar: out.similar }, 400); return true }
       if (out.code === 'same_project') { json(res, { error: out.error, code: 'same_project', cards: out.cards }, 409); return true }
       if (out.code === 'project_required') { json(res, { error: out.error, code: 'project_required', projects: out.projects }, 400); return true }
+      if (out.code === 'id_taken') { json(res, { error: out.error, id: out.id, archived: out.archived }, 409); return true }
       json(res, { error: out.error }, 400)
       return true
     }
     json(res, { ok: true, id: out.id, labels: out.labels, linked: out.linked })
     return true
   }
+
+  // Rebuilt from upstream 1b0878897 (#1807): a write that lands on an ARCHIVED card used to answer exactly
+// like one on a live card, so the writer never learned that nobody reads the card any more. The write
+// still happens (a 409 would break every caller that closes or comments after archiving); the successful
+// response says it, additively. On a live card the response is unchanged: no field at all.
+const archivedNote = (card: { archived_at: number | null } | undefined): { archived?: true } =>
+  card && card.archived_at != null ? { archived: true } : {}
 
   const kanbanCardMatch = path.match(/^\/api\/kanban\/([^/]+)$/)
   if (kanbanCardMatch && method === 'PUT') {
@@ -429,7 +437,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       else if (typeof data.status === 'string' && data.status) {
         withdrawApprovalForCardLeavingWaiting(id, data.status, data.actor)
       }
-      json(res, { ok: true })
+      json(res, { ok: true, ...archivedNote(getKanbanCard(id)) })
       return true
     }
     json(res, { error: 'Kártya nem található' }, 404)
@@ -480,7 +488,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       // same number. Entering raises, leaving withdraws -- without this half a
       // card dragged back to in_progress left its request pending for good.
       else withdrawApprovalForCardLeavingWaiting(id, status, actor)
-      json(res, { ok: true })
+      json(res, { ok: true, ...archivedNote(getKanbanCard(id)) })
       return true
     }
     // Nothing changed: a missing card stays the old 404; an existing card means
@@ -568,7 +576,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     // to a real card into the human-facing `#<seq>` form before persistence
     // (#75 Cuzcoo dispatch). Random hex / non-matching tokens pass through.
     const normalizedContent = normalizeKanbanRefs(content, getKanbanSeqByIdPrefix)
-    json(res, addKanbanComment(cardId, author, normalizedContent))
+    json(res, { ...addKanbanComment(cardId, author, normalizedContent), ...archivedNote(card) })
     return true
   }
 
@@ -639,6 +647,18 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   if (childrenMatch && method === 'GET') {
     const parentId = decodeURIComponent(childrenMatch[1])
     json(res, getChildCards(parentId))
+    return true
+  }
+
+  // Rebuilt from upstream 1b0878897 (#1807): ONE card by id, archived ones included (the list GET leaves
+  // those out), with its description. Last, after every fixed single-segment path (/api/kanban/archived,
+  // /labels, /card-ids ...): placed earlier, those words would be read as a card id.
+  const singleCardGetMatch = path.match(/^\/api\/kanban\/([^/]+)$/)
+  if (singleCardGetMatch && method === 'GET') {
+    const id = decodeURIComponent(singleCardGetMatch[1])
+    const card = getKanbanCard(id)
+    if (!card) { json(res, { error: `Kártya nem található: ${id}` }, 404); return true }
+    json(res, card)
     return true
   }
 
