@@ -41048,6 +41048,16 @@ function _intezoDirSizeTitle(text) {
   return t(text === '?' ? 'intezo.dirsize_unknown_title'
     : text.indexOf('≥') === 0 ? 'intezo.dirsize_partial_title' : 'intezo.dirsize_title')
 }
+// #847 (Boss TG 4569/4571): the standard folders of a work item (Agent, Finished materials, Uploads, Trigger document,
+// Attachments, Debate ...) stay together in ONE block; any other folder (a moved one, a letter folder) comes after them.
+// The Workbench tree does the same; the list of names lives in ONE place (web/workbench.js STD_FOLDERS, exported as
+// MarvinWorkbench.stdFolders). Without the Workbench script the order is simply left as it came.
+/** Stable: the standard folders first, every other folder after them, each group keeping the order it came in. */
+function _intezoStdFirst(list) {
+  const std = (window.MarvinWorkbench && window.MarvinWorkbench.stdFolders) || {}
+  const isStd = (e) => !!std[String((e && e.name) || '').toLowerCase()]
+  return list.filter(isStd).concat(list.filter((e) => !isStd(e)))
+}
 function _intezoCompare(key, a, b, sign) {
   const nameCmp = () => String(a.displayName || a.name).localeCompare(String(b.displayName || b.name), undefined, { numeric: true, sensitivity: 'base' })
   let c = 0
@@ -41062,14 +41072,15 @@ function _intezoCompare(key, a, b, sign) {
 function _intezoOrder(L) {
   const st = _intezoSortState()
   const folders = (L.folders || []).slice(), files = (L.files || []).slice()
-  if (st.key === 'name' && st.dir === 'asc') return { rows: folders.concat(files), heads: {} }
+  if (st.key === 'name' && st.dir === 'asc') return { rows: _intezoStdFirst(folders).concat(files), heads: {} }
   const sign = st.dir === 'desc' ? -1 : 1
   const sorter = (list) => {
     const live = list.filter((e) => !e.archived), arch = list.filter((e) => e.archived)
     const cmp = (a, b) => _intezoCompare(st.key, a, b, sign)
     return live.sort(cmp).concat(arch.sort(cmp))
   }
-  return { rows: sorter(folders).concat(sorter(files)), heads: {} }
+  const orderedFolders = sorter(folders)
+  return { rows: (st.key === 'name' ? _intezoStdFirst(orderedFolders) : orderedFolders).concat(sorter(files)), heads: {} }
 }
 function _intezoSortTh(key, labelKey, cls, style) {
   const st = _intezoSortState()
@@ -43066,7 +43077,7 @@ function _intezoTreeRender() {
         h += '<div class="intezo-tree-note" style="padding-left:' + (22 + depth * 14) + 'px">'
           + escapeHtml(t('intezo.tree_loading')) + '</div>'
       } else if (kids.length) {
-        h += '<ul role="group">' + kids.filter((k) => _intezoTreeIsChild(rel, k))
+        h += '<ul role="group">' + _intezoStdFirst(kids.filter((k) => _intezoTreeIsChild(rel, k)))
           .map((k, i) => node(k.rel, k.displayName || k.name, k, depth + 1, i)).join('') + '</ul>'
       }
     }
