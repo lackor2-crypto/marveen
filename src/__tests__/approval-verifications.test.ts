@@ -444,6 +444,18 @@ describe('POST /api/approvals/:id/verify/cancel', () => {
     expect(listCodeTasks({ project: 'someproject' })[0]!.status).toBe('cancelled')
   })
 
+  it('#802 (Boss TG 3389): a failed (red) review is taken back too; only pass results stay', async () => {
+    const approval = createApproval({ id: 'x5', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject', 'gemma'] }).ctx)
+    resolveApprovalVerification(approval.id, 'gemma', 'pass', 'ok')
+    resolveApprovalVerification(approval.id, 'code:someproject', 'fail', 'broken')
+
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify/cancel`)
+    await tryHandleApprovals(ctx)
+    expect(out.body.removed).toBe(1)
+    expect(listApprovalVerifications(approval.id).map((r) => `${r.agent}:${r.status}`)).toEqual(['gemma:pass'])
+  })
+
   it('a VS Code task that already runs is asked to stop (the worker kills it), and is counted, not hidden', async () => {
     const approval = createApproval({ id: 'x3', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
     await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject'] }).ctx)
