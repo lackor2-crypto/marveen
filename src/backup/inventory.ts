@@ -168,6 +168,7 @@ export const STORE_EXCLUDE: readonly (string | RegExp)[] = [
   'workbench-live-config',
   // #434: the Workbench turns running right now, resumed after a restart -- machine-local, short-lived.
   'workbench-inflight.json',
+  'workbench-limit-resume.json',
   'kanban-audit-state.json', 'schedule-last-run.json', 'terminal-input.json', 'pending-patches',
   'task-run-history.json', 'backup-state.json', 'restore-in-progress.json', 'onboarding-choice.json',
   'restore-result.json', 'restore-pending.json', 'restore-held', 'restored-local-commits.bundle',
