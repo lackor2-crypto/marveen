@@ -2720,10 +2720,10 @@
       "card": "#932"
     },
     "src/__tests__/claude-plans-readiness-ui.test.ts": {
-      "blob": "cb402f57f600c6d4a65fa9513248d024a4412009",
+      "blob": "f06152caf07fbbe936260cacdb43922bcf624a30",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: fix(claude-plans): rotation wires itself up instead of staying silently inert (ROTAUTOWIRE926).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): the test needs src/web/claude-rotation-heartbeat.ts, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/claude-plans-routes.test.ts": {
       "blob": "237339da4a219f6f1d15bcf9c283bb5d4eb86935",
@@ -10781,6 +10781,60 @@
       "blob": "3229550fdd36d0d01f10f6d099a842081ed4d3e7",
       "kind": "decided",
       "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-seed-loop.test.ts": {
+      "blob": "50d70f1141edb2c17e83046dfa62c6bd40cccb3d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs src/web/agent-seed-loop.ts, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/channels-supervisor.test.ts": {
+      "blob": "8d1b24155b63ec4a4bbc7881b64ca74a97998d13",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs src/web/channels-supervisor.ts, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: feat x1, fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/claude-plans-login-ui.test.ts": {
+      "blob": "5424e09d3a4e93b6f18bdf66049f0a9626d7a962",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs src/web/routes/claude-plans-login.ts, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/docker-deployment-mode.test.ts": {
+      "blob": "c1ed0f8f7b8a778f9c162d1776cfcbcddfaef81a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs src/web/deployment.ts, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: feat x2, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/installer-macos-root-steps.test.ts": {
+      "blob": "8545a8a417e2a3e21d23b10a91e15b96a71f6cc9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs scripts/lib/managed-settings-write.py, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/load-env-sh.test.ts": {
+      "blob": "22c5c21aed2f2709d67d7501cb3faa3052f7b7e2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs src/env-parse.ts, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/owner-gate-first-run.test.ts": {
+      "blob": "6a45d9d92b6ebce89c11f9297f5870e1e2c14ee6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs src/web/routes/claude-plans-login.ts, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: feat x1, fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/settings-overrides-only.test.ts": {
+      "blob": "6da6dbebf53874a1f72c2bff387446aa16762674",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs src/settings-health.ts, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: feat x1, fix x3.",
+      "card": "#932"
+    },
+    "src/__tests__/strict-profile-api-recipes.test.ts": {
+      "blob": "503ca8f71b1f96514452879c8814de23c31bbc43",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): the test needs scripts/lib/marveen_api.py, which does not exist in this fork (running the upstream test here fails with a missing module/file), so it tests an upstream feature this fork does not carry. Upstream commit types on it: feat x1, fix x5.",
       "card": "#932"
     }
   }
