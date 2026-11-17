@@ -14,7 +14,7 @@ describe('#836 the dropdowns of the pinned box fit the start-page panel', () => 
     expect(css).toMatch(/\.wb-sh-start-tree > \.wb-sh-tree:has\(\.wb-pin \.wb-pop\)\s*\{[^}]*min-height:\s*var\(--wb-pop-room\)/)
   })
   it('the dropdown is capped below that room (it scrolls inside itself)', () => {
-    expect(css).toMatch(/\.wb-sh-start-tree \.wb-panel-items \.wb-pin \.wb-pop\s*\{[^}]*max-height:\s*calc\(var\(--wb-pop-room\) - \d+px\)/)
+    expect(css).toMatch(/\.wb-sh-start-tree \.wb-panel-items \.wb-pin \.wb-pop\s*\{[^}]*max-height:\s*(?:min\()?calc\(var\(--wb-pop-room\) - \d+px\)/)  // #831: min(room cap, measured --wb-pop-fit) since the fit
   })
   it('the room is defined for desktop and for the narrow layout', () => {
     expect(css).toMatch(/\.wb-sh-start-tree\s*\{\s*--wb-pop-room:/)

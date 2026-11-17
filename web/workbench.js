@@ -15585,6 +15585,36 @@
       var open = slot.classList.contains('wb-pin-open')
       slot.classList.toggle('wb-pin-clipped', !open && box.scrollHeight > box.clientHeight + 1)
     }
+    fitPinPop()
+  }
+
+  /** #831: what drops down from the pinned box (trash list, new-item form, upload steps) is never taller than the room that is
+   *  left in the scrolling panel under the box. The pop-up is pinned with the box, so panel scrolling cannot bring its bottom
+   *  into view: the CSS cap (60vh) alone left the last ~60 px of it behind the panel's edge on a window shorter than ~1050 px.
+   *  Measured with the panel scrolled to the top (the box then sits lowest), so it also fits when the owner scrolls back up. */
+  function fitPinPop() {
+    if (typeof document.querySelectorAll !== 'function') return
+    var pops = document.querySelectorAll('.wb-panel-items .wb-pin .wb-pop')
+    for (var i = 0; i < pops.length; i++) {
+      var pop = pops[i]
+      pop.style.removeProperty('--wb-pop-fit')
+      var pin = pop.closest('.wb-pin')
+      // On a phone the box scrolls away with the panel (not sticky): the pop-up is reachable by scrolling, nothing to cap.
+      if (!pin || window.getComputedStyle(pin).position !== 'sticky') continue
+      var sc = pin.parentElement
+      while (sc && sc !== document.documentElement) {
+        var oy = window.getComputedStyle(sc).overflowY
+        if (oy === 'auto' || oy === 'scroll') break
+        sc = sc.parentElement
+      }
+      if (!sc || sc === document.documentElement) continue
+      var keep = sc.scrollTop
+      sc.scrollTop = 0
+      var room = sc.getBoundingClientRect().bottom - pop.getBoundingClientRect().top - 8
+      sc.scrollTop = keep
+      // The CSS reads --wb-pop-fit as an upper bound next to its own cap, so a pop-up that grows later (an opened fold) still fits.
+      pop.style.setProperty('--wb-pop-fit', Math.max(120, Math.floor(room)) + 'px')
+    }
   }
 
   function fitHead() {
@@ -21878,6 +21908,8 @@
   }
 
   if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { if (WB.open) { fitFrame(); fitSavedChatSplit() } })
+  // #831: the room left under the pinned box changes with the window; the open pop-up (trash, new-item form) follows it.
+  if (typeof window.addEventListener === 'function') window.addEventListener('resize', function () { fitPinPop() })
 
   /** The page's scroll position across a full re-render (Boss, TG 7451: pressing "Vegleges torles"
    *  threw the scrollbar to the top). Replacing the whole root briefly collapses the page, and the
