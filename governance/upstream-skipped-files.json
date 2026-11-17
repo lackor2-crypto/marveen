@@ -2120,16 +2120,16 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/agent-extra-channels.test.ts": {
-      "blob": "a7cbace029ff0097fe038416f0eba8b1ce1210c7",
+      "blob": "4ebca48381458e9360990a7dfe9752495fbe28a8",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: feat(agents): a sub-agent can co-listen on a second channel, e.g. Telegram + Slack (AGENTEXTRACH1006).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x3, fix x4.",
+      "card": "#932"
     },
     "src/__tests__/agent-id-header-delete-truth.test.ts": {
-      "blob": "d870b206fdc8bd3a853b3bcd2c7c6e7dc1130716",
+      "blob": "aae544f27a63c15503e0f276936d29d276166705",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: fix(scaffold): clearer wording in the agent-id-header delete sentence (VERZIOTORLES1009 follow-up); fix(scaffold): the agent-id-header section no longer promises that a memory delete keeps its versions (VERZIOT.",
-      "card": "#620"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x3.",
+      "card": "#932"
     },
     "src/__tests__/agent-identity-setup.test.ts": {
       "blob": "edbfb9669d7341cf44e430c2d31d61267431cce3",
@@ -2234,10 +2234,10 @@
       "card": "#620"
     },
     "src/__tests__/agent-transcript-route-location.test.ts": {
-      "blob": "31867a7a99b8211eed9209b98235f3d1933f005a",
+      "blob": "667ae6c5ad6bca4399c451c86a13a6bf702c02ca",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: fix(api): the transcript route reads the config root the session writes to (TRANSCRIPTLOC1006).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
     },
     "src/__tests__/agent-transcript-target-gate.test.ts": {
       "blob": "facecf69806a22ba254ff815875abf65cc64fb4b",
@@ -2420,10 +2420,10 @@
       "card": "#413"
     },
     "src/__tests__/browser-content-notice.test.ts": {
-      "blob": "0de2eef6469d3234d351b8e2fd91b947f2dd92dc",
+      "blob": "d82e3b8c9a23bec0702f516719fc7a43a9f81923",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Pins upstream generated-CLAUDE.md sections, hook registrations and recipe shapes this fork does not ship (fleet-auth, skills-path-trap, inviolable-rules, MCP channel list, claude-plans, curl quoting style, recipe/runner guards, skill-usage and tool-log hooks). Our scaffold writes its own rule sections; taking these would change our logic.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x3, fix x5.",
+      "card": "#932"
     },
     "src/__tests__/built-commit-stamp.test.ts": {
       "blob": "ba7c0bd12f2106612d937b4a23b49415b0e1bb9c",
@@ -2630,10 +2630,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/channels-never-started-backoff.test.ts": {
-      "blob": "fdf3ce7b9e5b29f87facbbd1dbc26c1276c3f2ac",
+      "blob": "80c25573fe3251af79c17af9ca3a8592db308b3d",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
     },
     "src/__tests__/channels-poller-hijack.test.ts": {
       "blob": "364207dc66dd87be1f8bf3e0994e4ca2b0c5a9bf",
@@ -2648,10 +2648,10 @@
       "card": "#620"
     },
     "src/__tests__/channels-tmux-auth-race.test.ts": {
-      "blob": "fb022bc0d33d9f2212c0daf4a7b9b8cd8b10a93b",
+      "blob": "cb7c6b8aee91b73ca835ffbd85f8ceaa7bcae371",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(channels): name every pane-auth-file failure, never rename an empty write, sweep stale temp files (#1977); fix(channels): an own-login main agent drops ANTHROPIC_API_KEY too, not only the fleet token (APIKEYUNSET1018) (#2060).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x8, test x1.",
+      "card": "#932"
     },
     "src/__tests__/channels-unit-restart-policy.test.ts": {
       "blob": "807e4fc7a4408f5e807e2f00567c42b231455bf3",
@@ -2714,10 +2714,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/claude-plans-probe-route.test.ts": {
-      "blob": "808acebabfa3fdc8320e61f2812e67071197b001",
+      "blob": "ac1c6718481a5e0f4ecd15b37cb461fcbd15a402",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x3, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/claude-plans-readiness-ui.test.ts": {
       "blob": "cb402f57f600c6d4a65fa9513248d024a4412009",
@@ -2846,10 +2846,10 @@
       "card": "#731"
     },
     "src/__tests__/context-guard-cooldown-status.test.ts": {
-      "blob": "2fb602e5960e952a346f46e429d6258459725eb8",
+      "blob": "a3429bc84dbeccb2229f300b1bec1847dbf15adc",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/context-guard-daily-tier.test.ts": {
       "blob": "632a2f850c173207b449b1772a269719edacb59b",
@@ -2864,10 +2864,10 @@
       "card": "#413"
     },
     "src/__tests__/context-guard-hidden-worker.test.ts": {
-      "blob": "30231d37e6d80e3196224bf103645bb4ab27c2bc",
+      "blob": "9b518d68e8b7e342d595c4714237320c40fd03ff",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream context-guard shape for the heartbeat worker; context-guard gates are out by the owner's rule and the worker is dormant here.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/context-guard-main-transcript-root.test.ts": {
       "blob": "390cfcdaa0aa5840a3413b01d816d36c5946ac05",
@@ -2888,10 +2888,10 @@
       "card": "#413"
     },
     "src/__tests__/context-guard-resume-persist.test.ts": {
-      "blob": "2d45252270f7582fe1d05a42b21d5b48c2818c4f",
+      "blob": "d334dc13230dff838f3d59cecad889f212ddd34c",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(context-guard): the owed resume prompt survives a dashboard restart; READY_TIMEOUT 5 -> 20 min (#1972).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x3.",
+      "card": "#932"
     },
     "src/__tests__/context-guard-resume-prompt.test.ts": {
       "blob": "1393303733b31b260063a219558f9a8f39d809a9",
@@ -2924,10 +2924,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/context-restart-gate-wiring.test.ts": {
-      "blob": "eff92ecf684d0e59f836d8eeb3e1d34d7b1d4b1f",
+      "blob": "c80b4578bfc8e08f00f150b18f3101ffbc54063b",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/context-restart-gate.test.ts": {
       "blob": "fa4791c32bdebcd711a9f2a28af089e2c5cd3a80",
@@ -3152,10 +3152,10 @@
       "card": "#620"
     },
     "src/__tests__/fixtures/app-js-html-allowlist.json": {
-      "blob": "be61a95d63da0b2b8b97e3615816692466523685",
+      "blob": "96ad777d67b8e1b91c3e43e2980c0cd34b6fad2f",
       "kind": "decided",
-      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
-      "card": "#733"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: chore x1, feat x3, fix x3.",
+      "card": "#932"
     },
     "src/__tests__/fixtures/attestation-vectors.json": {
       "blob": "a5d56f1cba9792deb373f8e7c1ac97cf25a1eaa4",
@@ -3536,10 +3536,10 @@
       "card": "#413"
     },
     "src/__tests__/fixtures/telegram-plugin-0.0.7/server.ts.txt": {
-      "blob": "ab781f4f578af8029a62f779a5fd84c25370792d",
+      "blob": "bad5550ddacbb1e6cbf3c5cc128ed92eb9e24a6c",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(telegram): replies go back into the topic a message came from in a private chat (TELEGRAM_TOPICS_ENABLED, off by default) (#1893).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x4, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/fixtures/tool-input-preview.json": {
       "blob": "e412a624f95a33fc1eb374b172da740e5622e44d",
@@ -3740,10 +3740,10 @@
       "card": "#733"
     },
     "src/__tests__/hidden-prompt.test.ts": {
-      "blob": "6ae9d5ea36fec3cc39cf23946807b5c6a0516897",
+      "blob": "24a9e45aec81c7e905862f65f097aa0780b42fd5",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(dashboard-user): the hidden password prompt now hides the password and keeps its label (card b4bf49ec) (#1950).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, test x1.",
+      "card": "#932"
     },
     "src/__tests__/hook-command-quoting.test.ts": {
       "blob": "5c1637223f47ee69f6e0ea8d7c57eb978923b5ec",
@@ -3836,16 +3836,16 @@
       "card": "#731"
     },
     "src/__tests__/inbox-drain-command-prompt.test.ts": {
-      "blob": "077eedb4af1222c2346c98f59985b1f9000d6e6b",
+      "blob": "b14c837b745b8060a815f4894131e53db73c377a",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/inherited-auth-unset.test.ts": {
-      "blob": "f1371015d270f4e37b25f838ff700932ee25a74a",
+      "blob": "0011d320c27db236ea4061571d005540442d238c",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(agents): a sub-agent with its own credential drops the inherited fleet token and API key (BYOSUBUNSET1018) (#2062).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
     },
     "src/__tests__/injected-prompt-registry.test.ts": {
       "blob": "6340b31667bb4d3c69e13e7660a6d0e99d9f9faa",
@@ -4076,10 +4076,10 @@
       "card": "#733"
     },
     "src/__tests__/kanban-modal-overlay-click-data-loss.test.ts": {
-      "blob": "3962a523601d711d1c63f0a0f5b338fe42b4d9ce",
+      "blob": "fec5b3f3541c1242e98cfacbd88614526ccf0445",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (93870499 #851 4a472cbe MARVEEN: kanban-kartya modal hatterre kattinta). Card #413.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1, other x1.",
+      "card": "#932"
     },
     "src/__tests__/kanban-move-expected-status.test.ts": {
       "blob": "99080fc86019a47548250282671c1b52edd3007e",
@@ -4382,10 +4382,10 @@
       "card": "#620"
     },
     "src/__tests__/manual-restart-gate.test.ts": {
-      "blob": "1a3eab34ff24299f4787b0621040d5281c8faf04",
+      "blob": "2859820b27ab77af77d5bf9ae68a4a87370690c0",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(restart): manual main restart does not cut a running turn.",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/manual-restart-routes.test.ts": {
       "blob": "c4e7bcbaa37cc8a91c60612b2bad8ae82936001e",
@@ -4400,10 +4400,10 @@
       "card": "#731"
     },
     "src/__tests__/marveen-commands-hook.test.ts": {
-      "blob": "9ba78c6c5623a012e294bacac5b6ec6550a89560",
+      "blob": "adf4f7b33113755c78a711a09fdfb0833c6e9e49",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(telegram): replies go back into the topic a message came from in a private chat (TELEGRAM_TOPICS_ENABLED, off by default) (#1893); feat(commands): /usage also shows the Codex quota, with the reading's age (#1958).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x4, fix x1, test x2.",
+      "card": "#932"
     },
     "src/__tests__/marveen-restart-button-force.test.ts": {
       "blob": "15d0b701530ae3f47550c32eb0113ef36899c6da",
@@ -4526,10 +4526,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/memory-search-label-backfill.test.ts": {
-      "blob": "a24a1fdaff37b8b5a43ab0d1a71acb8feb932c20",
+      "blob": "7abe6286ac0f6a43819b562cb0038c2ebf477d90",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: docs x1, feat x2, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/memory-search-precision.test.ts": {
       "blob": "a64653db268aac43e97cbbf620a7bd3e790cccd7",
@@ -4538,10 +4538,10 @@
       "card": "#731"
     },
     "src/__tests__/memory-search-recipe-reads-the-label.test.ts": {
-      "blob": "d6eb761335dde01d81c2a74ec24509d28afcf969",
+      "blob": "605c67e0a1b34522346db84d51ca7fd868e912da",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Pins the upstream memory-search label / floor / tier / FTS-fallback / write-trace redesign. This fork keeps its own memory search (C-31, owner decision A 2026-09-24); taking it would change our logic, and the generated CLAUDE.md sections it backfills do not exist here.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x3.",
+      "card": "#932"
     },
     "src/__tests__/memory-search-tier-goes-into-the-query.test.ts": {
       "blob": "a72bb28deed866a7c9224f90583fc423990762ea",
@@ -4562,10 +4562,10 @@
       "card": "#413"
     },
     "src/__tests__/message-close-section.test.ts": {
-      "blob": "eaa6e1bd808c4c8a4eac5f31f6dad2bb519c6a30",
+      "blob": "37ef7c7baab15c09db432e6e7a2ff0decb1c6d97",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(messages): a closed message is not closed again through PUT /api/messages/:id (#2011).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: docs x1, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/message-precedence.test.ts": {
       "blob": "e49bfc3273821b6224031b12a6ed23e754c76fb4",
@@ -4796,22 +4796,22 @@
       "card": "#620"
     },
     "src/__tests__/outgoing-copy-gate-at-file.test.ts": {
-      "blob": "429c75132c246670b7392c294219272796c47e4f",
+      "blob": "ed44abac7571c007880ad08a7acbe5173ff5966b",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2, test x1.",
+      "card": "#932"
     },
     "src/__tests__/outgoing-copy-gate-interagent-homoglyph.test.ts": {
-      "blob": "280c6857f6d4b4ab9103db1c90b50d808b846bde",
+      "blob": "e6507565c69f46f6da880b8dcf3d72c50ad1c2b7",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x3.",
+      "card": "#932"
     },
     "src/__tests__/outgoing-copy-gate-name-mask.test.ts": {
-      "blob": "9e2b89ad3fefa14e7658046935c2e8521a853263",
+      "blob": "fb378344cb95a9dcef686035e46d840cdb97e8ca",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
     },
     "src/__tests__/outgoing-copy-gate-rules-policy.test.ts": {
       "blob": "eec8b274580c026883f25c55b771d172945a8596",
@@ -4826,10 +4826,10 @@
       "card": "#413"
     },
     "src/__tests__/outgoing-copy-gate-tokens.test.ts": {
-      "blob": "6385c3cb248ac39f5a1eef6ece6a17f5eb5b7766",
+      "blob": "79abd7a2008117f3a78525d6028c7fae1065a989",
       "kind": "decided",
-      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. outgoing-copy gate; not wired here.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x5.",
+      "card": "#932"
     },
     "src/__tests__/owner-chat-parity.test.ts": {
       "blob": "27daf752784810bdc1ab03a4c93abc37ff18681c",
@@ -4904,16 +4904,16 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/patch-telegram-plugin-topics.test.ts": {
-      "blob": "e18d17c4d36067e1966f383f5bb13cc6c2b289d1",
+      "blob": "53a557f2a5b07baa3df655e7eedb103058ab8ca9",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(telegram): replies go back into the topic a message came from in a private chat (TELEGRAM_TOPICS_ENABLED, off by default) (#1893).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x5, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/patch-telegram-plugin.test.ts": {
-      "blob": "dff4e30f504c4ceb96cd0eff92796f72279a5e68",
+      "blob": "7394dc637a50cf704e6e67c7d76baf95c6327ae2",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: feat(telegram): one-tap answer buttons on the reply tool, a plugin patch (c67f5f34).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x8, fix x4.",
+      "card": "#932"
     },
     "src/__tests__/pending-write.test.ts": {
       "blob": "5498bd420b17d7d2aad9ad2d15ad2020851b623a",
@@ -4940,10 +4940,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/persona-gen-no-clobber-route.test.ts": {
-      "blob": "580e97386ccb0091de8a150724f9f5de414bf495",
+      "blob": "a25934f7a739b8c8bb68c0dce7cbf8ad3ddfbd7d",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/persona-gen-no-clobber.test.ts": {
       "blob": "1884255e62870442a2fa5be03267ad59c5c718be",
@@ -5006,10 +5006,10 @@
       "card": "#620"
     },
     "src/__tests__/project-settings-hook-anchor.test.ts": {
-      "blob": "14402d8a65861892215497d9d6edc2e42be21c71",
+      "blob": "b7e91de3609851fe06f3bd71561c60f95db5e071",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(ledger): record a turn that died on an API error while a message waited (#1953); test(settings): the hook anchor pins every matcher group and the hook keys (#2002).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x13, fix x8, test x1.",
+      "card": "#932"
     },
     "src/__tests__/prompt-injection-defense.test.ts": {
       "blob": "b273185c35d8b09175f4882cb66cc73cc3e9804e",
@@ -5126,10 +5126,10 @@
       "card": "#413"
     },
     "src/__tests__/rescue-failure-alert.test.ts": {
-      "blob": "38f9b686fad41f704299cf5ec4f96537c98061ed",
+      "blob": "08c0b63cb1a5e95e29c4203bd4cb15379c5ed551",
       "kind": "decided",
-      "reason": "Owner rule (TG 6632, 2026-09-26): our logic must not change, fixes may come in. Only logic-changing upstream commits touch this file (c98b5146 feat(context-guard): alert after three consecutive failed re; e91725f8 fix(context-guard): the main agent's rescue alert goes to th). Card #413.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1, other x1.",
+      "card": "#932"
     },
     "src/__tests__/research-routes.test.ts": {
       "blob": "dcf4afdb1bb4667ab933992519df1b9afce07d30",
@@ -5144,10 +5144,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/respawn-stamp-release.test.ts": {
-      "blob": "30b67a77a78086983b0cbc0948cd59529d38e573",
+      "blob": "b600af45fb12839720c964cd00276452b4bab1d4",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: fix(channels): release our own respawn grace after give-up, once it has settled (GAVEUPGRACE917).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
     },
     "src/__tests__/restart-dev-channels-dialog.test.ts": {
       "blob": "12c46b996ed59d4dff7f2010c3641387bb12c6e2",
@@ -5312,10 +5312,10 @@
       "card": "#413"
     },
     "src/__tests__/schedule-once.test.ts": {
-      "blob": "0ece0b69b6ee011a458548416baafa0163f9f15b",
+      "blob": "900894fa9d5040e2fd14887d0686d7a89b27de60",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(schedules): a prompt queued into a running turn is recorded as delivered, 'intact-queued', not 'not-arrived' (card c8a6c2cc) (#1828).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1, test x2.",
+      "card": "#932"
     },
     "src/__tests__/schedule-run-busy-send-status.test.ts": {
       "blob": "767bf3ddb764c2720c66fe1a6d9c385f93055f63",
@@ -5324,10 +5324,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/schedule-run-now-direct.test.ts": {
-      "blob": "bf804797a5d454aa21b4f21cced967f990b814e4",
+      "blob": "913ad55b6a71a8ac4224d5a2726d31d7f2343112",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: fix(schedule): a fire reads its one task by name, and a changed agent list drops the old targets (SCHEDFRESH10; test(heartbeat): a manual run of a direct digest never reaches the session dispatch (HBRUNNOWRET1004).",
-      "card": "#620"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1, test x1.",
+      "card": "#932"
     },
     "src/__tests__/schedule-runner-bound-channel.test.ts": {
       "blob": "7f5f878ae7d8861a9ce452efeee7931fa9c7b15f",
@@ -5354,10 +5354,10 @@
       "card": "#620"
     },
     "src/__tests__/schedule-runner-delivery-prefix.test.ts": {
-      "blob": "964f5b63e78fb1a0ecbc5f8b36498ae7e56bba1d",
+      "blob": "d14c0352c17d8a7a7f3ed9e16bfb161cba75ebde",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(telegram): named topics (/topic new) and scheduled task results into a topic (telegramTopic) (#1894).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/schedule-runner-fire-current-def.test.ts": {
       "blob": "a6f722ba5f073155576ce45ef6dcf6aa38281fa8",
@@ -5432,10 +5432,10 @@
       "card": "#620"
     },
     "src/__tests__/scheduled-delivery-channel.test.ts": {
-      "blob": "a9270976a1d064fdf90c27c577478a53cc878572",
+      "blob": "8daa473a305353005ebd4ef5b7d0eee5fc085d82",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(telegram): named topics (/topic new) and scheduled task results into a topic (telegramTopic) (#1894).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/scheduled-run-snapshot.test.ts": {
       "blob": "a62ffbaa3962f6d93979333a8507ab3de55825e0",
@@ -5468,10 +5468,10 @@
       "card": "#731"
     },
     "src/__tests__/script-tests-runner.test.ts": {
-      "blob": "aea7c258e7635b0363379b9dd40b2d1d74bbfaf3",
+      "blob": "2bae214cc41171d77c2ec30248b7a857491f6cf2",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(scripts): wait-for, so a watcher can never match itself (#1545).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1, test x1.",
+      "card": "#932"
     },
     "src/__tests__/secret-gate.test.ts": {
       "blob": "8b901dc6006697aeff48ff70bb6161e5540cc361",
@@ -5480,10 +5480,10 @@
       "card": "#620"
     },
     "src/__tests__/seed-references-subdir.test.ts": {
-      "blob": "09bc41877c12fc13ff780dd1c698e929ca364657",
+      "blob": "f17e11b5900fdf7bc293adc68dcf1cab0717fc33",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(seed): ship and refresh a task's references/ subdir (SEEDREFDIR1018) (#2059).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x3.",
+      "card": "#932"
     },
     "src/__tests__/seed-refresh-untouched-only.test.ts": {
       "blob": "bdaf29930071d5a3248cc0f2a9203fdaa874031e",
@@ -5492,10 +5492,10 @@
       "card": "#731"
     },
     "src/__tests__/seed-skills-subdirs.test.ts": {
-      "blob": "85f7ee938608a62c35902414935b7beeb00d196b",
+      "blob": "47ee0abb64910883708c7b4f4ee8224065d4b536",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(seed): ship and refresh a skill's subdirs (SEEDSKILLSUB1018) (#2061).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/send-honesty-round2.test.ts": {
       "blob": "1ad31a7e1968f12951e85285a074d5fea0ed556d",
@@ -5510,10 +5510,10 @@
       "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
     },
     "src/__tests__/send-invocation-conformance.test.ts": {
-      "blob": "dd25918213e9de17ad15c12a8d005b5983948599",
+      "blob": "99a14c2a2a0e5f4f016c374690bed506a77a7060",
       "kind": "decided",
-      "reason": "Restriction, Boss rule (msg 4711, #413): new gates stay out. conformance of the upstream mail gates; not shipped here.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, test x1.",
+      "card": "#932"
     },
     "src/__tests__/send-prompt-chunk-binding.test.ts": {
       "blob": "dd4bd2bbce6ddfdcf2d0b7faf95e415cbd2198e7",
@@ -5600,10 +5600,10 @@
       "card": "#731"
     },
     "src/__tests__/shipped-recipes-no-sqlite-cli.test.ts": {
-      "blob": "9292bf89aea74ef94943f58f74e5bf2d1c37a65e",
+      "blob": "630210908db2f0e644391910f83b00136b3a2770",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(seed): ship and refresh a task's references/ subdir (SEEDREFDIR1018) (#2059).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x4.",
+      "card": "#932"
     },
     "src/__tests__/silent-degradation-alert.test.ts": {
       "blob": "e57fe283c91d1deced915f02c94992e71dc175bf",
@@ -5666,10 +5666,10 @@
       "card": "#620"
     },
     "src/__tests__/slack-half-configured-onboarding.test.ts": {
-      "blob": "2ed95094cc38e15449b18721da807eb188f92710",
+      "blob": "1b180fb82b772f820cc30b868e3b169158ccf982",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Pins upstream channel-supervision features this fork does not ship (never-started backoff, plugin-scoped watchdog, channel event log, unknown-provider value, overdue guard, hook stripping, onboarding waits, pairing i18n, respawn detection, recovery brief, context-guard cooldown status, clear continuity, cross-scope hook dedupe). Our channel monitor and context-guard stay ours (C-31, owner decision A 2026-09-24; context-guard gates = restriction).",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
     },
     "src/__tests__/slack-notify-import-failure-fallback-off.test.ts": {
       "blob": "6cac98629af15a279da185679aac82f6d05d09a0",
@@ -5684,10 +5684,10 @@
       "card": "#620"
     },
     "src/__tests__/slack-notify.test.ts": {
-      "blob": "615ea52b4b1ed1c0ab7fd442f0321934d7b3152d",
+      "blob": "54ec17700bd032dce4d8074f7e8dbe0f6edb41f1",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(alerts): tell the main agent first about a tool-permission prompt, the owner after 15 min; log every alert delivery (68cb6715) (#2055).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/slack-token-scopes.test.ts": {
       "blob": "50d555b4b8e3078f51c134b7eeaa0e03614b8eb3",
@@ -5774,10 +5774,10 @@
       "card": "#731"
     },
     "src/__tests__/stuck-tool-call-deferral-refire.test.ts": {
-      "blob": "cd24e206dab5e0a05f458a7eb84609207068e060",
+      "blob": "42ee920483a39a2b78b3131de4a4b7580ca04b52",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(stuck-watcher): a deferred verdict re-fires on the next poll instead of standing the spell down (STUCKATTEMPTS1018) (#2051).",
-      "card": "#731"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x1.",
+      "card": "#932"
     },
     "src/__tests__/stuck-tool-call.test.ts": {
       "blob": "5a573810fc7c3f08ae88ed904a642fb147c1b55a",
@@ -5816,10 +5816,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/task-run-completion.test.ts": {
-      "blob": "60706fb8b766c90ce792e0164eaee61d0684d47a",
+      "blob": "a59ad913a0f437f0328ad00d0503db5736bd2961",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x3.",
+      "card": "#932"
     },
     "src/__tests__/task-run-reconcile-orphans.test.ts": {
       "blob": "d626f43166771c39ee4c39517b9bf7112e2a1f77",
@@ -5984,10 +5984,10 @@
       "card": "#413"
     },
     "src/__tests__/update-npm-ci-failure.test.ts": {
-      "blob": "7254fa6ef84dd2827234f005878ee24e3567bc26",
+      "blob": "adbbd6478b79ebde13fb8ac9e92d17b3ffd46fb1",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: chore x1, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/update-preflight.test.ts": {
       "blob": "fea2fd19511cfd0b1bfd7c903d586ebf793de65a",
@@ -6032,22 +6032,22 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/vault-export-key-resolution.test.ts": {
-      "blob": "1848c369fa6d10af1ab61d1b82d30cabc4402eba",
+      "blob": "0a2dae9ce0811d7fe00afd8bc77788ed1a4140f3",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, test x1.",
+      "card": "#932"
     },
     "src/__tests__/vault-headers-helper-ssh.test.ts": {
-      "blob": "063118c267b2f5d9bec974e5721505ba1c6084de",
+      "blob": "2adecb81d60ce782f8c83c103bf43612cf9dd8b4",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x2.",
+      "card": "#932"
     },
     "src/__tests__/vault-master-key.test.ts": {
-      "blob": "244fe5426132a337f8af8aa0c74804b25b0a7781",
+      "blob": "6fd1881c324e48be0300d56404640d7f4613f891",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Behaviour already present in this fork: the upstream fix is implemented here in our own shape (the upstream test fails only on its mock set or naming, verified by running it with the missing mocks added). Nothing to rebuild; our test keeps pinning it.",
-      "card": "#413"
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
     },
     "src/__tests__/vault-read-audit.test.ts": {
       "blob": "2119dab709297bb86ad50eb8f9b27a17b22894b4",
@@ -6116,10 +6116,10 @@
       "card": "#413"
     },
     "src/__tests__/wrapper-depth-reason.test.ts": {
-      "blob": "ed247df8d9aed42909f8f0e04413b7af79c08b21",
+      "blob": "b9d95cc45456067dab63543e7b48eb0def76619c",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
     },
     "src/__tests__/write-evidence.test.ts": {
       "blob": "6ff28a603634a38f6864c579fedb4adc1c1488b6",
@@ -9917,6 +9917,870 @@
       "blob": "dc82b77694882af3ebda1cc773123d0ee349c603",
       "kind": "decided",
       "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: feat x1.",
+      "card": "#932"
+    },
+    "src/__tests__/installer-remote-install-timeout.test.ts": {
+      "blob": "5a034cc21be2f7fb8e056aa618283a0b3b74bfd2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x3.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-migrate-unit-guard.test.ts": {
+      "blob": "446dc83adf8ecaa54a3908ee23b38207285ae319",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helpers/route-owner-table.ts": {
+      "blob": "45defa015b3912cfd9f7668aafa3174a9a0f67da",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helpers/allow-target-sessions.ts": {
+      "blob": "2c608f2f64707305b3e392a196ce571eb68b7b28",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/owner-gate-exec-fields.test.ts": {
+      "blob": "30b35d719de1f358874f92ad602264b87caf15e1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-display-label.test.ts": {
+      "blob": "b04ce566d0afa49664dbe68dc5ad0ffc7226195f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/onboarding-dismiss-server.test.ts": {
+      "blob": "5e875df39b53105f420fc3a33e0bc3cc23d02205",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x3.",
+      "card": "#932"
+    },
+    "src/__tests__/schedule-precheck-put-type.test.ts": {
+      "blob": "4ec60c2b8f0c410d643e618d78297ae2f3efb615",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-subagent-files.test.ts": {
+      "blob": "1c0359210dea4308419b43c6b077949b1f0037ce",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x10.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-ready-not-rapid.test.ts": {
+      "blob": "3d9c8107d626fc25900f569a279a2ef9990f5264",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-plugin-registered.test.ts": {
+      "blob": "ac4101389bfe795438f04138e14fa2b546273b47",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-provider-migrate.test.ts": {
+      "blob": "f8da66caa066e5f90cbaa5fa03feb400b9526744",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/machine-state.test.ts": {
+      "blob": "475dbe44872ba0384acd1c23a4eb13433efc8568",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/channels-guard-token-argv.test.ts": {
+      "blob": "3e71a29d39bbcdb8fbe7a4da816a5aa1e9834ecb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/claude-plan-fleet-wiring-own-token.test.ts": {
+      "blob": "a7effd9b609c9c29a21962e0cc8b62a943bf596a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-delivery-hold.test.ts": {
+      "blob": "288fe34eecfda48a779067af22724ab0b0fefaee",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-heavy-job-hold.test.ts": {
+      "blob": "f898996cb6e5a516f17cf6480ea00554420821d0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1, other x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-idle-flush-background-veto.test.ts": {
+      "blob": "6a9df43ed8c1a13cc2576107a6e59fb825df0b6a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-idle-flush-restart-notice.test.ts": {
+      "blob": "f70028fe7e8c60e96b4d4e43dccf14a2e4e2bdc3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-limit-followups.test.ts": {
+      "blob": "dc31fe11d63a5223f1962b537f4a913d5c3a2904",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-restart-notice.test.ts": {
+      "blob": "85fee6cb8c3ed793a72188f9b843268433e4d1da",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-resume-giveup.test.ts": {
+      "blob": "5ee4328e2e01092dd5707f1a5103ebc4967473b0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-status-readonly.test.ts": {
+      "blob": "4a9a131278d8f61b72ff0e7316687c39e4df6732",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fleet-freeze.test.ts": {
+      "blob": "12159dbaf4bedc2a8ae5d3675fd44adf82fea2f5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x5.",
+      "card": "#932"
+    },
+    "src/__tests__/stuck-tool-call-killgate-cwd-wiring.test.ts": {
+      "blob": "76d070831339f5d52d4ae1b658519fcf505555ba",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/install-npm-step-clean-tree.test.ts": {
+      "blob": "e405a9f71f26e723524698f788eba29cded7270b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-restart-gate-wake-delivery.test.ts": {
+      "blob": "bcd762240e57ae553229f10378bc18d9752d97e1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/persona-render-literal.test.ts": {
+      "blob": "fc1da2b9f81be12f8ab3d798212a1a7c7823996e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/persona-template-en.test.ts": {
+      "blob": "c8931ba117c6725a3be78ff4c5a5bbe3c3a698fa",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/seed-render-literal.test.ts": {
+      "blob": "d15a6f20bd9d353117637285ccc86173db042763",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/seed-lang-en.test.ts": {
+      "blob": "518b4e9b6781e217eb6395889521266067cf9932",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/schedule-registry-shell-paths.test.ts": {
+      "blob": "535ff892c16f1e8f5f2b699230e642b901612e8b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x3, fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/nap-zaro-run-once-both-titles.test.ts": {
+      "blob": "e3fe50e95754e4cffde24fa926d6378f040ba72b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-wrapper-multiline.test.ts": {
+      "blob": "71c6bfcb21776aa5fc5499072e5b1b9eac6e9a22",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/voice-directive-no-jq.test.ts": {
+      "blob": "589222ca27dd084ba37a7b3e4b673fae49212bfc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/voice-directive-token-ref.test.ts": {
+      "blob": "0aba08ed0541bdff495cbb3a070a82258ebec53c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-consent-watch.test.ts": {
+      "blob": "4e30341574bbd8925e0c9cf0a9b205f7aa9ff9da",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x3.",
+      "card": "#932"
+    },
+    "src/__tests__/update-conflict-guard.test.ts": {
+      "blob": "8d5c02c562b7380cb6be87f93cfe399749ac9e4c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: chore x1, feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-routes.test.ts": {
+      "blob": "e26d4965e657264d608ed53d2d32181ff697262f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x8, fix x6.",
+      "card": "#932"
+    },
+    "src/__tests__/email-send-gate-script.test.ts": {
+      "blob": "6f62e6b6398fe899b76680f7dc08b9d0bc882632",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x6.",
+      "card": "#932"
+    },
+    "src/__tests__/main-auth-helper.test.ts": {
+      "blob": "fc18955d953a002b5f0d726608591a17fd897a6f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/main-auth-vault-unreadable.test.ts": {
+      "blob": "4cec3cb409dcc8bdb0880f7aedadc221375a840b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/main-auth.test.ts": {
+      "blob": "4a48edfa2fdb53b4597694ccb6c921a976dcc865",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/patch-discord-plugin.test.ts": {
+      "blob": "ddf7ff814fbb60c48a4fd1cedd2f55b23b2e7618",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/egresshome-home-assign.test.ts": {
+      "blob": "424263cfeb329f641759d427f22a15ff4639dbf9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/egressfp-allowlist-readers.test.ts": {
+      "blob": "6ac9ed809da62ee99809366197a66c90d5fc094a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-resolve-value-mode.test.ts": {
+      "blob": "8d4e2e6368365d0d9ed10ea48bc9949432cbc0c2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/self-pace-quoted-scheduler-name.test.ts": {
+      "blob": "9598e2f3d95e8e4ec9df6bae1c5b2ffd47e28c57",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/self-pace-repo-copy-of-task-dir.test.ts": {
+      "blob": "5907042427fe0dfbf6158fdb6b0f22b785ec284a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/pane/feedback-draft-card-clipped-typed-2.1.318.txt": {
+      "blob": "6d2f2b51bf0df1749650d8063a54613d38c742b3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/pane/feedback-draft-card-unclipped-2.1.318.txt": {
+      "blob": "3af8c2ce28a3adb2fb32c1cd3859319336189038",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/pane/feedback-draft-card-unclipped-typed-2.1.318.txt": {
+      "blob": "7ec879b4fe1f472304af83cfc9643db8991519e1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-literal-globs.test.ts": {
+      "blob": "f43f7aae0e67bace981375e77ad1030379078091",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-worker-config.test.ts": {
+      "blob": "4843bfb690050ab7807378f386cabffe87ef464a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-channel-state.test.ts": {
+      "blob": "cafde51a2f00ab448a63c5c669aaaa303412bb8b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/mcp-file-targets.test.ts": {
+      "blob": "f95ced83831c28acb93eea65e300a650595aabc1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/mcp-write-gate.test.ts": {
+      "blob": "260f2c5714d10352c6b9ab122f7db5762b8af718",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-tokens-scope.test.ts": {
+      "blob": "e03f011e3141ff5a63b8ade20a9cdc88302e2c71",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: approvals x1, auth x1, fix x3.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-write-owner-gated.test.ts": {
+      "blob": "dcfdfc3114b4eb6571032c8669bf7ae1fe89d432",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x3.",
+      "card": "#932"
+    },
+    "src/__tests__/onboarding-env-single-line.test.ts": {
+      "blob": "b57b081c6e64fb399e8487ab7590db6ee6eeac95",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2, web x1.",
+      "card": "#932"
+    },
+    "src/__tests__/owner-gate-round2.test.ts": {
+      "blob": "8bb991b3fa4aee71620f62c9e9c893523048f078",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/settings-loosen-owner-only.test.ts": {
+      "blob": "451356f5cd8260af1218e5858fb78bd99b462df3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/skill-approve-owner-only.test.ts": {
+      "blob": "add3499eec24e7468e04c608bb9307d79e57c746",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/script-run-conformance.test.ts": {
+      "blob": "0979986722730933a38e7ce11dc0c8901cfa3c61",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/onboarding-auth-probe-async.test.ts": {
+      "blob": "0972a8efcea88a83290fbc31237979fa7c2f8e85",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, perf x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/owner-gate-round3.test.ts": {
+      "blob": "9d9d7d394037defb735d9d4667d299f1d7f28d3d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/skills-cli-async.test.ts": {
+      "blob": "0805f9a40cfd39af40d2191800ecd23a575918ac",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/skills-dir-queue.test.ts": {
+      "blob": "017aefa5a3b13bef2b1d66c01f4f71fb8787617c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x4.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-shell-comment.test.ts": {
+      "blob": "1c62d13cb5cd285d002ea028d200ecb425026d0d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/channel-access-failed-read-no-write.test.ts": {
+      "blob": "532fc1bc743eeeb2313af7e65602fe45ba7cf2db",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/channel-env-single-line.test.ts": {
+      "blob": "36b42b6de4f16af47a96f5aa0b67478df91b06d6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/connectors-mcp-cli-async.test.ts": {
+      "blob": "c85352b6126dfffc908a7fd0f84e0427b896d9a2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x3, perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/connectors-mcp-cli-timeouts.test.ts": {
+      "blob": "17cf398eadbc72e21c2fd43be0d37008da2c4346",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/team-node-tagline.test.ts": {
+      "blob": "ea5272d4af3e32150ec976594a912884e30df6fd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-mcp-config.test.ts": {
+      "blob": "c9107fde4f3936baed4c36ed9219a9afb31c634a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-copy-landing.test.ts": {
+      "blob": "8ae7001230f300c23fe408e4c1c5b99a0511c228",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/pane/feedback-draft-card-clipped-2.1.312.txt": {
+      "blob": "5a5086482c5f2f31feb3dada3c3dd109dc31d3d2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/net-target-owner-gated.test.ts": {
+      "blob": "dab6d7f25849c99cd55cc88f82e20edc4a092717",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-plugin-tree.test.ts": {
+      "blob": "f5c012bab9970539948a37c445d8bc2ccc9cbd74",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helpers/copy-gate-install.ts": {
+      "blob": "4748826f8ff5a8a217e1aa469f245831d775816a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/extra-hook-entries.test.ts": {
+      "blob": "a7c6f36073a4e0b66c708304efcd2515470070ef",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/skills-propose-project-scope.test.ts": {
+      "blob": "8f52999e04bc65681bb630d6b2950ba28573d4c2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-main-config-dir.test.ts": {
+      "blob": "2a233abb7c79e9c27f00cb3922539347a2d03119",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/db-write-gate-agent-settings.test.ts": {
+      "blob": "e0d0c2bc6122961bf2a32eba8b1c84a560a807d3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/dashboard-plist-lang-term.test.ts": {
+      "blob": "bc5e624b866092eccbb911e4bc46095a23d8c976",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/installer-wsl-interop-spin.test.ts": {
+      "blob": "916cb766d45aab7cd9bad4973db69ebbecfd7d0f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, test x2.",
+      "card": "#932"
+    },
+    "src/__tests__/marveen-api-helper.test.ts": {
+      "blob": "67fd2b84cdeafda81a25c239c75f4c015347edee",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x3, fix x7, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/notify-owner-slack-dm.test.ts": {
+      "blob": "10144a62cc9910ee6209c20102da577dac9f9057",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/skill-quarantine-switch.test.ts": {
+      "blob": "94054fca1df8284acea1c57fc02251e48be56b00",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/skill-section-migration-io.test.ts": {
+      "blob": "ba2a620b25222e4dcbd3e35b390a9e1802b9d2fd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/skills-propose-files.test.ts": {
+      "blob": "5fbb0a600c96a9fd5d95d763ab9285c5260ce5b3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x2, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-msg-token-argv.test.ts": {
+      "blob": "88650dabf437dc04ce684307b42632c99904afd6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helper-recipes-run.test.ts": {
+      "blob": "40c3aee52a29f07eeeca2788a7dc2e4ef4a29825",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/helpers/kanban-recipe.ts": {
+      "blob": "9adddcaf17177d597f88a39810a092e847333bbc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/autonomy-section-agent-token.test.ts": {
+      "blob": "c4de19d669f0960efeb10355d5522d84b78768d3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: approvals x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helper-token-launch-env.test.ts": {
+      "blob": "e13fd24b13466ab0428e9a23ad122e1ca955705c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-budget-wiring.test.ts": {
+      "blob": "57a76e73ae6c1bf0f0675faf959e45a4e100d811",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-dispatch-owner-name.test.ts": {
+      "blob": "d96b0ac7672c34797e891bf4fb582648d284b5d0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/owner-alert-accents-guard.test.ts": {
+      "blob": "738c4035514d2226d298809180f1be8aee3cace4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/channel-poller-reap-log-no-env.test.ts": {
+      "blob": "c04cb498b54aab4f3465e5668512dcf03d9d6a32",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/liveness-envscan-probe-wiring.test.ts": {
+      "blob": "54dd9cb7a3052b7404f3af8cb004ff3fa3aa87a1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/schedule-runner-discord-delivery.test.ts": {
+      "blob": "9428469966d3053e34d6563d232254a42f19cf3e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/hard-restart-verify.test.ts": {
+      "blob": "0212b52921a75abb6fcf4be7316f20076f7b6b33",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/helper-path-quoting.test.ts": {
+      "blob": "dc1c5726246ad5ff678641c0b450c5d3fd77054a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/self-pace-dynamic-command-reparse.test.ts": {
+      "blob": "f8cfc71cb673e568664d0490aeb0bfc4f847ef15",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/self-pace-dynamic-command-word.test.ts": {
+      "blob": "98542801a752997d252c3f2ad7d52e7fa05f70f5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/self-pace-quoted-shell-code.test.ts": {
+      "blob": "b5624a9bb2ffeda0d49914cd0df6962425623d07",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/precheck-timeout-config-roundtrip.test.ts": {
+      "blob": "fed4688ccf7eaa87ea7fdde36d79f85f3ad55a36",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/mail-api-send-cases.test.ts": {
+      "blob": "529d3197217ebe577ce4cca8340ef6d6ec36e435",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/prose-literal-cases.test.ts": {
+      "blob": "fb5640905572e99724aeca363fa4059450483dcf",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/roster-symlink-alias.test.ts": {
+      "blob": "1be9a36b064510b7a5e3244a04aa7c79c39d83c2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-resolve-url-loopback.test.ts": {
+      "blob": "ad8f3c4f6d04f9b8ffd7abdd2641bf80a699ed67",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/background-tasks-async-tmux.test.ts": {
+      "blob": "e41455ef11f05038c48658d2a17a6dd36336c2e0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2, perf x1, test x1.",
+      "card": "#932"
+    },
+    "src/__tests__/slack-smoke-test-async.test.ts": {
+      "blob": "5b78a7287449eb5c1104ee7936eccae9d09acec2",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1, perf x1.",
+      "card": "#932"
+    },
+    "src/__tests__/main-agent-dir-not-subagent.test.ts": {
+      "blob": "47053afc29e66a06740029c2c775be94babadb00",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/avatar-corp.test.ts": {
+      "blob": "11c5e9d7bb304b2de4bd82ed24b20aacb4628cda",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/vault-scripts-real-chain.test.ts": {
+      "blob": "ae1d89e81c263ef0a5f6d14c4cc9fcb5891a06e8",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: feat x1, fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/mcp-inline-command.test.ts": {
+      "blob": "b6e20cd6c1dd537184650d989797a0b0da434dbb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/README.md": {
+      "blob": "da6b7c1631cd61e9abbda20c3c1a345238f27f83",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/dialog-plugin-failed.txt": {
+      "blob": "927a86ec09ce6de9409303b2d7280bff053870da",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/dialog-unknown-arg.txt": {
+      "blob": "1938410559d5683a215d0f25da72d3d436941540",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/enable-plugin-ok.txt": {
+      "blob": "466a25d42e33b124c8bcba4c041c1c88155a6384",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/idle.txt": {
+      "blob": "3af817a9a09328d8de6baf47b865b7d5c4de94b9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-busy.txt": {
+      "blob": "6a73ad101bfdcadeae0879ee1f5635d77ea15e6d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-failed.txt": {
+      "blob": "d2933b27c1579afc9909d30b50fa1bcfbad1fd62",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-not-found.txt": {
+      "blob": "2e73a5bbbca748babe616aa7c499ff251c1b0045",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-ok.txt": {
+      "blob": "0f1a67fd60bd44549947575c0dc2f15f7e29fa91",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-plugin-busy.txt": {
+      "blob": "058083d9619b17727f3456f9ee250d9d8f64dc4b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-plugin-disabled.txt": {
+      "blob": "1e575a573e1b02694900d43ec8342215ae719c14",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-plugin-failed.txt": {
+      "blob": "2c1011e0e5209ae15d30b38d470c164696dd5c7b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-plugin-ok.txt": {
+      "blob": "a4c41ce59a54bb7efb57cb9e700f06c079a4cb1b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-plugin-progress.txt": {
+      "blob": "8afa2934c90b860bef72ae0af1c8ce672adf046c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-plugin-recovered.txt": {
+      "blob": "edb83b775ddfccae217afb683b5173a26216100d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/mcp-reconnect-cli-2.1.291/reconnect-progress.txt": {
+      "blob": "7070c61209bc2874894690cdabce5cef171c0a9c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-resume-read-errors.test.ts": {
+      "blob": "46cc5233375fe3ccc1a04ef1a359bc6a109dd081",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/delivery-hold.test.ts": {
+      "blob": "980bcd83980ae44ea7ad36418de247461ed0f849",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/graph-mail-sender-check.test.ts": {
+      "blob": "4cfec1d215a35d55ba1217307092c818d952255c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x2.",
+      "card": "#932"
+    },
+    "src/__tests__/recipient-ledger-write.test.ts": {
+      "blob": "255d3e2a86e0e76480d77b9cae2b9c7c0f288986",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/autonomy-missing-key-default.test.ts": {
+      "blob": "9f997f4a64146053f1eb0b1f1170fe93e19b664a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/agent-scaffold-schedule-section.test.ts": {
+      "blob": "2613f1ce2e4ea46b972d1cbad7d44cf8cc057c5c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/active-model-transcript-tail.test.ts": {
+      "blob": "6c5f12aad1c793599fd48d349cfb954d041d1502",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/pane/permission-prompt-bash-main-2.1.303.txt": {
+      "blob": "b16fa52047e3082b936b918590dd90418575c5bd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/pane/permission-prompt-edit-own-config-scrollback.txt": {
+      "blob": "f1188470ed41707ac5cc3739d89292fdd1c3049c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/pane/permission-prompt-edit-own-config.txt": {
+      "blob": "3229550fdd36d0d01f10f6d099a842081ed4d3e7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932): this test file does not exist here and every source file it imports or reads is also absent here, so it tests code this fork does not carry. Upstream commit types on it: fix x1.",
       "card": "#932"
     }
   }
