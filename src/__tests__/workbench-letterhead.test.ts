@@ -62,12 +62,17 @@ describe('letter head in the document check', () => {
     addBlock(itemId, secId, { kind: 'paragraph', text: 'Tisztelt Bíróság!', author: 'agent' })
     expect(row()).toBeUndefined()
   })
-  it('glued subject/salutation is a to-do only (ok:true), it never blocks finalizing', () => {
+  it('glued subject/salutation is an open point that lands in the to-do list and never blocks finalizing (#848)', () => {
     addBlock(itemId, secId, { kind: 'table', text: HEAD.text, author: 'agent' })
     addBlock(itemId, secId, { kind: 'paragraph', text: 'Chemnitz, 2026. 11. 03.\nTárgy: Kérés\nTisztelt Bíróság!\nSzöveg.', author: 'agent' })
-    const item = documentCheck(itemId).items.find((i) => i.key === 'letter_spacing_missing')
-    expect(item).toMatchObject({ ok: true })
+    const c = documentCheck(itemId)
+    const item = c.items.find((i) => i.key === 'letter_spacing_missing')
+    // ok:true made the to-do generator skip the row (and the open-points box filter it out): the warning never reached the owner.
+    expect(item).toMatchObject({ ok: false })
     expect(item?.count).toBeGreaterThan(0)
+    expect(c.needs_override).toBe(false)
+    expect(checkTodoTexts(c.items, 'hu').some((t) => t.startsWith('Levél tördelése'))).toBe(true)
+    expect(checkTodoTexts(c.items, 'en').some((t) => t.startsWith('Letter spacing'))).toBe(true)
   })
   it('both languages have the screen text', () => {
     for (const l of ['hu', 'en']) {

@@ -95,7 +95,7 @@ describe('a dokumentummodellbol keszulo PDF', () => {
   function readyDocument(): void {
     const s = addSection(itemId, '1. Tényállás', { status: 'done' })
     if (!s.ok) throw new Error('fejezet')
-    const b = addBlock(itemId, s.section.id, { text: 'Tisztelt Bíróság!\nA tárgyalás 2027. március 17-én 10:30-kor lesz.', author: 'agent' })
+    const b = addBlock(itemId, s.section.id, { text: 'Tisztelt Bíróság!\n\nA tárgyalás 2027. március 17-én 10:30-kor lesz.', author: 'agent' })
     if (!b.ok) throw new Error('blokk')
     const c = addClaim(itemId, b.block.id, 'A tárgyalás 2027. március 17-én 10:30-kor lesz.', [
       { kind: 'document', path: 'Level/idezes.pdf', page: 2, quote: 'am 17. März 2027 um 10:30 Uhr' },
@@ -233,7 +233,7 @@ describe('a dokumentummodellbol keszulo PDF', () => {
 
     // Modositas utan a vegleges allapot megszunik, es ujra at kell nezni.
     const blockId = (await callWorkbench(base, 'GET')).body.outline.sections[0].blocks[0].id
-    const edited = await callWorkbench(`${base}/blocks/${blockId}`, 'PATCH', { text: 'Tisztelt Bíróság!\nA tárgyalás 2027. március 17-én 10:30-kor lesz. Kiegészítés.' })
+    const edited = await callWorkbench(`${base}/blocks/${blockId}`, 'PATCH', { text: 'Tisztelt Bíróság!\n\nA tárgyalás 2027. március 17-én 10:30-kor lesz. Kiegészítés.' })
     expect(edited.body.outline.final.stale).toBe(true)
     expect(edited.body.outline.reviewed).toBe(false)
     expect(edited.body.outline.content_hash).not.toBe(hash)
@@ -276,7 +276,7 @@ describe('a dokumentummodellbol keszulo PDF', () => {
     const first = await finalize()
     expect(existsSync(join(depot, first))).toBe(true)
     const blockId = (await callWorkbench(base, 'GET')).body.outline.sections[0].blocks[0].id
-    await callWorkbench(`${base}/blocks/${blockId}`, 'PATCH', { text: 'Tisztelt Bíróság!\nÚj szöveg a módosítás után.' })
+    await callWorkbench(`${base}/blocks/${blockId}`, 'PATCH', { text: 'Tisztelt Bíróság!\n\nÚj szöveg a módosítás után.' })
     const second = await finalize()
     expect(second).not.toBe(first)
     expect(existsSync(join(depot, second))).toBe(true)

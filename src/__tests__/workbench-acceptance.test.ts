@@ -478,7 +478,7 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
     }
     const s1 = t('doc.addSection', { title: '1. Tényállás' }).id
     const s2 = t('doc.addSection', { title: '2. Kérelem' }).id
-    const intro = t('doc.addBlock', { section: s1, text: 'Tisztelt Bíróság!\nA 12 O 345/26 számú ügyben a tárgyalás 2027. március 17-én 10:30-kor lesz.' }).id
+    const intro = t('doc.addBlock', { section: s1, text: 'Tisztelt Bíróság!\n\nA 12 O 345/26 számú ügyben a tárgyalás 2027. március 17-én 10:30-kor lesz.' }).id
     const rent = t('doc.addBlock', { section: s1, text: 'A bérleti szerződés szerint a havi bérleti díj 900 euró (K1. melléklet).' }).id
     const paid = t('doc.addBlock', { section: s1, text: 'Az alperes 2026. január 3-án 900 eurót utalt át (K2. melléklet).' }).id
     const request = t('doc.addBlock', { section: s2, text: 'Kérem a keresetet elutasítani.' }).id
@@ -635,14 +635,14 @@ describe.skipIf(!HAVE_READERS || !HAVE_SOFFICE)('PROBAESET 1/A es 1/B: birosagi 
       const L = lang === 'en'
         ? {
             s1: '1. Statement of facts', s2: '2. Relief sought',
-            intro: ['Dear Court,\nIn case No. 12 O 345/26 the hearing will be held on 17 March 2027 at 10:30.', 'In case No. 12 O 345/26', 'the hearing will be held on 17 March 2027 at 10:30.'],
+            intro: ['Dear Court,\n\nIn case No. 12 O 345/26 the hearing will be held on 17 March 2027 at 10:30.', 'In case No. 12 O 345/26', 'the hearing will be held on 17 March 2027 at 10:30.'],
             rent: [`Under the ${rentWord} the monthly rent is EUR 900 (Exhibit A).`, 'the monthly rent is EUR 900'],
             paid: ['On 3 January 2026 the defendant transferred EUR 900 (Exhibit B).', 'On 3 January 2026 the defendant transferred EUR 900'],
             request: 'I request that the claim be dismissed.', sign: 'Budapest, 1 October 2026\n\nDefendant', head: 'Sender: alperes | Recipient: Bíróság\nBudapest | Budapest',
           }
         : {
             s1: '1. Sachverhalt', s2: '2. Antrag',
-            intro: ['Sehr geehrte Damen und Herren,\nIm Verfahren 12 O 345/26 findet die Verhandlung am 17. März 2027 um 10:30 Uhr statt.', 'Im Verfahren 12 O 345/26', 'findet die Verhandlung am 17. März 2027 um 10:30 Uhr statt.'],
+            intro: ['Sehr geehrte Damen und Herren,\n\nIm Verfahren 12 O 345/26 findet die Verhandlung am 17. März 2027 um 10:30 Uhr statt.', 'Im Verfahren 12 O 345/26', 'findet die Verhandlung am 17. März 2027 um 10:30 Uhr statt.'],
             rent: [`Nach dem ${rentWord} beträgt die monatliche Miete 900 Euro (Anlage K1).`, 'beträgt die monatliche Miete 900 Euro'],
             paid: ['Die Beklagte hat am 3. Januar 2026 900 Euro überwiesen (Anlage K2).', 'Die Beklagte hat am 3. Januar 2026 900 Euro überwiesen'],
             request: 'Es wird beantragt, die Klage abzuweisen.', sign: 'Budapest, 1. Oktober 2026\n\nBeklagte', head: 'Absender: alperes | Empfänger: Bíróság\nBudapest | Budapest',
