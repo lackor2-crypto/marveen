@@ -46,7 +46,7 @@ log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG" 2>/dev/nu
 [ -r "$TOKEN_FILE" ] || { log "no dashboard token, skipped"; exit 0; }
 TOKEN="$(cat "$TOKEN_FILE")"
 
-RESP="$(curl -s -m 10 "http://127.0.0.1:${PORT}/api/email/fastpath-status" -H "Authorization: Bearer $TOKEN" 2>&1)"
+RESP="$(curl -s -m 10 "http://127.0.0.1:${PORT}/api/email/fastpath-status" -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") 2>&1)"
 if [ -z "$RESP" ]; then
   log "empty response from dashboard, skipped"
   exit 0

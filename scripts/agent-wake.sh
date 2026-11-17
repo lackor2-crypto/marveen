@@ -61,7 +61,7 @@ SENDER="${MARVEEN_WAKE_SENDER:-$MAIN_AGENT}"
 discover_targets() {
   local token="$STORE/.dashboard-token"
   [ -f "$token" ] || return 1
-  curl -s --max-time 20 -H "Authorization: Bearer $(cat "$token")" "$API/api/agents" 2>/dev/null | python3 -c '
+  curl -s --max-time 20 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$token")") "$API/api/agents" 2>/dev/null | python3 -c '
 import json, sys
 try:
     data = json.load(sys.stdin)

@@ -100,7 +100,7 @@ alert() {
   token="$(cat "$STATE_DIR/.dashboard-token" 2>/dev/null || true)"
   [ -n "$token" ] || return 0
   curl -s -o /dev/null --max-time 8 -X POST "http://localhost:${PORT}/api/messages" \
-    -H "Content-Type: application/json" -H "Authorization: Bearer $token" \
+    -H "Content-Type: application/json" -H @<(printf 'Authorization: Bearer %s\n' "$token") \
     -d "$(printf '{"from":"%s","to":"%s","content":"[DEPLOY] %s"}' "$SERVICE_ID" "$SERVICE_ID" "$msg")" \
     2>/dev/null || true
 }
