@@ -11,13 +11,14 @@ test('empty lines + the signature picture of the translation column are saved to
   page.on('dialog', (d) => d.dismiss())
   const { pid, letterId } = liveIds()
   const auth = { Authorization: 'Bearer ' + dashboardToken() }
-  const saved = async (): Promise<Array<{ kind: string; text: string }>> => {
+  type Sec = { source_section: string; title: string; blocks: Array<{ kind: string; text: string }> }
+  const savedSections = async (): Promise<Sec[]> => {
     const r = await request.get('/api/workbench/items/' + encodeURIComponent(letterId) + '/outline/translation?to=de', { headers: auth })
     const j = await r.json()
-    const d = j.data || j
-    const secs = (d.sections || []) as Array<{ blocks: Array<{ kind: string; text: string }> }>
-    return secs.flatMap((s) => s.blocks.map((b) => ({ kind: b.kind, text: b.text })))
+    return ((j.data || j).sections || []) as Sec[]
   }
+  const saved = async (): Promise<Array<{ kind: string; text: string }>> =>
+    (await savedSections()).flatMap((s) => s.blocks.map((b) => ({ kind: b.kind, text: b.text })))
   const isBlank = (b: { kind: string; text: string }): boolean => b.kind === 'paragraph' && b.text.replace(/[​\s]/g, '') === ''
   const open = async (): Promise<void> => {
     await openDashboard(page)
@@ -34,9 +35,10 @@ test('empty lines + the signature picture of the translation column are saved to
   }
 
   await open()
+  // the disposable instance is shared with the next specs (#840 expects the German version as it was): it is put back at the end
+  const original = await savedSections()
   const before = await saved()
   expect(before.filter(isBlank)).toHaveLength(0)
-  const last = before.length - 1
 
   // like the owner: caret at the end of the last line, three Enters, then the signature button on the empty lines
   const blocks = page.locator('#wbTwPage [data-tw="block"]')
@@ -57,7 +59,6 @@ test('empty lines + the signature picture of the translation column are saved to
   expect(after.filter((b) => !isBlank(b) && b.kind !== 'image')).toHaveLength(before.length)
   const lastText = after.map((b, i) => (!isBlank(b) && b.kind !== 'image' ? i : -1)).filter((i) => i >= 0).pop()!
   expect(after.slice(lastText + 1).filter(isBlank).length).toBeGreaterThanOrEqual(3)
-  void last
 
   // reload the page: the saved lines are still there
   await open()
@@ -65,4 +66,8 @@ test('empty lines + the signature picture of the translation column are saved to
   expect(again.filter(isBlank).length).toBe(after.filter(isBlank).length)
   expect(again.filter((b) => b.kind === 'image')).toHaveLength(1)
   expect(errors).toEqual([])
+
+  const back = await request.post('/api/workbench/items/' + encodeURIComponent(letterId) + '/outline/translation-save', { headers: auth, data: { lang: 'de', sections: original } })
+  expect(back.ok()).toBe(true)
+  expect(await saved()).toEqual(before)
 })
