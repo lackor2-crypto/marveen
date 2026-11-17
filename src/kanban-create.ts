@@ -116,6 +116,20 @@ export function projectArchivedMessage(name: string, projects: ProjectCandidate[
     + `Aktiv projektek: ${list}. Kuldd ujra egy aktiv projekttel (id vagy pontos nev); ha nem egyertelmu, kerdezd meg a usert.`
 }
 
+/**
+ * #795: the ONE place that says "this project is archived, no card goes under it". Every door that puts a
+ * card under a project asks it -- the top-level create (checkCardProject), a sub-card, the card-move PUT and
+ * the breakdown accept -- so a door cannot be left out. Null = the project is fine (or there is none).
+ */
+export function refuseArchivedProject(projectId: string | null | undefined): Extract<ProjectCheck, { ok: false }> | null {
+  if (!projectId) return null
+  const found = getProject(projectId)
+  if (!found || found.archived_at == null) return null
+  const names = projectNameMap()
+  const projects = listActiveProjectIds().map((id) => ({ id, name: names[id]?.name ?? id }))
+  return { ok: false, code: 'project_required', error: projectArchivedMessage(found.name, projects), projects }
+}
+
 export type ProjectCheck =
   | { ok: true; project: string | null; noProjectReason: string | null }
   | { ok: false; code: 'project_required'; error: string; projects: ProjectCandidate[] }
@@ -134,11 +148,8 @@ export function checkCardProject(projectRef: unknown, noProjectReasonRaw: unknow
   const projectId = found ? resolved : null
   // Boss (TG 3335): an ARCHIVED project is out of the work -- no card goes under it, whatever the caller (the
   // board, the Workbench assistant, the Ideas box) asked for. The refusal lists the active projects instead.
-  if (projectId && found && found.archived_at != null) {
-    const names = projectNameMap()
-    const projects = listActiveProjectIds().map((id) => ({ id, name: names[id]?.name ?? id }))
-    return { ok: false, code: 'project_required', error: projectArchivedMessage(found.name, projects), projects }
-  }
+  const archivedRefusal = refuseArchivedProject(projectId)
+  if (archivedRefusal) return archivedRefusal
   if (projectId) return { ok: true, project: projectId, noProjectReason: null }
   const reason = String(noProjectReasonRaw ?? '').trim()
   if (reason.length >= NO_PROJECT_MIN_CHARS) return { ok: true, project: null, noProjectReason: reason }
@@ -229,7 +240,12 @@ export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome 
     if (parent?.project) cardFields.project = parent.project
   }
   let noProjectReason = ''
-  if (!parentId) {
+  if (parentId) {
+    // A sub-card skips the "project required" rule (it takes its parent's), but never the archived one:
+    // neither an explicit nor an inherited archived project may take a new card (#795).
+    const refusal = refuseArchivedProject(typeof cardFields.project === 'string' ? cardFields.project : null)
+    if (refusal) return refusal
+  } else {
     const check = checkCardProject(cardFields.project, data.no_project_reason)
     if (!check.ok) return check
     // Ismeretlen ertek (pl. egy ezen a telepitesen nem letezo slug) SOHA nem

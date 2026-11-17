@@ -20,7 +20,7 @@ import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
 import { isAgentQuotaBlocked } from '../agent-availability.js'
 import { resolveKanbanDispatchTarget } from '../../kanban-dispatch.js'
-import { createCardWithRules } from '../../kanban-create.js'
+import { createCardWithRules, refuseArchivedProject } from '../../kanban-create.js'
 import { ensureApprovalForWaitingCard, withdrawApprovalForCardLeavingWaiting } from './approvals.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
@@ -415,6 +415,12 @@ const archivedNote = (card: { archived_at: number | null } | undefined): { archi
       return true
     }
     if (data.project !== undefined) data.project = resolveProjectRef(data.project)
+    // #795: a card may stay in a project that was archived later (the dashboard sends the whole card back), but
+    // it cannot be moved INTO one.
+    if (typeof data.project === 'string' && data.project && data.project !== getKanbanCard(id)?.project) {
+      const refusal = refuseArchivedProject(data.project)
+      if (refusal) { json(res, { error: refusal.error, code: refusal.code, projects: refusal.projects }, 400); return true }
+    }
     // Rebuilt from upstream 94765127: a re-parent that would close a loop is
     // refused, and a parent that does not exist is a clean 404 (it used to reach
     // the UPDATE and throw a FOREIGN KEY error).
@@ -609,6 +615,8 @@ const archivedNote = (card: { archived_at: number | null } | undefined): { archi
     const parentId = decodeURIComponent(acceptMatch[1])
     const parent = getKanbanCard(parentId)
     if (!parent) { json(res, { error: 'Szülő kártya nem található' }, 404); return true }
+    const archivedRefusal = refuseArchivedProject(parent.project)
+    if (archivedRefusal) { json(res, { error: archivedRefusal.error, code: archivedRefusal.code, projects: archivedRefusal.projects }, 400); return true }
     const body = await readBody(req)
     const { subtasks } = JSON.parse(body.toString()) as {
       subtasks: Array<{ title: string; description: string; assignee: string | null; priority: string }>

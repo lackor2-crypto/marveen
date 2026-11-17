@@ -103,6 +103,8 @@ csak az aktív projektek (`GET /api/projects`, alapból nem listázza az archiv�
 szóba. A szerver is visszautasítja (`project_required`, "ARCHIVALT PROJEKT" üzenet, az aktív
 projektek listájával). Ha egy kártya szerinted egy archivált projekthez tartozna, ne ide
 vedd fel: kérdezd meg {{OWNER_NAME}}-t, melyik aktív projekt alá kerüljön.
+Ez az alfeladatra (`parent_id`) és a kártya átrakására (`PUT`, `project` mező) is áll: archivált projektbe
+se alfeladat, se átrakott kártya nem kerülhet; a már ott lévő kártya szerkeszthető marad.
 
 ## Kapcsolódó kártyák felderítése -- KÖTELEZŐ, a létrehozás UTOLSÓ lépése
 

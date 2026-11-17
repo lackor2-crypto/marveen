@@ -2528,11 +2528,14 @@ function renderKanbanColumnChips() {
 // a sajat kartyajanal megmarad valaszthatonak, hogy mentesnel ne vesszen el.
 const NO_PROJECT_VALUE = '__none__'
 
-function populateProjectSuggestions(current, selectId = 'cardProject') {
+// `opts.forNew`: the card is being CREATED (new-card modal, idea promote, a project's own "new card"): an
+// archived project is never offered or pre-selected then (#795) -- the server refuses a card under it.
+function populateProjectSuggestions(current, selectId = 'cardProject', opts = {}) {
   const sel = document.getElementById(selectId)
   if (!sel || sel.tagName !== 'SELECT') return
-  const keep = current !== undefined ? (current || '') : sel.value
   const names = window._projectNames || {}
+  let keep = current !== undefined ? (current || '') : sel.value
+  if (opts.forNew && keep && keep !== NO_PROJECT_VALUE && names[keep] && names[keep].archived) keep = ''
   const live = Object.keys(names).filter((id) => !names[id].archived)
     .sort((a, b) => String(names[a].name).localeCompare(String(names[b].name), window._lang || 'hu'))
   // PROJEKT KOTELEZO (#374): az ures ertek "meg nem valasztott", a projekt
@@ -3571,7 +3574,7 @@ function openNewCardModal(status) {
   renderNewCardLabelPicker()
   // Egy projektre szurt Kanbanon az uj kartya magatol abba a projektbe kerul.
   const scoped = typeof kanbanProjectFilter === 'string' && (window._projectNames || {})[kanbanProjectFilter] ? kanbanProjectFilter : ''
-  populateProjectSuggestions(scoped)
+  populateProjectSuggestions(scoped, 'cardProject', { forNew: true })
   _prjCardSuggestion(null)
   openModal(cardModalOverlay)
   setTimeout(() => document.getElementById('cardTitle').focus(), 200)
@@ -35132,7 +35135,7 @@ const ideaPromoteLabels = []
 async function fillIdeaProjectPicker(selectId, ideaId) {
   await refreshProjectNames()
   const idea = ideas.find(i => i.id === ideaId)
-  populateProjectSuggestions(idea?.project || '', selectId)
+  populateProjectSuggestions(idea?.project || '', selectId, { forNew: true })
 }
 
 /** Reads an idea-promote project picker into the request body; false = stop. */
@@ -51761,7 +51764,7 @@ async function _prjNewCard() {
   if (!(window._projectNames || {})[p.id]) await refreshProjectNames()
   openNewCardModal('planned')
   // A projektbol nyitott kartya magatol a projekte -- semmit nem kell beirni.
-  populateProjectSuggestions(p.id)
+  populateProjectSuggestions(p.id, 'cardProject', { forNew: true })
   // A projekt alapertelmezett cimkeje elore kijelolve -- a felhasznalo
   // atallithatja, de nem kell tudnia, melyik illik ide.
   if (p.default_label_id) {
@@ -52558,7 +52561,7 @@ async function _prjCardSuggestion(cardId) {
   const r = await _prjApi('GET', '/api/projects/card-suggestion?card=' + encodeURIComponent(cardId))
   if (!r.ok || document.getElementById('cardEditId')?.value !== cardId) return
   const s = r.data && r.data.suggestion
-  if (!s || !s.projectId || !(window._projectNames || {})[s.projectId]) return
+  if (!s || !s.projectId || !(window._projectNames || {})[s.projectId] || (window._projectNames || {})[s.projectId].archived) return
   box.innerHTML = `${escapeHtml(t('projects.suggest.line', { name: projectLabel(s.projectId), pct: Math.round((s.confidence || 0) * 100) }))}
     ${s.reason ? `<span class="prj-muted">(${escapeHtml(s.reason)})</span>` : ''}
     <button type="button" class="btn-secondary btn-compact" data-prj-apply-suggest="${escapeAttr(s.projectId)}">${escapeHtml(t('projects.suggest.apply'))}</button>`
