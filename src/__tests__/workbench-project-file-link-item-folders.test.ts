@@ -1,14 +1,26 @@
 // Boss TG 4484: a Life-tree file can be linked from the right-click menu of an item's Attachments / Uploads folder
 // (as an annex / a material of THAT item). Every other folder (also the box and the item folder) takes a plain file link.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { STORE_DIR } from '../config.js'
 import { initDatabase } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { createWorkItem } from '../workbench.js'
 import { ensureWorkItemFolder, listWorkFolders, findWorkItemsBox, itemSubfolderOf } from '../workbench-assets.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
+
+// The file link is kept in <store>/life-mounts.json. Without this the test wrote it into the CHECKOUT's own store/: a second run in the
+// same checkout found the first run's link and got 409 instead of 201 (a flake that came only from earlier runs, never in a fresh CI checkout).
+vi.mock('../config.js', async () => {
+  const actual = await vi.importActual<typeof import('../config.js')>('../config.js')
+  const { mkdtempSync: mk } = await import('node:fs')
+  const { tmpdir: td } = await import('node:os')
+  const { join: j } = await import('node:path')
+  return { ...actual, STORE_DIR: mk(j(td(), 'wb-flink-item-store-')) }
+})
+afterAll(() => { rmSync(STORE_DIR, { recursive: true, force: true }) })
 
 let dir = ''
 let pid = ''

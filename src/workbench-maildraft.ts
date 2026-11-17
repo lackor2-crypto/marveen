@@ -165,6 +165,20 @@ export function mailTextFitsLanguage(text: string, lang: DocLang): boolean {
   return !said || said === lang
 }
 
+/**
+ * #931: the lock for one item. A text clearly in another language never fits (mailTextFitsLanguage); and on a language VERSION a text
+ * that is word for word the ORIGINAL's plain (language-less) line of the sending block, without being positively recognised as the
+ * version's own language, does not fit either -- a short subject cannot be told by the detector, but it is the original's line.
+ */
+export function mailTextFitsItem(item: WorkItemRow, text: string, lang: DocLang, key: 'subject' | 'body'): boolean {
+  if (!mailTextFitsLanguage(text, lang)) return false
+  try {
+    if (!variantOf(item.id)) return true
+    const plain = (readSendDetails(item)?.[key] ?? '').trim()
+    return !(plain && text.trim() === plain && detectTextLanguage(text) !== lang)
+  } catch { return true }
+}
+
 export function mailSubject(item: WorkItemRow): string {
   // Boss 2026-11-14: the "Sending details" block at the top of the context file names the mail's subject; the letter's own subject line is the fallback.
   try { const b = sendTextFor(readSendDetails(item), sendLang(item), 'subject', sendTextOpts(item)); if (b) return b } catch { /* no context file */ }
@@ -330,10 +344,20 @@ export function mailDraftView(item: WorkItemRow): MailDraftView | null {
   // #725: there is no .eml file any more; the draft lives in the account's Drafts folder, so only the document's change counts.
   // #794: an attachment named after the work item's title (made before the naming fix) is never current: pressing again renames it.
   const titled = !hasDocxFinalPanel(item) && attachments.some((a) => namesTitle(item, a.name))
-  const state: MailDraftView['state'] = !titled && row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
+  // #931 (the language lock, view side): a draft stored BEFORE the lock may carry a subject / text clearly in another language than
+  // the letter (the German version once got its Hungarian original's). The form never shows it: it shows the letter's language
+  // default instead, and the draft counts as outdated so it is made again (saving would refuse the old text anyway).
+  const lang = currentFinalLang(item) ?? sendLang(item) ?? 'hu'
+  const wrongSubject = !!row.subject && !mailTextFitsItem(item, row.subject, lang, 'subject')
+  const shown = shownBody(item, row.body)
+  const wrongBody = !mailTextFitsItem(item, shown, lang, 'body')
+  const subject = wrongSubject ? mailSubject(item) : row.subject || mailSubject(item)
+  const body = wrongBody ? defaultMailBody(item, lang, listAnnexes(item.id).length) : shown
+  const wrongLang = wrongSubject || wrongBody
+  const state: MailDraftView['state'] = !titled && !wrongLang && row.package_key === packageKey(item, row.from_account, row.to_addr, row.cc_addr, row.subject, row.body) ? 'current' : 'outdated'
   return {
     file: '', file_name: '',
-    from_account: row.from_account, from_addr: row.from_addr, to: withoutOwnAddresses(row.to_addr) || knownRecipient(item), cc: row.cc_addr, subject: row.subject || mailSubject(item), body: shownBody(item, row.body),
+    from_account: row.from_account, from_addr: row.from_addr, to: withoutOwnAddresses(row.to_addr) || knownRecipient(item), cc: row.cc_addr, subject, body,
     attachments, total_bytes: attachments.reduce((n, a) => n + a.bytes, 0), updated_at: row.updated_at, state,
   }
 }
@@ -682,7 +706,7 @@ export async function saveMailDraft(item: WorkItemRow, input: MailDraftInput, ui
   // Boss 2026-11-16 (the language lock): the mail is in the language of the letter, never another. A subject or text clearly written in
   // another language is refused here, whoever wrote it (the page, the agent, an old stored row), so it can never go out.
   for (const [what, text] of [['subject', subject], ['body', body]] as const) {
-    if (!mailTextFitsLanguage(text, lang)) return { ok: false, code: 'mail_language_mismatch', detail: `${what}:${detectTextLanguage(text) ?? '?'}->${lang}` }
+    if (!mailTextFitsItem(item, text, lang, what)) return { ok: false, code: 'mail_language_mismatch', detail: `${what}:${detectTextLanguage(text) ?? '?'}->${lang}` }
   }
 
   const made = await collectAttachments(item, ui)

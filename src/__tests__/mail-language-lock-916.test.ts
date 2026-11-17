@@ -8,13 +8,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { readFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, getProject, updateProject } from '../projects.js'
 import { getWorkItem } from '../workbench.js'
 import { addBlock, addSection } from '../workbench-docmodel.js'
 import { createVariant } from '../workbench-doclang.js'
 import { setSendDetails } from '../workbench-item-context.js'
-import { defaultMailBody, mailSubject, mailTextFitsLanguage } from '../workbench-maildraft.js'
+import { defaultMailBody, mailDraftView, mailSubject, mailTextFitsItem, mailTextFitsLanguage } from '../workbench-maildraft.js'
 import { applySendPatch, parseSendDetails, sendTextFor } from '../workbench-send-block.js'
 import { detectTextLanguage } from '../workbench-letterinfo.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
@@ -102,6 +102,34 @@ describe('the German version of a Hungarian letter opens its e-mail form in Germ
     expect(mailTextFitsLanguage(defaultMailBody(de, 'de', 0), 'de')).toBe(true)
   })
 
+  it('REGRESSION #931: a draft stored BEFORE the lock (Hungarian subject and text on the German version) is shown in German, never in Hungarian', () => {
+    const de = getWorkItem(deId)!
+    expect(mailDraftView(de)).toBeNull() // no draft yet (this also makes the table)
+    getDb().prepare(`INSERT INTO wb_doc_maildraft (work_item_id, from_account, from_addr, file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at)
+      VALUES (?, '', '', '', '', 'k', 'amt@example.de', '', ?, ?, '[]', 1)`).run(deId, HU_SUBJECT, HU_BODY)
+    const v = mailDraftView(de)!
+    expect(v.body).not.toContain('Tisztelt')
+    expect(v.body).toMatch(/Sehr geehrte|Guten Tag|Mit freundlichen/)
+    expect(v.subject).not.toBe(HU_SUBJECT)
+    expect(v.state).toBe('outdated') // the stored draft in the mail folder is in the wrong language: it must be made again
+  })
+
+  it('a stored draft the owner wrote in the right language is shown untouched', () => {
+    const de = getWorkItem(deId)!
+    expect(mailDraftView(de)).toBeNull() // no draft yet (this also makes the table)
+    getDb().prepare(`INSERT INTO wb_doc_maildraft (work_item_id, from_account, from_addr, file_name, sha, package_key, to_addr, cc_addr, subject, body, attachments_json, updated_at)
+      VALUES (?, '', '', '', '', 'k', 'amt@example.de', '', 'Eigener Betreff', ?, '[]', 1)`).run(deId, DE_BODY)
+    const v = mailDraftView(de)!
+    expect(v.subject).toBe('Eigener Betreff')
+    expect(v.body).toBe(DE_BODY)
+  })
+
+  it('REGRESSION #931: the save lock refuses the original\'s short Hungarian subject on the German version, but not on the original', () => {
+    expect(mailTextFitsItem(getWorkItem(deId)!, HU_SUBJECT, 'de', 'subject')).toBe(false)
+    expect(mailTextFitsItem(getWorkItem(origId)!, HU_SUBJECT, 'hu', 'subject')).toBe(true)
+    expect(mailTextFitsItem(getWorkItem(deId)!, 'Bitte um Weiterleitung', 'de', 'subject')).toBe(true)
+  })
+
   it('the Hungarian original still gets its own Hungarian subject and text', () => {
     const o = getWorkItem(origId)!
     expect(mailSubject(o)).toBe(HU_SUBJECT)
@@ -121,7 +149,7 @@ describe('the lock is wired into every way a mail text is made (wiring)', () => 
   const src = (f: string): string => readFileSync(join(__dirname, '..', f), 'utf8')
   it('saving a draft refuses a text in another language than the letter, with a clear message for the owner and for the agent', () => {
     expect(src('workbench-maildraft.ts')).toContain('mail_language_mismatch')
-    expect(src('workbench-maildraft.ts')).toContain('mailTextFitsLanguage(text, lang)')
+    expect(src('workbench-maildraft.ts')).toContain('mailTextFitsItem(item, text, lang, what)')
     expect(src('web/routes/workbench.ts')).toContain('maildraft_language_mismatch')
     expect(src('workbench-agent/execute.ts')).toContain('mail_language_mismatch')
   })
