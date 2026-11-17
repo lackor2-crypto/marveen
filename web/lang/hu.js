@@ -4294,6 +4294,7 @@ window._i18n.hu = {
 
   // --- Agent model save + host oauth toasts ---
   'agents.toast.model_save_restart': 'Modell mentve, agent újraindítása...',
+  'agents.toast.model_saved_stopped': 'Modell mentve. Az ügynök le van állítva, a következő indításkor az új modellel indul.',
   'agents.toast.host_oauth_restart': 'Agent újraindítva a host hitelesítésével — ez nem bejelentkezés',
 
   // --- Agent auth flow extra ---

@@ -4227,6 +4227,7 @@ window._i18n.en = {
 
   // --- Agent model save + host oauth toasts ---
   'agents.toast.model_save_restart': 'Model saved, restarting agent...',
+  'agents.toast.model_saved_stopped': 'Model saved. The agent is stopped; it will use the new model at its next start.',
   'agents.toast.host_oauth_restart': 'Agent restarted with the host credentials — this is not a sign-in',
 
   // --- Agent auth flow extra ---
