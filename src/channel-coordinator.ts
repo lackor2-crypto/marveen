@@ -30,7 +30,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from '
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { logger } from './logger.js'
 import { PROJECT_ROOT, MAIN_AGENT_ID, CHANNEL_PROVIDER, BOT_NAME } from './config.js'
 import { getUpdates, probeHighWater, mapUpdate, TelegramApiError } from './channel-coordinator/telegram-client.js'
@@ -216,27 +216,22 @@ export const realPidLockDeps: PidLockDeps = {
     try { process.kill(pid, 0); return true } catch (err) { return (err as NodeJS.ErrnoException)?.code === 'EPERM' }
   },
   argvOf: (pid) => {
-    // /bin/ps first (as elsewhere in the codebase), then ps from PATH for hosts
-    // that have no /bin/ps (e.g. NixOS).
-    // Empty output is "gone" only when kill(pid, 0) agrees: a ps that cannot
-    // inspect a live process can print nothing too. Anything else is unknown.
+    // /proc/<pid>/cmdline, not a synchronous `ps` child (#897 gate: no new sync child
+    // process). NUL-separated argv; an unreadable/empty entry for a LIVE pid is unknown.
+    // Hosts without /proc (not Linux) cannot be inspected here: unknown, so the lock
+    // refuses to take over a stale file rather than guess.
     const goneOrUnknown = (): null | undefined => {
       try { process.kill(pid, 0); return undefined } catch (k) {
         return (k as NodeJS.ErrnoException)?.code === 'ESRCH' ? null : undefined
       }
     }
-    for (const ps of ['/bin/ps', 'ps']) {
-      try {
-        return execFileSync(ps, ['-p', String(pid), '-o', 'args='], { timeout: 2000, encoding: 'utf-8' }).trim() || goneOrUnknown()
-      } catch (err) {
-        const e = err as { status?: number | null; stdout?: string; code?: string }
-        if (e.code === 'ENOENT') continue
-        // ps exits 1 with no output when the pid does not exist.
-        if (e.status === 1 && !String(e.stdout ?? '').trim()) return goneOrUnknown()
-        return undefined // denied, timed out, killed: unknown
-      }
+    if (!existsSync('/proc/self/cmdline')) return undefined
+    try {
+      const argv = readFileSync(`/proc/${pid}/cmdline`, 'utf-8').split('\0').join(' ').trim()
+      return argv || goneOrUnknown()
+    } catch (err) {
+      return (err as NodeJS.ErrnoException)?.code === 'ENOENT' ? goneOrUnknown() : undefined
     }
-    return undefined // no ps at all: unknown
   },
 }
 
