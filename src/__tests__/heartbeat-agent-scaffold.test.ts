@@ -227,3 +227,16 @@ describe('hot-memory metric is a ready-made query (HBMEMBLIND807)', () => {
     expect(out).toContain('do not rewrite the query')
   })
 })
+
+describe('deferred MCP tools (HBCALMCP808)', () => {
+  it('the calendar step teaches the ToolSearch select protocol', () => {
+    const md = renderHeartbeatClaudeMd(ID)
+    // The load-bearing line: without it, a deferred calendar tool reads as
+    // absent and the section silently goes empty (measured 2026-08-08/09:
+    // 13 not-available reports, zero ToolSearch calls, all 13 tools present
+    // in the session's own deferred list).
+    expect(md).toContain('select:mcp__server-google-calendar-mcp__list-events')
+    // "not available" may only be claimed after ToolSearch also failed.
+    expect(md).toMatch(/ONLY[\s\S]{0,80}ToolSearch itself cannot surface/)
+  })
+})
