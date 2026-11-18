@@ -140,6 +140,14 @@ export function getWindow(agent = defaultAgent(), now = Date.now()): UsageWindow
     // NEM 0%: nincs meres. A kulonbseg a hivo dolga kimondani.
     return { usedPct: null, resetsAt: five?.resetsAt ?? null, measuredAt: null, stale: false, source: 'none' }
   }
+  // A window whose reset time has passed is a FINISHED window: within a window usedPct only
+  // grows until the reset, so a reading stays true only while resetsAt is in the future (same
+  // rule as snapshotShowsQuotaExhausted and workbenchAccountStatuses). A 100% measured just
+  // before the reset must not keep saying "your quota is used up" afterwards (#933, Boss TG
+  // 6695). It is "no measurement" (not 0%, not 100%) until a fresh reading arrives.
+  if (five.resetsAt != null && five.resetsAt <= now) {
+    return { usedPct: null, resetsAt: five.resetsAt, measuredAt: null, stale: false, source: 'none' }
+  }
   const measuredAt = snap.measuredAt || snap.updatedAt || null
   return {
     usedPct: five.usedPct,

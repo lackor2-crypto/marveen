@@ -109,6 +109,28 @@ describe('getRemaining -- szabad-e MOST hivni', () => {
   })
 })
 
+describe('getRemaining -- a lejart ablak 100%-a nem blokkol (#933, Boss TG 6695)', () => {
+  it('a 100%-os meres, aminek a visszaallasa MAR elmult, nem "kereted kifogyott"', () => {
+    // fresh reading (measured a minute ago), but its window reset 10 s ago
+    setUsageSnapshotReader(snapshot(100, { measuredAt: NOW - 60_000, resetsAt: NOW - 10_000 }))
+    const r = getRemaining('a', NOW)
+    expect(r.allowed).toBe(true)
+    expect(r.reason).toBeNull()
+  })
+
+  it('ugyanaz a 100% a visszaallas ELOTT meg blokkol', () => {
+    setUsageSnapshotReader(snapshot(100, { measuredAt: NOW - 60_000, resetsAt: NOW + 600_000 }))
+    const r = getRemaining('a', NOW)
+    expect(r.allowed).toBe(false)
+    expect(r.reason).toBe('limit_critical')
+  })
+
+  it('a lejart ablak szazaleka nem lesz "mert" ertek: usedPct null, nem 100', () => {
+    setUsageSnapshotReader(snapshot(100, { measuredAt: NOW - 60_000, resetsAt: NOW - 10_000 }))
+    expect(getUsage('a', NOW).usedPct).toBeNull()
+  })
+})
+
 describe('reserve / release / record', () => {
   beforeEach(() => { setUsageSnapshotReader(snapshot(10)) })
 
