@@ -627,9 +627,45 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # Does an installed claude actually LAUNCH? On an AVX-less x86 host the official
 # installer's Bun standalone binary SIGILLs / hangs on start, so `command -v`
-# alone is not enough -- we verify it runs (with a timeout so a hanging Bun
-# binary cannot wedge the installer).
-_claude_runs() { command -v claude >/dev/null 2>&1 && timeout 25 claude --version </dev/null >/dev/null 2>&1; }
+# alone is not enough -- we verify it runs. `--version` is NOT that probe:
+# measured 2026-09-23 on the AVX-less pilot VPS (CLIRUNSVERZIO923), the
+# 2.1.200+ Bun ELF answers `--version` with exit 0 and then spins silently on a
+# real prompt, so a host that already carries a latest claude would pass the
+# gate and get an install on which no agent prompt ever runs. The probe is a
+# real `-p` prompt, made auth-free on purpose: an isolated EMPTY config dir and
+# the auth env unset make a healthy CLI exit 1 within ~2 s ("Not logged in",
+# JSON on stdout, no API call, nothing written to the real config), while a Bun
+# binary without AVX either SIGILLs (exit 132) or hangs until `timeout` (124).
+# "Runs" therefore means: exited on its own with a code below 124.
+_claude_runs() {
+  command -v claude >/dev/null 2>&1 || return 1
+  local probe_cfg rc
+  probe_cfg="$(mktemp -d 2>/dev/null || echo "/tmp/claude-probe-$$")"
+  mkdir -p "$probe_cfg"
+  env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
+    CLAUDE_CONFIG_DIR="$probe_cfg" DISABLE_AUTOUPDATER=1 \
+    timeout "${CLAUDE_PROBE_TIMEOUT:-25}" claude -p 'ping' --max-turns 1 --output-format json \
+    </dev/null >/dev/null 2>&1
+  rc=$?
+  rm -rf "$probe_cfg"
+  # 124 = hung until timeout, 125-127 = could not even exec, 128+ = killed by a signal (SIGILL/SIGSEGV)
+  [ "$rc" -lt 124 ]
+}
+# A claude that is on PATH but does not launch (typically the official
+# installer's Bun ELF at ~/.local/bin/claude) would keep SHADOWING the pinned
+# Node build: ~/.local/bin is first on PATH and `npm -g` lands in /usr/bin or
+# ~/.npm-global. Move it aside (reversible: <path>.avx-broken) so the pin wins.
+_shelve_broken_claude() {
+  local p
+  p="$(command -v claude 2>/dev/null || true)"
+  [ -n "$p" ] || return 0
+  if mv "$p" "${p}.avx-broken" 2>/dev/null; then
+    warn "A mar telepitett claude ($p) AVX nelkul nem indul; felretettem: ${p}.avx-broken"
+  else
+    warn "A mar telepitett claude ($p) AVX nelkul nem indul, es nem tudtam felretenni -- a pinnelt verziot arnyekolhatja."
+  fi
+  hash -r
+}
 
 # Pinned Node-based fallback for AVX-less hosts. @2.1.110 is the LAST version
 # that ships bin=cli.js (a `#!/usr/bin/env node` entrypoint) running without
@@ -641,6 +677,9 @@ CLAUDE_PIN="2.1.110"
 if _claude_runs; then
   ok "claude mar telepitve es fut: $(claude --version 2>/dev/null || echo 'ok')"
 else
+  # Present on PATH but did not launch (the probe above failed while the
+  # binary exists): remembered here so the AVX-less branch can shelve it.
+  CLAUDE_PREEXISTING_BROKEN="$(command -v claude 2>/dev/null || true)"
   # AVX pre-flight: the official installer's Bun binary needs AVX. Only x86
   # (has a `flags :` line in /proc/cpuinfo) can lack it; ARM (`Features :`, no
   # `avx`) runs the arm64 Bun binary fine, so it takes the official path.
@@ -652,6 +691,7 @@ else
     # interactive shells; channels.sh exports it for the agent sessions).
     ensure_in_rc 'DISABLE_AUTOUPDATER' 'export DISABLE_AUTOUPDATER=1'
     export DISABLE_AUTOUPDATER=1
+    [ -n "${CLAUDE_PREEXISTING_BROKEN:-}" ] && _shelve_broken_claude
     if command -v npm >/dev/null 2>&1; then
       # NPMPERM1: nodesource-os gepen a globalis node_modules root-tulajdonu
       # lehet. Auto-mod: nem kerdez, sudo-ra valt lathato megjegyzessel.
@@ -2332,6 +2372,16 @@ else
   ok "${CHANNEL_PROVIDER} plugin ellenorizve"
 fi
 
+# INSTPAIRPATH930: the access.json the pairing must read AND write. channels.sh moves the
+# shared $HOME/.claude/channels/<provider> dir into the install on its first start (#915,
+# scripts/channels.sh MAIN_CHAN_DIR), and the plugin writes the pending code there, so the
+# install-scoped file wins; the legacy path is only the fallback for a bridge that has not
+# migrated yet. Resolved AFTER the code is typed in, when the bot has already answered.
+_pairing_access_file() {
+  local scoped="$INSTALL_DIR/.claude/channels/$CHANNEL_PROVIDER/access.json"
+  if [ -f "$scoped" ]; then echo "$scoped"; else echo "$CHANNEL_DIR/access.json"; fi
+}
+
 # ─────────────────────────────────────────────
 # Channel pairing (Telegram only; Slack uses OAuth / App install)
 # ─────────────────────────────────────────────
@@ -2339,7 +2389,6 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ -n "$BOT_TOKEN" ]; then
   echo ""
   echo -e "${BOLD}Telegram parositas${NC}"
 
-  ACCESS_FILE="$CHANNEL_DIR/access.json"
 
   # Is the Telegram bridge actually running?
   #
@@ -2393,6 +2442,7 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ -n "$BOT_TOKEN" ]; then
     read -rp "$(_t prompt_pair_code)" PAIR_CODE
 
     if [ -n "$PAIR_CODE" ]; then
+      ACCESS_FILE="$(_pairing_access_file)"
       if [ ! -f "$ACCESS_FILE" ]; then
         warn "access.json nem talalhato: $ACCESS_FILE"
         echo -e "  ${DIM}Bizonyosodj meg rola, hogy a bot futott amikor uzeneteket kuldtel neki.${NC}"

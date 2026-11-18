@@ -803,7 +803,11 @@ ok "$(_t macos.npm_done)"
 # Build TypeScript
 INSTALL_STEP="typescript-build"
 echo -e "$(_t macos.building)"
-if ! npm run build --loglevel warn; then
+# Same PATH pin as npm ci/install above: a bare `npm run build` resolves the
+# generic Homebrew `node`, which may be a different major -- or broken outright
+# (a node bottle linked against a simdjson dylib that a later brew upgrade
+# removed aborts in dyld, and the install died here with node@22 present).
+if ! PATH="$NODE_BIN_DIR:$PATH" npm run build --loglevel warn; then
   fail "TypeScript forditas sikertelen. Ellenorizd a hibauzeneteket fentebb."
 fi
 ok "$(_t macos.ts_built)"
@@ -1457,6 +1461,9 @@ DASHBOARD_PLIST="com.${SERVICE_ID}.dashboard"
 CHANNELS_PLIST="com.${SERVICE_ID}.channels"
 
 # Dashboard service
+# ISSUE2490 (b1): TERM and LANG exactly as the channels plist below. After a reboot either job can be the one that
+# creates the tmux server (the dashboard's worker session often wins, agent-worker.ts), and the server's global
+# environment is its creator's: without these the whole fleet ran in a server with no TERM and no LANG.
 cat > "$PLIST_DIR/${DASHBOARD_PLIST}.plist" << PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1485,6 +1492,10 @@ cat > "$PLIST_DIR/${DASHBOARD_PLIST}.plist" << PLISTEOF
     <string>${NODE_BIN_DIR}:${HOME}/.local/bin:/opt/homebrew/bin:${HOME}/.bun/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>HOME</key>
     <string>${HOME}</string>
+    <key>TERM</key>
+    <string>xterm-256color</string>
+    <key>LANG</key>
+    <string>${LANG:-en_US.UTF-8}</string>
   </dict>
   <key>SoftResourceLimits</key>
   <dict>
@@ -1634,6 +1645,16 @@ else
 fi
 
 # Channel pairing flow (Telegram only; Slack uses OAuth / App install)
+# INSTPAIRPATH930: the access.json the pairing must read AND write. channels.sh moves the
+# shared $HOME/.claude/channels/<provider> dir into the install on its first start (#915,
+# scripts/channels.sh MAIN_CHAN_DIR), and the plugin writes the pending code there, so the
+# install-scoped file wins; the legacy path is only the fallback for a bridge that has not
+# migrated yet. Resolved AFTER the code is typed in, when the bot has already answered.
+_pairing_access_file() {
+  local scoped="$INSTALL_DIR/.claude/channels/$CHANNEL_PROVIDER/access.json"
+  if [ -f "$scoped" ]; then echo "$scoped"; else echo "$CHANNEL_DIR/access.json"; fi
+}
+
 if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ -n "$BOT_TOKEN" ]; then
   echo ""
   echo -e "${BOLD}$(_t macos.tg_pairing_title)${NC}"
@@ -1645,7 +1666,7 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ -n "$BOT_TOKEN" ]; then
   echo ""
   read -rp "$(_t prompt_pair_code)" PAIR_CODE
   if [ -n "$PAIR_CODE" ]; then
-    ACCESS_FILE="$CHANNEL_DIR/access.json"
+    ACCESS_FILE="$(_pairing_access_file)"
     if [ -f "$ACCESS_FILE" ]; then
       # Get the chat ID from the pending pairing in access.json
       PENDING_CHAT_ID=$(PAIR_CODE="$PAIR_CODE" python3 -c "
@@ -1683,6 +1704,10 @@ with open('$ACCESS_FILE', 'w') as f:
         echo -e "  ${ORANGE}A kod nem talalhato az access.json-ban.${NC}"
         echo -e "  ${DIM}Probald kesobb a terminalban: claude, majd /telegram:access pair $PAIR_CODE${NC}"
       fi
+    else
+      # INSTPAIRPATH930: a missing file used to skip the pairing in silence.
+      warn "access.json nem talalhato: $ACCESS_FILE"
+      echo -e "  ${DIM}Bizonyosodj meg rola, hogy a bot futott amikor uzeneteket kuldtel neki.${NC}"
     fi
   else
     echo -e "  ${DIM}$(_t macos.pairing_later)${NC}"
