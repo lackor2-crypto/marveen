@@ -1018,7 +1018,10 @@ STATE_DIR_ENV="export ${STATE_ENV_VAR}='${MAIN_CHAN_DIR}' && "
 # plugin dies in a restart loop, on a headless box where /login is impossible.
 # Creating the server ourselves makes set-environment -g always land, which is
 # what the fix intended. start-server is idempotent and cheap.
-$TMUX start-server 2>/dev/null || true
+# #932/TMUXSERVERREAP929: start the shared server WITHOUT this shell's channel state-dir var (exported above for
+# THIS session only), otherwise it lands in the server's global environment and every sub-agent session inherits
+# the MAIN session's channel dir (measured on the live server 2026-11-18).
+env -u "$STATE_ENV_VAR" $TMUX start-server 2>/dev/null || true
 if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   $TMUX set-environment -g CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN" 2>/dev/null || true
 fi
@@ -1054,8 +1057,10 @@ $TMUX set-environment -g DISABLE_AUTOUPDATER 1 2>/dev/null || true
 # just THIS session first -- never the server, never another agent's session --
 # otherwise new-session below fails with "duplicate session".
 $TMUX kill-session -t "=$SESSION:" 2>/dev/null || true
-$TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$INSTALL_DIR" \
+env -u "$STATE_ENV_VAR" $TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$INSTALL_DIR" \
   "${STATE_DIR_ENV}${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
+# A server polluted by an earlier launch (before this fix) is cleaned here; the pane got the var from its own export.
+$TMUX set-environment -g -u "$STATE_ENV_VAR" 2>/dev/null || true
 # remain-on-exit: without this, if the pane's claude process dies for ANY
 # reason (crashed plugin, OOM, a reap step killing its poller out from under
 # it) while it is the session's only window, tmux auto-closes the pane AND
@@ -1143,7 +1148,7 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
         # invasive change (a stable fallback dir + a seeded ~/.claude.json project
         # entry); see the PR description / card 7EB18437.
         [ -e "$INSTALL_DIR/CLAUDE.md" ] && ln -sf "$INSTALL_DIR/CLAUDE.md" "$_CHANNELS_STARTDIR/CLAUDE.md" 2>/dev/null || true
-        $TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$_CHANNELS_STARTDIR" \
+        env -u "$STATE_ENV_VAR" $TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$_CHANNELS_STARTDIR" \
           "${STATE_DIR_ENV}${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
         # See the primary new-session above: remain-on-exit keeps the pane
         # (and session) alive if claude dies early, so the scheduled relaunch
