@@ -7,10 +7,8 @@
     "allow": [
       "Read(${INSTALL_DIR}/**)",
       "Read(${AGENT_DIR}/**)",
-      "Write(${AGENT_DIR}/**)",
       "Edit(${AGENT_DIR}/**)",
       "Read(/tmp/**)",
-      "Write(/tmp/**)",
       "Bash(git status:*)",
       "Bash(git log:*)",
       "Bash(git diff:*)",
@@ -31,9 +29,6 @@
       "WebSearch(*)"
     ],
     "deny": [
-      "Write(${INSTALL_DIR}/src/**)",
-      "Write(${INSTALL_DIR}/web/**)",
-      "Write(${INSTALL_DIR}/scripts/**)",
       "Edit(${INSTALL_DIR}/src/**)",
       "Edit(${INSTALL_DIR}/web/**)",
       "Edit(${INSTALL_DIR}/scripts/**)",
