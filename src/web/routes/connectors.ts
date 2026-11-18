@@ -8,6 +8,18 @@ import { promisify } from 'node:util'
 // Async exec: a sync exec of `claude mcp ...` / unzip / cp blocks the whole
 // dashboard event loop for the duration of the child (up to 30 s).
 const execAsync = promisify(exec)
+
+// #932 (upstream #2187/#2216): every `claude mcp add|remove` rewrites the same ~/.claude.json, so the CLI operations run
+// one at a time (a double click on "install", an uninstall racing an add of the same name must not interleave), and the
+// DELETE that read-modify-writes ~/.claude.json and every .mcp.json holds the same slot, so it never overlaps a CLI child.
+// A multi-call operation (the uninstall's user-then-project fallback) holds one slot for all of its calls.
+let claudeMcpQueue: Promise<unknown> = Promise.resolve()
+
+function serializeClaudeMcp<T>(op: () => Promise<T>): Promise<T> {
+  const run = claudeMcpQueue.then(op)
+  claudeMcpQueue = run.catch(() => {})
+  return run
+}
 import { PROJECT_ROOT, OLLAMA_URL } from '../../config.js'
 import { logger } from '../../logger.js'
 import {
@@ -485,7 +497,8 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
       if ((data.type === 'http' || data.type === 'sse') && data.url) {
         const transport = data.type === 'sse' ? 'sse' : 'http'
-        await execAsync(`claude mcp add --transport ${transport} ${scopeFlag} ${shellEscape(sanitizedName)} ${shellEscape(data.url)} 2>&1`, { timeout: 15000, encoding: 'utf-8' })
+        const remoteUrl: string = data.url
+        await serializeClaudeMcp(() => execAsync(`claude mcp add --transport ${transport} ${scopeFlag} ${shellEscape(sanitizedName)} ${shellEscape(remoteUrl)} 2>&1`, { timeout: 15000, encoding: 'utf-8' }))
         catalogEntry.type = 'remote'
         catalogEntry.url = data.url
         catalogEntry.transport = transport
@@ -496,7 +509,8 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
           Object.entries(data.env || {}).filter(([, v]) => v !== ''),
         ) as Record<string, string>
         const argsStr = data.args ? data.args.split(/\s+/).filter(Boolean).map(a => shellEscape(a)).join(' ') : ''
-        await execAsync(`claude mcp add ${scopeFlag} ${shellEscape(sanitizedName)} -- ${shellEscape(data.command)} ${argsStr} 2>&1`, { timeout: 15000, encoding: 'utf-8' })
+        const stdioCommand: string = data.command
+        await serializeClaudeMcp(() => execAsync(`claude mcp add ${scopeFlag} ${shellEscape(sanitizedName)} -- ${shellEscape(stdioCommand)} ${argsStr} 2>&1`, { timeout: 15000, encoding: 'utf-8' }))
         catalogEntry.type = 'local'
         catalogEntry.command = data.command
         catalogEntry.args = data.args ? data.args.split(/\s+/).filter(Boolean) : []
@@ -528,7 +542,6 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
   if (connectorDetailMatch && method === 'DELETE' && !path.includes('/assign')) {
     const name = decodeURIComponent(connectorDetailMatch[1])
-    let removed = 0
     const mcpFiles = [
       join(PROJECT_ROOT, '.mcp.json'),
       join(homedir(), '.claude.json'),
@@ -549,16 +562,23 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
     for (const extPath of getExternalProjectPaths()) {
       mcpFiles.push(join(extPath, '.mcp.json'))
     }
-    for (const mcpPath of mcpFiles) {
-      try {
-        const parsed = JSON.parse(readFileOr(mcpPath, '{}'))
-        if (parsed.mcpServers && parsed.mcpServers[name]) {
-          delete parsed.mcpServers[name]
-          atomicWriteFileSync(mcpPath, JSON.stringify(parsed, null, 2))
-          removed++
-        }
-      } catch { /* skip unreadable files */ }
-    }
+    // Must not interleave with a running `claude mcp add/remove` child that rewrites the same ~/.claude.json,
+    // so hold the CLI slot for the whole loop. The per-file try/catch stays inside, so an unreadable file can never
+    // reject the queued operation.
+    const removed = await serializeClaudeMcp(async () => {
+      let count = 0
+      for (const mcpPath of mcpFiles) {
+        try {
+          const parsed = JSON.parse(readFileOr(mcpPath, '{}'))
+          if (parsed.mcpServers && parsed.mcpServers[name]) {
+            delete parsed.mcpServers[name]
+            atomicWriteFileSync(mcpPath, JSON.stringify(parsed, null, 2))
+            count++
+          }
+        } catch { /* skip unreadable files */ }
+      }
+      return count
+    })
     if (removed > 0) {
       purgeFromMcpListCache(name)
       json(res, { ok: true, removed })
@@ -725,7 +745,7 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
         const argsStr = (item.args || []).map((a: string) => shellEscape(a)).join(' ')
         const cmd = `claude mcp add --scope user ${shellEscape(cliName)} ${envFlags} -- ${shellEscape(item.command)} ${argsStr} 2>&1`
-        await execAsync(cmd, { timeout: 30000, encoding: 'utf-8' })
+        await serializeClaudeMcp(() => execAsync(cmd, { timeout: 30000, encoding: 'utf-8' }))
         if (Object.keys(userSecrets).length) {
           vaultAndBindEnvSecrets(cliName, join(homedir(), '.claude.json'), userSecrets)
         }
@@ -735,7 +755,7 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
         // Respect the catalog item's transport (http/sse) instead of forcing sse,
         // so one-click remote installs can use streamable-http (e.g. n8n).
         const transport = item.transport === 'http' ? 'http' : 'sse'
-        await execAsync(`claude mcp add --transport ${transport} --scope user ${shellEscape(cliName)} ${shellEscape(url)} 2>&1`, { timeout: 30000, encoding: 'utf-8' })
+        await serializeClaudeMcp(() => execAsync(`claude mcp add --transport ${transport} --scope user ${shellEscape(cliName)} ${shellEscape(url)} 2>&1`, { timeout: 30000, encoding: 'utf-8' }))
       }
 
       let message = 'Telepítve'
@@ -760,13 +780,15 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
       if (!item) { json(res, { error: 'Item not found in catalog' }, 404); return true }
 
       const cliName = item.id
-      try {
-        await execAsync(`claude mcp remove ${shellEscape(cliName)} -s user 2>&1`, { timeout: 15000 })
-      } catch {
+      await serializeClaudeMcp(async () => {
         try {
-          await execAsync(`claude mcp remove ${shellEscape(cliName)} -s project 2>&1`, { timeout: 15000 })
-        } catch { /* ignore if not found anywhere */ }
-      }
+          await execAsync(`claude mcp remove ${shellEscape(cliName)} -s user 2>&1`, { timeout: 15000 })
+        } catch {
+          try {
+            await execAsync(`claude mcp remove ${shellEscape(cliName)} -s project 2>&1`, { timeout: 15000 })
+          } catch { /* ignore if not found anywhere */ }
+        }
+      })
 
       json(res, { ok: true, message: 'Eltávolítva' })
     } catch (err: any) {
