@@ -346,12 +346,13 @@ describe('index.ts wires the install check to the real attribution (#1870)', () 
   // The pure tests above drive a mock ctx; this pins that the production ctx
   // answers processBelongsToThisInstall with the same argv/cwd attribution the
   // binary-pattern path uses, not with a constant.
-  it('processBelongsToThisInstall reads the argv and calls argvBelongsToThisInstall', () => {
+  it('processBelongsToThisInstall reads the argv from /proc (no sync child process) and calls argvBelongsToThisInstall', () => {
     const src = readFileSync(new URL('../index.ts', import.meta.url), 'utf-8')
     const start = src.indexOf('processBelongsToThisInstall(pid: number): boolean {')
     expect(start).toBeGreaterThan(0)
     const body = src.slice(start, src.indexOf('getProcessUid(pid: number)', start))
-    expect(body).toContain("['-p', String(pid), '-o', 'args=']")
+    expect(body).toContain('/proc/${pid}/cmdline')
+    expect(body).not.toContain('execFileSync')
     expect(body).toContain('argvBelongsToThisInstall(argv, pid)')
     expect(body).not.toMatch(/return true\b/)
   })

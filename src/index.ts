@@ -185,13 +185,14 @@ function buildProcessLockContext(): ProcessLockContext {
     processBelongsToThisInstall(pid: number): boolean {
       // The same attribution the binary-pattern path applies in
       // listOwnProcessesMatching: argv under PROJECT_ROOT, or cwd under it.
-      // A PID that is gone (no argv) is not ours to signal.
+      // A PID that is gone (no cwd) is not ours to signal. The argv comes from
+      // /proc (no child process: the #897 gate forbids a new synchronous one on the
+      // main thread); without /proc the cwd check inside argvBelongsToThisInstall decides.
+      let argv = ''
       try {
-        const argv = execFileSync('/bin/ps', ['-p', String(pid), '-o', 'args='], { timeout: 2000, encoding: 'utf-8' }).trim()
-        return argv !== '' && argvBelongsToThisInstall(argv, pid)
-      } catch {
-        return false
-      }
+        argv = readFileSync(`/proc/${pid}/cmdline`, 'utf-8').split('\0').join(' ').trim()
+      } catch { /* not Linux or process gone: cwd attribution below */ }
+      return argvBelongsToThisInstall(argv, pid)
     },
     getProcessUid(pid: number): number | null {
       try {
