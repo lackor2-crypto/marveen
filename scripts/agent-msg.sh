@@ -28,7 +28,12 @@ set -uo pipefail
 
 # base dir = the parent of this script's dir (scripts/..), so it works from any CWD / any install
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORT="${MARVEEN_WEB_PORT:-3420}"
+# Dashboard port, the doctor.sh chain: MARVEEN_WEB_PORT, then WEB_PORT from the environment, then WEB_PORT from
+# this install's .env, then 3420. An agent's tmux session sets neither variable, so on an install with a
+# non-default WEB_PORT the env-only lookup sent every message to 3420 (upstream #1869). The trailing `true`
+# keeps a missing .env from ending the script under set -e/pipefail.
+PORT="${MARVEEN_WEB_PORT:-${WEB_PORT:-$(sed -n 's/^WEB_PORT=//p' "$BASE/.env" 2>/dev/null | head -1 | tr -d ' "'"'"''; true)}}"
+PORT="${PORT:-3420}"
 API_BASE="${MARVEEN_API_BASE:-http://localhost:${PORT}}"
 API_BASE="${API_BASE%/}"
 TOKEN_FILE="${MARVEEN_TOKEN_FILE:-$BASE/store/.dashboard-token}"
@@ -48,6 +53,10 @@ FROM="${1:?from required}"; TO="${2:?to required}"; C="${3:?content required (or
 [ "$C" = "-" ] && C="$(cat)"
 [ -r "$TOKEN_FILE" ] || { echo "FAIL: no token file at $TOKEN_FILE"; exit 1; }
 TOKEN="$(cat "$TOKEN_FILE")"
+# An exported TOKEN in the caller's environment keeps its export attribute through the assignment above (Dani
+# 65583, measured): drop it, so no child process (curl among them) gets the dashboard token in its environment.
+export -n TOKEN
+[ -n "$TOKEN" ] || { echo "FAIL: the token file at $TOKEN_FILE is empty; nothing was sent"; exit 1; }
 
 BODY="$(FROM="$FROM" TO="$TO" C="$C" CARD="$CARD" python3 -c 'import json,os
 b={"from":os.environ["FROM"],"to":os.environ["TO"],"content":os.environ["C"]}
@@ -57,7 +66,7 @@ print(json.dumps(b))')"
 attempt=0; max=3; CODE=""; ID=""
 while [ "$attempt" -lt "$max" ]; do
   attempt=$((attempt+1))
-  RESP="$(curl -s -X POST "$URL" -H "Content-Type: application/json" -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") -d "$BODY" -w $'\n%{http_code}' 2>/dev/null || true)"
+  RESP="$(printf '%s' "$BODY" | curl -s -X POST "$URL" -H "Content-Type: application/json" -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") --data-binary @- -w $'\n%{http_code}' 2>/dev/null || true)"
   CODE="$(printf '%s' "$RESP" | tail -n1)"
   JSON="$(printf '%s' "$RESP" | sed '$d')"
   # An id ALONE is not delivery. The router answers 200 WITH an id even when the
