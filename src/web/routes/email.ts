@@ -28,7 +28,7 @@ import { getSecret } from '../vault.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import type { RouteContext } from './types.js'
 import { registerRecoveryMailPort } from '../password-recovery.js'
-import { registerMailboxEngine, sendMail, saveDraft, replyOrForward, sendingAccounts, composeTarget, envelopeLanded } from '../../mail-send.js'
+import { registerMailboxEngine, sendMail, saveDraft, replyOrForward, sendingAccounts, composeTarget, envelopeLanded, smtpFilesSentCopy } from '../../mail-send.js'
 import { registerSentMailPort } from '../../workbench-sent-detect.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
@@ -166,8 +166,8 @@ async function himalayaRead(args: string[]): Promise<HimalayaResult> {
 const himalaya = himalayaOnce
 
 /** #934: after a failed `compose --save`, is the message in the folder anyway? Unknown (lookup failed) counts as "no". */
-async function composeLandedInFolder(args: string[], sinceMs: number): Promise<boolean> {
-  const target = composeTarget(args)
+async function composeLandedInFolder(args: string[], sinceMs: number, landedIn = ''): Promise<boolean> {
+  const target = composeTarget(args, landedIn)
   if (!target) return false
   // A just-appended message can take a moment to show in the folder listing (measured 2026-11-17: the first look came up
   // empty, the draft was there a second later and a retry then filed it twice), so look a few times before saying "no".
@@ -215,16 +215,23 @@ registerRecoveryMailPort({
 registerMailboxEngine({
   accounts: () => getAccounts().map((a) => ({ id: a.id, address: accountEmail(a.id) })),
   // A send runs ONCE (himalayaOnce): a retried `--send` could send the letter twice.
-  run: async (args) => {
+  run: async (args, opts) => {
     const t0 = Date.now()
     const r = await himalaya(args)
     if (r.ok) return { ok: true, detail: '' }
     const text = himalayaErrorText(r)
     // #934: a big message is sent/saved and himalaya then exits 1 -- the folder, not the exit code, tells.
-    if (await composeLandedInFolder(args, t0)) { logger.warn(`[email] himalaya exited non-zero but the message is in its folder, treated as done: ${text}`); return { ok: true, detail: '' } }
+    if (await composeLandedInFolder(args, t0, opts?.landedIn)) { logger.warn(`[email] himalaya exited non-zero but the message is in its folder, treated as done: ${text}`); return { ok: true, detail: '' } }
     return { ok: false, detail: text }
   },
   sentFolder: (account) => mailboxFor(account, 'sent'),
+  // #939: Gmail files a sent message into Sent itself, so the app does not upload it there a second time.
+  filesSentCopy: (account) => {
+    try {
+      const config = parseToml(readFileSync(HIMALAYA_CONFIG, 'utf8')) as any
+      return smtpFilesSentCopy(config.accounts?.[account]?.smtp?.server)
+    } catch { return false }
+  },
   changed: (account, folder) => invalidateEnvelopeCache(account, folder),
   // #725/#726 (Boss TG 4003: the first press did not put the draft in, the second did): the folder lookup and the compose call
   // both retry the transient failure -- see email-draft-save.ts. A draft is never sent, so retrying it is safe.
@@ -1510,11 +1517,11 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   // POST /api/email/compose -- brand-new message, not tied to any existing
   // one (unlike /reply and /forward above, which both derive recipients/
   // subject from a source message id). `message compose` is himalaya's own
-  // flag-based composer; --send pushes it straight through SMTP, --save
-  // additionally appends a copy into the account's Sent mailbox so it shows
-  // up in the dashboard's own Sent list right away (Gmail itself does this
-  // automatically over its own web client, but a raw SMTP send bypasses
-  // that -- IMAP APPEND is the only way to get the same effect here).
+  // flag-based composer; --send pushes it straight through SMTP. A server that
+  // does not file the sent message itself gets --save (an IMAP APPEND into the
+  // account's Sent mailbox, so it shows up in the Sent list right away). Gmail
+  // DOES file it itself (measured 2026-11-20, #939), and the APPEND would upload
+  // the whole message a second time at 2 Mbit/s, so there it is left out.
   if (path === '/api/email/compose' && method === 'POST') {
     // Base64 uploads ride in the JSON: room for the 25 MB mail limit plus the encoding overhead.
     const body = await readBody(req, { maxBytes: Math.ceil(EMAIL_ATTACH_LIMIT * 1.4) + 1024 * 1024 })
