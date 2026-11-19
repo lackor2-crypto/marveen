@@ -367,7 +367,12 @@ DIRTY=$(git status --porcelain --untracked-files=no | grep -vE ' HEARTBEAT\.md$'
 if [ -n "$DIRTY" ]; then
   if [ "${AUTO_STASH:-0}" = "1" ]; then
     echo -e "  Lokalis valtozasok stash-elve (auto-stash)..."
-    if ! git stash push -u -m "marveen-update-auto-stash $(date +%Y%m%d-%H%M%S)"; then
+    # Tracked changes only, no -u (upstream #2835). With -u every untracked file went into the stash as a blob, and after
+    # the pop those blobs stayed behind as unreachable objects: an install with a large untracked folder (e.g. a local
+    # model or a dataset) grew .git/objects by its full size on every stash update. The guard above never looks at
+    # untracked files, and a fast-forward leaves them where they are. The one case they matter, an upstream commit
+    # adding a tracked file at the same path, stops the pull loudly below, with the local file untouched.
+    if ! git stash push -m "marveen-update-auto-stash $(date +%Y%m%d-%H%M%S)"; then
       if [[ "${MARVEEN_LANG:-hu}" == "en" ]]; then
         echo -e "${RED}ERROR:${NC} Auto-stash failed. Check: git status"
       else
