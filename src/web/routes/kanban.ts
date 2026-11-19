@@ -25,7 +25,7 @@ import { ensureApprovalForWaitingCard, withdrawApprovalForCardLeavingWaiting } f
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
 import { MAX_LABEL_PALETTE_ENTRIES, resolveLabelColor } from '../../css-color.js'
-import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
+import { readBody, json, jsonMaybeGzip, methodNotAllowed } from '../http-helpers.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { applyCardLabels } from '../kanban-labels.js'
 import type { RouteContext } from './types.js'
@@ -245,6 +245,10 @@ export function buildHeartbeatSummaryResponse(
     waiting_shown: Math.min(summary.waiting.length, HEARTBEAT_SUMMARY_WAITING_CAP),
   }
 }
+
+// The methods the single-card path actually serves. One source, so the Allow header can never drift from the
+// branches it describes -- advertising a method that is not routed would send the caller further into the same fog.
+const KANBAN_CARD_METHODS = ['GET', 'PUT', 'DELETE'] as const
 
 export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
@@ -699,6 +703,15 @@ const archivedNote = (card: { archived_at: number | null } | undefined): { archi
     const card = getKanbanCard(id)
     if (!card) { json(res, { error: `Kártya nem található: ${id}` }, 404); return true }
     json(res, card)
+    return true
+  }
+
+  // Last, deliberately: every other single-card matcher above has had its turn, including the fixed paths that also
+  // happen to be one segment long (/api/kanban/archived among them). Reached only when the path IS a single-card
+  // path and the method is not one this route serves. Without it the request falls through to the server's
+  // catch-all 404, whose body cannot be told apart from "no such card" (upstream #1375).
+  if (path.match(/^\/api\/kanban\/([^/]+)$/)) {
+    methodNotAllowed(res, method, KANBAN_CARD_METHODS)
     return true
   }
 

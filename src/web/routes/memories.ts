@@ -1,7 +1,7 @@
 import { lastSearchRelaxed,
   saveAgentMemory, getAgentMemories, searchAgentMemories, getMemoryStats, updateMemory,
   hybridSearch, clearMemoryCache,
-  searchMemories, getMemoriesForChat, getDb, touchMemoriesAccessed,
+  searchMemories, getMemoriesForChat, getDb, touchMemoriesAccessed, escapeLike,
   type Memory,
 } from '../../db.js'
 import { startEmbeddingBackfill, getEmbeddingBackfillStatus } from '../../embedding-backfill.js'
@@ -109,15 +109,17 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
       relaxed = lastSearchRelaxed()
       if (results.length === 0) {
         const db2 = getDb()
-        results = db2.prepare("SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND (content LIKE ? OR keywords LIKE ?) ORDER BY accessed_at DESC LIMIT ?")
-          .all(agentId, `%${q}%`, `%${q}%`, fetchLimit) as Memory[]
+        // The query is escaped, so `%` and `_` in q are literal characters, not wildcards.
+        const pattern = `%${escapeLike(q)}%`
+        results = db2.prepare("SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND (content LIKE ? ESCAPE '\\' OR keywords LIKE ? ESCAPE '\\') ORDER BY accessed_at DESC LIMIT ?")
+          .all(agentId, pattern, pattern, fetchLimit) as Memory[]
       }
     } else if (q) {
       results = searchMemories(q, ALLOWED_CHAT_ID, fetchLimit)
       relaxed = lastSearchRelaxed()
       if (results.length === 0) {
         const db2 = getDb()
-        results = db2.prepare('SELECT * FROM memories WHERE content LIKE ? ORDER BY accessed_at DESC LIMIT ?').all(`%${q}%`, fetchLimit) as Memory[]
+        results = db2.prepare("SELECT * FROM memories WHERE content LIKE ? ESCAPE '\\' ORDER BY accessed_at DESC LIMIT ?").all(`%${escapeLike(q)}%`, fetchLimit) as Memory[]
       }
     } else if (agentId) {
       // Category goes into the query, not a post-filter: see getAgentMemories.

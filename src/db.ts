@@ -1746,9 +1746,10 @@ export function searchAgentMemories(agentId: string, query: string, limit: numbe
     ).all(terms, agentId, limit * RECENCY_OVERSAMPLE) as (Memory & { rank: number })[])
     return withoutRank(reRankByRecency(candidates, limit)) as Memory[]
   } catch {
+    const pattern = `%${escapeLike(query)}%`
     return db.prepare(
-      "SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND (content LIKE ? OR keywords LIKE ?) ORDER BY accessed_at DESC LIMIT ?"
-    ).all(agentId, `%${query}%`, `%${query}%`, limit) as Memory[]
+      "SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND (content LIKE ? ESCAPE '\\' OR keywords LIKE ? ESCAPE '\\') ORDER BY accessed_at DESC LIMIT ?"
+    ).all(agentId, pattern, pattern, limit) as Memory[]
   }
 }
 
@@ -1844,7 +1845,9 @@ function toBudapestTs(dateStr: string, endOfDay: boolean): number {
   return Math.floor((target.getTime() - offsetMs) / 1000)
 }
 
-function escapeLike(s: string): string {
+// Escapes a user query for `LIKE ? ESCAPE '\\'`: without it `%` and `_` in the query are wildcards, so a search for
+// q=% or q=_ matches every row.
+export function escapeLike(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
 }
 
@@ -4027,7 +4030,7 @@ export function queryAuditLog(opts: {
     if (from)  { logSql += ' AND created_at >= ?'; logParams.push(from) }
     if (to)    { logSql += ' AND created_at <= ?'; logParams.push(to) }
     if (agent) { logSql += ' AND agent_id = ?'; logParams.push(agent) }
-    if (q)     { logSql += ' AND content LIKE ?'; logParams.push(`%${q}%`) }
+    if (q)     { logSql += " AND content LIKE ? ESCAPE '\\'"; logParams.push(`%${escapeLike(q)}%`) }
     logSql += ' ORDER BY created_at DESC, id DESC LIMIT ?'; logParams.push(limit)
     const logRows = db.prepare(logSql).all(...logParams) as Array<{ id: number; agent_id: string; content: string; created_at: number }>
     for (const r of logRows) parts.push({ id: r.id, source: 'diary', created_at: r.created_at, agent_id: r.agent_id, content: r.content, entry_type: 'log' })
@@ -4038,7 +4041,7 @@ export function queryAuditLog(opts: {
     if (from)  { memSql += ' AND created_at >= ?'; memParams.push(from) }
     if (to)    { memSql += ' AND created_at <= ?'; memParams.push(to) }
     if (agent) { memSql += ' AND agent_id = ?'; memParams.push(agent) }
-    if (q)     { memSql += ' AND (content LIKE ? OR keywords LIKE ?)'; memParams.push(`%${q}%`, `%${q}%`) }
+    if (q)     { memSql += " AND (content LIKE ? ESCAPE '\\' OR keywords LIKE ? ESCAPE '\\')"; memParams.push(`%${escapeLike(q)}%`, `%${escapeLike(q)}%`) }
     memSql += ' ORDER BY created_at DESC, id DESC LIMIT ?'; memParams.push(limit)
     const memRows = db.prepare(memSql).all(...memParams) as Array<{ id: number; agent_id: string; content: string; category: string; keywords: string | null; created_at: number }>
     for (const r of memRows) parts.push({ id: r.id, source: 'diary', created_at: r.created_at, agent_id: r.agent_id, content: r.content, category: r.category, keywords: r.keywords ?? undefined, entry_type: 'memory' })
