@@ -42,19 +42,28 @@ export const BLIND_AFTER_MS = 10_000
 export const OS_SNAPSHOT_MS = 1500
 /** A stall that goes on is sampled again this often, at most SAMPLE_MAX times. */
 export const RESAMPLE_MS = 30_000
-export const SAMPLE_MAX = 6
+export const SAMPLE_MAX = 14
+/** #935: the first SAMPLE_BURST samples of one stall are taken back to back (one per poll), not RESAMPLE_MS apart: one stack
+ *  is a single frame of a film, and a stall made of many short synchronous calls names a random one of them. A burst gives a
+ *  distribution, and the summary record (kind 'summary') names the code that held the thread most often. */
+export const SAMPLE_BURST = 8
 export const STALL_SAMPLE_FILE = 'event-loop-stalls.jsonl'
 
 export type StackFrame = { fn: string; file: string; line: number }
+/** #935: one line of a summary: where the stuck thread was, and in how many of the stall's samples. */
+export type StallWhere = { where: string; n: number }
 /** One look at the blocked main thread. `inflight` is what the stuck thread could not tell: filled in afterwards. */
 export type StallSample = {
   at: number; stuckMs: number; pid: number; stack: StackFrame[]; inflight?: string[]
   /** Set while the thread is still inside one system call: no stack yet, only what the OS shows (Linux). */
   noStackYet?: boolean; state?: string; waitingFor?: string[]
   /** #929: 'os' = what the operating system showed while the main thread stood still (no stack in it). */
-  kind?: 'os'; wchan?: string; cpuTicksDuring?: number | null; load?: string
+  kind?: 'os' | 'summary'; wchan?: string; cpuTicksDuring?: number | null; load?: string
   psi?: Record<string, string[] | null>; vmDelta?: Record<string, number>; vmDeltaOverMs?: number
   hot?: Array<{ pid: number; state: string; cmd: string }>
+  /** #935 (kind 'summary', written when the stall is over): how many stacks were taken, and the code seen most often --
+   *  `ours` = the innermost frame that is not inside node itself (our code or a dependency), `top` = the innermost frame of all. */
+  samples?: number; ours?: StallWhere[]; top?: StallWhere[]
 }
 
 /**
@@ -65,10 +74,33 @@ export const STALL_SAMPLER_SOURCE = `
 const { workerData, parentPort } = require('node:worker_threads')
 const inspector = require('node:inspector')
 const fs = require('node:fs')
-const { sab, file, root, pollMs, afterMs, resampleMs, max, frames, pid, blindMs, osMs } = workerData
+const { sab, file, root, pollMs, afterMs, resampleMs, max, frames, pid, blindMs, osMs, burst } = workerData
 const beat = new Int32Array(sab)
 let last = Atomics.load(beat, 0), stuckSince = 0, taken = 0, nextAt = 0, busy = false, prevTick = performance.now()
 let askedAt = 0, blindTaken = 0, blindNextAt = 0
+// #935: every stack taken during the CURRENT stall; summarised (and cleared) when the main thread ticks again.
+let stallStacks = []
+const label = (f) => f.fn + ' (' + f.file + ':' + f.line + ')'
+function tally(keys) {
+  const m = new Map()
+  for (const k of keys) m.set(k, (m.get(k) || 0) + 1)
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([where, n]) => ({ where, n }))
+}
+function summarise(now) {
+  const stacks = stallStacks
+  stallStacks = []
+  if (!stacks.length) return
+  try {
+    const innerOurs = (st) => st.find((f) => f.file && !f.file.startsWith('node:'))
+    const rec = {
+      kind: 'summary', at: Date.now(), stuckMs: Math.round(now - stuckSince), pid, stack: [], samples: stacks.length,
+      ours: tally(stacks.map(innerOurs).filter(Boolean).map(label)),
+      top: tally(stacks.filter((st) => st.length).map((st) => label(st[0]))),
+    }
+    fs.appendFileSync(file, JSON.stringify(rec) + '\\n')
+    try { parentPort.postMessage(rec) } catch {}
+  } catch {}
+}
 // The inspector can only stop the main thread once it is back in JavaScript. While it sits inside ONE long system
 // call (an external program, a read on a hung drive) there is no stack yet -- so say what the operating system
 // shows instead: the process state and the programs it is waiting for. Linux only; elsewhere this writes nothing.
@@ -184,7 +216,8 @@ function sample() {
       const rec = { at: Date.now(), stuckMs: now - since, pid, stack }
       try { fs.appendFileSync(file, JSON.stringify(rec) + '\\n') } catch {}
       try { parentPort.postMessage(rec) } catch {}
-      taken++; nextAt = now + resampleMs
+      stallStacks.push(stack)
+      taken++; nextAt = taken < (burst || 0) ? 0 : now + resampleMs
       end()
     })
     // Not chained on callbacks: a blocked main thread answers nothing until it returns to JavaScript.
@@ -201,11 +234,12 @@ setInterval(() => {
   Atomics.add(beat, 1, 1)
   const cur = Atomics.load(beat, 0)
   // This thread did not run either (the machine slept, or the whole process was stopped): no evidence of a stall.
-  if (ownGap > pollMs * 5) { last = cur; stuckSince = 0; taken = 0; osTaken = false; return }
+  if (ownGap > pollMs * 5) { last = cur; stuckSince = 0; taken = 0; osTaken = false; stallStacks = []; return }
   if (cur !== last) {
     // The main thread runs again, yet the pause we asked for a minute ago never arrived: give that session up,
     // or this thread would wait for it forever and never sample again.
     if (busy && abandon && now - askedAt > 60000) abandon()
+    if (stuckSince) summarise(now)
     last = cur; stuckSince = 0; taken = 0; nextAt = 0; blindTaken = 0; blindNextAt = 0; osTaken = false
     // Healthy: remember the thread's CPU time and the kernel counters, so a stall can say what changed during it.
     cpuAtStart = readTicks()
@@ -301,6 +335,11 @@ export function recentStallSamples(): StallSample[] {
 export function noteStallSample(rec: StallSample): void {
   samples.unshift(rec)
   if (samples.length > KEEP) samples.length = KEEP
+  if (rec.kind === 'summary') {
+    logger.warn({ stuckMs: rec.stuckMs, samples: rec.samples, ours: rec.ours, top: rec.top },
+      'event loop stalled (#935): summary -- the code that held the main thread most often during this stall')
+    return
+  }
   if (rec.kind === 'os') {
     logger.warn({ stuckMs: Math.round(rec.stuckMs), state: rec.state, wchan: rec.wchan, cpuTicksDuring: rec.cpuTicksDuring, load: rec.load, psi: rec.psi, vmDelta: rec.vmDelta, hot: rec.hot },
       'event loop stalled (#929): what the operating system showed while the main thread stood still')
@@ -344,14 +383,14 @@ function startStallSampler(): void {
       workerData: {
         sab, file: join(STORE_DIR, STALL_SAMPLE_FILE), root: PROJECT_ROOT, pollMs: SAMPLER_POLL_MS,
         afterMs: SAMPLE_AFTER_MS, resampleMs: RESAMPLE_MS, max: SAMPLE_MAX, frames: 14, pid: process.pid,
-        blindMs: BLIND_AFTER_MS, osMs: OS_SNAPSHOT_MS,
+        blindMs: BLIND_AFTER_MS, osMs: OS_SNAPSHOT_MS, burst: SAMPLE_BURST,
       },
     })
     w.unref()
     w.on('message', (rec: StallSample) => {
       // The stuck thread could not say which requests it was holding; it can now.
-      rec.inflight = [...new Set(inflight.values())].slice(0, 10)
-      if (rec.inflight.length) {
+      if (rec.kind !== 'summary') rec.inflight = [...new Set(inflight.values())].slice(0, 10)
+      if (rec.inflight?.length) {
         try { appendFileSync(join(STORE_DIR, STALL_SAMPLE_FILE), JSON.stringify({ at: rec.at, pid: rec.pid, inflight: rec.inflight }) + '\n') } catch { /* evidence only */ }
       }
       noteStallSample(rec)
