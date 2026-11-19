@@ -34749,7 +34749,18 @@ async function emailComposeNewSubmit(asDraft) {
   sendBtn.disabled = true
   if (saveBtn) saveBtn.disabled = true
   const sendLabel = sendBtn.textContent
+  // #938: a big letter takes minutes (the upload to the mail server, then the copy into Sent). Show the elapsed time on the
+  // button and, after a while, say that it is working and must not be pressed again -- it looked frozen.
+  const sendNote = document.getElementById('emailComposeNewSendNote')
+  const sendStart = Date.now()
+  const sendTick = () => {
+    const sec = Math.floor((Date.now() - sendStart) / 1000)
+    const clock = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')
+    if (!asDraft) sendBtn.textContent = t('email.sending_elapsed', { t: clock })
+    if (sendNote && sec >= 10) { sendNote.textContent = t(asDraft ? 'email.saving_long' : 'email.sending_long', { t: clock }); sendNote.hidden = false }
+  }
   if (!asDraft) sendBtn.textContent = t('email.sending')
+  const sendTimer = setInterval(sendTick, 1000)
   try {
     const uploads = []
     for (const f of _emailComposeFiles) uploads.push({ name: f.name, data_base64: await emailReadFileBase64(f) })
@@ -34776,6 +34787,8 @@ async function emailComposeNewSubmit(asDraft) {
       loadEmailEnvelopes()
     } else if (emailMailbox === (asDraft ? emailDraftsMailbox() : emailSentMailbox())) loadEmailEnvelopes()
   } finally {
+    clearInterval(sendTimer)
+    if (sendNote) { sendNote.hidden = true; sendNote.textContent = '' }
     sendBtn.disabled = false
     if (saveBtn) saveBtn.disabled = false
     sendBtn.textContent = sendLabel
