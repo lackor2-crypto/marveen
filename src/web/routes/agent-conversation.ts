@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { json } from '../http-helpers.js'
 import { agentDir } from '../agent-config.js'
-import { resolveAgentConfigDir } from '../claude-plans.js'
+import { resolveAgentConfigDirForRead } from '../claude-plans.js'
 import { projectsDirFor } from '../active-model.js'
 import { isMainChannelsAgent } from '../main-agent.js'
 import { PROJECT_ROOT } from '../../config.js'
@@ -35,7 +35,12 @@ function workingDirFor(name: string): string {
 }
 
 function newestTranscript(name: string): string | null {
-  const configDir = isMainChannelsAgent(name) ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+  // resolveAgentConfigDirForRead, not a hard-coded undefined / resolveAgentConfigDir: the main agent may run
+  // under its own CLAUDE_CONFIG_DIR (e.g. ~/.claude-marvin) and a sub-agent under an auto-provisioned
+  // agents/<name>/.claude-config, neither of which resolveAgentConfigDir (what was CONFIGURED) knows. Reading the
+  // host default then shows an old transcript as if it were live (upstream #2716). Same reader as the context
+  // guard and the restart gate.
+  const configDir = resolveAgentConfigDirForRead(name) ?? undefined
   const dir = projectsDirFor(workingDirFor(name), configDir)
   try {
     if (!existsSync(dir)) return null

@@ -22,9 +22,8 @@ CLAUDE="${CLAUDE_BIN:-$(command -v claude)}"
 LOG="$INSTALL_DIR/store/morning.log"
 
 # Load config
-if [ -f "$INSTALL_DIR/.env" ]; then
-  export $(grep -v '^#' "$INSTALL_DIR/.env" | xargs)
-fi
+. "$INSTALL_DIR/scripts/lib/load-env.sh"
+load_env_file "$INSTALL_DIR/.env"
 
 # CHATID0: the "0" placeholder is not a chat -- the reply tool rejects it
 # ("chat 0 is not allowlisted"). Resolve like src/owner-chat.ts: .env first,
