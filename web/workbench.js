@@ -18015,7 +18015,11 @@
     Array.prototype.slice.call(page.querySelectorAll('.wb-dp-pagebreak-tr')).forEach(function (n) { n.remove() })
     Array.prototype.slice.call(page.querySelectorAll('.wb-dp-pagebreak')).forEach(function (n) { n.remove() })
     var d = WB.dpPages
-    if (!dpPagesOn() || !d || d.item !== WB.selectedId || d.hash !== dpPagesHash()) return
+    // #937: a redraw after a change (resizing the signature, a Style change) used to find the measurement's hash stale and drew NO
+    // lines and no fixed paper height until the new measurement came back (~2 s later): the sheet shrank, the content moved up,
+    // and then everything jumped back.  The previous lines stay until the new measurement replaces them (dpPagesSoon is
+    // already scheduled for the changed hash); a line whose block is gone is simply not drawn.
+    if (!dpPagesOn() || !d || d.item !== WB.selectedId) return
     d.marks.forEach(function (m) {
       // A page that begins INSIDE a table: the mark id is `<block id>#r<row>`; the line goes in as a row of its own.
       var tr = /^(.+)#r(\d+)$/.exec(String(m.id))
@@ -23745,7 +23749,14 @@
     WB.frZoom = v
     frZoomSave(v)
     var scs = typeof document.querySelectorAll === 'function' ? document.querySelectorAll('.wb-fr-scroll, .wb-fr-fixed') : []
+    // #937: keep the same place of the sheet in view while it changes size (the scroll offset scales with the height), and fit
+    // the type to the new width in the same step -- not a frame later, which showed the page at the old type size first.
+    var zsc = scs.length ? scs[0] : null
+    var zh0 = zsc ? zsc.scrollHeight : 0
+    var zt0 = zsc ? zsc.scrollTop : 0
     for (var zi = 0; zi < scs.length; zi++) scs[zi].style.setProperty('--wb-zoom', String(v / 100))
+    pageFit()
+    if (zsc && zh0 > 0) zsc.scrollTop = Math.round(zt0 * zsc.scrollHeight / zh0)
     var lbl = typeof document.querySelector === 'function' ? document.querySelector('.wb-fr-zoomval') : null
     if (lbl && 'textContent' in lbl) lbl.textContent = v + '%'
   })
@@ -26010,7 +26021,9 @@
       for (var i = 0; i < muts.length; i++) {
         var m = muts[i]
         if (m.type === 'attributes') { if (m.target.style && m.target.classList && (m.target.classList.contains('wb-dp-page') || m.target.classList.contains('wb-tw-page'))) continue }
-        pageFitSoon(); return
+        // #937: fit NOW, in this microtask -- it runs before the browser paints.  Waiting for the next animation frame let one
+        // frame show the redrawn page at the unfitted type size (the page height jumped, then jumped back).
+        pageFit(); return
       }
     }).observe(document.body, { childList: true, subtree: true })
   }

@@ -103,3 +103,28 @@ describe('the editor page scales its type with the text width, like the PDF', ()
     expect(css).toMatch(/\.wb-dp-free-move \{[^}]*z-index: 5/)
   })
 })
+
+describe('the page fit runs before the paint (#937: the page jumped when a signature was resized / the zoom moved)', () => {
+  // Measured in a real browser: after a redraw the page showed one frame at the unfitted type size (scroll height 3569 -> 2640 -> 3569).
+  it('the DOM observer fits synchronously, not in the next animation frame', () => {
+    const m = /new MutationObserver\(function \(muts\) \{([\s\S]*?)\}\)\.observe\(document\.body/.exec(js)
+    expect(m).not.toBeNull()
+    expect(m![1]).toMatch(/pageFit\(\); return/)
+    expect(m![1]).not.toContain('pageFitSoon')
+  })
+  it('the zoom slider fits the type to the new width in the same step and keeps the scroll place', () => {
+    const m = /e\.target\.id !== 'wbFrZoom'\) return([\s\S]*?)\n  \}\)/.exec(js)
+    expect(m).not.toBeNull()
+    expect(m![1]).toContain('pageFit()')
+    expect(m![1]).toContain('scrollTop')
+  })
+})
+
+describe('a redraw keeps the page lines of the last measurement until the new one arrives (#937)', () => {
+  it('dpPagesPaint does not drop the lines when only the content hash is stale', () => {
+    const m = /function dpPagesPaint\(\) \{([\s\S]*?)d\.marks\.forEach/.exec(js)
+    expect(m).not.toBeNull()
+    expect(m![1]).not.toContain('d.hash !==')
+    expect(m![1]).toContain('d.item !== WB.selectedId')
+  })
+})
