@@ -44,7 +44,9 @@ export const GOOGLE_ACCOUNT_ID = 'google'
 export interface MailboxEngine {
   accounts(): { id: string; address: string }[]
   /** Runs one himalaya command ONCE: a send is never retried (a retry could send it twice). */
-  run(args: string[]): Promise<{ ok: boolean; detail: string }>
+  run(args: string[], opts?: { landedIn?: string }): Promise<{ ok: boolean; detail: string }>
+  /** #939: does the account's SMTP server file a sent message into Sent by itself (Gmail does)? Then no copy is appended. */
+  filesSentCopy?(account: string): boolean
   /** The account's own Sent folder. */
   sentFolder(account: string): Promise<string>
   /** A message was added to `folder`: drop the cached list. */
@@ -64,19 +66,32 @@ export function composeArgs(account: string, from: string, mail: OutgoingMail, o
   if (mail.subject.trim()) args.push('-s', mail.subject.trim())
   args.push('--body', mail.body.trim() ? mail.body : '\n')
   if (opts.send) args.push('--send')
-  args.push('--save', opts.saveTo)
+  if (opts.saveTo) args.push('--save', opts.saveTo)
   for (const f of mail.attachments || []) args.push('--attach', f)
   return args
+}
+
+/**
+ * #939: an SMTP server that files every message it sends into the sender's Sent folder by itself. Measured 2026-11-20 on
+ * smtp.gmail.com: a message sent with no --save was in [Gmail]/Sent Mail in the same second, and the --save copy (an IMAP APPEND
+ * of the whole message again, 2 Mbit/s up to Gmail IMAP against 32 Mbit/s up to its SMTP) kept a 19 MB letter "sending"
+ * for 80 more seconds after Gmail already had it. Only servers measured to do this are listed.
+ */
+export function smtpFilesSentCopy(server: unknown): boolean {
+  const m = /^[a-z][a-z0-9+.-]*:\/\/([^/:]+)/i.exec(String(server ?? '').trim())
+  const host = (m ? m[1] : String(server ?? '')).toLowerCase()
+  return host === 'smtp.gmail.com' || host === 'smtp.googlemail.com'
 }
 
 /**
  * What a `compose --save` call was asked to put into a folder (read back from its arguments), or null when it saves nothing.
  * Used to decide, after himalaya exited non-zero, whether the message nevertheless landed (#934).
  */
-export function composeTarget(args: string[]): { account: string; folder: string; subject: string; to: string } | null {
+export function composeTarget(args: string[], landedIn = ''): { account: string; folder: string; subject: string; to: string } | null {
   if (args[2] !== 'message' || args[3] !== 'compose') return null
   const at = (flag: string): string => { const i = args.indexOf(flag); return i >= 0 ? String(args[i + 1] ?? '') : '' }
-  const folder = at('--save')
+  // A send without --save (#939) is still looked for in the folder the server files it into.
+  const folder = at('--save') || landedIn
   if (!folder) return null
   return { account: args[1] ?? '', folder, subject: at('-s'), to: at('-t') }
 }
@@ -183,7 +198,9 @@ export async function sendMail(accountId: string, mail: OutgoingMail): Promise<M
   let sent = ''
   try { sent = await engine.sentFolder(acc.id) } catch { sent = '' }
   if (!sent) return { ok: false, code: 'send_failed', detail: 'the Sent folder of the account could not be found' }
-  const r = await engine.run(composeArgs(acc.id, acc.address, mail, { send: true, saveTo: sent }))
+  // #939: where the server files its own copy, no second upload of the whole message into Sent; the folder is still checked.
+  const own = !!engine.filesSentCopy?.(acc.id)
+  const r = await engine.run(composeArgs(acc.id, acc.address, mail, { send: true, saveTo: own ? '' : sent }), own ? { landedIn: sent } : undefined)
   if (!r.ok) { logger.warn({ account: acc.id, detail: r.detail }, 'mail-send: send failed'); return { ok: false, code: 'send_failed', detail: r.detail } }
   engine.changed(acc.id, sent)
   logSent('sent', acc, mail, sent)
