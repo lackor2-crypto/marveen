@@ -9,7 +9,7 @@ import { _setPressureForTest, _resetPressureWatch, machineBusy } from '../machin
 import { noteGcPause } from '../web/event-loop-watch.js'
 import {
   _resetEventLoopWatch, noteLag, noteStallSample, recentStalls, recentStallSamples, trackRequest, watcherPolls,
-  startEventLoopWatch, TICK_MS, STALL_MS, STALL_SAMPLER_SOURCE, alertSevereStall, SEVERE_STALL_MS, SEVERE_ALERT_COOLDOWN_MS, trimStallSampleFile, SAMPLE_AFTER_MS, SAMPLER_POLL_MS,
+  startEventLoopWatch, TICK_MS, STALL_MS, STALL_SAMPLER_SOURCE, alertSevereStall, SEVERE_STALL_MS, SEVERE_ALERT_COOLDOWN_MS, trimStallSampleFile, SAMPLE_AFTER_MS, SAMPLER_POLL_MS, SAMPLE_BURST, SAMPLE_MAX,
 } from '../web/event-loop-watch.js'
 
 const fakeRes = () => new EventEmitter() as unknown as http.ServerResponse
@@ -44,7 +44,7 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
   afterEach(() => _resetEventLoopWatch())
 
   /** A throwaway process: main thread ticks, then blocks in `culprit`, then exits. Returns the sampled stacks. */
-  function runBlocked(culpritBody: string, withOs = false): Array<{ kind?: string; wchan?: string; cpuTicksDuring?: number | null; load?: string; psi?: Record<string, string[] | null>; hot?: unknown[]; stuckMs: number; pid: number; noStackYet?: boolean; state?: string; waitingFor?: string[]; stack: Array<{ fn: string; file: string; line: number }> }> {
+  function runBlocked(culpritBody: string, withOs = false, burst = 0): Array<{ kind?: string; samples?: number; ours?: Array<{ where: string; n: number }>; top?: Array<{ where: string; n: number }>; wchan?: string; cpuTicksDuring?: number | null; load?: string; psi?: Record<string, string[] | null>; hot?: unknown[]; stuckMs: number; pid: number; noStackYet?: boolean; state?: string; waitingFor?: string[]; stack: Array<{ fn: string; file: string; line: number }> }> {
     const dir = mkdtempSync(join(tmpdir(), 'stall-sampler-'))
     try {
       const out = join(dir, 'stalls.jsonl')
@@ -55,7 +55,7 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
         const sab = new SharedArrayBuffer(8)
         const beat = new Int32Array(sab)
         new Worker(${JSON.stringify(STALL_SAMPLER_SOURCE)}, { eval: true, workerData: {
-          sab, file: ${JSON.stringify(out)}, root: ${JSON.stringify(dir)}, pollMs: 100, afterMs: 300, resampleMs: 60000, max: 3, frames: 14, pid: process.pid, blindMs: 400, osMs: ${withOs ? 300 : 0},
+          sab, file: ${JSON.stringify(out)}, root: ${JSON.stringify(dir)}, pollMs: 100, afterMs: 300, resampleMs: 60000, max: ${burst ? 12 : 3}, burst: ${burst}, frames: 14, pid: process.pid, blindMs: 400, osMs: ${withOs ? 300 : 0},
         } }).unref()
         const tick = setInterval(() => Atomics.add(beat, 0, 1), 20)
         function culprit() { ${culpritBody} }
@@ -64,7 +64,8 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
       `)
       execFileSync(process.execPath, [script], { timeout: 30_000 })
       const all = readFileSync(out, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
-      return withOs ? all : all.filter((r: { kind?: string }) => r.kind !== 'os')
+      const wanted = all.filter((r: { kind?: string }) => burst ? true : r.kind !== 'summary')
+      return withOs ? wanted : wanted.filter((r: { kind?: string }) => r.kind !== 'os')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -116,6 +117,33 @@ describe('#554 stall sampler: names the code that blocks the main thread', () =>
     expect(wait[0].cpuTicksDuring).toBeLessThan(10)
     if (existsSync('/proc/pressure/io')) expect((spin[0].psi?.io || []).join(' ')).toContain('some')
   }, 60_000)
+
+  // #935: one stack per stall is a single frame of a film. Taken back to back, the samples of one stall add up to
+  // a distribution, and a summary record (written when the stall is over) names the code that held the thread most often.
+  it('#935: a stall is sampled in a burst, and the summary names the code that held the thread', () => {
+    const got = runBlocked(`
+      function holder() { const t = Date.now() + 15; while (Date.now() < t) { /* spin */ } }
+      const end = Date.now() + 2500; while (Date.now() < end) { holder() }
+    `, false, 8)
+    const stacks = got.filter((r) => r.kind !== 'summary' && !r.noStackYet)
+    // Back to back: more than the single sample the old spacing (one per RESAMPLE_MS) would have taken.
+    expect(stacks.length).toBeGreaterThanOrEqual(3)
+    const summary = got.filter((r) => r.kind === 'summary')
+    expect(summary.length).toBe(1)
+    const sm = summary[0]
+    expect(sm.samples).toBe(stacks.length)
+    expect(sm.stuckMs).toBeGreaterThanOrEqual(2000)
+    // The code that held the thread is named, with a count, and it is OUR code (blocked.cjs), not a node internal.
+    expect(sm.ours![0].where).toContain('blocked.cjs')
+    expect(sm.ours![0].where).toMatch(/^(holder|culprit) /)
+    expect(sm.ours!.reduce((a, o) => a + o.n, 0)).toBe(sm.samples)
+    expect(sm.top!.length).toBeGreaterThan(0)
+  }, 60_000)
+
+  it('#935: without a burst the sampler behaves as before (one stack, then one per RESAMPLE_MS)', () => {
+    const got = runBlocked('const end = Date.now() + 1500; while (Date.now() < end) { /* spin */ }')
+    expect(got.filter((r) => !r.noStackYet).length).toBe(1)
+  }, 40_000)
 
   it('a healthy process leaves no sample behind', () => {
     const dir = mkdtempSync(join(tmpdir(), 'stall-sampler-'))
@@ -220,6 +248,20 @@ describe('#865 a wall-clock step is not a stall', () => {
     vi.advanceTimersByTime(TICK_MS)
     vi.advanceTimersByTime(TICK_MS)
     expect(recentStalls()).toEqual([])
+  })
+})
+
+describe('#935: the production sampler is configured for a burst', () => {
+  it('takes several samples per stall, and keeps room for the slow re-samples after the burst', () => {
+    expect(SAMPLE_BURST).toBeGreaterThanOrEqual(5)
+    expect(SAMPLE_MAX).toBeGreaterThan(SAMPLE_BURST)
+  })
+
+  it('a summary sample is kept and logged without being mistaken for a stack', () => {
+    _resetEventLoopWatch()
+    noteStallSample({ at: 1, stuckMs: 1200, pid: 1, stack: [], kind: 'summary', samples: 4, ours: [{ where: 'f (a.js:1)', n: 4 }], top: [{ where: 'g (b.js:2)', n: 4 }] })
+    expect(recentStallSamples()[0].kind).toBe('summary')
+    _resetEventLoopWatch()
   })
 })
 
