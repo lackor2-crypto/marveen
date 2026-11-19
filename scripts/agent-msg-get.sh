@@ -16,13 +16,26 @@ ID="${1:-}"
 [[ "$ID" =~ ^[0-9]+$ ]] || { echo "usage: bash scripts/agent-msg-get.sh <message-id>" >&2; exit 2; }
 
 TOKEN_FILE="${ROOT}/store/.dashboard-token"
+# Dashboard port: the same chain as agent-msg.sh (MARVEEN_WEB_PORT, WEB_PORT,
+# this install's .env, 3420). It was a literal 3420 (#1869). The trailing `true` keeps
+# a missing .env from ending the script under set -e/pipefail.
+PORT="${MARVEEN_WEB_PORT:-${WEB_PORT:-$(sed -n 's/^WEB_PORT=//p' "$ROOT/.env" 2>/dev/null | head -1 | tr -d ' "'"'"''; true)}}"
+PORT="${PORT:-3420}"
 [[ -r "$TOKEN_FILE" ]] || { echo "FAIL: no dashboard token at ${TOKEN_FILE}" >&2; exit 3; }
 
+TOKEN="$(cat "$TOKEN_FILE")"
+# An exported TOKEN inherited from the caller keeps its export attribute through the assignment (Dani 65583): drop it.
+export -n TOKEN
+[[ -n "$TOKEN" ]] || { echo "FAIL: the dashboard token at ${TOKEN_FILE} is empty" >&2; exit 3; }
+
 # The HTTP status is checked, not assumed: a 404 body would otherwise print as an empty message.
-OUT="$(mktemp)"; trap 'rm -f "$OUT"' EXIT
+# VOICETOKENLEAK1101 round 3 (Dani 65569): the token never on curl's argv (ps shows it to every process of the same
+# user) and never on disk: curl reads the Authorization header from a process substitution (printf is a builtin).
+# TOKEN is not exported. An explicit template: a bare macOS mktemp ignores TMPDIR (measured).
+OUT="$(mktemp "${TMPDIR:-/tmp}/agent-msg-get.XXXXXX")"; trap 'rm -f "$OUT"' EXIT
 CODE="$(curl -s -o "$OUT" -w '%{http_code}' \
-  -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$TOKEN_FILE")") \
-  "http://localhost:3420/api/messages/${ID}")"
+  -H @<(printf 'Authorization: Bearer %s\n' "$TOKEN") \
+  "http://localhost:${PORT}/api/messages/${ID}")"
 if [[ "$CODE" != "200" ]]; then
   echo "FAIL: GET /api/messages/${ID} -> HTTP ${CODE}" >&2
   head -c 400 "$OUT" >&2; echo >&2

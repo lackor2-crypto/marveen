@@ -113,7 +113,18 @@ eq "someone else's text in the box: no extra Enter"  "1" "$(enters)"
 eq "...exit 0"                                        "0" "$RC"
 
 FAKE_CAPTURE_FAIL=1 run "$PARKED"
-eq "an unreadable pane: no extra Enter, exit 0"       "1" "$(enters)"
+eq "an unreadable pane is an unknown screen: nothing is typed (Dani 63870)" "0" "$(grep -c '^send-keys' "$FAKE_LOG")"
+eq "...exit 3"                                        "3" "$RC"
+case "$(cat "$FAKE_DIR/err")" in *"the pane cannot be read, NOT typing"*) pass "...and the skip is logged" ;; *) fail "...and the skip is logged" "the pane cannot be read, NOT typing" "$(cat "$FAKE_DIR/err")" ;; esac
+
+# ENVATLEAK1114: a name with an at-sign is never typed (Claude Code expands it into a file attachment).
+export FAKE_DIR="$TMPD/case-at"; mkdir -p "$FAKE_DIR"; export FAKE_LOG="$FAKE_DIR/log"; : > "$FAKE_LOG"
+printf '%s\n' "$READY" > "$FAKE_DIR/frame-1"
+MAIN_RENAME_RETRY_S=0 MAIN_RENAME_TYPE_S=0 MAIN_RENAME_POLL_S=0 main_rename_send "$TMPD/tmux" "=main-channels:" "Ma@rveen" 2> "$FAKE_DIR/err"
+RC=$?
+eq "a name with an at-sign: exit 4"                   "4" "$RC"
+eq "...nothing is typed at all"                       "0" "$(grep -c '^send-keys' "$FAKE_LOG")"
+case "$(cat "$FAKE_DIR/err")" in *"contains an at-sign, NOT typing"*) pass "...and the skip is logged" ;; *) fail "...and the skip is logged" "contains an at-sign" "$(cat "$FAKE_DIR/err")" ;; esac
 
 FAKE_SEND_FAIL=1 run "$DONE"
 eq "the first send fails: exit 2"                     "2" "$RC"

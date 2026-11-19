@@ -85,5 +85,8 @@ jobs:
       # CHATID0 (upstream 3e807fe4): the shell senders' owner-chat resolver.
       - run: bash scripts/__tests__/owner-chat-resolve.test.sh
       - run: bash scripts/__tests__/morning-timer-park.test.sh
+      # #932 upstream takeovers: the helpers' dashboard-port chain (#1869), the boot /rename guards (Dani 63870, ENVATLEAK1114).
+      - run: bash scripts/__tests__/agent-msg-port.test.sh
+      - run: bash scripts/__tests__/channels-boot-rename.test.sh
       - run: bash scripts/__tests__/userbot-arming-gate.test.sh
       - run: bash scripts/__tests__/supabase-q-token-hiding.test.sh
