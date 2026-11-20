@@ -114,6 +114,9 @@ INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # CLI flag parsing -- runs before the interactive wizard.
 # WEB_PORT can also be set as an env var (env var wins if --port is not given).
+# The loop shifts every argument away; the self-reclone re-exec below forwards this copy
+# (INSTEXECARGS1118).
+INSTALL_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --port|--web-port)
@@ -611,7 +614,7 @@ if [ ! -f "$INSTALL_DIR/package.json" ]; then
   echo -e "  Telepito ujrainditasa a checkoutbol..."
   # Forward argv so a run from outside the repo (curl bootstrap, or an explicit
   # `install-linux.sh --port N`) keeps its flags across the self-reclone exec.
-  exec bash "$TARGET_DIR/install-linux.sh" "$@"
+  exec bash "$TARGET_DIR/install-linux.sh" "${INSTALL_ARGS[@]}"
 fi
 
 INSTALL_STEP="claude-bun-install"
@@ -670,6 +673,107 @@ _shelve_broken_claude() {
   hash -r
 }
 
+# BUNTIMEOUT1108: the vendors' "curl | bash" installers (Claude Code, Bun) ran with no time limit and with their
+# errors thrown away (`2>/dev/null`). On 2026-11-08 a fresh Bun download on the owner's VPS stalled: ~/.bun/bin was
+# created empty, the installer never got past the step, and the Bridge showed only "Claude + Bun". This helper fetches
+# the vendor script to a file (connect and total time limits), runs it under `timeout` (its own downloads included:
+# timeout signals the whole process group), retries, and on the final failure prints the vendor's own last lines, so
+# the reason is visible. It never decides the outcome by the script's exit code alone: $3 is the check that the tool
+# is really there (a vendor script can exit 0 without installing).
+#   _run_remote_installer <label> <url> <check-fn> [script args...]   -> 0 when <check-fn> passes, else 1
+_run_remote_installer() {
+  local label="$1" url="$2" check="$3"
+  shift 3
+  local tries="${REMOTE_INSTALL_TRIES:-3}" n=1 rc dir script log
+  # No guessable fallback name (TMPPROBE1108): a dir another local user could pre-create must never hold the script we run.
+  dir="$(mktemp -d 2>/dev/null)" || { warn "${label}: nem tudtam privat ideiglenes konyvtarat letrehozni (mktemp -d)."; return 1; }
+  script="$dir/install.sh"
+  log="$dir/install.log"
+  while [ "$n" -le "$tries" ]; do
+    : > "$log"
+    rc=0
+    if curl -fsSL --connect-timeout "${REMOTE_INSTALL_CONNECT_TIMEOUT:-20}" --max-time "${REMOTE_INSTALL_FETCH_TIMEOUT:-60}" \
+         -o "$script" "$url" 2>>"$log"; then
+      if timeout --kill-after=10 "${REMOTE_INSTALL_TIMEOUT:-300}" bash "$script" "$@" </dev/null >>"$log" 2>&1; then
+        rc=0
+      else
+        rc=$?
+      fi
+    else
+      rc=$?
+      echo "(the installer script could not be downloaded from $url, curl exit $rc)" >>"$log"
+    fi
+    hash -r
+    if "$check"; then
+      rm -rf "$dir"
+      return 0
+    fi
+    if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+      warn "$label: a(z) $n/$tries. probalkozas tullepte az idokorlatot (${REMOTE_INSTALL_TIMEOUT:-300} mp)."
+    else
+      warn "$label: a(z) $n/$tries. probalkozas sikertelen (kilepesi kod: $rc)."
+    fi
+    n=$((n + 1))
+    if [ "$n" -le "$tries" ]; then sleep "${REMOTE_INSTALL_RETRY_DELAY:-5}"; fi
+  done
+  echo -e "  ${DIM}$label telepito utolso sorai:${NC}"
+  tail -n 15 "$log" 2>/dev/null | sed 's/^/    /'
+  rm -rf "$dir"
+  return 1
+}
+_claude_present() { command -v claude >/dev/null 2>&1; }
+_bun_present() { [ -x "$BUN_INSTALL/bin/bun" ] && "$BUN_INSTALL/bin/bun" --version >/dev/null 2>&1; }
+
+# BUNTIMEOUT1108 (Samu 73430): the fallback when the GitHub release download fails. Measured on the owner's VPS on
+# 2026-11-08: bun.sh/install answered 200, the GitHub bun-linux-x64.zip timed out (0 bytes in 90 s) and then gave
+# HTTP 503, twice in a row. npm's `bun` package comes from registry.npmjs.org instead. Same version as the Docker image
+# (an exact version; upstream keeps it equal to its Dockerfile BUN_VERSION, this fork has no Dockerfile). The binary is linked into ~/.bun/bin, the official layout
+# every PATH line and probe of ours already names.
+BUN_PIN="1.4.4"
+_install_bun_from_npm() {
+  if ! command -v npm >/dev/null 2>&1; then
+    warn "Bun (npm tartalek): az npm nem elerheto."
+    return 1
+  fi
+  ensure_global_npm_writable auto || true
+  local log rc=0 npm_bun real
+  log="$(mktemp 2>/dev/null)" || { warn "Bun: nem tudtam privat ideiglenes fajlt letrehozni (mktemp)."; return 1; }
+  if [ "${NPM_NEEDS_SUDO:-}" = "1" ]; then
+    timeout --kill-after=10 "${REMOTE_INSTALL_TIMEOUT:-300}" sudo npm install -g "bun@${BUN_PIN}" </dev/null >"$log" 2>&1 || rc=$?
+  else
+    timeout --kill-after=10 "${REMOTE_INSTALL_TIMEOUT:-300}" npm install -g "bun@${BUN_PIN}" </dev/null >"$log" 2>&1 || rc=$?
+  fi
+  hash -r
+  npm_bun="$(command -v bun 2>/dev/null || true)"
+  if [ "$rc" = 0 ] && [ -n "$npm_bun" ] && "$npm_bun" --version >/dev/null 2>&1; then
+    real="$(readlink -f "$npm_bun" 2>/dev/null || echo "$npm_bun")"
+    mkdir -p "$BUN_INSTALL/bin"
+    ln -sf "$real" "$BUN_INSTALL/bin/bun"
+    ln -sf bun "$BUN_INSTALL/bin/bunx"
+    rm -f "$log"
+    return 0
+  fi
+  warn "Bun (npm tartalek): sikertelen (kilepesi kod: $rc)."
+  echo -e "  ${DIM}Bun (npm tartalek) utolso sorai:${NC}"
+  tail -n 15 "$log" 2>/dev/null | sed 's/^/    /'
+  rm -f "$log"
+  return 1
+}
+# The official installer (bun.sh/install, which downloads from GitHub releases) first, npm as the fallback; a stop with
+# the reason when both fail. Never a hang and never a silent "continue without bun".
+_install_bun() {
+  if _run_remote_installer "Bun (GitHub-letoltes)" https://bun.sh/install _bun_present; then
+    ok "bun telepitve: $("$BUN_INSTALL/bin/bun" --version 2>/dev/null)"
+    return 0
+  fi
+  warn "A Bun GitHub-letoltese nem sikerult; tartalek: npm install -g bun@${BUN_PIN} (registry.npmjs.org)."
+  if _install_bun_from_npm && _bun_present; then
+    ok "bun telepitve (npm tartalek): $("$BUN_INSTALL/bin/bun" --version 2>/dev/null)"
+    return 0
+  fi
+  fail "A Bun telepitese nem sikerult: a GitHub-letoltes (bun.sh/install) es az npm-tartalek (bun@${BUN_PIN}) is bukott, az okot a fenti sorok mutatjak. Ellenorizd, hogy a gep eleri-e a github.com-ot vagy a registry.npmjs.org-ot, majd inditsd ujra a telepitest."
+}
+
 # Pinned Node-based fallback for AVX-less hosts. @2.1.112 is the LAST version
 # that ships bin=cli.js (a `#!/usr/bin/env node` entrypoint) running without
 # AVX -- from 2.1.113 on every published version ships bin=bin/claude.exe with
@@ -712,13 +816,20 @@ else
       fi
     else
       warn "npm nem elerheto; a pinnelt hivatalos installert probalom (@${CLAUDE_PIN})."
-      curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_PIN}" || warn "pinnelt install.sh sikertelen."
+      _run_remote_installer "Claude Code (@${CLAUDE_PIN})" https://claude.ai/install.sh _claude_present "${CLAUDE_PIN}" \
+        || warn "pinnelt install.sh sikertelen."
     fi
   else
     echo -e "  Claude Code telepitese (hivatalos installer, ~/.local/bin)..."
-    curl -fsSL https://claude.ai/install.sh | bash
+    _run_remote_installer "Claude Code" https://claude.ai/install.sh _claude_present || true
   fi
   hash -r
+  # BUNTIMEOUT1108: no claude at all after the installer (and its retries) is a hard stop with the reason above,
+  # not a "continue" into a claude-auth step that can never work. A claude that is there but does not launch keeps
+  # the existing AVX message below.
+  if ! _claude_present; then
+    fail "A Claude Code telepitese nem sikerult (a fenti sorok mutatjak az okat). Inditsd ujra a telepitest; ha ugyanitt akad el, ellenorizd, hogy a gep eleri-e a claude.ai-t (AVX nelkuli gepen a registry.npmjs.org-ot)."
+  fi
   # Verify the install actually launches -- surfaces an AVX crash HERE with a
   # clear message instead of a cryptic SIGILL at first agent-spawn.
   if _claude_runs; then
@@ -782,12 +893,8 @@ else
   # nelkule "error: unzip is required to install bun"-nal elhasal.
   command -v unzip &>/dev/null || pkg_install_noninteractive unzip || true
   echo -e "  Bun telepitese (Telegram plugin fuggoseg)..."
-  curl -fsSL https://bun.sh/install | bash 2>/dev/null
-  if ! command -v bun &>/dev/null; then
-    echo -e "  ${RED}✗${NC} Bun telepites sikertelen. Probalj manualisan: curl -fsSL https://bun.sh/install | bash"
-  else
-    ok "bun telepitve"
-  fi
+  # BUNTIMEOUT1108: time limits, retries, the vendor's own error lines, the npm fallback, and a stop with the reason.
+  _install_bun
 fi
 ensure_in_rc 'BUN_INSTALL' 'export BUN_INSTALL="$HOME/.bun"'
 ensure_in_rc '.bun/bin' 'export PATH="$BUN_INSTALL/bin:$PATH"'
@@ -1047,11 +1154,25 @@ ok "Csatorna: $CHANNEL_PROVIDER"
 # The dashboard save path hard-rejects the same states (#926); this is the
 # installer-side voice for the same three findings, each with its remedy.
 # set -e safe: every path ends in return 0; curl failures are guarded.
-# The token value itself is NEVER printed.
+# The token value itself is NEVER printed, and never put on a command line: each URL reaches
+# curl as a config line on stdin (-K -), so ps does not show it (INSTTGTOKENARGV1118).
 probe_telegram_token() {
   _ptt_t="$1"
   [ -n "$_ptt_t" ] || return 0
-  _ptt_me="$(curl -s --max-time 8 "https://api.telegram.org/bot${_ptt_t}/getMe" 2>/dev/null)" || return 0
+  # The token goes into a curl config line below: a quote or a line break in it would end that line. A bot token is
+  # digits, a colon and [A-Za-z0-9_-]; anything else is refused before any call. Checked with case patterns on the
+  # value itself: no [[ =~ ]] (it leaves a second copy of the token in BASH_REMATCH, which bash 3.2 cannot unset) and
+  # no $(...) (it would drop a trailing line break before the check). A bracket class matches a line break too.
+  _ptt_bad=0
+  case "$_ptt_t" in [0-9]*:?*) ;; *) _ptt_bad=1 ;; esac
+  case "${_ptt_t%%:*}" in *[!0-9]*) _ptt_bad=1 ;; esac
+  case "${_ptt_t#*:}" in *[!A-Za-z0-9_-]*) _ptt_bad=1 ;; esac
+  if [ "$_ptt_bad" = 1 ]; then
+    warn "A megadott bot token alakja ERVENYTELEN (szamok, kettospont, betuk; pl. 123456789:AAF...)."
+    echo -e "    ${DIM}Ellenorizd a @BotFather-tol kapott tokent. A telepites folytatodik, de a bot ezzel a tokennel nem fog valaszolni.${NC}"
+    return 0
+  fi
+  _ptt_me="$(printf 'url = "%s"\n' "https://api.telegram.org/bot${_ptt_t}/getMe" | curl -s --max-time 8 -K - 2>/dev/null)" || return 0
   case "$_ptt_me" in
     *'"ok":true'*) : ;;
     *'"ok":false'*)
@@ -1060,7 +1181,7 @@ probe_telegram_token() {
       return 0 ;;
     *) return 0 ;;
   esac
-  _ptt_wh="$(curl -s --max-time 8 "https://api.telegram.org/bot${_ptt_t}/getWebhookInfo" 2>/dev/null)" || return 0
+  _ptt_wh="$(printf 'url = "%s"\n' "https://api.telegram.org/bot${_ptt_t}/getWebhookInfo" | curl -s --max-time 8 -K - 2>/dev/null)" || return 0
   case "$_ptt_wh" in
     *'"url":"http'*)
       warn "A bot token ervenyes, de a bot WEBHOOKRA van kotve -- a Marveen poller igy nem tud ra csatlakozni."
@@ -1068,7 +1189,7 @@ probe_telegram_token() {
       echo -e "    ${DIM}vagy keszits uj botot a @BotFather-nel, es futtasd ujra a telepitot azzal.${NC}"
       return 0 ;;
   esac
-  _ptt_up="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://api.telegram.org/bot${_ptt_t}/getUpdates?timeout=0&limit=1" 2>/dev/null)" || return 0
+  _ptt_up="$(printf 'url = "%s"\n' "https://api.telegram.org/bot${_ptt_t}/getUpdates?timeout=0&limit=1" | curl -s -o /dev/null -w '%{http_code}' --max-time 8 -K - 2>/dev/null)" || return 0
   if [ "$_ptt_up" = "409" ]; then
     warn "A bot token ervenyes, de egy MASIK futo rendszer mar hasznalja (Telegram 409 Conflict)."
     echo -e "    ${DIM}Egy tokent egyszerre csak egy telepites hasznalhat. Teendo: allitsd le a korabbi telepitest,${NC}"

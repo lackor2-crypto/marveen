@@ -8,10 +8,10 @@
       "card": "#932"
     },
     ".env.example": {
-      "blob": "5da9ca0043edd4b71f4df26061ec6875641f2b6c",
+      "blob": "963c30cf843c3a0803b27a47fe7ebd8dc042826e",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(mail-gate): the owner's copy is a gate on every main-agent send and draft, at every level (MAILCCGATE1016) (#2012); feat(hooks): opt-in pre-push gate - outgoing agent code needs a reviewer-green trace for the head being pushed (ee1a22f1) (#1888); feat(memories): optional strict command-syntax group for the memory content filter (MEMORY_CONTENT_FILTER_STRICT_COMMANDS, default off) (....",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 9 commit(s) since the last decision (feat 6, fix 3). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(voice-channel): the voice channel sender id is configurable (VOICE_CHANNEL_ID, default 'hanna') (#2185) (12037f511).",
+      "card": "#932"
     },
     ".github/pull_request_template.md": {
       "blob": "d41b986c7e9b452e19b05c75a91eb47c9b2bc204",
@@ -92,10 +92,10 @@
       "card": "#932"
     },
     "docs/config-reference.md": {
-      "blob": "8ef2979a7ee4944779106dab2ae062e8cb4f42d7",
+      "blob": "30eaea237475c79cd9a467e1d3e5854805231243",
       "kind": "decided",
-      "reason": "Upstream docs/notes describing upstream-only behaviour, kept at ours (#731). Upstream commits on it: feat(telegram): replies go back into the topic a message came from in a private chat (TELEGRAM_TOPICS_ENABLED, off by default) (#1893); feat(memories): optional strict command-syntax group for the memory content filter (MEMORY_CONTENT_FILTER_STRICT_COMMANDS, default off) (...; feat(telegram): named topics (/topic new) and scheduled task results into a topic (telegramTopic) (#1894).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 33 commit(s) since the last decision (feat 17, fix 8, merge 7, auth 1). Of the 11 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 10 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(skills): the skill quarantine is OFF by default, on customer installs too (SKILLQUARANTINEDEF1109) (#2889) (937fc4d5d).",
+      "card": "#932"
     },
     "docs/conversation-continuity.md": {
       "blob": "acb015d4d1a559410ab21b4141314f58fc264455",
@@ -200,10 +200,10 @@
       "card": "#932"
     },
     "docs/security-hardening.md": {
-      "blob": "cfba2c270e5056dfcc543500f515f8c887a7e69f",
+      "blob": "d539849e8b2b92559c6343a26d71e0db3fa93029",
       "kind": "decided",
-      "reason": "Upstream docs/notes describing upstream-only behaviour, kept at ours (#731). Upstream commits on it: feat(hooks): opt-in pre-push gate - outgoing agent code needs a reviewer-green trace for the head being pushed (ee1a22f1) (#1888).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 31 commit(s) since the last decision (fix 24, feat 7). Of the 24 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 23 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(hooks): label Stripe MCP output as untrusted, private like mail (#2809) (f186c1f58).",
+      "card": "#932"
     },
     "docs/slack-progress-indicator.md": {
       "blob": "467253502f83ab3e26d9106082d29b4f839b3ed8",
@@ -242,22 +242,22 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "install-lang.sh": {
-      "blob": "08537a0a566a1df8ac450b88d8479099080d5d15",
+      "blob": "689da200e418ce881e91988294896dd55363340b",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(installer): say what the managed-settings.json write does before the first password prompt (#1963).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 8 commit(s) since the last decision (feat 4, fix 4). Of the 4 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(install-macos): the root steps run no clone code, and the password is gone before clone code runs (MACROOT (c8e3e5c73).",
+      "card": "#932"
     },
     "install-linux.sh": {
-      "blob": "fa631147bf8c3fc4eb0077fd4bbb676875115975",
+      "blob": "34750580867ca9dbfdf1f342deae7683e6819558",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(tz): the install zone (SCHEDULER_TZ, else the host zone) instead of hardcoded Europe/Budapest (ISSUE1895) (#1917); fix(install-linux): start the keepalive probe and inbox observer timers, not only enable them (TIMERSTART1011) (#1903); fix(seed): ship and refresh a task's references/ subdir (SEEDREFDIR1018) (#2059); fix(seed): ship and refresh a skill's subdirs (SEEDSKILLSUB1018) (#2061) +1 more.",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 25 commit(s) since the last decision (fix 17, feat 8). Of the 17 fix commit(s), 3 are already in our file (the patch reverse-applies cleanly), 11 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 3 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Taken in this round: cbb90535f, 56889200a, 99c8aaca7. Newest fix: fix(install-linux): the Telegram token probe keeps the bot token off the curl argv (INSTTGTOKENARGV1118) (#293 (cbb90535f).",
+      "card": "#932"
     },
     "install-macos.sh": {
-      "blob": "1e83d381212054e7ae03af722b74c75f8bce6efd",
+      "blob": "9d01a91e4e7738be6458e72031f4138b0f0a342b",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(tz): the install zone (SCHEDULER_TZ, else the host zone) instead of hardcoded Europe/Budapest (ISSUE1895) (#1917); fix(macos): the helper launchd jobs are verified, not just loaded; a job that is not running is reported with its remedy (ISSUE1891) (#1916); fix(seed): ship and refresh a task's references/ subdir (SEEDREFDIR1018) (#2059); fix(seed): ship and refresh a skill's subdirs (SEEDSKILLSUB1018) (#2061) +1 more.",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 17 commit(s) since the last decision (fix 12, feat 5). Of the 12 fix commit(s), 2 are already in our file (the patch reverse-applies cleanly), 5 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 5 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(install-macos): run the TypeScript build under the pinned node@22 too (#2686) (0b3fc3261).",
+      "card": "#932"
     },
     "install-windows.ps1": {
       "blob": "58cbcb438a6997ffdb17b9e6f50f5ba72b04c165",
@@ -272,10 +272,10 @@
       "card": "#932"
     },
     "package.json": {
-      "blob": "3a27d6e652e0568dcde4a3bc5e1230d0cb537b73",
+      "blob": "6ca2a229c16cd69bc86b394e36c291d1e84a49d0",
       "kind": "decided",
-      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
-      "card": "#733"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 15 commit(s) since the last decision (chore 12, feat 2, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(bridge): the installer-paired Bridge gets its own revocable device key, not the shared token (BRIDGEINSTKE (07c6dad02).",
+      "card": "#932"
     },
     "plugins/agent-state-observer/.claude-plugin/plugin.json": {
       "blob": "335ecc9a81a202a1c4ee525c687e961cd78f6dfb",
@@ -440,10 +440,10 @@
       "card": "#620"
     },
     "scripts/__tests__/channels-native-install-no-npm.test.sh": {
-      "blob": "57da74c69511137073856d5685f5f6231a3c0bd4",
+      "blob": "fb2c2e4beafdde1daa73205568714217677152d3",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 2, test 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(channels): run the daily Claude Code update after the launch (#2220) (b74d7b994).",
+      "card": "#932"
     },
     "scripts/__tests__/channels-net-wait.test.sh": {
       "blob": "db7eda06612189292f6d39def880277d361783f3",
@@ -476,10 +476,10 @@
       "card": "#620"
     },
     "scripts/__tests__/conversation-ledger.test.sh": {
-      "blob": "8671dcbe43d2c2a41c1e0da438654af53af91ce8",
+      "blob": "35f23c2c543905217b78ab0b54f74c384bc26d9e",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: test(ledger): the conversation-ledger suite unsets MARVEEN_AGENT_ID, so it passes from inside an agent session (LEDGERENV1013) (#1933).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 6 commit(s) since the last decision (fix 5, feat 1). Of the 5 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 4 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(ledger): a Google Chat inbound from the owner is logged; any other Google Chat envelope drops the prompt ( (e09b4cfc5).",
+      "card": "#932"
     },
     "scripts/__tests__/credential-gate.test.py": {
       "blob": "9e2391014df24bb1ef15e1103ff8212c55c876bb",
@@ -800,10 +800,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "scripts/__tests__/outgoing-copy-gate.test.py": {
-      "blob": "afca6d0921688cd11028b5713162c05c61f967d9",
+      "blob": "a70b1ea236dda97abd607c7bc1008d8dcf23260a",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: feat(telegram): one-tap answer buttons on the reply tool, a plugin patch (c67f5f34).",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 7 commit(s) since the last decision (fix 6, feat 1). Of the 6 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 3 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 3 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(email-gate): every op key counts, no draft exemption and an allow list for email__messages, reply_all audi (f1bc47f48).",
+      "card": "#932"
     },
     "scripts/__tests__/owner-chat-lib.test.sh": {
       "blob": "16c553a579868e4e8f0317d3c94adfd84758abc8",
@@ -848,10 +848,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "scripts/__tests__/skill-usage-capture.test.py": {
-      "blob": "c22b7159d9089192fceaf7ebc7f385ec3d767641",
+      "blob": "59add90e884eaf89d951d155109bde2256a8a5f8",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(skill-usage): only a reader's argument counts as a skill read, a mention does not (SKILLREADERONLY1109) (# (8f3ee9909).",
+      "card": "#932"
     },
     "scripts/__tests__/slack-reply-clear.test.sh": {
       "blob": "fbdb5fd5a053c054b8862f4e5c48d25152f24dfc",
@@ -878,10 +878,10 @@
       "card": "#932"
     },
     "scripts/__tests__/support-mail-rcpt-list.test.py": {
-      "blob": "86e20b2cc99d68d605c527f2c499f96460e0db40",
+      "blob": "b8aebaba524da2555ef9472468fa551bc0ff662c",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Taken directly from upstream: fix(support-mail): split a comma-separated --to/--cc into one SMTP recipient each (SENDMAILLIST928).",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(mail-senders): the senders enforce the email_send level themselves; opt-in recipient ledger for the main a (336bfadc2).",
+      "card": "#932"
     },
     "scripts/__tests__/sync-hooks-provider-gate.test.sh": {
       "blob": "fd89e6a04aa96615175e3bbe98e284011f474908",
@@ -968,10 +968,10 @@
       "card": "#413"
     },
     "scripts/__tests__/vault-env-wrapper-split.test.sh": {
-      "blob": "b8b3ee7add7a3591a8fc4113f79416cc4150dde7",
+      "blob": "074db2efd1ce47f5d80507d0fdf2ed0682300519",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(vault): a multi-line secret reaches the MCP server whole, and no byte of it reaches stderr (VAULTWRAPMULTI (f6b9b6796).",
+      "card": "#932"
     },
     "scripts/__tests__/voice-pronunciation.test.py": {
       "blob": "2acb12fb567595f741159eec98ece526a7a941e8",
@@ -1046,10 +1046,10 @@
       "card": "#932"
     },
     "scripts/channels.sh": {
-      "blob": "f7dbcc00b25a2a35f4eb9cb46c277e7f52ef61df",
+      "blob": "88e059e7a5e7085a9a0a41078066ce9b8cc01c21",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(worker): launch both workers with the auto-updater pinned, opt-in single updater (WORKERAUTOUPDATE1011) (#1892); fix(channels): name every pane-auth-file failure, never rename an empty write, sweep stale temp files (#1977); fix(channels): unset the fleet token when the main agent runs on its own login (#2039); fix(channels): an own-login main agent drops ANTHROPIC_API_KEY too, not only the fleet token (APIKEYUNSET1018) (#2060) +4 more.",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 26 commit(s) since the last decision (fix 18, feat 7, channels 1). Of the 19 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 16 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(channels): the Teams approval URL names the loopback address the dashboard listens on (TEAMSAPPROVECARD111 (6728795c1).",
+      "card": "#932"
     },
     "scripts/claude-plan-rotate-check.ts": {
       "blob": "67756d8857f0bc74995f09192dee05257272567c",
@@ -1088,10 +1088,10 @@
       "card": "#932"
     },
     "scripts/doctor.sh": {
-      "blob": "4fc15968924696bd13d0a101aa413bae1f872865",
+      "blob": "e9f497d9f4acc1fc83237b424ce44cd1969e25b3",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(tmux): every session target is exact (=NAME:), so a missing session is never answered by a sibling (TMUXEX.",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 5 commit(s) since the last decision (fix 3, feat 2). Of the 3 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): an ANTHROPIC_API_KEY in .env no longer reaches every sub-agent on a subscription install (APIKEYSCO (6393bf11d).",
+      "card": "#932"
     },
     "scripts/email-send-gate.mjs": {
       "blob": "6a255d12d980f48461fa2ce577976f0b4f837030",
@@ -1142,10 +1142,10 @@
       "card": "#731"
     },
     "scripts/github-pr-monitor.sh": {
-      "blob": "4b377fabe642d27de0fe96825564092b60bddead",
+      "blob": "352d8ad8d36dcc65e881282fd6bbadd02e99f551",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (feat 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(vault): the two in-repo callers use vault-resolve --value, so a missing secret stops them (VAULTRESOLVECAS (4a6b9d5cf).",
+      "card": "#932"
     },
     "scripts/graph-mail.ts": {
       "blob": "7ba6bed444083db3646f5339b475aa8d758beae2",
@@ -1262,10 +1262,10 @@
       "card": "#932"
     },
     "scripts/hooks/ledger-outbound.py": {
-      "blob": "0e98fb6c2f2cba9bdec52baeefaef3d45fc315e0",
+      "blob": "b09d8ab39b37ef6c6baa075fa62682de1e3ae292",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 3). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(ledger): a Google Chat inbound from the owner is logged; any other Google Chat envelope drops the prompt ( (e09b4cfc5).",
+      "card": "#932"
     },
     "scripts/hooks/ledger-replay.py": {
       "blob": "67d460911eda82ad3fe114a33fabcf4b3df1ee4b",
@@ -1280,10 +1280,10 @@
       "card": "#932"
     },
     "scripts/hooks/ledger_lib.py": {
-      "blob": "439d4aed4303efb684516c725a71e3ca56977eab",
+      "blob": "713c973d1ddc09b4a8bd79765499bc0efd79f249",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(scripts,hooks): smaller items from the downstream review (#1878 items 3, 4, 5, 11, 12) (#1920); fix(ledger): count a reply sent after an inbound ARRIVED as answering it (REPLYGUARDTS914) (#1323).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (fix 1, feat 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): a gate's sources come from its own install, never the environment; two routing keys overrides-only (7647af5f2).",
+      "card": "#932"
     },
     "scripts/hooks/marveen-commands.py": {
       "blob": "b801a57f2a5edaa66fea5816f93088064065fda4",
@@ -1334,10 +1334,10 @@
       "card": "#932"
     },
     "scripts/hooks/provenance-gate.py": {
-      "blob": "b84df505f1c969b8a0d0c4f8d14a06f60d161dec",
+      "blob": "8fe6f85a8efe51bcfabd9f03419ec89598deece3",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: test(provenance-gate): pin the fallback order and the after-close frame rule (c5d83ffe); fix(hooks): the provenance gate leaves the trace of an agent's own background task in its log, not in the lead; fix(provenance-gate): notify FLEET_LEAD_ID, falling back to MAIN_AGENT_ID (FLEETLEADID921); fix(provenance-gate): verify the directive in the shape the pane delivers it, line breaks mapped to spaces (DI; +4 more.",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(delivery): typed prompts carry no expandable at-sign; the header uses the sanitized sender (ENVATLEAK1114) (2d0025db6).",
+      "card": "#932"
     },
     "scripts/hooks/send-invocation-cases.json": {
       "blob": "13192372bff771f46c39fd13c9ed9965cc3d276b",
@@ -1346,10 +1346,10 @@
       "card": "#932"
     },
     "scripts/hooks/skill-usage-capture.py": {
-      "blob": "258906b8786e3c73636c504fb6e2dfa384a49e44",
+      "blob": "58bc77a6422a3db074691d02bb8c805c3104912a",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 3). Of the 3 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(skill-usage): only a reader's argument counts as a skill read, a mention does not (SKILLREADERONLY1109) (# (8f3ee9909).",
+      "card": "#932"
     },
     "scripts/hooks/slack_progress.py": {
       "blob": "1d088259f0215c68950074cbd6b43f69e7f64999",
@@ -1676,10 +1676,10 @@
       "card": "#731"
     },
     "scripts/migrate-main-agent-id.sh": {
-      "blob": "b2f5e74e042d655e897f5b8b6be279498f4a1a15",
+      "blob": "85a619e18e93c5acd2b28c9dff40a6a92fb4fd76",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(tmux): every session target is exact (=NAME:), so a missing session is never answered by a sibling (TMUXEXACT1771) (#1783); fix(migrate): rewrite the main agent id rows with python3, refuse before stopping anything (#1638).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 7 commit(s) since the last decision (fix 5, feat 2). Of the 5 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 3 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agents): the agents API's fixed route names are reserved agent ids (AGENTROUTERESERVED1114) (#2744) (1dff483a7).",
+      "card": "#932"
     },
     "scripts/migrate.sh": {
       "blob": "194da1acb82052945c68ae147edee0a4244671a2",
@@ -1826,16 +1826,16 @@
       "card": "#932"
     },
     "scripts/start.sh": {
-      "blob": "67edd340c70b91662f3a057c42686c53b7ca7c1f",
+      "blob": "8c2a0c96f0f72091134dfc9aaacea1dd8ab46fe0",
       "kind": "decided",
-      "reason": "Merged by hand (#375): the upstream change is combined with ours.",
-      "card": "#375"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 2, chore 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(start,stop,update): fall back to the MAIN_AGENT_ID units when none exist under SERVICE_ID; pin launchd and (b06c9bcc7).",
+      "card": "#932"
     },
     "scripts/stop.sh": {
-      "blob": "e67433761ac09cf43e62ae1ab68603187bf58993",
+      "blob": "9d75b1d5acbe96a48d0b0765a7913363c7cae3b1",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 3). Of the 3 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(start,stop,update): fall back to the MAIN_AGENT_ID units when none exist under SERVICE_ID; pin launchd and (b06c9bcc7).",
+      "card": "#932"
     },
     "scripts/stuck-modal-guard.sh": {
       "blob": "3b6d64c54b25b8da60bbedbd17cbce06d87ceb29",
@@ -1844,10 +1844,10 @@
       "card": "#932"
     },
     "scripts/support-mail/send.py": {
-      "blob": "04037a0b38f29c21710cff3e17a7977a7c05279e",
+      "blob": "eeef74567eb5e2f7a2c36dd12fedc2d35ab49efb",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Taken directly from upstream: fix(support-mail): split a comma-separated --to/--cc into one SMTP recipient each (SENDMAILLIST928). Upstream commits on it: fix(support-mail): a gazda-CC legyen ALAPERTELMEZES, ne emlekezet (SUPPCCDEF917); fix(support): two-source, three-state entitlement check (SUPPJOGVAK901); chore(host): upstream the shippable host-tree work (HOSTMUNKAFA822); feat(support-mail): split login mailbox from outgoing From address.",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (feat 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(mail-senders): the senders enforce the email_send level themselves; opt-in recipient ledger for the main a (336bfadc2).",
+      "card": "#932"
     },
     "scripts/systemd/hook-load-watch.service": {
       "blob": "50d22c79fa6a316ba0eba7a2aed110aa109063e9",
@@ -1928,22 +1928,22 @@
       "card": "#413"
     },
     "scripts/vault-env-wrapper.sh": {
-      "blob": "573244ee39f29db3bd7671e09307145ef4d62f49",
+      "blob": "b86bdbaffdde9a078dcebdfd5e7146022bf080f1",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(vault): a multi-line secret reaches the MCP server whole, and no byte of it reaches stderr (VAULTWRAPMULTI (f6b9b6796).",
+      "card": "#932"
     },
     "scripts/vault-headers-helper.mjs": {
-      "blob": "672bc5b5778e105f949cff9ddaeadaa119b2bc37",
+      "blob": "f092e1b8ca3df7d9a9c8e3d971a06036d38747fd",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (feat 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(vault): keep the stdout of the headersHelper and resolver scripts clean: no Keychain migration, no logger  (9b7307447).",
+      "card": "#932"
     },
     "scripts/vault-resolve.mjs": {
-      "blob": "254524ec8a8e6480dcd66ddcc7d58b5782721ef0",
+      "blob": "3b467f580c26652e297b84ac4f8a7b6b2a662a99",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the last decision (fix 3, feat 1). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(vault): a multi-line secret reaches the MCP server whole, and no byte of it reaches stderr (VAULTWRAPMULTI (f6b9b6796).",
+      "card": "#932"
     },
     "scripts/verify-channels-health.sh": {
       "blob": "0ccd113d5de4edff009e1b7b4267f49a0658edb2",
@@ -2030,10 +2030,10 @@
       "card": "#731"
     },
     "seed-scheduled-tasks/nap-zaro/SKILL.md": {
-      "blob": "87bb65f04471f4b17fd9570434bb0215c1e1eef3",
+      "blob": "c5e105df5ee285eb6af4fefae1473aefbf38456e",
       "kind": "decided",
-      "reason": "Upstream docs/notes describing upstream-only behaviour, kept at ours (#731). Upstream commits on it: fix(nap-zaro): list the runs too, and make the quiet round quiet (#1928).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(seed): nap-zaro's run-once guard sees both titles; an English version is a regular file, never a symlink ( (9b31f2ad4).",
+      "card": "#932"
     },
     "seed-scheduled-tasks/nap-zaro/task-config.json": {
       "blob": "d672e985510259c40d91bd5787032ca001ec621c",
@@ -2042,10 +2042,10 @@
       "card": "#731"
     },
     "seed-skills/approval-request-handling/SKILL.md": {
-      "blob": "d48e815ccc4f39d32f8670b352cb1bcd281ed79e",
+      "blob": "e42943620919d2bbc27d1c847a2877fe1feb9d45",
       "kind": "decided",
-      "reason": "Upstream docs/notes describing upstream-only behaviour, kept at ours (#620). Upstream commits on it: fix(ports): the heartbeat seed and the message helpers call the install's WEB_PORT, not 3420.",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the last decision (fix 3, approvals 1). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(approvals): approving takes the owner's login, not the shared token (#2156) (89cc2f33d).",
+      "card": "#932"
     },
     "seed-skills/bridge-szolgaltatas-lapok/SKILL.md": {
       "blob": "ecc3f04200dce4f093c8557c0a31d209eabec028",
@@ -2078,10 +2078,10 @@
       "card": "#375"
     },
     "seed-skills/handoff/SKILL.md": {
-      "blob": "552defbe0d86a62b3365fe3b32b5d3c43d7df47b",
+      "blob": "826d4cd8fe4a6639cafa51b1ef3ad96f63ff3fd2",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(i18n): every seeded skill and task ships in both languages; the no-channel banner follows the language (DO (cb17a86bc).",
+      "card": "#932"
     },
     "seed-skills/retrospective/SKILL.md": {
       "blob": "bdb6804199925436a68468d65f4971844361c8ed",
@@ -2264,10 +2264,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/agent-worker.test.ts": {
-      "blob": "b2feab6b4f0a31a81bca009410773de678bd2397",
+      "blob": "30ee5c51bcbc95c425a9b6a71ebf8db9c2b3e308",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (kept at ours, #620). Upstream commits on it: feat(worker): one resolver for the worker model; an explicit model the CLI cannot run is flagged (WORKERMODEL1.",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agent-worker): an on-demand worker start follows the second-instance decision too (#2419 follow-up, Samu 6 (d3d0331a0).",
+      "card": "#932"
     },
     "src/__tests__/alert-chat-id-setting.test.ts": {
       "blob": "ceb131c86e932d9673d3d103fff95ab7a5bf91e6",
@@ -2360,10 +2360,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/auto-restart-put-merge.test.ts": {
-      "blob": "223a47af1846db78e39ca6acef6dc5503a8ff53a",
+      "blob": "c89b71ca48c77764d2f6f367d3da89cc8e65adf7",
       "kind": "decided",
-      "reason": "Rebuilt by hand (#735): upstream's test for #2049/#2057 adapted to our config (no openQuestionDeferralCapHours, no unknown-key 400 on this route); every merge rule is pinned.",
-      "card": "#735"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agents): terminal input, agent login, owner identity, skill assign and agent settings need the owner (OWNE (540f75f2b).",
+      "card": "#932"
     },
     "src/__tests__/auto-restart.test.ts": {
       "blob": "d05eda799a1f643cd4576e2b81f0a9cbf1e10edb",
@@ -2372,10 +2372,10 @@
       "card": "#620"
     },
     "src/__tests__/autonomy-section.test.ts": {
-      "blob": "1a5e15902c1bbbd12ec9bdb9b0ff39e798f10ea5",
+      "blob": "0cbb07ee47a0f797cb91f59f7a880b9b336e7028",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agents): every agent's generated API recipes go through marveen-api.sh, no token on argv (VOICETOKENLEAK11 (7bcad644d).",
+      "card": "#932"
     },
     "src/__tests__/avx-pin-in-sync.test.ts": {
       "blob": "27ec8fbe1bc0ce7e117740592c28a3769a3042e1",
@@ -2894,10 +2894,10 @@
       "card": "#932"
     },
     "src/__tests__/context-guard-resume-prompt.test.ts": {
-      "blob": "1393303733b31b260063a219558f9a8f39d809a9",
+      "blob": "f44f4cb0a6f6aa0dc745d45fa1137750d26d9b97",
       "kind": "decided",
-      "reason": "Decided (#413, mixed file sorted by hand): pins the upstream context-guard resume prompt (daily-handoff tier); context-guard feature, out by the owner's rule.",
-      "card": "#413"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 2, feat 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(handoff): the open HANDOFF items are tasks after a restart even without a card (HANDOFFKARTYA1118) (#2863) (2e279ac6c).",
+      "card": "#932"
     },
     "src/__tests__/context-guard-saturation-mismatch.test.ts": {
       "blob": "df15aedeb0042dab4c855eda9d713233bff79d83",
@@ -2906,10 +2906,10 @@
       "card": "#413"
     },
     "src/__tests__/context-guard.test.ts": {
-      "blob": "791ecdec42b86927106d9c285ac2fbe78a800a8d",
+      "blob": "513fc38e32bd9f25196ca2eb26171184b6cdf8be",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(context-guard): treat Sonnet 5.5 as a 1M-window model (#1924); fix(context-guard): the owed resume prompt survives a dashboard restart; READY_TIMEOUT 5 -> 20 min (#1972).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 7 commit(s) since the last decision (fix 4, feat 3). Of the 4 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 3 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agents): run OpenRouter DeepSeek V4 with its 1M window (#1925) (a77393967).",
+      "card": "#932"
     },
     "src/__tests__/context-restart-gate-main-transcript-root.test.ts": {
       "blob": "bcf8b1cd2ef5cbd55830874fffa6ab3144db20aa",
@@ -3908,10 +3908,10 @@
       "card": "#620"
     },
     "src/__tests__/isolated-channel-config.test.ts": {
-      "blob": "db336ac7220c658bbb57816e65673ecaa53ca951",
+      "blob": "44965aca6acbc1670db4b3b573948db019f06c8d",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(agents): a sub-agent with its own credential drops the inherited fleet token and API key (BYOSUBUNSET1018) (#2062).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 2, docs 1). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 0 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Tried: the plugin-registry merge (c73ae201a) was tried: its tests fail on our tree because ensureIsolatedChannelConfigDir diverged here, so it was not taken. Newest fix: fix(isolated-config): merge the plugin registry on relaunch instead o… (#2780) (c73ae201a).",
+      "card": "#932"
     },
     "src/__tests__/isolated-config-hook-strip.test.ts": {
       "blob": "d17153d1654a02ca7877d456d825534d113b3348",
@@ -3920,10 +3920,10 @@
       "card": "#932"
     },
     "src/__tests__/isolated-config-mcp-reconcile.test.ts": {
-      "blob": "b5fb883495f0acb6de6c886c0042111812e02b71",
+      "blob": "22e49ab1ca2b5995423c99b0e5b37f16a9e1c29d",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): a sub-agent may not write the plugin trees or the shared ~/.claude trees (PLUGINCODEWRITE1104) (#2 (43c6480f5).",
+      "card": "#932"
     },
     "src/__tests__/janitor-under-send-lane.test.ts": {
       "blob": "46e53b3327b39c3116465c65a89bd29329fcfac7",
@@ -4082,10 +4082,10 @@
       "card": "#932"
     },
     "src/__tests__/kanban-move-expected-status.test.ts": {
-      "blob": "99080fc86019a47548250282671c1b52edd3007e",
+      "blob": "d89c3dce24566e6fa3bec84e0a40edd471222636",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: feat(kanban): optional expected_status on POST /move, 409 on a stale status (#1975).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 2, feat 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(kanban): the dispatch recipe carries no token, every step through marveen-api.sh (VOICETOKENLEAK1101 round (92966753b).",
+      "card": "#932"
     },
     "src/__tests__/kanban-ongoing-strip.test.ts": {
       "blob": "7c6f8a50ab5e944a00e8726ac7de63fb58812f1e",
@@ -4136,10 +4136,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/__tests__/kanban-put-unknown-field.test.ts": {
-      "blob": "6def5b63b8ffee6143a4316be867f179bd23a20d",
+      "blob": "37e082fb79cebd3940b520418f01ae4bf714c5cb",
       "kind": "decided",
-      "reason": "Upstream test, decided (#413): Pins upstream kanban behaviour this fork does not ship (blockers, parent activity, update audit, dispatch re-arm, raw-SQL timestamp trigger layer, method/field/comment gates in upstream shape). Our kanban logic (C-31, owner decision A 2026-09-24; #446 already rebuilt the id echo, PUT unknown-field and timestamp fixes in our shape) stays; adopting the test would change our logic.",
-      "card": "#413"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(kanban): accept active_seconds in the whole-card PUT (#2660) (77774b607).",
+      "card": "#932"
     },
     "src/__tests__/kanban-read-does-not-write.test.ts": {
       "blob": "8d7b2f8988835c7f5aae8ea58e9b50c7691e1637",
@@ -4700,10 +4700,10 @@
       "card": "#932"
     },
     "src/__tests__/no-hardcoded-install-zone.test.ts": {
-      "blob": "4222ad8d35885e3a886a8de7a12987c39b614d44",
+      "blob": "90906fd8a29174d2c83669351fae2b02479e9c01",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(tz): the install zone (SCHEDULER_TZ, else the host zone) instead of hardcoded Europe/Budapest (ISSUE1895) (#1917).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(persona): CLAUDE.md and SOUL.md render literally through a temp file, a / in a name no longer leaves an em (546b71c86).",
+      "card": "#932"
     },
     "src/__tests__/notify-alert-chat-routing.test.ts": {
       "blob": "fd0ca6eee65f2d43cf5c5e19714340ed34eb7277",
@@ -5252,10 +5252,10 @@
       "card": "#932"
     },
     "src/__tests__/router-stuck-alert.test.ts": {
-      "blob": "eab100fa908c539f84e5f9a6693a2513d9dad34b",
+      "blob": "8bab26cc90ef1185c8922a01134958d13f41dcf0",
       "kind": "decided",
-      "reason": "Upstream test change kept out together with the code it pins (#731, kept at ours). Upstream commits on it: fix(router): a busy session whose transcript is moving is not reported as stuck (ROUTERSTUCK1012) (#1914); fix(router): the 2 h ceiling alert is in English, like the rest of the [session-stuck] family (ROUTERSTUCK1012, follow-up to #1914) (#1937).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(footer): one live-footer anchor for the stuck-modal guard, the plugin unlock and the progress mirror (PANE (3a56935ad).",
+      "card": "#932"
     },
     "src/__tests__/router-stuck-transcript-binding.test.ts": {
       "blob": "68ab7721250efd35cfe6d80ac5cf3febbb106b8b",
@@ -6152,10 +6152,10 @@
       "card": "#731"
     },
     "src/channel-provider.ts": {
-      "blob": "39c60aef0bf37f1bec583c6515832054481e418e",
+      "blob": "4d53296434c202fd34cf6b4e099713e12114600c",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(telegram): replies go back into the topic a message came from in a private chat (TELEGRAM_TOPICS_ENABLED, off by default) (#1893); test(notify): pin that a failure line carries none of the Bot API's error words (NOTIFYSENDLOG930) (#1736); feat(telegram): named topics (/topic new) and scheduled task results into a topic (telegramTopic) (#1894).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 5 commit(s) since the last decision (feat 3, fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(teams): a main agent on Teams gets its owner alerts (TEAMSALERTENV1110) (#2682) (c3e8b19c0).",
+      "card": "#932"
     },
     "src/claude-cli-support.ts": {
       "blob": "50e4c4ff5983b2bbc90eee1cc544ca1089b396ec",
@@ -6212,16 +6212,16 @@
       "card": "#932"
     },
     "src/config.ts": {
-      "blob": "f45dc458e12fe36c3f76239c58475e208e98d3ea",
+      "blob": "9adfc19742140ca4bc6840f73590d686981db734",
       "kind": "decided",
-      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
-      "card": "#733"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 10 commit(s) since the last decision (fix 8, feat 2). Of the 8 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 6 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(docker): the HTTPS listener starts from .env; the setup session reaches two paths; no query string in the  (3a8b912ba).",
+      "card": "#932"
     },
     "src/context-guard.ts": {
-      "blob": "3faaacc382fed2f8032349a6b7ead22e934a654a",
+      "blob": "6994f3e2ff9c3be178f54705751b3652f140efac",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(context-guard): treat Sonnet 5.5 as a 1M-window model (#1924); fix(context-guard): the owed resume prompt survives a dashboard restart; READY_TIMEOUT 5 -> 20 min (#1972).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 13 commit(s) since the last decision (fix 7, feat 4, docs 1, context 1). Of the 7 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 5 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agents): run OpenRouter DeepSeek V4 with its 1M window (#1925) (a77393967).",
+      "card": "#932"
     },
     "src/context-restart-gate.ts": {
       "blob": "6186bff7fe4e4bfe79af002414cd72e9639e9826",
@@ -6236,10 +6236,10 @@
       "card": "#733"
     },
     "src/db.ts": {
-      "blob": "9c334e3501804b10f718b2db57f2e7f7adde902d",
+      "blob": "f8c038a586aeda2037407d3a870d60cc46811f25",
       "kind": "decided",
-      "reason": "Rebuilt by hand (#733): the opt-in retention prunes, the WAL checkpoint and the free-page-gated VACUUM of upstream #1739 are in our db.ts / memory.ts / config-registry.ts (default 0 = keep forever, so nothing is deleted unless the owner turns it on); the expected_status compare-and-set of upstream #1975 is in our moveKanbanCard and the /move route.",
-      "card": "#733"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 48 commit(s) since the last decision (feat 27, fix 15, refactor 1, kanban 1, merge 1, approvals 1, auth 1, perf 1). Of the 16 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 15 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 0 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Tried: the diary-source fix (1bb2bdfea) applies textually but its own test fails on our tree (appendDailyLog returns nothing here and NOT_MIRROR is undefined: it builds on upstream code we do not have), so it was tried and not taken. Newest fix: fix(schedule-runner): a run answered only by \"Not logged in\" closes as unauth, not done (DOCKERUNAUTHRUN1118)  (686cd7eb7).",
+      "card": "#932"
     },
     "src/delivery-order.ts": {
       "blob": "f551cf178b56002a5db792fb8d7d71c26d66f4f0",
@@ -6332,10 +6332,10 @@
       "card": "#932"
     },
     "src/pane-state.ts": {
-      "blob": "735a2d35f4793ab359d4ac651b3739fd896b0749",
+      "blob": "288acf792abf497e9c968d9674ee83c9f0d07a0b",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(context-guard): a restarted agent does not hang on the development-channels dialog (#1971); feat(activity): show working background sub-agents, read the pane under their block (#2016); fix(send): a placeholder clear is pressed only on the input box, and a re-send that dies after it is an error (71263d15) (#2052).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 16 commit(s) since the last decision (fix 15, feat 1). Of the 15 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 14 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(stuck-input): hold behind a live turn, and alert what is known (#1923) (f890dbccd).",
+      "card": "#932"
     },
     "src/process-lock.ts": {
       "blob": "228f8bdadeed40b4370eda853b326fdd85a9943f",
@@ -6464,10 +6464,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "src/web/agent-process.ts": {
-      "blob": "53c424b0a24a42878bc4cea85c0735b270dd2441",
+      "blob": "6c5b7b14e2644747fc865b9b59bb94758adaa0c1",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(context-guard): a restarted agent does not hang on the development-channels dialog (#1971); feat(dashboard): a session that exists is not an agent that answers (#1213); fix(send): a placeholder clear is pressed only on the input box, and a re-send that dies after it is an error (71263d15) (#2052); fix(agents): a sub-agent with its own credential drops the inherited fleet token and API key (BYOSUBUNSET1018) (#2062) +3 more.",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 56 commit(s) since the last decision (fix 33, feat 17, perf 3, docs 1, refactor 1, auth 1). Of the 33 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 31 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Tried: the plugin-registry merge (c73ae201a) was tried: its tests fail on our tree because ensureIsolatedChannelConfigDir diverged here, so it was not taken. Newest fix: fix(watchdog): a watchdog restart carries the dashboard's Code Mode decision (CODEMODEFOLLOW1119) (#2908) (6b11f6801).",
+      "card": "#932"
     },
     "src/web/agent-put-fields.ts": {
       "blob": "154293b2cb1abd85505065700628aa5cc76472ed",
@@ -6518,10 +6518,10 @@
       "card": "#440"
     },
     "src/web/auth-device-keys.ts": {
-      "blob": "3bf28834439e85bec2ab3757a03dec1c1d2887b9",
+      "blob": "717195dc0d633f51792467511f36f71970860e30",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(auth): operator-scoped device keys behind a server-side gate, owner switches (DASHOPERATOR1005 PR-2).",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): the owner gate is strict by default; first-run is an explicit, closed list (OWNERGATE4-1104) (#2536 (cade4b518).",
+      "card": "#932"
     },
     "src/web/auth-gate.ts": {
       "blob": "26a918713590d219e00acf481809839ea2f53c15",
@@ -6644,10 +6644,10 @@
       "card": "#932"
     },
     "src/web/context-guard-runner.ts": {
-      "blob": "c4af39f18b654d9f8d5e9d67eed35e59605bd083",
+      "blob": "67c5399691ac13c169b9fb4256f61a3e0fb23f6f",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(context-guard): the owed resume prompt survives a dashboard restart; READY_TIMEOUT 5 -> 20 min (#1972).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 17 commit(s) since the last decision (fix 11, feat 5, context 1). Of the 11 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 10 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(handoff): the open HANDOFF items are tasks after a restart even without a card (HANDOFFKARTYA1118) (#2863) (2e279ac6c).",
+      "card": "#932"
     },
     "src/web/context-guard-store.ts": {
       "blob": "5b4e773ec618b8a7957b4d8af6efa7aa5c3ba0ab",
@@ -6764,10 +6764,10 @@
       "card": "#419"
     },
     "src/web/hook-registration-guard.ts": {
-      "blob": "e5ed332ac984f2941adfeaef389873821d271a47",
+      "blob": "eabc59c64ba74fba842adfc6af899bd2c37ea837",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(hooks): the memory frontmatter check also runs after Bash writes (KAPUEGYUT918); fix(hooks): KNOWN_HOOK_SCRIPTS knows the Telegram reply-fix trio (KNOWNTRIO924).",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 6 commit(s) since the last decision (feat 5, fix 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): a second instance runs no background services unless started with the opt-in (#2419) (2c093a10a).",
+      "card": "#932"
     },
     "src/web/http-helpers.ts": {
       "blob": "5a2a153e0be061d7f4ae525d1c1399d0bf9de913",
@@ -7016,10 +7016,10 @@
       "card": "#620"
     },
     "src/web/routes/agent-terminal.ts": {
-      "blob": "fe6b63bcdb53e5ad0a9d1e401b2ac2618d0427ee",
+      "blob": "ae9b098f297da7facb9c86ca20fe6e458f5f1cef",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(tmux): every session target is exact (=NAME:), so a missing session is never answered by a sibling (TMUXEX.",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the last decision (fix 3, perf 1). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(delivery): typed prompts carry no expandable at-sign; the header uses the sanitized sender (ENVATLEAK1114) (2d0025db6).",
+      "card": "#932"
     },
     "src/web/routes/agents-skills.ts": {
       "blob": "23dc25ca9bf063b2a6df60440eab43adfd5b634e",
@@ -7040,16 +7040,16 @@
       "card": "#932"
     },
     "src/web/routes/auth.ts": {
-      "blob": "1f824f9b87597d3fd1d7ec2abcaa6ef67ee31865",
+      "blob": "34bea8e3ad02afc3659be01fa9f23d1b33c0a44a",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(api): read-only transcript endpoint for allowlisted agents; feat(operator): the IT operator's endpoints, page and owner controls (DASHOPERATOR1005 PR-3); feat(auth): operator-scoped device keys behind a server-side gate, owner switches (DASHOPERATOR1005 PR-2).",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 17 commit(s) since the last decision (fix 9, feat 6, auth 2). Of the 9 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 8 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): TOTP follow-ups: a sub-agent Read fence on the store, an owner ping on web disable, a damaged store (8a96be491).",
+      "card": "#932"
     },
     "src/web/routes/background-tasks.ts": {
-      "blob": "38cedef8dde58054cf1f91e8cf5f8402f417b3d1",
+      "blob": "2fd4ead9456bc32d1e4123778dfbd251d7c78f6b",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(tmux): every session target is exact (=NAME:), so a missing session is never answered by a sibling (TMUXEX; feat(agents): the fleet Python venv's bin/ leads every agent launch PATH (FLEETVENV923).",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the last decision (fix 2, perf 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(background-tasks): a slow tmux no longer closes a running task (#2186) (#2256) (407fcd0e3).",
+      "card": "#932"
     },
     "src/web/routes/bridge-service-ports.ts": {
       "blob": "7008724293d2b21e710c3806417b41d28e03e8e4",
@@ -7070,10 +7070,10 @@
       "card": "#932"
     },
     "src/web/routes/connectors.ts": {
-      "blob": "02df0b232a6469f4851925499f6785411514a408",
+      "blob": "f5f18784ce9d081470166bcaaf5890838f6fd058",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: connectors: skip npm install scripts for GitHub repos by default (#1877).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 9 commit(s) since the last decision (fix 6, feat 2, perf 1). Of the 6 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 4 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): the main agent's credential is decided once and applied by every launch path (MAINAUTH1107) (#2580) (1ccbff9bd).",
+      "card": "#932"
     },
     "src/web/routes/custom-commands.ts": {
       "blob": "b9eb58580521bb6cbd38abcd1e2925899c0690d3",
@@ -7088,10 +7088,10 @@
       "card": "#932"
     },
     "src/web/routes/federation.ts": {
-      "blob": "c4170bf238942ce52cf6df66ed477a1bf44fe990",
+      "blob": "ffc7e8a3b4f7be263b5ecec45a7cfbf53cfe893d",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(federation): applying the federation settings takes the same busy gate as the main restart (FEDAPPLYGATE1018).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 6 commit(s) since the last decision (fix 5, feat 1). Of the 5 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 4 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(federation): a peer's completion receipt closes the outbound row it names (#2410) (34becf383).",
+      "card": "#932"
     },
     "src/web/routes/heartbeat.ts": {
       "blob": "245bcd60238121150d1684dc63527365f12f6ec8",
@@ -7142,10 +7142,10 @@
       "card": "#932"
     },
     "src/web/routes/onboarding.ts": {
-      "blob": "0e3a4850bdfe38bab41e575007576df034d68aee",
+      "blob": "d54ba62fe6173c6aa7eb637098e76d28429c71dd",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(onboarding): a failed channels restart after a channel save is said at once (#1878 item 6) (#1921).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 13 commit(s) since the last decision (fix 9, feat 2, web 1, perf 1). Of the 9 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 8 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): a setup session gets no self-authenticating public route and no saved channel token (DOCKERHTTPS111 (335c1df34).",
+      "card": "#932"
     },
     "src/web/routes/operator-access.ts": {
       "blob": "566e3d77f0f656ccae5f2e29a0235093f0688b4e",
@@ -7196,10 +7196,10 @@
       "card": "#932"
     },
     "src/web/routes/skills.ts": {
-      "blob": "34c1e440bd5009e79546d686ec9fbc481ba0af7e",
+      "blob": "5fe553bdf00319de71036ce892430d1fbdd60598",
       "kind": "decided",
-      "reason": "Upstream change already contained: a three-way merge against base 6add7da7 gives our version unchanged.",
-      "card": "#375"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 14 commit(s) since the last decision (fix 10, feat 3, perf 1). Of the 10 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 9 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(skills): every skill edit is owner-only, and no skill read or write follows a link out (SKILLPUTSCOPE1114) (c5c91f8f5).",
+      "card": "#932"
     },
     "src/web/routes/status.ts": {
       "blob": "c818392b5c985959cc874828ea149a0ae9768233",
@@ -7244,10 +7244,10 @@
       "card": "#932"
     },
     "src/web/sanitize.ts": {
-      "blob": "6addbc81cda3b39d8657ae90b722a13fe8934327",
+      "blob": "fe953c3f8abfae432955d183bf221f99bc3585a6",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 5 commit(s) since the last decision (fix 4, feat 1). Of the 4 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agents): the agents API's fixed route names are reserved agent ids (AGENTROUTERESERVED1114) (#2744) (1dff483a7).",
+      "card": "#932"
     },
     "src/web/schedule-runner.ts": {
       "blob": "d5783f979f4db83a4305aa5fb9b0106659f18829",
@@ -7280,10 +7280,10 @@
       "card": "#620"
     },
     "src/web/ssh-tmux.ts": {
-      "blob": "4e10bbb83ca915d0f71498dffa6ba9dac0363ddf",
+      "blob": "38bbb9221c80057a51ed7389aa2d6dab7741ebfd",
       "kind": "decided",
-      "reason": "Kept at ours (#620): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(launch): every claude launch on a root host carries IS_SANDBOX=1 (ROOTRESPAWN1001).",
-      "card": "#620"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(scheduler): a remote agent's scheduled round is seen from the remote transcript (REMOTESAWTURN1022) (#2196 (b14d28ac0).",
+      "card": "#932"
     },
     "src/web/state-observer.ts": {
       "blob": "ddbd57632183b1b2f6e9a4e713ab574e3fe02901",
@@ -7292,10 +7292,10 @@
       "card": "#620"
     },
     "src/web/stuck-input-watcher.ts": {
-      "blob": "1bb379e00265c657ea225e1ef6159158056ee93d",
+      "blob": "5b50eeae384927bd3fc38186d58267336e6ce67a",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(restart): the dashboard restart button asks before it forces past the busy gate (RESTARTFORCEUI1018).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 7 commit(s) since the last decision (fix 5, perf 1, feat 1). Of the 5 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 4 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(watchers): one failed tmux listing no longer resets every agent in the stuck-input and intake watchers (S1 (4690e72f0).",
+      "card": "#932"
     },
     "src/web/stuck-tool-call-watcher.ts": {
       "blob": "ce49f227b7d3353d53a2829b3dc09feb91ecd4c7",
@@ -7370,10 +7370,10 @@
       "card": "#932"
     },
     "src/web/vault.ts": {
-      "blob": "2bc49837d3539a95e84d31f5b979be023bd8c930",
+      "blob": "08b659e8d749c5c5a8a1df06468702979b6cf2c3",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner option B 2026-10-01): kept at ours. New upstream commits on this file were triaged one by one; useful non-restrictive fixes were rebuilt in our own code (kanban parent-cycle guard, persona overwrite guard, vault SSH-key guard, tool-log redaction), the rest are new gates, foreign integrations or features that restrict or contradict this fork."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (feat 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(vault): keep the stdout of the headersHelper and resolver scripts clean: no Keychain migration, no logger  (9b7307447).",
+      "card": "#932"
     },
     "src/web/video-review.ts": {
       "blob": "0ea30e95e4649b41071f4add5dc31be56f2275f1",
@@ -7394,10 +7394,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "templates/CLAUDE.md.template": {
-      "blob": "5d18a1c529a9c99abca5baf45991d5a5ed160dbd",
+      "blob": "d8a22207582e7d5f9cbe5de15898ce0dfd5f9431",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: fix(template): read the agent's own Telegram access.json from its working directory, not $HOME (ALLOWLISTPATH1015) (#1956); fix(tz): the install zone (SCHEDULER_TZ, else the host zone) instead of hardcoded Europe/Budapest (ISSUE1895) (#1917).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 9 commit(s) since the last decision (feat 5, fix 3, docs 1). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(templates): route the dashboard recipes of the main agent and the federation block through marveen-api.sh  (e627505f7).",
+      "card": "#932"
     },
     "templates/egress-vendor-hosts.json": {
       "blob": "2e49cdacf91056e0ad22ae7133c113a51df5808b",
@@ -7406,10 +7406,10 @@
       "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
     },
     "templates/profiles/developer-junior.json": {
-      "blob": "70b7a1ef385ef3c0e1c4e54a3693a024e7db2de6",
+      "blob": "2a1d4910cf1e785facdaeb8045c9ac0884c16a21",
       "kind": "decided",
-      "card": "#456",
-      "reason": "Decided (#456, owner instruction 2026-10-01 \"upstream sync means zero\"): kept at ours, same option B as the other #456 files. Recorded per upstream blob: if upstream changes the file again it surfaces again and needs a new decision."
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the last decision (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(templates): route the dashboard recipes of the main agent and the federation block through marveen-api.sh  (e627505f7).",
+      "card": "#932"
     },
     "templates/profiles/marketer.json": {
       "blob": "bf0141ac6869fc14ee035b8cc8fd10989336b745",
@@ -7448,28 +7448,28 @@
       "card": "#932"
     },
     "web/app.js": {
-      "blob": "1e8e5f28e09ac53bcea2c64245e2de8d73337d03",
+      "blob": "0325d699b49e1bc2dac25038afeaad26a8bfc490",
       "kind": "decided",
-      "reason": "Rebuilt by hand (#733): the escaping helpers (jsArg, escSnippet, safeHref, safeCssColor, tHtml, CSS.escape), the sink fixes and the one colour policy of upstream #1875 are in our web/app.js and server code. The parse5 sink scanner (its test, helper, allowlist and the parse5 dev dependency) was NOT taken: its allowlist is keyed to upstream's app.js, ours is a different file; src/__tests__/app-js-escape-helpers.test.ts pins the helpers and the fixed sinks instead.",
-      "card": "#733"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 112 commit(s) since the last decision (fix 54, feat 53, chore 2, test 1, merge 1, auth 1). Of the 54 fix commit(s), 2 are already in our file (the patch reverse-applies cleanly), 48 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 4 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Taken in this round: a635b04c6, b9eca57d6. Newest fix: fix(i18n): every seeded skill and task ships in both languages; the no-channel banner follows the language (DO (cb17a86bc).",
+      "card": "#932"
     },
     "web/index.html": {
-      "blob": "442df643d0554abb9e900ce2f3767cb1d25153bd",
+      "blob": "5b03ef79411c600c9db14c496926fe9dd0fbe973",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(kanban): a card's testing steps get a field of their own (#1841); connectors: skip npm install scripts for GitHub repos by default (#1877); Upstream/kanban projects page (#1138); feat(kanban): tokens per card -- what the assignee spent while it was in progress (#2028).",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 36 commit(s) since the last decision (feat 23, fix 11, chore 2). Of the 11 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 6 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 5 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): the Channels tab toasts come from the language files (#2771) (5c8799d51).",
+      "card": "#932"
     },
     "web/lang/en.js": {
-      "blob": "77fb516d17f7f517d61aebe0c5992f2cc4d836f4",
+      "blob": "5c4c1a19e371b3da2cbaecbc779942917884e9cb",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: Upstream/kanban projects page (#1138); fix(restart): the dashboard restart button asks before it forces past the busy gate (RESTARTFORCEUI1018); feat(kanban): live agent state on in_progress cards (#2025); feat(kanban): tokens per card -- what the assignee spent while it was in progress (#2028) +6 more.",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 96 commit(s) since the last decision (feat 53, fix 40, chore 1, merge 1, auth 1). Of the 40 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 31 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 8 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(dashboard): the new-agent wizard creates once; Back then Next goes to step 3 (Refs #2845) (#2850) (3450c3cbb).",
+      "card": "#932"
     },
     "web/lang/hu.js": {
-      "blob": "4d0708b59dd7b5d8459f118ed94f64a499ab23e8",
+      "blob": "73e92efaf0eacfee85fb04ddbb8b31d647b00572",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: Upstream/kanban projects page (#1138); fix(restart): the dashboard restart button asks before it forces past the busy gate (RESTARTFORCEUI1018); feat(kanban): live agent state on in_progress cards (#2025); feat(kanban): tokens per card -- what the assignee spent while it was in progress (#2028) +6 more.",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 97 commit(s) since the last decision (feat 53, fix 40, chore 2, merge 1, auth 1). Of the 40 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 31 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 8 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(dashboard): the new-agent wizard creates once; Back then Next goes to step 3 (Refs #2845) (#2850) (3450c3cbb).",
+      "card": "#932"
     },
     "web/operator.html": {
       "blob": "13389baca87230429c307d6e2f8cff2bba141a75",
@@ -7484,10 +7484,10 @@
       "card": "#932"
     },
     "web/style.css": {
-      "blob": "66d9d53ecfcdddb6609ccdce719b286efa8af86e",
+      "blob": "0e6c8ed392cee5193861729657994fe34bfdb4ea",
       "kind": "decided",
-      "reason": "Kept at ours (#731): the remaining upstream commits are new gates, foreign integrations or features that restrict or contradict this fork, or fixes against code that diverged here (the patch does not apply, not rebuilt). Upstream commits on it: feat(dashboard): a session that exists is not an agent that answers (#1213); Upstream/kanban projects page (#1138); feat(kanban): live agent state on in_progress cards (#2025); feat(kanban): tokens per card -- what the assignee spent while it was in progress (#2028) +3 more.",
-      "card": "#731"
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 33 commit(s) since the last decision (feat 23, fix 8, chore 1, merge 1). Of the 8 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 6 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gromzo): the dashboard's Gromzo card points at the Bridge wizard; its dead owner QR is gone (GROMZOBRIDGEW (3b998f06b).",
+      "card": "#932"
     },
     "web/video-review.html": {
       "blob": "b0d63ac654b2c5d9822d5d3e257ed1c23f56cd00",
@@ -9800,9 +9800,9 @@
       "card": "#932"
     },
     "src/__tests__/restart-recovery-brief.test.ts": {
-      "blob": "67f49732ddf0977e9dc43eed5982405c9ce89ed1",
+      "blob": "3af70c97061a00ff7f79b5904594e9c77add1988",
       "kind": "decided",
-      "reason": "Kept at ours (#932): upstream feature/chore/refactor/perf/ci changes only (no fix): new gates, foreign integrations or features that restrict or contradict this fork. Upstream commit types on it: other x1.",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the last decision (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(recovery-brief): outside-written fields are cleaned and cut before they are typed (RECOVERYBRIEFSCRUB1114) (0d53c6d40).",
       "card": "#932"
     },
     "docs/upstream-ledger.md": {
@@ -14153,6 +14153,624 @@
       "blob": "6b5d5464074f2e25c24d23b65618e7f93c9746c8",
       "kind": "decided",
       "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (auth 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 0 apply cleanly and their upstream test passes on our tree (already covered). Newest fix: fix(bridge): the pairing errors speak the install's language (BRIDGEHU813) (#1170) (1df099be7).",
+      "card": "#932"
+    },
+    "docs/en/federation.md": {
+      "blob": "f37c7f1e41721ee9888974c73544054548705326",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(federation): an opt-in, scrubbed completion receipt for federated tasks (#1969) (5756458dc).",
+      "card": "#932"
+    },
+    "docs/federation.md": {
+      "blob": "d214e173afa54791bf7b60ed340b8676aace6333",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 3). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(federation): a peer's completion receipt closes the outbound row it names (#2410) (34becf383).",
+      "card": "#932"
+    },
+    "docs/flotta-migracio.md": {
+      "blob": "f7aec8ea35f8cdf0228ece19c9a81e5cb175baf0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(fleet): an applied import and an export with the vault take the owner session (FLEETIMPORTGATE1022) (#2293 (648360994).",
+      "card": "#932"
+    },
+    "docs/heartbeat-autonomy.md": {
+      "blob": "a4f44e927e01dd9dde08b4d391740da17d07ca3f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the common base (fix 3, feat 1). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(autonomy): raising a level takes the owner session; lowering stays on the token (FLEETIMPORTGATE1022) (#22 (6e0b1ad42).",
+      "card": "#932"
+    },
+    "scripts/__tests__/channels-boot-rename.test.sh": {
+      "blob": "b0845ffa9d685c65f4bb6ffb48afa810e5a709ce",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 5 commit(s) since the common base (fix 5). Of the 5 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 3 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(typing): the SDK prompt gets the at-sign mapping, /model back checks the configured id, the boot /rename f (9b28a17be).",
+      "card": "#932"
+    },
+    "scripts/__tests__/copy_gate_install.py": {
+      "blob": "b41cefec66fb40bb81e518cc736de64140ae2962",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): the copy gate reads its name rules only from its own install (ENVRELAXGATE1104 follow-up 2) (#2506 (a8f410067).",
+      "card": "#932"
+    },
+    "scripts/__tests__/ledger-agent-id.test.py": {
+      "blob": "f520ad50cea7ef1f6782cc2307e575adb3fb67fb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the common base (fix 4). Of the 4 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): a gate's sources come from its own install, never the environment; two routing keys overrides-only (7647af5f2).",
+      "card": "#932"
+    },
+    "scripts/__tests__/morning-timer-park.test.sh": {
+      "blob": "31e54e67d170412edccb3577d1c827b3638442e1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(update): park the morning timer only when the runner will fire the task (#2133) (e6fc670c3).",
+      "card": "#932"
+    },
+    "scripts/__tests__/outgoing-copy-gate-log.test.py": {
+      "blob": "64470c6c63b1a90783b9bb6258b97752623bb53a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): the copy gate reads its name rules only from its own install (ENVRELAXGATE1104 follow-up 2) (#2506 (a8f410067).",
+      "card": "#932"
+    },
+    "scripts/__tests__/outgoing-copy-gate-rules-policy.test.py": {
+      "blob": "17de58d4844a36479d0eef1684a40b33a3877bd6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 3). Of the 3 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(hooks): a pass-with-warning reaches the agent, not only the terminal (HOOKWARNCTX1108) (#2620) (daef30e86).",
+      "card": "#932"
+    },
+    "scripts/__tests__/stop-start-system-unit.test.sh": {
+      "blob": "e245379de79acde615e2fbc7a0167c8d443096dd",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the common base (fix 4). Of the 4 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(start,stop,update): fall back to the MAIN_AGENT_ID units when none exist under SERVICE_ID; pin launchd and (b06c9bcc7).",
+      "card": "#932"
+    },
+    "scripts/__tests__/support-mail-owner-cc.test.py": {
+      "blob": "37a8aca4a8c899020aea3f6153da1310644b6997",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(mail-senders): the senders enforce the email_send level themselves; opt-in recipient ledger for the main a (336bfadc2).",
+      "card": "#932"
+    },
+    "scripts/ensure-managed-channels-enabled.sh": {
+      "blob": "a4c52cedd9f8ab323f1daef17353db788eb2837d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(install): one safe writer for managed-settings.json, all four writers moved onto it (MANAGEDSETTINGSWRITE1 (52bcb233c).",
+      "card": "#932"
+    },
+    "scripts/hooks/browser-content-notice.py": {
+      "blob": "effc8fa5ad836629439868e150cdc499102f2b78",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 10 commit(s) since the common base (fix 7, feat 3). Of the 7 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 5 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(hooks): label Stripe MCP output as untrusted, private like mail (#2809) (f186c1f58).",
+      "card": "#932"
+    },
+    "scripts/hooks/ledger-live-drain.py": {
+      "blob": "49847efc43fd825074a2915f4b38f87a9b5d5eab",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (feat 2, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): a gate's sources come from its own install, never the environment; two routing keys overrides-only (7647af5f2).",
+      "card": "#932"
+    },
+    "scripts/remote-access-enroll.ts": {
+      "blob": "80908aca1d262219fee60152e0f98b701477ce40",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 2, test 1). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(bridge): the installer-paired Bridge gets its own revocable device key, not the shared token (BRIDGEINSTKE (07c6dad02).",
+      "card": "#932"
+    },
+    "scripts/support-mail/lib.py": {
+      "blob": "472235ddaac47fcd47cb1f57efcd27430f5255b3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(mail-senders): the senders enforce the email_send level themselves; opt-in recipient ledger for the main a (336bfadc2).",
+      "card": "#932"
+    },
+    "seed-scheduled-tasks/bumblebee-hygiene-scan/SKILL.md": {
+      "blob": "3ae6807c26c8e7760e20957edf79abdce7aa9729",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the common base (fix 4). Of the 4 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(i18n): every seeded skill and task ships in both languages; the no-channel banner follows the language (DO (cb17a86bc).",
+      "card": "#932"
+    },
+    "src/__tests__/agent-settings-strip.test.ts": {
+      "blob": "a6683ee2c76c2bbc1cca9cd2f957eaaa74fd95fe",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): the two workers get the db-write-gate, the hard email-send-gate and the copy gate; the scaffold dr (de6275ef2).",
+      "card": "#932"
+    },
+    "src/__tests__/agent-taskstate-writer.test.ts": {
+      "blob": "ae3f807e45123ad525e8098509c2bdb07c2f6e62",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(hooks): PreCompact saves go through marveen-api.sh, and existing agents are migrated (#2338) (#2340) (25c5d10ac).",
+      "card": "#932"
+    },
+    "src/__tests__/agent-worker-clear-wait.test.ts": {
+      "blob": "524e6195d505237a734f633b6ad44af354f1c80b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (test 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agent-worker): wait for the idle prompt after /clear instead of a fixed sleep (#2830) (ded815c1b).",
+      "card": "#932"
+    },
+    "src/__tests__/agents-toasts-i18n.test.ts": {
+      "blob": "633187daa233dc45901b8d53d29be64d20466603",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 3). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(dashboard): the new-agent wizard creates once; Back then Next goes to step 3 (Refs #2845) (#2850) (3450c3cbb).",
+      "card": "#932"
+    },
+    "src/__tests__/approvals-chat-approved.test.ts": {
+      "blob": "77c41d991148b1e4d43aad640e81e96553fac415",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the common base (fix 4). Of the 4 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 3 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): the copy gate reads its name rules only from its own install (ENVRELAXGATE1104 follow-up 2) (#2506 (a8f410067).",
+      "card": "#932"
+    },
+    "src/__tests__/approvals-prompt-contract.test.ts": {
+      "blob": "567f24903a75de2cedff1a28d60de77f05c8e400",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 3). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agents): every agent's generated API recipes go through marveen-api.sh, no token on argv (VOICETOKENLEAK11 (7bcad644d).",
+      "card": "#932"
+    },
+    "src/__tests__/audit-log-diary-mirror.test.ts": {
+      "blob": "2ec9064785390fa9f5291026096eef2b2fe77392",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 0 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Tried: the diary-source fix (1bb2bdfea) applies textually but its own test fails on our tree (appendDailyLog returns nothing here and NOT_MIRROR is undefined: it builds on upstream code we do not have), so it was tried and not taken. Newest fix: fix(log): the diary source lists a daily-log entry once, not also its memory mirror (1bb2bdfea).",
+      "card": "#932"
+    },
+    "src/__tests__/auth-routes.test.ts": {
+      "blob": "fb2f81ec821e19ce63893bbdf5dd25b86aead5b0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the common base (fix 3, auth 1). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): the password change checks the current password under the login throttle (PWCHANGETHROTTLE1114) (#2 (dbef453bc).",
+      "card": "#932"
+    },
+    "src/__tests__/bash-egress-noexec-shell.test.ts": {
+      "blob": "f00da2a7188bc9006b8f7c63eda499d992162e30",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(egress): a noexec (-n) shell reading stdin is not an egress source (#2858) (e816d3245).",
+      "card": "#932"
+    },
+    "src/__tests__/brew-prefix-path.test.ts": {
+      "blob": "069cf0f9a6019ba7ba4c6875b70e3afe554b40dc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(path): a custom Homebrew prefix reaches the dashboard and the main session, on existing installs too (#196 (251f7fa3e).",
+      "card": "#932"
+    },
+    "src/__tests__/capture-pane-async.test.ts": {
+      "blob": "0b72826235d7d9cf9973c22af2c93bc646f807d4",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (test 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agent-process): read tmux capture-pane asynchronously on the router and stuck-input hot paths (#2693) (5bb8e40d7).",
+      "card": "#932"
+    },
+    "src/__tests__/channel-coordinator-offset.test.ts": {
+      "blob": "bed1b3996e7daf9eb6328bd69e4ea500269a8a47",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(channel-coordinator): the backfill drops a tap on an expired reply button, like the plugin (KBDBACKFILLEXP (83e1bbbf3).",
+      "card": "#932"
+    },
+    "src/__tests__/channel-coordinator-pidlock-reuse.test.ts": {
+      "blob": "ebca17c45095cc4306678e01fdadc26fb2ca7710",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(channel-coordinator): PID lock is reclaimed after PID reuse; lock records boot_id + start tick (#2881) (94f681f7a).",
+      "card": "#932"
+    },
+    "src/__tests__/channel-coordinator-pidlock.test.ts": {
+      "blob": "d29f78f7187529aee16fd96288ed750a09c4dcd6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(channel-coordinator): the pid lock appears with its content, so a second starter never reclaims an empty l (872201c6b).",
+      "card": "#932"
+    },
+    "src/__tests__/channel-poller-reap-foreign-tmux.test.ts": {
+      "blob": "d50b453bcc0c773024045048f3eada1516ba5034",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(channel-reap): the detached-claude reaper spares claudes under another install's tmux server (#2078) (30b8e0d2c).",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-hard-busy-handoff.test.ts": {
+      "blob": "9a91033527e2fdc4e1514571d73f1ee40f74d96b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 2, feat 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(context-guard): the idle-flush tier waits while the pane runs background work (IDLEFLUSHVETO812) (#2265) (02ed9d424).",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-minutes-cap.test.ts": {
+      "blob": "6827f047866b3e70d9e47bed9e93487bf553e928",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 2, feat 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(context-guard): the idle-flush tier waits while the pane runs background work (IDLEFLUSHVETO812) (#2265) (02ed9d424).",
+      "card": "#932"
+    },
+    "src/__tests__/context-guard-put-merge.test.ts": {
+      "blob": "a39d535ca01ec8e0fc4a263fa525713c4af39866",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agents): terminal input, agent login, owner identity, skill assign and agent settings need the owner (OWNE (540f75f2b).",
+      "card": "#932"
+    },
+    "src/__tests__/dashboard-origin-url-validation.test.ts": {
+      "blob": "6edcc0bd1c4f1c86dff006bd3ad41068a20e8dc1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agent-scaffold): only an absolute http(s) URL becomes the agents' dashboard origin (ORIGINURL1116) (#2822) (e678e0281).",
+      "card": "#932"
+    },
+    "src/__tests__/desktop-lock-owner-forgery.test.ts": {
+      "blob": "50c9e3e35488f43429cccaf58d462c4c12caf85c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(voice-channel): the voice channel sender id is configurable (VOICE_CHANNEL_ID, default 'hanna') (#2185) (12037f511).",
+      "card": "#932"
+    },
+    "src/__tests__/docker-first-boot-lang.test.ts": {
+      "blob": "978f3b7ab81a56042d2b56a5d6ae8708009caacb",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(docker): a missing image is an error, not a silent build; the guide names the install, the branch and the  (5fa145dea).",
+      "card": "#932"
+    },
+    "src/__tests__/federation-drive-guard-effective.test.ts": {
+      "blob": "0101c8a0ab57ba374b3b8085c425fae0d0f32874",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): a gate's sources come from its own install, never the environment; two routing keys overrides-only (7647af5f2).",
+      "card": "#932"
+    },
+    "src/__tests__/federation-lifecycle.test.ts": {
+      "blob": "5183d6b28dd23c1c24cf090c4c632e9f224bdc01",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): the owner gate is strict by default; first-run is an explicit, closed list (OWNERGATE4-1104) (#2536 (cade4b518).",
+      "card": "#932"
+    },
+    "src/__tests__/federation-onboarding.test.ts": {
+      "blob": "d1d709c50419c9178e2bb7e1214c88a6a717e1f6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(persona-en): the federation block finds the English Inter-agent section; the owner's escalation is English (52d067762).",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/pane-at-neutralize-vectors.json": {
+      "blob": "3ff421d61bf5d4b1e4054ad152f65618f0da0917",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(delivery): typed prompts carry no expandable at-sign; the header uses the sanitized sender (ENVATLEAK1114) (2d0025db6).",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/precompact-prompt-b8e4ff8e6.txt": {
+      "blob": "eb198bc096be57e46753095eb893bf8fc4fa4d58",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(hooks): PreCompact saves go through marveen-api.sh, and existing agents are migrated (#2338) (#2340) (25c5d10ac).",
+      "card": "#932"
+    },
+    "src/__tests__/fixtures/precompact-prompt-pre2338.txt": {
+      "blob": "001724282ffbb6f0d1cfcab19baa5f72cbc58d86",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(hooks): PreCompact saves go through marveen-api.sh, and existing agents are migrated (#2338) (#2340) (25c5d10ac).",
+      "card": "#932"
+    },
+    "src/__tests__/gromzo-owner-qr-bridge-text.test.ts": {
+      "blob": "b545d59a9e48b029f45c0fbec1c23f40d9ff8291",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gromzo): the dashboard's Gromzo card points at the Bridge wizard; its dead owner QR is gone (GROMZOBRIDGEW (3b998f06b).",
+      "card": "#932"
+    },
+    "src/__tests__/helpers/exec-file-from-sync.ts": {
+      "blob": "7fc2d13bfbdbc5904b350a244fcaf5d394cf6654",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (test 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(agent-process): read tmux capture-pane asynchronously on the router and stuck-input hot paths (#2693) (5bb8e40d7).",
+      "card": "#932"
+    },
+    "src/__tests__/identity-rename-recorded.test.ts": {
+      "blob": "5c7e891e85a7da89b0fd1d2417cb026c54605dac",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(stuck-input): record the identity /rename so a parked one is submitted, not held (#1948) (54b93071c).",
+      "card": "#932"
+    },
+    "src/__tests__/idle-flush-background-veto.test.ts": {
+      "blob": "40198a8a8ca8095ee5c52122cbef3042ec5c8b93",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (feat 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(context-guard): the idle-flush tier waits while the pane runs background work (IDLEFLUSHVETO812) (#2265) (02ed9d424).",
+      "card": "#932"
+    },
+    "src/__tests__/inbox-nudge-voice.test.ts": {
+      "blob": "2bfa73348f47ee7f815f7962676977381f4616fa",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(inbox-nudge): nudge the main agent at once for a voice-channel message (#2629) (3150ce953).",
+      "card": "#932"
+    },
+    "src/__tests__/installer-discord-macos-parity.test.ts": {
+      "blob": "eee7fd7546546c9eae1beb91ef6e92c0c0aaf1fc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 2, feat 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(install-macos): the root steps run no clone code, and the password is gone before clone code runs (MACROOT (c8e3e5c73).",
+      "card": "#932"
+    },
+    "src/__tests__/installer-managed-channels-gate.test.ts": {
+      "blob": "a640ad309f22e52cdfd1dee1446c6c0a4ef959d0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(install): one safe writer for managed-settings.json, all four writers moved onto it (MANAGEDSETTINGSWRITE1 (52bcb233c).",
+      "card": "#932"
+    },
+    "src/__tests__/installer-node22-abi.test.ts": {
+      "blob": "39b9fe7c521fe4be248ba736b7246ce5b1795a23",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(install-macos): run the TypeScript build under the pinned node@22 too (#2686) (0b3fc3261).",
+      "card": "#932"
+    },
+    "src/__tests__/installer-slack-managed-atomic.test.ts": {
+      "blob": "e69e4fdd48bb9a148eca278b9e65cd6c44b9a069",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 3). Of the 3 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(install-macos): the root steps run no clone code, and the password is gone before clone code runs (MACROOT (c8e3e5c73).",
+      "card": "#932"
+    },
+    "src/__tests__/kanban-card-detail-labels.test.ts": {
+      "blob": "65cbf561eee3a6a94f3c6eeac2cbc03fb0e3ff6a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): the card detail's assignee and label picker labels (#2798) (285c89f72).",
+      "card": "#932"
+    },
+    "src/__tests__/keychain-store-value-off-argv.test.ts": {
+      "blob": "90fc9e95579ecd9e76a1af3168bcbe55de12f845",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(keychain): the stored value goes to security on stdin, not in its argument list (VAULTKEYARGV1118) (#2864) (c7fd67e76).",
+      "card": "#932"
+    },
+    "src/__tests__/launch-path-native-claude-first.test.ts": {
+      "blob": "35d93fd9a5244db02125d60dbfaf45e11cb38477",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(launchers): the native claude leads every launch PATH that resolves claude by name, so one install runs on (f6d42363c).",
+      "card": "#932"
+    },
+    "src/__tests__/liveness-envscan-fallback.test.ts": {
+      "blob": "46404dcacbe0cbe08ba5719b0b4c1d3509fe072c",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(channel-monitor): a poller whose wrapper has exited is still alive (FORKFA161A5921) (#2276) (779c89a2c).",
+      "card": "#932"
+    },
+    "src/__tests__/main-agent-detail-guards.test.ts": {
+      "blob": "ed0720772a14e7416aa47043c66a13f3bd4d7dbf",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 0 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Taken in this round: b9eca57d6. Newest fix: fix(dashboard): the main agent detail loads its voice reply section (Refs #2848) (#2849) (b9eca57d6).",
+      "card": "#932"
+    },
+    "src/__tests__/main-agent-settings-groups-hidden.test.ts": {
+      "blob": "71c99f33604e362c2e892772b5267763edd0312b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (feat 1, fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): the main agent's settings hide the security profile and Claude plan groups (#2727) (#2728) (464230f03).",
+      "card": "#932"
+    },
+    "src/__tests__/main-auth-key-prompt-recovery.test.ts": {
+      "blob": "091554568be111569fd192d3ac63dc2f8ec4b68f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): the main agent's credential is decided once and applied by every launch path (MAINAUTH1107) (#2580) (1ccbff9bd).",
+      "card": "#932"
+    },
+    "src/__tests__/mcp-gate-wiring.test.ts": {
+      "blob": "4700290b2d7c11cd3860ea2aeb27a5ac428b838a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(gates): the path gates judge MCP tools' path arguments; deny the filesystem MCP (MCPWRITEGATE1104) (#2502) (b9dadf48d).",
+      "card": "#932"
+    },
+    "src/__tests__/memory-embedding-staleness.test.ts": {
+      "blob": "dd478ab2b318bbf0bd637bf44b166da378bd8bd0",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(memory): re-embed an edited memory right away instead of waiting for the nightly backfill (REEMBEDONUPDATE (c0951d76f).",
+      "card": "#932"
+    },
+    "src/__tests__/onboarding-status-setup-session.test.ts": {
+      "blob": "2d9f7434804c9960e4eae936ef12c9e9c3b241e7",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): a setup session gets no self-authenticating public route and no saved channel token (DOCKERHTTPS111 (335c1df34).",
+      "card": "#932"
+    },
+    "src/__tests__/onboarding-teams-paired.test.ts": {
+      "blob": "422b4de16f178de05351ebd03f30a206795fc17e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(onboarding): a Teams main channel counts as paired from the plugin's own allowlist (TEAMSPAIRED1115) (#281 (45c16254a).",
+      "card": "#932"
+    },
+    "src/__tests__/owner-alert-accents.test.ts": {
+      "blob": "9706c5f82d3e916b615b3c8a28bb6d6e5bc30fec",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(alerts): owner-facing channel-monitor and routine alerts carry full Hungarian accents (refs #2390) (#2401) (0c6188c78).",
+      "card": "#932"
+    },
+    "src/__tests__/owner-gate-first-run-pin.test.ts": {
+      "blob": "3d2eb89ae9cdafd3389ded583cb56e07e1295e27",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): the owner gate is strict by default; first-run is an explicit, closed list (OWNERGATE4-1104) (#2536 (cade4b518).",
+      "card": "#932"
+    },
+    "src/__tests__/pane-footer-anchor.test.ts": {
+      "blob": "f4461669f56e0f8a2c726cd2ee6526b8b667b2a9",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(footer): one live-footer anchor for the stuck-modal guard, the plugin unlock and the progress mirror (PANE (3a56935ad).",
+      "card": "#932"
+    },
+    "src/__tests__/pane-hook-phase-busy.test.ts": {
+      "blob": "c33c85cc689b06657156cece13611926d6f11ccc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(pane-state): a hook phase spinner (running PreToolUse hooks… N/M · Ns) reads busy (HOOKPHASEBUSY1027) (#22 (baeb14a79).",
+      "card": "#932"
+    },
+    "src/__tests__/reauth-detect.test.ts": {
+      "blob": "6cb2368d7842d728aef1533dfc77f2e991de5d47",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(usage-limit, reauth): the usage-limit gate matches only Claude Code's banner line; an auth failure of the  (f3f18c8d1).",
+      "card": "#932"
+    },
+    "src/__tests__/redelivery-note.test.ts": {
+      "blob": "550c10c7e8c1dde737cf3f15d2f16d059e05bfe6",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(watchdog): after a restart the server re-delivers unseen rows through the router; the replay script types  (d4edb6347).",
+      "card": "#932"
+    },
+    "src/__tests__/rest-toasts-i18n.test.ts": {
+      "blob": "b8bb9c3ac49fb637d9b1a9d7a51a69ff0a8af001",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): the skill import falls back to common.failed, not Hungarian (#2806) (234f24079).",
+      "card": "#932"
+    },
+    "src/__tests__/run-agent-at-neutralize.test.ts": {
+      "blob": "650b4caafa462e2ad3aee2b9dfb6dacdf903f878",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(typing): the SDK prompt gets the at-sign mapping, /model back checks the configured id, the boot /rename f (9b28a17be).",
+      "card": "#932"
+    },
+    "src/__tests__/schedule-runner-heartbeat-prefix.test.ts": {
+      "blob": "a12529995c747ebd23d93caa94299ffeadd2cdb3",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(schedule-runner): dream-engine gets no \"send the result\" instruction its SKILL.md forbids (#2284) (#2288) (236547016).",
+      "card": "#932"
+    },
+    "src/__tests__/seed-i18n-parity.test.ts": {
+      "blob": "e63e0f18bb9d43b8881c4a913dff250e6a0424d1",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(i18n): every seeded skill and task ships in both languages; the no-channel banner follows the language (DO (cb17a86bc).",
+      "card": "#932"
+    },
+    "src/__tests__/seed-second-instance.test.ts": {
+      "blob": "4db174131c95e288e155373b3e7428e9077900a5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 2, feat 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): a second instance runs no background services unless started with the opt-in (#2419) (2c093a10a).",
+      "card": "#932"
+    },
+    "src/__tests__/settings-desc-fallback.test.ts": {
+      "blob": "5bf8d72144791421e1b6f2b98ff864ccdb9a6523",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(settings): a setting without a translation shows its registry description, not the raw key (Refs #2228) (# (6b4573434).",
+      "card": "#932"
+    },
+    "src/__tests__/skill-create-form-description.test.ts": {
+      "blob": "82e7ee6ce9be96afbd55511408ab4fb8e6a1f99d",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): skill page: edit row, missing fields, unsaved edits, Escape (#2335) (a5712f816).",
+      "card": "#932"
+    },
+    "src/__tests__/skills-local-api.test.ts": {
+      "blob": "9f171f35e4acdb4f29465218bca26140280602d5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(skills): every skill edit is owner-only, and no skill read or write follows a link out (SKILLPUTSCOPE1114) (c5c91f8f5).",
+      "card": "#932"
+    },
+    "src/__tests__/slack-smoke-test-button-name.test.ts": {
+      "blob": "ce54b34ddca76bbe384f3e74447422b6543a7d27",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): the Slack smoke-test button sends the agent's name (#2772) (e496ee955).",
+      "card": "#932"
+    },
+    "src/__tests__/stuck-input-owner-alert-busy-gate.test.ts": {
+      "blob": "a3393c471d254c60ab4954b68e5033d89c54fc36",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 3). Of the 3 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(stuck-input): hold behind a live turn, and alert what is known (#1923) (f890dbccd).",
+      "card": "#932"
+    },
+    "src/__tests__/task-runs-count-ran-only.test.ts": {
+      "blob": "3d4bce32d0c9d4447cbd1218ac0841cc19daa74a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 2 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 0 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(overview): count each run once in the tasks-today tile; the follow-up rows of a run are not new runs (#263 (e1487d90c).",
+      "card": "#932"
+    },
+    "src/__tests__/team-graph-main-agent-click.test.ts": {
+      "blob": "00549ce54395cbea56a84d1f488c6069ef71ef43",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(web): the main agent's card in the team graph opens on click (#2773) (231ea50f8).",
+      "card": "#932"
+    },
+    "src/__tests__/token-usage-collect-no-correlate.test.ts": {
+      "blob": "43016e17e31fd34273aeed2197552915b13c479b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 2, feat 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(token-usage): q is taken literally (LIKE escape), and the no-title-writer check sees every SQL shape (DBSI (e56a26f7b).",
+      "card": "#932"
+    },
+    "src/__tests__/token-usage-main-launcher-config-dir.test.ts": {
+      "blob": "25ae73ad5fa6928e8c4ec7f505a8cbc1bf1e6fbc",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(token-usage): follow the main agent onto a rotated plan dir; a missing shared root skips one loop only (#1 (4854a442b).",
+      "card": "#932"
+    },
+    "src/__tests__/vault-agent-api-key-owner-gate.test.ts": {
+      "blob": "31d0371eec287c739ab356ed3715c31068b4d560",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): the main agent's credential is decided once and applied by every launch path (MAINAUTH1107) (#2580) (1ccbff9bd).",
+      "card": "#932"
+    },
+    "src/__tests__/vault-ssh-owner-gate.test.ts": {
+      "blob": "55b56e52aef157e3e55f214789541eb9c5a0270f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(vault): writing an SSH server or an SSH key needs the owner (VAULTSSHOWNER1109) (#2657) (03246c5f7).",
+      "card": "#932"
+    },
+    "src/channel-coordinator/ingest.ts": {
+      "blob": "7a53104e1a78300799971ece571b24a55b42ad2a",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 1, feat 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(voice-channel): the voice channel sender id is configurable (VOICE_CHANNEL_ID, default 'hanna') (#2185) (12037f511).",
+      "card": "#932"
+    },
+    "src/platform.ts": {
+      "blob": "b41a0fe11370f63073ddd48d067d75e25edfad73",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(path): a custom Homebrew prefix reaches the dashboard and the main session, on existing installs too (#196 (251f7fa3e).",
+      "card": "#932"
+    },
+    "src/remote-enroll-core.ts": {
+      "blob": "8b69c1d734219a63ba6fc58198e845a160fe0936",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(bridge): the installer-paired Bridge gets its own revocable device key, not the shared token (BRIDGEINSTKE (07c6dad02).",
+      "card": "#932"
+    },
+    "src/web/bridge-enroll.ts": {
+      "blob": "81d9347b64a2d388e2e382cbc7534adc964ab8e8",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the common base (fix 3, feat 1). Of the 3 fix commit(s), 2 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(bridge): the installer-paired Bridge gets its own revocable device key, not the shared token (BRIDGEINSTKE (07c6dad02).",
+      "card": "#932"
+    },
+    "src/web/channel-invites.ts": {
+      "blob": "94bd742e1d7b9ffa733ef9d3ff91b797eb06ee8f",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(channels): refuse to write access.json after a failed read (ACCESSREADFAIL1030) (#2373) (6a3a353bd).",
+      "card": "#932"
+    },
+    "src/web/federation/onboarding.ts": {
+      "blob": "3fee906b2bfe4123be6d6d909cbf0e23abef6220",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 2, feat 1). Of the 2 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(persona-en): the federation block finds the English Inter-agent section; the owner's escalation is English (52d067762).",
+      "card": "#932"
+    },
+    "src/web/injected-prompt-registry.ts": {
+      "blob": "fb26e2a1dce1138ab784b5306f8806c88541796e",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 4 commit(s) since the common base (fix 4). Of the 4 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 2 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(send): re-check the emit guard before the submitting Enter, and give one send's pre-Enter waits one budget (62d401082).",
+      "card": "#932"
+    },
+    "src/web/keychain.ts": {
+      "blob": "727e991bdb63277d919b111f5de6f7ee645fea6b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(keychain): the stored value goes to security on stdin, not in its argument list (VAULTKEYARGV1118) (#2864) (c7fd67e76).",
+      "card": "#932"
+    },
+    "src/web/pane-text.ts": {
+      "blob": "c37d153bbc36dc1aa4a822c1e689be49023813a5",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 3 commit(s) since the common base (fix 3). Of the 3 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 1 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(recovery-brief): outside-written fields are cleaned and cut before they are typed (RECOVERYBRIEFSCRUB1114) (0d53c6d40).",
+      "card": "#932"
+    },
+    "src/web/routes/fleet.ts": {
+      "blob": "ae9951473a1beca04d2ba3979c92ed58ff67dd61",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 5 commit(s) since the common base (fix 4, feat 1). Of the 4 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 3 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(auth): the owner gate is strict by default; first-run is an explicit, closed list (OWNERGATE4-1104) (#2536 (cade4b518).",
+      "card": "#932"
+    },
+    "src/web/session-send-lock.ts": {
+      "blob": "29cb5dae7a2597fa360cce37ef3698d34e83fe30",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 2 commit(s) since the common base (fix 2). Of the 2 fix commit(s), 1 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(send): re-check the emit guard before the submitting Enter, and give one send's pre-Enter waits one budget (62d401082).",
+      "card": "#932"
+    },
+    "tests/browser/dockeri18n1119-banner.spec.ts": {
+      "blob": "be696c337dddae642704b9b3e7e47ad42bf67445",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(i18n): every seeded skill and task ships in both languages; the no-channel banner follows the language (DO (cb17a86bc).",
+      "card": "#932"
+    },
+    "tests/browser/onboardownerpw1107.spec.ts": {
+      "blob": "215f2ca7ddd659508a9f8f529e7ba82c0a1fdc0b",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(onboarding): the wizard's first step is the dashboard login; the first login is created once (ONBOARDOWNER (8d9f6f569).",
+      "card": "#932"
+    },
+    "tests/browser/settings-load-race.spec.ts": {
+      "blob": "5dffc0a54e8ad48a18ccf4ec225add9b0ffe1855",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(settings): two overlapping loadSettings runs no longer tear the auth card out of the page (ONBOARDFOLLOW11 (317659eb3).",
+      "card": "#932"
+    },
+    "tests/browser/setuptokenwiz-owner.spec.ts": {
+      "blob": "9d09ba3b6c7f05fd174ab935ee1e61e082661067",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream changed it in 1 commit(s) since the common base (fix 1). Of the 1 fix commit(s), 0 are already in our file (the patch reverse-applies cleanly), 0 do not apply to our version (the file diverged through earlier decisions, not rebuilt), 1 patch this file cleanly in isolation (for a test file: creating it) but the whole commit does not apply to our tree, because its other files diverged or belong to upstream features we did not take, so it was not taken as one unit. Newest fix: fix(claude-plans): a paired Bridge can add a plan by logging in, and the owner-session error is translated (SE (a75458672).",
+      "card": "#932"
+    },
+    "src/__tests__/egress-gate-port-validation.test.ts": {
+      "blob": "7627eda8b44b25fea0463c9762ba5ebe79291d52",
+      "kind": "decided",
+      "reason": "Kept at ours (#932, measured 2026-11-20): upstream's copy (last changed in 2bcd27598, a command-injection fix that does not touch this file's content here) still uses the public host evil.com as the smuggled host, which is now allowed by our owner decision (#769: web reading without domain limits, public hosts are open, only internal targets stay refused); our version of the test uses an internal host (10.0.0.9) instead, so taking upstream's would make the test fail.",
       "card": "#932"
     }
   }
