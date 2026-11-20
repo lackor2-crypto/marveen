@@ -17,7 +17,7 @@ import type { WorkItemRow } from './workbench.js'
 import { listItemTodos, type TodoRow } from './workbench-todos.js'
 import { contextOwner, ensureItemContext } from './workbench-item-context.js'
 import { isDebateReportTitle } from './debate-report-title.js'
-import { followDepotFolderMove } from './workbench-assets.js'
+import { followDepotFolderMove, syncAssetNamesToFile } from './workbench-assets.js'
 import { safeFileName } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { resolveLifePath } from './life-explorer.js'
@@ -129,5 +129,6 @@ export function ensureItemTodoFile(item: WorkItemRow, project: ProjectRow): stri
     }
   }
   db.prepare('INSERT INTO work_item_todo_file (item_id, rel) VALUES (?, ?) ON CONFLICT(item_id) DO UPDATE SET rel = excluded.rel').run(item.id, rel)
+  try { syncAssetNamesToFile(rel) } catch { /* the materials table may not exist yet */ }
   return rel
 }

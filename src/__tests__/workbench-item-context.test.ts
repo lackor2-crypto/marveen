@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { getWorkItem, createWorkItemVersion, createWorkItem } from '../workbench.js'
-import { renameWorkItem, assignWorkItemFolder } from '../workbench-assets.js'
+import { renameWorkItem, assignWorkItemFolder, registerAsset, listWorkItemAssets } from '../workbench-assets.js'
 import { reconcileItemContextSteps, sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext, recordTaskFromChat } from '../workbench-item-context.js'
 import { readdirSync } from 'node:fs'
 import { todoFileName } from '../workbench-item-todos.js'
@@ -57,6 +57,35 @@ describe('context file next to the work item', () => {
     expect(after.endsWith(contextFileName('Wohngeld ujra'))).toBe(true)
     expect(existsSync(join(dir, ...before.split('/')))).toBe(false)
     expect((await sweepItemContexts()).renamed).toBe(0)
+  })
+  // #945 (Boss): two "Kontextus" files under the item's files: the materials row kept the item's FIRST name
+  // ("Kontextus - Új dokumentum.md") beside the real, renamed file.
+  it('#945: the materials rows of the context and to-do file follow the item rename; uploaded names stay', async () => {
+    await sweepItemContexts()
+    const ctxRel = where().rel
+    const folder = ctxRel.split('/').slice(0, -1).join('/')
+    const todoRel = `${folder}/${todoFileName('Wohngeld hianypotlas')}`
+    registerAsset(itemId, ctxRel, contextFileName('Wohngeld hianypotlas'), 'x', 1, null)
+    registerAsset(itemId, todoRel, todoFileName('Wohngeld hianypotlas'), 'x', 1, null)
+    const up = `${folder}/Feltoltes/lev.pdf`
+    registerAsset(itemId, up, 'Az en nevem a levelhez.pdf', 'x', 1, null)
+    renameWorkItem(item(), 'Wohngeld ujra')
+    await sweepItemContexts()
+    const names = listWorkItemAssets(itemId).map((a) => a.name)
+    expect(names).toContain(contextFileName('Wohngeld ujra'))
+    expect(names).toContain(todoFileName('Wohngeld ujra'))
+    expect(names).not.toContain(contextFileName('Wohngeld hianypotlas'))
+    expect(names).not.toContain(todoFileName('Wohngeld hianypotlas'))
+    expect(names).toContain('Az en nevem a levelhez.pdf')
+  })
+  it('#945: a row that already carries a stale first name is healed by the next sweep', async () => {
+    await sweepItemContexts()
+    const ctxRel = where().rel
+    registerAsset(itemId, ctxRel, 'Kontextus - Új dokumentum.md', 'x', 1, null)
+    await sweepItemContexts()
+    const names = listWorkItemAssets(itemId).map((a) => a.name)
+    expect(names).not.toContain('Kontextus - Új dokumentum.md')
+    expect(names.filter((n) => n.startsWith('Kontextus -')).length).toBe(1)
   })
   it('adopts a context file the chat already wrote by hand instead of making a second one', async () => {
     const sub = 'Munkadarabok/Wohngeld 2026'

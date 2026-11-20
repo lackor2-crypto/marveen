@@ -22,7 +22,7 @@ import { ol } from './owner-lang.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
 import { getWorkItem, listWorkItems, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { variantOf } from './workbench-doclang.js'
-import { followDepotFolderMove, itemOutputFolder, isPlainItem, markPlainItem } from './workbench-assets.js'
+import { followDepotFolderMove, itemOutputFolder, isPlainItem, markPlainItem, syncAssetNamesToFile } from './workbench-assets.js'
 // #717: the plain-item flag lives with the folder logic (ensureWorkItemFolder reads it); re-exported for the old callers.
 export { isPlainItem, markPlainItem }
 import { projectFileTarget, safeFileName } from './project-files.js'
@@ -257,6 +257,7 @@ export function ensureItemContext(item: WorkItemRow, project: ProjectRow): ItemC
     }
   }
   saveRow(item.id, rel, itemStem(item.title))
+  try { syncAssetNamesToFile(rel) } catch { /* the materials table may not exist yet */ }
   return { rel, created, renamed }
 }
 
