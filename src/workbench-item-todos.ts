@@ -22,8 +22,8 @@ import { safeFileName } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
 import { resolveLifePath } from './life-explorer.js'
 
-export const TODO_PREFIX_HU = 'Teendő'
-export const TODO_PREFIX_EN = 'To do'
+import { TODO_PREFIX_HU, TODO_PREFIX_EN, isTodoFileName } from './workbench-note-names.js'
+export { TODO_PREFIX_HU, TODO_PREFIX_EN, isTodoFileName }
 
 function ensureTable(): void {
   getDb().exec('CREATE TABLE IF NOT EXISTS work_item_todo_file (item_id TEXT PRIMARY KEY, rel TEXT NOT NULL)')
@@ -34,11 +34,6 @@ export function todoFileName(title: string): string {
   const prefix = ol(TODO_PREFIX_HU, TODO_PREFIX_EN)
   const clean = (safeFileName(title) || 'munkadarab').replace(/\.md$/i, '').slice(0, 150)
   return `${prefix} - ${clean}.md`
-}
-
-/** Both language prefixes count when an existing to-do file is recognised. */
-export function isTodoFileName(name: string): boolean {
-  return new RegExp(`^(?:${TODO_PREFIX_HU}|${TODO_PREFIX_EN}) - .+\\.md$`, 'i').test(name)
 }
 
 /** The file's text for a title and its to-dos (open ones first, then the done ones, each in the order they were added). */
