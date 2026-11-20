@@ -8200,6 +8200,7 @@ window._i18n.hu = {
   "workbench.share.st.revoked": "visszavonva",
   "workbench.share.st.rejected": "elutasítva, nem él",
   "workbench.share.st.pending": "jóváhagyásra vár",
+  "workbench.share.st.pending_days": "jóváhagyásra vár; jóváhagyás után {n} napig él",
   "workbench.share.st.live": "él, lejár: {date}",
   "workbench.share.st.expired": "lejárt",
   "workbench.share.link_label": "A link",
