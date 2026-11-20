@@ -113,7 +113,7 @@ import { buildPreview } from '../../workbench-preview.js'
 import { buildWorkbenchOverview, listBoardWorkItems } from '../../workbench-overview.js'
 import { workItemTypeForFile, titleFromFileName, isPresentationFile } from '../../workbench-upload.js'
 import { editAsNewVersion, saveTextSourceAsNewVersion, saveBytesAsNewVersion, TEXT_SOURCE_MAX } from '../../workbench-edit.js'
-import { docEditExt, docToEditableHtml, htmlToDocBytes, htmlToExportBytes, DOC_EXPORT_FORMATS, pdfToDocxBytes, looksLikePdf, DOC_EDIT_HTML_MAX } from '../../workbench-docedit.js'
+import { docEditExt, docToEditableHtml, htmlToExportBytes, DOC_EXPORT_FORMATS, pdfToDocxBytes, looksLikePdf } from '../../workbench-docedit.js'
 import { saveEditedImage } from '../../workbench-image-edit.js'
 import { savePostFile, listPostFiles, POST_FILE_MAX_BYTES } from '../../workbench-post-files.js'
 import { videoToolStatus, trimVideo, saveVideoFrame } from '../../workbench-video.js'
@@ -1681,10 +1681,6 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   docedit_empty: {
     hu: 'Üres dokumentumot nem mentek el. Ha tényleg törölni akarod a tartalmát, írj bele legalább egy sort.',
     en: 'An empty document is not saved. If you really want to clear it, write at least one line.',
-  },
-  docedit_too_large: {
-    hu: `A dokumentum a képeivel együtt túl nagy ahhoz, hogy itt mentsem (legfeljebb ${Math.floor(DOC_EDIT_HTML_MAX / (1024 * 1024))} MB).`,
-    en: `The document with its images is too large to save here (${Math.floor(DOC_EDIT_HTML_MAX / (1024 * 1024))} MB at most).`,
   },
   docedit_not_installed: {
     hu: 'A dokumentum szerkesztéséhez a LibreOffice kell, és az ezen a gépen nincs telepítve. Linuxon: „sudo apt install libreoffice-writer”, Windowson/macOS-en a libreoffice.org oldaláról telepíthető. Ha máshova telepítetted, add meg az útvonalát a Munkapad „Mi működik ezen a gépen?” paneljén.',
@@ -5559,18 +5555,6 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
-  if (segs.length === 2 && segs[1] === 'doc-html' && method === 'GET') {
-    const p = buildPreview(item.id)
-    const ext = p.kind === 'office' && p.rel ? docEditExt(p.name || p.rel) : null
-    if (!ext || !p.rel) return fail(res, 400, 'docedit_unsupported', lang)
-    const abs = resolveLifePath(p.rel)
-    if (!abs) return fail(res, 404, 'convert_missing_source', lang)
-    const r = await docToEditableHtml(abs)
-    if (!r.ok) return docEditFail(res, r, lang)
-    json(res, { ok: true, html: r.html, ext, name: p.name, base_version: item.current_version_id || null }, 200, { 'Cache-Control': 'private, no-store' })
-    return true
-  }
-
   // Archivalt projekt = CSAK OLVASHATO. Az olvasas (GET) marad, minden iras
   // ugyanazt az EMBERI mondatot kapja -- a felulet el is rejti a gombokat, de a
   // szabalyt a szerver tartja be, nem a kepernyo.
@@ -6614,44 +6598,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   }
 
 
-  // DOKUMENTUM MENTESE (#444, 1A): a szerkesztett HTML-bol UGYANABBAN a
-  // formatumban uj fajl (.docx marad .docx) + UJ verzio; a regi erintetlen.
-  if (segs.length === 2 && segs[1] === 'doc-html' && method === 'POST') {
-    const project = getProject(item.project_id)
-    if (!project) return fail(res, 404, 'project_not_found', lang)
-    const declared = Number(req.headers['content-length'] || 0)
-    if (declared > DOC_EDIT_HTML_MAX) return fail(res, 413, 'docedit_too_large', lang)
-    let data: Buffer
-    try {
-      data = await readBody(req, { maxBytes: DOC_EDIT_HTML_MAX })
-    } catch (e) {
-      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'docedit_too_large', lang)
-      throw e
-    }
-    const html = data.toString('utf-8')
-    if (!html.replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;/g, ' ').trim() && !/<img\b/i.test(html)) return fail(res, 400, 'docedit_empty', lang)
-    const base = url.searchParams.get('base_version')
-    if (versionIsStale(item.id, base)) return fail(res, 409, 'docedit_stale', lang)
-    const p = buildPreview(item.id)
-    const ext = p.kind === 'office' && p.rel ? docEditExt(p.name || p.rel) : null
-    if (!ext || !p.rel) return fail(res, 400, 'docedit_unsupported', lang)
-    const out = await htmlToDocBytes(html, ext)
-    if (!out.ok) return docEditFail(res, out, lang)
-    // A konverzio alatt (masodpercek) mashonnan is menthettek: ujra megnezzuk.
-    if (versionIsStale(item.id, base)) return fail(res, 409, 'docedit_stale', lang)
-    const fresh = getWorkItem(item.id)
-    if (!fresh) return fail(res, 404, 'not_found', lang)
-    const r = saveBytesAsNewVersion(fresh, project, p.rel, out.data, { created_by: actor(ctx), prompt: url.searchParams.get('prompt'), edit: 'document' })
-    if (!r.ok) {
-      const code = MESSAGES['upload_' + r.code] ? 'upload_' + r.code : r.code
-      return failDetail(res, r.code === 'write_failed' ? 500 : 400, code, lang, r.detail || null)
-    }
-    json(res, {
-      ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id),
-      file: r.file, renamed: r.file.renamed, name: r.file.name,
-    }, 201)
-    return true
-  }
+  // #945: the Word editor's save route (doc-html) is gone: a Word file is edited on the court-document page.
 
   // PDF RAIRAS / KIEMELES / KITAKARAS (#444, 2A): a bongeszo rajzolja ra a
   // jeloleseket, es a lapokbol UJ PDF-et epit. A kitakaras igy VALODI: a
