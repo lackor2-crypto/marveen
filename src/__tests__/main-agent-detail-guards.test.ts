@@ -80,4 +80,25 @@ describe('main-agent detail and lifecycle guards', () => {
     expect(redirectIndex).toBeLessThan(fetchIndex)
     expect(detailBlock).toMatch(/if\s*\(agentName === mainAgentId\(\)\)/)
   })
+
+  // #2848: the main agent's voice reply section stayed blank, only the sub-agent detail loaded it.
+  it('openMarveenDetail loads the voice config for the main id, after the read-only mode is applied', () => {
+    const block = sourceBetween(appSource, 'async function openMarveenDetail()', 'function applyMarveenReadonlyMode')
+    const readonlyAt = block.indexOf('applyMarveenReadonlyMode(true)')
+    const voiceAt = block.indexOf('loadVoiceConfig(mainAgentId())')
+    expect(readonlyAt).toBeGreaterThan(-1)
+    expect(voiceAt).toBeGreaterThan(readonlyAt)
+  })
+
+  // VOICECFGSTALE1118: an older load answering late must not fill another agent's voice form.
+  it('loadVoiceConfig drops the answer of a call that is no longer the latest', () => {
+    expect(appSource).toMatch(/let _voiceConfigSeq = 0/)
+    const block = sourceBetween(appSource, 'async function loadVoiceConfig(agentName)', 'function selectAuthModeCard')
+    const seqAt = block.indexOf('const seq = ++_voiceConfigSeq')
+    const fetchAt = block.indexOf("fetch('/api/voice/status')")
+    const guardAt = block.indexOf('if (seq !== _voiceConfigSeq) return')
+    expect(seqAt).toBeGreaterThan(-1)
+    expect(fetchAt).toBeGreaterThan(seqAt)
+    expect(guardAt).toBeGreaterThan(fetchAt)
+  })
 })

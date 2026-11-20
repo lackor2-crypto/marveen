@@ -5297,6 +5297,8 @@ async function openMarveenDetail() {
     }
   } catch {}
   applyMarveenReadonlyMode(true)
+  // The main agent's voice reply section stayed blank: only the sub-agent detail loaded it (#2848).
+  loadVoiceConfig(mainAgentId())
 
   // Telegram tab -- without this the tab stays in the default "not connected"
   // view even though the bot is running and receiving messages.
@@ -9283,9 +9285,14 @@ document.getElementById('saveDailyHandoffBtn').addEventListener('click', async (
 
 // ---- voice config UI -------------------------------------------------------
 
+// Only the latest call may write the voice fields: opening one agent and then
+// another quickly must not let the first agent's late answer fill the second's form.
+let _voiceConfigSeq = 0
+
 async function loadVoiceConfig(agentName) {
   const voiceModelSel = document.getElementById('editAgentVoiceModel')
   if (!voiceModelSel) return
+  const seq = ++_voiceConfigSeq
   const banner = document.getElementById('voiceNotInstalledBanner')
   const controls = document.getElementById('voiceInstalledControls')
   try {
@@ -9293,6 +9300,7 @@ async function loadVoiceConfig(agentName) {
     const statusR = await fetch('/api/voice/status')
     if (!statusR.ok) return
     const status = await statusR.json()
+    if (seq !== _voiceConfigSeq) return
 
     if (!status.installed) {
       if (banner) banner.hidden = false
@@ -9305,6 +9313,7 @@ async function loadVoiceConfig(agentName) {
     const r = await fetch(`/api/agents/${encodeURIComponent(agentName)}/voice-config`)
     if (!r.ok) return
     const cfg = await r.json()
+    if (seq !== _voiceConfigSeq) return
     voiceModelSel.innerHTML = (cfg.availableVoices || []).map(v =>
       `<option value="${escapeHtml(v)}"${v === cfg.voiceModel ? ' selected' : ''}>${escapeHtml(v)}</option>`
     ).join('')
