@@ -19,6 +19,7 @@ import { execFile, execFileSync } from 'node:child_process'
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
+import { mapLimit } from '../map-limit.js'
 import { makeLazyBinResolver } from '../platform.js'
 import { STORE_DIR } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
@@ -358,10 +359,8 @@ export function refreshAccountsInBackground(): Promise<AccountRow[]> {
 async function buildAccountRowsAsync(): Promise<AccountRow[]> {
   const mainDir = resolveMainAgentConfigDir()
   const plans = readClaudePlans()
-  const probes = await Promise.all([
-    readIdentityDetailedAsync(mainDir),
-    ...plans.map(p => readIdentityDetailedAsync(p.configDir)),
-  ])
+  // #943: at most 2 `claude auth status` children at once (see prewarmLoginProbes).
+  const probes = await mapLimit([mainDir, ...plans.map(p => p.configDir)], 2, d => readIdentityDetailedAsync(d))
   return assembleAccountRows(mainDir, plans, probes)
 }
 
