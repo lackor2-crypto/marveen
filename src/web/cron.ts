@@ -123,7 +123,19 @@ export function cronPrevOccurrence(cron: string, fromMs: number, toMs: number, t
     // the `> fromMs` is strict) -- a rare "silently lost" occurrence. Nudging
     // currentDate one ms past toMs makes the window a true half-open (fromMs,
     // toMs], so a boundary occurrence fires exactly once, never twice.
-    const expr = CronExpressionParser.parse(cron, { tz, currentDate: new Date(toMs + 1) })
+    //
+    // `startDate: fromMs` BOUNDS the backwards search to the window. Without
+    // it prev() of a sparse expression ("0 0 1 1 *", "0 9 15 1 *") walks back
+    // up to a year to find an occurrence we would discard anyway (`> fromMs`):
+    // 40-170 ms of synchronous main-thread CPU per task per tick -- the live
+    // stall sampler caught 0.6-1.2 s freezes inside CronDate.subtractUnit
+    // (#935). Past startDate cron-parser throws, which the catch below turns
+    // into "no occurrence in the window" -- the same answer, found in ~1 ms.
+    const expr = CronExpressionParser.parse(cron, {
+      tz,
+      currentDate: new Date(toMs + 1),
+      startDate: new Date(fromMs),
+    })
     const prev = expr.prev().getTime()
     return prev > fromMs ? prev : null
   } catch {
