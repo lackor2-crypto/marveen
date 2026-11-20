@@ -1446,6 +1446,18 @@ function rewriteFolderRefs(project: ProjectRow, oldRel: string, newRel: string, 
 }
 
 /**
+ * #945: the materials row of a GENERATED file (the item's context / to-do file) always shows the file's real name. Rows made
+ * before the rename-follow fix still carry the item's first name ("Kontextus - Új dokumentum.md"), which showed up beside the
+ * real file as a second context file. Uploaded files keep the name the owner gave them; this is only called for generated ones.
+ */
+export function syncAssetNamesToFile(rel: string): number {
+  if (!rel) return 0
+  ensureAssetTables()
+  const base = rel.slice(rel.lastIndexOf('/') + 1)
+  return Number(getDb().prepare('UPDATE work_item_assets SET name = ? WHERE path = ? AND name <> ?').run(base, rel, base).changes)
+}
+
+/**
  * A folder of the Depot was renamed or moved from OUTSIDE the Workbench (the Intezo / Eletfa rename, which
  * only knew mounts, backup rules, projects and the ledger). Every Depot-relative path a work item keeps under
  * it follows, in every project: the item's source file, its versions, parts and attached files (the
@@ -1477,9 +1489,13 @@ export function followDepotFolderMove(oldRel: string, newRel: string): number {
       const sp = swap(r.asset_path)
       if (sp !== r.asset_path) upd('UPDATE work_item_parts SET asset_path = ? WHERE id = ?', r.id, sp)
     }
-    for (const a of db.prepare('SELECT id, path FROM work_item_assets').all() as { id: string; path: string }[]) {
+    for (const a of db.prepare('SELECT id, path, name FROM work_item_assets').all() as { id: string; path: string; name: string }[]) {
       const sp = swap(a.path)
-      if (sp !== a.path) upd('UPDATE work_item_assets SET path = ? WHERE id = ?', a.id, sp)
+      if (sp === a.path) continue
+      upd('UPDATE work_item_assets SET path = ? WHERE id = ?', a.id, sp)
+      // #945: the file itself was renamed (not just its folder moved): a row that showed the old file name shows the new one.
+      const oldBase = a.path.slice(a.path.lastIndexOf('/') + 1), newBase = String(sp).slice(String(sp).lastIndexOf('/') + 1)
+      if (oldBase !== newBase && a.name === oldBase) db.prepare('UPDATE work_item_assets SET name = ? WHERE id = ?').run(newBase, a.id)
     }
     for (const id of ids) moveDraftDocPaths(id, oldPrefix, newPrefix)
     // The context file row (work_item_context) keeps a Depot path too: without it the sweep takes the item for "file gone".
