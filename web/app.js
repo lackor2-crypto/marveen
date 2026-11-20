@@ -34350,6 +34350,7 @@ function emailShowCompose(kind, id, envelope, mailbox = emailMailbox) {
       <div class="email-compose-title">${isForward ? escapeHtml(t('email.btn.forward')) : escapeHtml(t('email.btn.reply'))}${isForward ? '' : ` -- ${escapeHtml(envelope?.from?.[0]?.name || envelope?.from?.[0]?.email || '')}`}</div>
       ${isForward ? `<input type="text" class="input" id="emailComposeTo" placeholder="${escapeAttr(t('email.compose_recipient_placeholder'))}">` : ''}
       <textarea class="input" id="emailComposeText" rows="6" placeholder="${escapeAttr(t('email.compose_text_placeholder'))}"></textarea>
+      <div id="emailComposeSendNote" hidden style="margin:6px 0;font-size:13px;opacity:.8" role="status"></div>
       <div class="email-compose-actions">
         <button class="btn-primary btn-compact" id="emailComposeSendBtn">${escapeHtml(t('email.btn.send'))}</button>
         <button class="btn-secondary btn-compact" id="emailComposeCancelBtn">${escapeHtml(t('email.btn.cancel'))}</button>
@@ -34382,14 +34383,31 @@ function emailShowCompose(kind, id, envelope, mailbox = emailMailbox) {
     const sendBtn = document.getElementById('emailComposeSendBtn')
     sendBtn.disabled = true
     sendBtn.textContent = t('email.sending')
+    // #938: same "not frozen" feedback as the new-letter form -- a forward re-uploads the original's attachments and can take minutes.
+    const sendNote = document.getElementById('emailComposeSendNote')
+    const sendStart = Date.now()
+    const sendTimer = setInterval(() => {
+      const sec = Math.floor((Date.now() - sendStart) / 1000)
+      const clock = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')
+      sendBtn.textContent = t('email.sending_elapsed', { t: clock })
+      if (sendNote && sec >= 10) { sendNote.textContent = t('email.sending_long', { t: clock }); sendNote.hidden = false }
+    }, 1000)
     const body = isForward
       ? { account: emailAccount, mailbox, id, to, text }
       : { account: emailAccount, mailbox, id, text }
-    const res = await fetch(`/api/email/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const data = await res.json()
-    if (!res.ok) { showToast(data.error || t('email.send_error')); sendBtn.disabled = false; sendBtn.textContent = t('email.btn.send'); return }
-    showToast(isForward ? t('email.forwarded_toast') : t('email.reply_sent_toast'))
-    slot.innerHTML = ''
+    try {
+      const res = await fetch(`/api/email/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json()
+      if (!res.ok) { showToast(data.error || t('email.send_error')); return }
+      showToast(isForward ? t('email.forwarded_toast') : t('email.reply_sent_toast'))
+      slot.innerHTML = ''
+    } catch (e) {
+      showToast(t('email.send_error'))
+    } finally {
+      clearInterval(sendTimer)
+      if (sendNote) { sendNote.hidden = true; sendNote.textContent = '' }
+      if (sendBtn.isConnected) { sendBtn.disabled = false; sendBtn.textContent = t('email.btn.send') }
+    }
   })
 }
 
