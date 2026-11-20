@@ -99,7 +99,7 @@ import { fileOfficialCopy, listSent, markSentManually, recordSent, removeSent, s
 import '../../workbench-sent-context.js'
 import { addProjectPlace, removeProjectPlace } from '../../project-places.js'
 import { projectPlacesView } from '../../project-places-auto.js'
-import { projectItemFiles } from '../../project-item-files.js'
+import { projectItemFilesCached } from '../../project-item-files.js'
 import { addRelatedProject, listRelatedProjects, projectCloseCheck, relatableProjects, removeRelatedProject } from '../../workbench-project-close.js'
 import { findLifeCopy } from '../../life-upload-dup.js'
 import { addProjectDoc, getProjectAiAccess, linkLifeFileAsAnnex, listProjectDocs, relinkMovedAnnexes, removeProjectDoc, setProjectAiAccess, tendLinkedAnnexes, updateProjectDoc, PROJECT_AI_ACCESS_MODES, PROJECT_DOC_ROLES } from '../../workbench-doc-links.js'
@@ -2408,7 +2408,7 @@ function projectDocsOut(projectId: string, opts: { fresh?: boolean } = {}): Reco
     // #530 (Boss TG 8544): found by the system from the project's documents and work items, plus the ones added by hand.
     places: projectPlacesView(projectId, { fresh: !!opts.fresh }),
     // #530 (Boss TG 2845): the files lying in the work items' folders -- the project's documents, found by the system.
-    item_files: projectItemFiles(projectId),
+    item_files: projectItemFilesCached(projectId, { fresh: !!opts.fresh }),
   }
 }
 
