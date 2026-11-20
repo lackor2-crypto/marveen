@@ -187,6 +187,22 @@ def agent_name_from(progress_dir):
     return None
 
 
+def account_signed_out(name):
+    """#941: True when the agent's Claude account has no login (no .credentials.json). Such an agent is out of
+    use: nobody is waiting for its answer, so the sentry must stay silent about it. Unknown mapping -> False."""
+    if not name:
+        return False
+    try:
+        cfg = json.load(open(os.path.join(FLEET_ROOT, "agents", name, "agent-config.json"), encoding="utf-8"))
+        plan = str(cfg.get("claudePlan") or "")
+    except Exception:
+        return False
+    if not plan or "/" in plan or plan.startswith("."):
+        return False
+    acc = os.path.join(FLEET_ROOT, "store", "accounts", plan)
+    return os.path.isdir(acc) and not os.path.exists(os.path.join(acc, ".credentials.json"))
+
+
 def tmux_session_alive(session):
     # Test/override seam: force the agent-up verdict without a real tmux probe.
     forced = os.environ.get("TELEGRAM_WATCHDOG_FORCE_AGENT_UP")
@@ -424,6 +440,7 @@ def handle_dir(progress_dir):
     state_dir = os.path.dirname(progress_dir)           # .../telegram
     name = agent_name_from(progress_dir)
     agent_up = tmux_session_alive(f"agent-{name}") if name else True
+    signed_out = account_signed_out(name)
     now = time.time()
     # Sweep orphan dedup markers (normally removed by the Stop hook).
     for m in glob.glob(os.path.join(progress_dir, "seen-*.marker")):
@@ -493,6 +510,26 @@ def handle_dir(progress_dir):
                 pass
             log(progress_dir, f"orphan dropped (stale): {os.path.basename(path)} "
                               f"age={int(age)}s delivered=none")
+            continue
+
+        # #941: a signed-out agent is out of use -- no generic "Valami elakadt" error in its name. Drop the
+        # placeholder (while Telegram still allows it) and the marker, say nothing.
+        if signed_out:
+            if age < TELEGRAM_DELETE_WINDOW_SEC:
+                if tok is None:
+                    tok = token(state_dir)
+                if tok:
+                    for p in pend:
+                        try:
+                            api(tok, "deleteMessage",
+                                {"chat_id": p.get("chat_id"), "message_id": p.get("message_id")})
+                        except Exception as e:
+                            log(progress_dir, f"signed-out placeholder delete failed (mid={p.get('message_id')}): {e}")
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            log(progress_dir, f"orphan dropped (signed-out): {os.path.basename(path)} age={int(age)}s delivered=none")
             continue
 
         # The transcript path is stamped onto the pending entries by the submit
