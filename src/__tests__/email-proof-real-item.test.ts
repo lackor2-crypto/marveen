@@ -9,6 +9,7 @@ vi.mock('../config.js', async (orig) => ({ ...(await orig<typeof import('../conf
 import { initDatabase } from '../db.js'
 import { createProject, updateProject } from '../projects.js'
 import { markSentManually } from '../workbench-docsent.js'
+import { registerSentMailPort } from '../workbench-sent-detect.js'
 import { workItemFolder } from '../workbench-assets.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
@@ -16,6 +17,8 @@ let dir = ''
 let itemId = ''
 let projectId = ''
 beforeEach(async () => {
+  // No mail account to search in this test (the dev machine may have real ones): the by-hand proof is written at once.
+  registerSentMailPort({ accounts: () => [], recent: async () => [] })
   initDatabase(':memory:')
   dir = mkdtempSync(join(tmpdir(), 'wb-mailproof-'))
   process.env['MARVEEN_DEPOT'] = dir

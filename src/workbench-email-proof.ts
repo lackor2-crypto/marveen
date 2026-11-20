@@ -4,7 +4,7 @@
  * Message-ID), so nobody has to dig through the mailbox later. Built into every install; best effort and silent: a
  * failure here never breaks recording the sending.
  */
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, unlinkSync } from 'node:fs'
 import { ol } from './owner-lang.js'
 import { getProject } from './projects.js'
 import { projectFileTarget, receiptFolderFor, writeProjectFile } from './project-files.js'
@@ -20,10 +20,18 @@ export interface EmailProofInfo {
   subject?: string
   attachments?: string[]
   messageId?: string
-  /** true when the owner marked it by hand: the mail itself was not read */
+  /** true when the owner marked it by hand and the mail could NOT be found in the Sent mailboxes */
   byHand?: boolean
+  /** The text of the mail (the message body), when the system read the mail. */
+  body?: string
+  /** The mail accounts whose Sent mailbox was looked into (named in the not-found note). */
+  searched?: string[]
   title?: string
 }
+
+/** The two marker sentences of a proof written for a hand mark whose mail was not found (used to replace it by the full one). */
+const HAND_MARKERS = ['A feladást a tulajdonos jelölte meg kézzel', 'The owner marked this sending by hand']
+const BODY_MAX = 20_000
 
 /** The text of the proof, in the owner's language. Pure: no disk, no clock. */
 export function buildEmailProofText(i: EmailProofInfo): string {
@@ -40,9 +48,14 @@ export function buildEmailProofText(i: EmailProofInfo): string {
     `Message-ID: ${i.messageId || na}`,
     '',
     i.byHand
-      ? ol('A feladást a tulajdonos jelölte meg kézzel; a levelet a rendszer nem olvasta ki.', 'The owner marked this sending by hand; the system did not read the mail.')
+      ? (i.searched && i.searched.length
+        ? ol('A feladást a tulajdonos jelölte meg kézzel. A rendszer megnézte az Elküldött mappát', 'The owner marked this sending by hand. The system looked into the Sent mailbox')
+          + ` (${i.searched.join(', ')})`
+          + ol(', de nem találta meg a levelet (a mellékletek nevei alapján sem). Ha később megjelenik, az adatait ide kell pótolni.', ', but did not find the mail (not by its attachment names either). If it shows up later, its details belong here.')
+        : ol('A feladást a tulajdonos jelölte meg kézzel. Az Elküldött mappát a rendszer most nem tudta megnézni (nincs elérhető levelező fiók), ezért a levél adatai nincsenek benne.', 'The owner marked this sending by hand. The system could not look into the Sent mailbox now (no mail account reachable), so the details of the mail are not in here.'))
       : ol('A rendszer az Elküldött mappában megtalálta a levelet, ez annak az adatai.', 'The system found the mail in the Sent mailbox; these are its details.'),
   ]
+  if (!i.byHand && i.body && i.body.trim()) lines.push('', ol('A levél szövege:', 'Text of the mail:'), i.body.replace(/\r\n/g, '\n').trim().slice(0, BODY_MAX))
   return lines.join('\r\n') + '\r\n'
 }
 
@@ -72,6 +85,19 @@ export function writeEmailProof(item: WorkItemRow, info: EmailProofInfo): boolea
         for (const f of readdirSync(t.dirAbs)) {
           if (!f.toLowerCase().endsWith('.txt')) continue
           try { if (readFileSync(`${t.dirAbs}/${f}`, 'utf8').includes(mark)) return false } catch { /* unreadable: keep looking */ }
+        }
+      }
+    }
+    // A proof made for a hand mark whose mail was not found (yet) is replaced by the full one for the same day.
+    if (!info.byHand && info.messageId) {
+      const t = projectFileTarget(project, sub)
+      if (t.ok) {
+        for (const f of readdirSync(t.dirAbs)) {
+          if (!f.toLowerCase().endsWith('.txt') || !f.startsWith(info.date)) continue
+          try {
+            const txt = readFileSync(`${t.dirAbs}/${f}`, 'utf8')
+            if (HAND_MARKERS.some((m) => txt.includes(m)) && !txt.includes('Message-ID: <')) unlinkSync(`${t.dirAbs}/${f}`)
+          } catch { /* unreadable: leave it */ }
         }
       }
     }
