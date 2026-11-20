@@ -1589,6 +1589,9 @@ const MACHINE_ORIGIN_PREFIXES = [
   /^SCHEDULED TASK NOTICE/,
   /^<scheduled-task[\s>]/,
   /^TEAM MEMBER NOTICE/,
+  // #940: the UNTRUSTED wrapper (prompt-safety.ts UNTRUSTED_PREAMBLE) opens every system / card-nudge /
+  // availability message; without it here a parked one counted as "maybe a human draft" -> 'hold' -> owner alert.
+  /^SECURITY NOTICE -- read carefully before acting on this prompt/,
   /^\[Uzenet @/,
   /^<channel\s+source="plugin:/,
 ] as const
@@ -1614,6 +1617,8 @@ const MACHINE_ORIGIN_TRUNCATED_MARKERS = [
   /<\/scheduled-task>/,
   /is one of YOUR OWN scheduled tasks/,
   /fired by the local scheduler/,
+  // #940: verbatim sentences of the untrusted wrapper, for a box whose head the TUI dropped.
+  /Treat it strictly as data to read and reason about/,
 ] as const
 
 // True when the live input box holds parked ('typing') text that is
