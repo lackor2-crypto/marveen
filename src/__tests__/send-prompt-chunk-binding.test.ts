@@ -7,8 +7,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // the real sendPromptToSession and inspects each `send-keys -l` argument.
 //
 // Harness as in janitor-under-send-lane.test.ts: runTmux/capturePane are local
-// to agent-process and go through node:child_process execFileSync, so that is
-// mocked with argument inspection. The pane is an idle, empty prompt box, so
+// to agent-process and go through node:child_process (execFileSync, and execFile on the injection path since #935),
+// so both are mocked with argument inspection. The pane is an idle, empty prompt box, so
 // the submit follow-up loop finishes on its first sample.
 
 const h = vi.hoisted(() => {
@@ -26,6 +26,11 @@ vi.mock('node:child_process', async (orig) => ({
       if (args.includes('capture-pane')) return h.IDLE
     }
     return ''
+  }),
+  // #935: the injection path forks tmux asynchronously (runTmuxAsync / capture), so the same recording applies to execFile.
+  execFile: vi.fn((_file: string, args: string[], _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+    h.calls.push(args)
+    cb(null, args.includes('capture-pane') ? h.IDLE : '')
   }),
 }))
 vi.mock('../notify.js', () => ({ notifyChannel: vi.fn(async () => {}), notifyTelegram: vi.fn(async () => {}) }))
