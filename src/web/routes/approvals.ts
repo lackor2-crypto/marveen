@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT, MAIN_AGENT_ID, WEB_PORT, APP_LANG, currentOwnerName } from '../../config.js'
 import {
-  createApproval, getApproval, resolveApproval, listApprovals, expireTimedOutApprovals,
+  createApproval, getApproval, approvedKanbanDoneFingerprint, resolveApproval, listApprovals, expireTimedOutApprovals,
   createAgentMessage, moveKanbanCard, getKanbanCard, addKanbanComment,
   createOrResetApprovalVerification, listApprovalVerifications, resolveApprovalVerification,
   cancelPendingVerifications, deletePendingApprovalVerifications,
@@ -239,6 +239,20 @@ function latestResolvedIndex(pool: Approval[]): Map<string, number> {
   return idx
 }
 
+// #943: the 500-row pool (SELECT * incl. big descriptions, ~1 MB) used to be rebuilt on EVERY GET /api/approvals --
+// even for a pending-only list -- blocking the event loop 0.5-3 s on a loaded machine (stall sample 2026-11-20 12:16).
+// It is now kept until an approved kanban_done row appears, disappears or is re-decided; the same array object
+// is returned, so the per-pool WeakMap index below is reused too.
+let approvedPoolCache: { fp: string; pool: Approval[] } | null = null
+export function approvedKanbanDonePool(): Approval[] {
+  const fp = approvedKanbanDoneFingerprint()
+  if (approvedPoolCache && approvedPoolCache.fp === fp) return approvedPoolCache.pool
+  const pool = listApprovals({ category: 'kanban_done', status: 'approved', limit: 500 })
+  approvedPoolCache = { fp, pool }
+  return pool
+}
+export function _resetApprovedPoolCacheForTest(): void { approvedPoolCache = null }
+
 export function approvalUndoBlock(approval: Approval | undefined, all?: Approval[]): ApprovalUndoBlock | null {
   if (!approval) return 'not_found'
   if (approval.category !== 'kanban_done') return 'not_kanban'
@@ -247,7 +261,7 @@ export function approvalUndoBlock(approval: Approval | undefined, all?: Approval
   const card = cardId ? getKanbanCard(cardId) : undefined
   if (!card) return 'no_card'
   if (card.status !== 'done' || card.archived_at) return 'card_not_done'
-  const pool = all ?? listApprovals({ category: 'kanban_done', status: 'approved', limit: 500 })
+  const pool = all ?? approvedKanbanDonePool()
   // Same rule as before: a different approved kanban_done row of the card resolved strictly later (the row itself never is).
   const newer = (latestResolvedIndex(pool).get(cardId as string) ?? -Infinity) > (approval.resolved_at ?? 0)
   return newer ? 'not_latest' : null
@@ -747,7 +761,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     // the green-check/red-X state without an extra round trip per row.
     // #430: which decided rows may show the "Visszavonás" button -- computed
     // here, where the card state is known, not guessed by the page.
-    const undoPool = listApprovals({ category: 'kanban_done', status: 'approved', limit: 500 })
+    const undoPool = items.some(a => a.status === 'approved' && a.category === 'kanban_done') ? approvedKanbanDonePool() : []
     const withVerifications = items.map(a => ({
       ...a,
       verifications: listApprovalVerifications(a.id),

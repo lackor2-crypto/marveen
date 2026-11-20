@@ -47,6 +47,7 @@
  * shelling out, bounded work (a tar listing is read as a stream, logs are
  * sampled from the tail), so the overview endpoint stays fast.
  */
+import { mapLimit } from '../map-limit.js'
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs'
 import { statfsSync } from 'node:fs'
 import { execFile, execFileSync } from 'node:child_process'
@@ -541,7 +542,9 @@ export function prewarmLoginProbes(): Promise<unknown> {
       }
     }
   } catch { /* olvashatatlan lista: a sor maga majd jelzi */ }
-  return Promise.all([...dirs].map(d => refreshLoginProbe(d).catch(() => 'vak')))
+  // #943: at most 2 `claude auth status` children at once -- all of them together (6+ on a many-account fleet)
+  // right after a dashboard restart pushed the load to 15 on 8 cores and froze the dashboard for 3 s.
+  return mapLimit([...dirs], 2, d => refreshLoginProbe(d).catch((): NamedCred => 'vak'))
 }
 
 /** Csak teszthez. */

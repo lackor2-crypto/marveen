@@ -4488,6 +4488,13 @@ export function listApprovals(opts: {
   return db.prepare(`SELECT * FROM approvals ${where} ORDER BY COALESCE(resolved_at, requested_at) DESC, rowid DESC LIMIT ?`).all(...params) as Approval[]
 }
 
+// #943: cheap change marker of the approved kanban_done rows (one indexed-size aggregate over < 1000 rows),
+// so a caller can reuse an expensive derived pool until a row is added, undone or re-decided.
+export function approvedKanbanDoneFingerprint(): string {
+  const r = db.prepare("SELECT COUNT(*) AS c, MAX(resolved_at) AS m, MAX(rowid) AS r FROM approvals WHERE category = 'kanban_done' AND status = 'approved'").get() as { c: number; m: number | null; r: number | null }
+  return `${r.c}:${r.m}:${r.r}`
+}
+
 // Stamp trace context onto an agent_messages row that was created without one.
 // Called by the message-router tick BEFORE delivery so the span is stamped
 // exactly once (pending rows only -- delivered/done rows are already closed).
