@@ -2496,7 +2496,10 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-sh-start-tree > .wb-sh-tree:has(.wb-pin .wb-pop) { min-height: var(--wb-pop-room); }
 .wb-sh-start-tree .wb-panel-items .wb-pin .wb-pop { max-height: min(calc(var(--wb-pop-room) - 300px), var(--wb-pop-fit, 9999px)); }
 @media (max-width: 900px) { .wb-sh-start-tree { --wb-pop-room: max(50vh, 480px); } }
-.wb-pin-acts .wb-new-btn { width: auto; padding: 4px 9px; }
+/* #946 (Boss TG 6983): the three pinned buttons share one size and one line, so New work item no longer sits lower than Upload files. */
+.wb-pin-acts { align-items: flex-start; }
+.wb-pin-acts .wb-new-btn { width: auto; padding: 4px 9px; font-size: 0.85rem; line-height: 1.3; align-self: flex-start; margin: 0; border: 1px solid transparent; }
+.wb-pin-acts .wb-treeup-btn { display: block; box-sizing: border-box; }
 .wb-pin-slot.wb-pin-clipped .wb-blk-top, .wb-pin-slot.wb-pin-open .wb-blk-top { padding-right: 34px; }
 .wb-panel-items .wb-pin .wb-blk-top { background-color: var(--bg-card); background-image: linear-gradient(rgba(127, 127, 127, 0.1), rgba(127, 127, 127, 0.1)); }
 
