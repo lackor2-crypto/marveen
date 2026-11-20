@@ -132,7 +132,7 @@ export function listSent(itemId: string): SentView[] {
  * #750: `versionId` names the final that really went out (the one whose file a sent mail carried); it need not be the
  * newest or an unchanged one -- that version was sent whatever happened to the document afterwards.
  */
-export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: unknown; recipient?: unknown; method?: unknown; reference?: unknown; note?: unknown; mail?: { from?: string; subject?: string; attachments?: string[] } }, by: string | null, versionId?: string): SentResult<{ id: string }> {
+export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: unknown; recipient?: unknown; method?: unknown; reference?: unknown; note?: unknown; mail?: { from?: string; subject?: string; body?: string; attachments?: string[] } }, by: string | null, versionId?: string): SentResult<{ id: string }> {
   ensureDocSentTables()
   const fin = versionId ? listFinals(item.id).find((f) => f.version_id === versionId) : finalState(item)
   if (!fin) return { ok: false, code: 'no_final', detail: versionId ? 'no such final version for this document' : 'the document has no final version yet' }
@@ -156,7 +156,7 @@ export function recordSent(item: WorkItemRow, input: { date?: unknown; time?: un
     .run(id, item.id, fin.version_id, date, time, recipient, method, reference, note, Math.floor(Date.now() / 1000), by)
   emitSent({ itemId: item.id, date, recipient, how: 'recorded', by, method, reference: reference || undefined, note: note || undefined })
   // #890: a sending by e-mail leaves a small text proof in the item's own "Feladási bizonylatok" folder.
-  if (method === 'email') writeEmailProof(item, { date, time, to: recipient, from: input.mail?.from, subject: input.mail?.subject, attachments: input.mail?.attachments, messageId: input.mail ? reference : undefined, byHand: !input.mail })
+  if (method === 'email') writeEmailProof(item, { date, time, to: recipient, from: input.mail?.from, subject: input.mail?.subject, body: input.mail?.body, attachments: input.mail?.attachments, messageId: input.mail ? reference : undefined, byHand: !input.mail })
   return { ok: true, id }
 }
 
@@ -361,6 +361,10 @@ export function cleanSentDetails(d: SentMarkDetails | undefined): { method: stri
   return { method, date: realDay(date) ? date : '', recipient: cut(x.recipient), reference: cut(x.reference), note: cut(x.note, 500) }
 }
 
+/** The writer of the e-mail proof for a hand mark (registered by workbench-sent-detect.ts, which owns the mailbox search). */
+let handProofWriter: ((itemId: string, date: string, recipient: string) => void) | null = null
+export function registerHandProofWriter(fn: (itemId: string, date: string, recipient: string) => void): void { handProofWriter = fn }
+
 export function markSentManually(itemId: string, by: string | null, details?: SentMarkDetails): void {
   ensureSentMarkTable()
   const c = cleanSentDetails(details)
@@ -371,8 +375,13 @@ export function markSentManually(itemId: string, by: string | null, details?: Se
   // every caller of the hand mark).
   if (c.method === 'email') {
     try {
-      const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(itemId) as WorkItemRow | undefined
-      if (item) writeEmailProof(item, { date: c.date || todayLocal(), to: c.recipient, byHand: true })
+      // Boss 2026-11-20: the click starts an investigation of the Sent mailboxes (workbench-sent-detect.ts registers the
+      // writer); without one (no mail client in this process) the plain by-hand proof is written at once.
+      if (handProofWriter) handProofWriter(itemId, c.date || todayLocal(), c.recipient)
+      else {
+        const item = getDb().prepare('SELECT * FROM work_items WHERE id = ?').get(itemId) as WorkItemRow | undefined
+        if (item) writeEmailProof(item, { date: c.date || todayLocal(), to: c.recipient, byHand: true })
+      }
     } catch (e) { logger.warn({ err: e instanceof Error ? e.message : String(e), item: itemId }, 'e-mail proof for the hand mark failed') }
   }
 }

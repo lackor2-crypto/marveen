@@ -272,9 +272,15 @@ registerSentMailPort({
       const att = await himalayaRead(['-a', accountId, 'attachment', 'list', String(e.id), '-m', sent.mailbox, '--json'])
       let names: string[] = []
       if (att.ok) { try { names = ((JSON.parse(att.stdout).attachments || []) as Array<{ filename?: string; inline?: boolean }>).filter((a) => !a.inline && a.filename).map((a) => String(a.filename)) } catch { /* no attachments */ } }
-      return { id: String(e.id), date: String(e.date || ''), to: (e.to || []).map((x) => x.email).filter(Boolean).join(', '), messageId: String(e['message-id'] || ''), attachments: names, from: (e.from || []).map((x) => x.email).filter(Boolean).join(', '), subject: String(e.subject || '') }
+      return { id: String(e.id), date: String(e.date || ''), to: (e.to || []).map((x) => x.email).filter(Boolean).join(', '), messageId: String(e['message-id'] || ''), attachments: names, from: (e.from || []).map((x) => x.email).filter(Boolean).join(', '), subject: String(e.subject || ''), mailbox: sent.mailbox }
     }))
     return out
+  },
+  // The text of one sent mail, for the proof of a sending (Boss 2026-11-20).
+  body: async (accountId, mailbox, id) => {
+    if (!isKnownAccount(accountId)) return ''
+    const r = await readMessageBody(accountId, mailbox, id)
+    return 'error' in r ? '' : String(r.text || '')
   },
 })
 
