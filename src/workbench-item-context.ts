@@ -22,7 +22,7 @@ import { ol } from './owner-lang.js'
 import { getProject, listProjects, type ProjectRow } from './projects.js'
 import { getWorkItem, listWorkItems, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { variantOf } from './workbench-doclang.js'
-import { followDepotFolderMove, itemOutputFolder, isPlainItem, markPlainItem, syncAssetNamesToFile } from './workbench-assets.js'
+import { dropVersionNoteAssets, followDepotFolderMove, itemOutputFolder, isPlainItem, markPlainItem, syncAssetNamesToFile } from './workbench-assets.js'
 // #717: the plain-item flag lives with the folder logic (ensureWorkItemFolder reads it); re-exported for the old callers.
 export { isPlainItem, markPlainItem }
 import { projectFileTarget, safeFileName } from './project-files.js'
@@ -30,6 +30,7 @@ import { writeBlockReason } from './git-guard.js'
 import { resolveLifePath } from './life-explorer.js'
 import { listMounts } from './life-mounts.js'
 import { ensureItemTodoFile, isTodoFileName, todoFileText } from './workbench-item-todos.js'
+import { CONTEXT_PREFIX_HU, CONTEXT_PREFIX_EN, isContextFileName } from './workbench-note-names.js'
 import { listItemTodos } from './workbench-todos.js'
 import { isDebateReportTitle } from './debate-report-title.js'
 import { extractionBlockLines, readNewMaterials, type MaterialFile } from './workbench-upload-extract.js'
@@ -37,8 +38,7 @@ import { drainSteps, drainStepsYielding, type Steps } from './yielding.js'
 import { gatedInterval, gatedTimeout } from './background-gate.js'
 import { applySendPatch, emptySendDetails, ensureSendBlockText, keepSendBlock, parseSendDetails, renderSendDetails, type SendDetails, type SendPatch } from './workbench-send-block.js'
 
-export const CONTEXT_PREFIX_HU = 'Kontextus'
-export const CONTEXT_PREFIX_EN = 'Context'
+export { CONTEXT_PREFIX_HU, CONTEXT_PREFIX_EN, isContextFileName }
 const BLOCK_BEGIN = '<!-- marveen:files:begin -->'
 const BLOCK_END = '<!-- marveen:files:end -->'
 const INVENTORY_MAX = 60
@@ -55,11 +55,6 @@ export function contextFileName(title: string): string {
   const prefix = ol(CONTEXT_PREFIX_HU, CONTEXT_PREFIX_EN)
   const clean = (safeFileName(title) || 'munkadarab').replace(/\.md$/i, '').slice(0, 150)
   return `${prefix} - ${clean}.md`
-}
-
-/** Both language prefixes count when an existing context file is recognised. */
-export function isContextFileName(name: string): boolean {
-  return new RegExp(`^(?:${CONTEXT_PREFIX_HU}|${CONTEXT_PREFIX_EN}) - .+\\.md$`, 'i').test(name)
 }
 
 /** The item's name as a file-name stem: same rule as the drawing file names (`canvasFileName`). */
@@ -352,6 +347,8 @@ export function* reconcileItemContextSteps(item: WorkItemRow, project: ProjectRo
     // A language version: no file of its own (an empty path clears any old pointer); the original's pass keeps the
     // shared file. Only the name stem is tracked, so the version's JSON files still follow its rename.
     saveRow(item.id, '', itemStem(item.title))
+    // #948: ... and no Kontextus / Teendő row of its own either: those files are the original's (rows made before the fix go).
+    try { dropVersionNoteAssets(item.id) } catch { /* the materials table may not exist yet */ }
     return { created: false, renamed: false, json }
   }
   const r = ensureItemContext(item, project)

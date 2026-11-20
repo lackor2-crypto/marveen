@@ -49,6 +49,7 @@ import { folderWasMade, noteFolderMade, noteOneStandardFolder, standardFolderLis
 import { ensureWorkbenchTables, setWorkItemDeleted, getWorkItem, getWorkItemVersion, listWorkItemParts, TITLE_MAX, type WorkItemRow } from './workbench.js'
 import { dataBytes, dataSha256, fileEqualsData, fileSha256, type UploadData } from './upload-stream.js'
 import { listFolderLinks } from './workbench-folder-links.js'
+import { isContextFileName, isTodoFileName } from './workbench-note-names.js'
 import { docKind, docReadSummary, startDocRead, type DocReadSummary } from './workbench-docread.js'
 
 /** #479: the create form's "directly in the project folder" place (not a group of the work items box). Stored in container_folder. */
@@ -2394,6 +2395,30 @@ const hiddenName = (n: string): boolean => n.startsWith('.') || /^(desktop\.ini|
  * az Anyagok kozott). Csak a mappa FELSO szintje, csak fajl; a futtathato
  * fajl kimarad. Olcso, ha nincs uj fajl (utvonal szerinti osszevetes).
  */
+/**
+ * #948: a language version (doc.createVariant) sits in its original's folder and has NO context / to-do file of its own: the
+ * generated "Kontextus - ..." / "Teendo - ..." files in that folder belong to the original. Listing them under the version
+ * too showed a second Kontextus under the files (two work items, one file).
+ */
+function isLanguageVersion(itemId: string): boolean {
+  try { return !!getDb().prepare('SELECT 1 FROM wb_doc_variants WHERE work_item_id = ?').get(itemId) } catch { return false /* no variants yet */ }
+}
+
+/** #948: takes the generated context / to-do rows off a language version's list (soft: the files stay, the original keeps its own rows). */
+export function dropVersionNoteAssets(itemId: string): number {
+  ensureAssetTables()
+  if (!isLanguageVersion(itemId)) return 0
+  const db = getDb()
+  const rows = db.prepare('SELECT id, name FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(itemId) as { id: string; name: string }[]
+  const now = Math.floor(Date.now() / 1000)
+  let n = 0
+  for (const r of rows) {
+    if (!isContextFileName(r.name) && !isTodoFileName(r.name)) continue
+    n += Number(db.prepare('UPDATE work_item_assets SET removed_at = ? WHERE id = ?').run(now, r.id).changes)
+  }
+  return n
+}
+
 export function syncFolderAssets(itemId: string): number {
   ensureAssetTables()
   const item = getWorkItem(itemId)
@@ -2407,11 +2432,13 @@ export function syncFolderAssets(itemId: string): number {
     names = readdirSync(t.dirAbs, { withFileTypes: true }).filter((d) => d.isFile() && !hiddenName(d.name)).map((d) => d.name)
   } catch { return 0 }
   const known = new Set((getDb().prepare('SELECT path FROM work_item_assets WHERE work_item_id = ?').all(itemId) as { path: string }[]).map((r) => r.path))
+  const version = isLanguageVersion(itemId)
   let added = 0
   for (const n of names.sort((a, b) => a.localeCompare(b, 'hu'))) {
     if (added >= FOLDER_SYNC_MAX) break
     const rel = `${t.dirRel}/${n}`
     if (known.has(rel) || assetSupport(n) === 'unsupported') continue
+    if (version && (isContextFileName(n) || isTodoFileName(n))) continue
     let data: Buffer
     try { data = readFileSync(join(t.dirAbs, n)) } catch { continue }
     registerAsset(itemId, rel, n, sha256Of(data), data.length, null)

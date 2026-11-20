@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
 import { getWorkItem, createWorkItemVersion, createWorkItem } from '../workbench.js'
-import { renameWorkItem, assignWorkItemFolder, registerAsset, listWorkItemAssets } from '../workbench-assets.js'
+import { renameWorkItem, assignWorkItemFolder, registerAsset, listWorkItemAssets, listWorkItemAssetsSynced } from '../workbench-assets.js'
 import { reconcileItemContextSteps, sweepItemContexts, contextFileName, nameWithItemStem, appendItemContext, readItemContext, rewriteItemContext, recordTaskFromChat } from '../workbench-item-context.js'
 import { readdirSync } from 'node:fs'
 import { todoFileName } from '../workbench-item-todos.js'
@@ -323,5 +323,40 @@ describe('the one-item pass steps instead of blocking', () => {
     }
     expect(steps).toBeGreaterThanOrEqual(6)
     expect(readItemContext(getWorkItem(itemId)!)!.text).toContain('Anyag 5/a.txt')
+  })
+})
+
+// #948: the language version sits in the original's folder, so a folder sync used to list the original's shared Kontextus /
+// Teendő file under the version too (two work items, one file, "double Kontextus" under the files).
+describe('a language version lists no Kontextus / Teendő row of its own', () => {
+  const noteRows = (id: string) => listWorkItemAssets(id).filter((a) => /^(Kontextus|Context|Teendő|To do) - /.test(a.name))
+  const setup = async () => {
+    await sweepItemContexts()
+    addSection(itemId, '1. Tenyallas')
+    const r = createVariant(item(), 'de', 'teszt')
+    if (!r.ok) throw new Error(r.detail)
+    const de = getWorkItem(r.item.id)!
+    expect(de.folder).toBe(item().folder)
+    return de
+  }
+  it('the folder sync does not register the shared context / to-do file for the version, the original keeps one row each', async () => {
+    const de = await setup()
+    await sweepItemContexts()
+    listWorkItemAssetsSynced(itemId)
+    listWorkItemAssetsSynced(de.id)
+    expect(noteRows(de.id)).toEqual([])
+    expect(noteRows(itemId).map((a) => a.name).sort()).toEqual([contextFileName('Wohngeld hianypotlas'), todoFileName('Wohngeld hianypotlas')].sort())
+  })
+  it('rows the version already carries (made before the fix) are taken off the list by the next pass, the files stay', async () => {
+    const de = await setup()
+    await sweepItemContexts()
+    const folder = where().rel.split('/').slice(0, -1).join('/')
+    for (const n of [contextFileName('Wohngeld hianypotlas'), todoFileName('Wohngeld hianypotlas')]) registerAsset(de.id, `${folder}/${n}`, n, 'x', 1, null)
+    expect(noteRows(de.id)).toHaveLength(2)
+    await sweepItemContexts()
+    expect(noteRows(de.id)).toEqual([])
+    listWorkItemAssetsSynced(itemId)
+    expect(noteRows(itemId)).toHaveLength(2)
+    expect(existsSync(join(dir, ...folder.split('/'), contextFileName('Wohngeld hianypotlas')))).toBe(true)
   })
 })
