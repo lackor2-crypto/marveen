@@ -3055,12 +3055,20 @@ export function listTaskRunHistory(name: string, limit: number): TaskRunHistoryE
   })
 }
 
-// Runs that actually happened. A tick the scheduler dropped without running
-// anything ('skipped', 'skipped-precheck', 'skipped-usage-limit', ...) or a
-// 'missed' slot is a log line, not a run: counting them made the overview's
-// "tasks today" tile report hundreds of runs on a quiet install whose
-// 2-minute ledger drain is almost always skipped by its token-free preCheck.
-const RAN_STATUS_SQL = "status NOT LIKE 'skipped%' AND status != 'missed'"
+// Runs that actually happened, counted once each: only the statuses that OPEN
+// a run. A tick the scheduler dropped without running anything ('skipped',
+// 'skipped-precheck', 'skipped-usage-limit', ...) or a 'missed' slot is a log
+// line, not a run: counting them made the overview's "tasks today" tile report
+// hundreds of runs on a quiet install whose 2-minute ledger drain is almost
+// always skipped by its token-free preCheck. The follow-up row of a run that
+// already has its own row ('missing-retrying' while a queued retry waits) is a
+// state change of that run, not a new run. An allowlist, so a status added
+// later is not counted until someone decides it opens a run (upstream #2631).
+//   fired, fired_late: the scheduler's typed fires
+//   error: a fire that failed
+//   lost: a run whose pane vanished (kept: it was counted before this change)
+const RUN_OPENING_STATUSES = ['fired', 'fired_late', 'error', 'lost'] as const
+const RAN_STATUS_SQL = `status IN (${RUN_OPENING_STATUSES.map(s => `'${s}'`).join(', ')})`
 
 export function countTaskRunsBetween(fromTs: number, toTs?: number): number {
   if (toTs === undefined) {
