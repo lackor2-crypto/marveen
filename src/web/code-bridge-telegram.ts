@@ -464,10 +464,21 @@ function enqueueFromTelegram(project: string, tab: string | null, prompt: string
     void routeByTopic(out.task.id, prompt, chatId, open)
   }
   // Boss (TG 3172/3176): the bot must NOT answer a handed-over message with "Atadva: <project> (id) / N waiting
-  // ahead" -- it read like the message went to Marvin, and he wants no hand-over talk at all. A message that was
-  // accepted draws no reply here; the VS Code Claude's own answer comes back through the notify path. Errors
-  // (no worker, unknown project, bad tab) are still spoken above: those the owner must hear.
-  return SILENT_ACK
+  // ahead" -- it read like the message went to Marvin, and he wants no hand-over talk at all. But total silence
+  // went too far (#942, Boss 2026-11-20: "nem mutatod hogy vetted az infot. ez hiba"): the owner could not tell
+  // whether the message arrived. So an accepted message draws ONE short receipt in the fleet's own style
+  // ("Megkaptam..."), with no project, no id, no counts. It says "queued" instead of "working" when a task is
+  // ahead, so it never claims work that has not started. The VS Code Claude's own answer comes back through the
+  // notify path. Errors (no worker, unknown project, bad tab) are still spoken above.
+  return queueNote(out.task.id) ? receiptQueued() : receiptWorking()
+}
+
+function receiptWorking(): string {
+  return ol('\u{1F4E5} Megkaptam, dolgozom rajta…', '\u{1F4E5} Got it, working on it…')
+}
+
+function receiptQueued(): string {
+  return ol('\u{1F4E5} Megkaptam, sorban áll…', '\u{1F4E5} Got it, queued…')
 }
 
 /** Boss (TG 2409): a question sent while the project was busy got only "Handed over" and then silence.
