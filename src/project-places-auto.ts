@@ -53,7 +53,28 @@ function treeReachable(): boolean {
   try { return statSync(abs).isDirectory() } catch { return false }
 }
 
-export function projectPlacesView(projectId: string): ProjectPlaceView[] {
+/**
+ * #949 (Boss TG 7024: "11-12 second freeze, at least 50 times"): on the Windows (9p) depot mount every stat/realpath
+ * of this view costs ~10 ms, and it asks for thousands (one per material and annex of every work item) -- measured
+ * 2026-11-20: 4346 realpath + 4340 stat calls under one folder in 15 minutes, the main thread standing still for
+ * the whole of each answer. The answer is the same for a few seconds, so a repeat is served from memory.
+ * A change made through the Documents panel passes `fresh` (the user must see their own edit at once).
+ */
+export const PLACES_TTL_MS = 15_000
+const placesCache = new Map<string, { at: number; value: ProjectPlaceView[] }>()
+export function clearProjectPlacesCache(): void { placesCache.clear() }
+
+export function projectPlacesView(projectId: string, opts: { fresh?: boolean; now?: number } = {}): ProjectPlaceView[] {
+  const now = opts.now ?? Date.now()
+  const hit = placesCache.get(projectId)
+  if (!opts.fresh && hit && now - hit.at < PLACES_TTL_MS) return hit.value
+  const value = computeProjectPlacesView(projectId)
+  if (placesCache.size > 200) placesCache.clear()
+  placesCache.set(projectId, { at: now, value })
+  return value
+}
+
+function computeProjectPlacesView(projectId: string): ProjectPlaceView[] {
   const found = new Map<string, { reasons: PlaceReason[]; keys: Set<string> }>()
   const add = (folder: string, kind: PlaceReasonKind, name: string, key: string, itemId?: string): void => {
     const rel = clean(folder)
