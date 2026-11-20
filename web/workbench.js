@@ -14905,7 +14905,7 @@
     if (sh.revoked_at) state = t('workbench.share.st.revoked')
     else if (sh.status === 'rejected') state = t('workbench.share.st.rejected')
     else if (sh.status === 'pending') {
-      state = t('workbench.share.st.pending')
+      state = sh.days ? t('workbench.share.st.pending_days', { n: sh.days }) : t('workbench.share.st.pending')
       extra = ' <button type="button" class="wb-linklike" data-wb-act="goto-approvals">' + esc(t('workbench.td.gcal.open_approvals')) + '</button>'
     } else if (sh.live) {
       state = t('workbench.share.st.live', { date: shareDate(sh.expires_at) })

@@ -1095,6 +1095,8 @@
 /* Betekinto link (#406, 18. pont) */
 .wb-share { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border, #ddd); }
 .wb-share-new { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+/* #947 (Boss TG 7014): the 1 / 7 / 30 day choice must show which one is selected. */
+.wb-share-new [aria-pressed="true"] { border-color: var(--accent, #2563eb); background: var(--accent, #2563eb); color: #fff; font-weight: 600; }
 .wb-share-list { list-style: none; padding: 0; margin: 6px 0 0; }
 .wb-share-row { margin: 6px 0; word-break: break-word; }
 .wb-share-link { display: flex; gap: 6px; margin-top: 4px; }

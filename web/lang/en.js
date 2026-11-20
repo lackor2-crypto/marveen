@@ -8126,6 +8126,7 @@ window._i18n.en = {
   "workbench.share.st.revoked": "revoked",
   "workbench.share.st.rejected": "rejected, not live",
   "workbench.share.st.pending": "waiting for approval",
+  "workbench.share.st.pending_days": "waiting for approval; once approved it stays valid for {n} day(s)",
   "workbench.share.st.live": "live, expires: {date}",
   "workbench.share.st.expired": "expired",
   "workbench.share.link_label": "The link",
