@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { cronMatchesNow, cronDueBetween, computeNextRun, resolveCronTz } from '../web/cron.js'
+import { CronExpressionParser } from 'cron-parser'
+import { cronMatchesNow, cronDueBetween, cronPrevOccurrence, computeNextRun, resolveCronTz } from '../web/cron.js'
 
 // Regression for the 2026-07-13..15 silent scheduler outage: fixed-time cron
 // tasks (reggeli-napindito "30 7 * * *", dream-engine "7 2 * * *") stopped
@@ -193,5 +194,49 @@ describe('computeNextRun honours the passed timezone', () => {
     expect(computeNextRun('30 7 * * *', 'Europe/Budapest')).toBe(
       Math.floor(Date.parse('2026-07-16T05:30:00Z') / 1000),
     )
+  })
+})
+
+// #935: the dashboard froze for 0.6-1.2 s at a time and the stall sampler put
+// the main thread inside cron-parser's CronDate.subtractUnit (schedule-runner
+// runCheck -> cronPrevOccurrence). prev() of a sparse expression walked back up
+// to a year per task per tick (measured 40-170 ms each) only for the result to
+// be discarded by `> fromMs`. The search is now bounded to the scan window.
+describe('cronPrevOccurrence searches only the scan window (#935)', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('bounds the backwards search with startDate = fromMs (red before the fix: no startDate)', () => {
+    const parse = vi.spyOn(CronExpressionParser, 'parse')
+    const now = Date.parse('2026-11-20T12:00:30Z')
+    const from = now - 60_000
+    expect(cronPrevOccurrence('0 0 1 1 *', from, now, TZ)).toBeNull()
+    expect(parse).toHaveBeenCalledTimes(1)
+    const opts = parse.mock.calls[0][1] as { startDate?: Date; currentDate?: Date }
+    expect(opts.startDate?.getTime()).toBe(from)
+    expect(opts.currentDate?.getTime()).toBe(now + 1)
+  })
+
+  it('a yearly cron far from the window is answered as "none" without a year-long scan', () => {
+    const now = Date.parse('2026-11-20T12:00:30Z')
+    const t0 = performance.now()
+    for (let i = 0; i < 20; i++) expect(cronPrevOccurrence('0 0 1 1 *', now - 60_000, now, TZ)).toBeNull()
+    // Unbounded this is 20 x 40-170 ms; bounded it is a few ms. Generous margin.
+    expect(performance.now() - t0).toBeLessThan(500)
+  })
+
+  it('still returns the most recent occurrence inside the window, including the boundaries', () => {
+    const occ = Date.parse('2026-07-15T05:30:00Z') // 07:30 CEST
+    // inside, occurrence exactly on the closing edge (toMs) -> fires
+    expect(cronPrevOccurrence('30 7 * * *', occ - 59_000, occ, TZ)).toBe(occ)
+    // occurrence exactly on fromMs belongs to the PREVIOUS window -> not here
+    expect(cronPrevOccurrence('30 7 * * *', occ, occ + 60_000, TZ)).toBeNull()
+    // 1 ms inside the opening edge -> fires
+    expect(cronPrevOccurrence('30 7 * * *', occ - 1, occ + 59_000, TZ)).toBe(occ)
+  })
+
+  it('a long catch-up window yields only the latest occurrence', () => {
+    const now = Date.parse('2026-07-15T12:00:20Z')
+    const from = now - 3 * 24 * 3600_000
+    expect(cronPrevOccurrence('30 7 * * *', from, now, TZ)).toBe(Date.parse('2026-07-15T05:30:00Z'))
   })
 })
