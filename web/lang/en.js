@@ -6160,6 +6160,7 @@ window._i18n.en = {
   "workbench.trash.restored": "Restored.",
   "workbench.trash.undo": "Undo",
   "workbench.trash.empty_short": "(empty)",
+  "workbench.trash.close": "Close",
   "workbench.trash.empty": "The trash is empty. When you delete a work item or a file here, it comes here, and you can restore it from here.",
   "workbench.trash.items_head": "Work items ({n})",
   "workbench.trash.files_head": "Files ({n})",

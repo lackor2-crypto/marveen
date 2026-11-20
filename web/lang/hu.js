@@ -6234,6 +6234,7 @@ window._i18n.hu = {
   "workbench.trash.restored": "Visszaállítva.",
   "workbench.trash.undo": "Visszavonás",
   "workbench.trash.empty_short": "(üres)",
+  "workbench.trash.close": "Bezárás",
   "workbench.trash.empty": "A kuka üres. Ha itt törölsz egy munkadarabot vagy egy fájlt, ide kerül, és innen visszaállíthatod.",
   "workbench.trash.items_head": "Munkadarabok ({n})",
   "workbench.trash.files_head": "Fájlok ({n})",
