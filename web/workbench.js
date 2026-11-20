@@ -908,7 +908,10 @@
       + (WB.trashOpen ? '▾ ' : '▸ ') + esc(t('workbench.trash.title')) + ' ' + esc(n ? '(' + n + ')' : t('workbench.trash.empty_short')) + '</button>'
     if (!WB.trashOpen) return '<div class="wb-trash">' + head + '</div>'
     var ro = archived() || WB.trashBusy ? ' disabled' : ''
-    var body = '<p class="wb-hint">' + esc(t(n ? 'workbench.trash.hint' : 'workbench.trash.empty')) + '</p>'
+    // #944 (Boss TG 6848-6850): the drop-down opened by itself after a delete and could only be shut by finding the toggle again, so it
+    // seemed stuck on top of the folder tree. It now has its own Close button, closes on a click outside it and on Escape.
+    var body = '<div class="wb-pop-bar"><button type="button" class="wb-linklike" data-wb-act="trash-close" aria-label="' + escA(t('workbench.trash.close')) + '">\u2715 ' + esc(t('workbench.trash.close')) + '</button></div>'
+      + '<p class="wb-hint">' + esc(t(n ? 'workbench.trash.hint' : 'workbench.trash.empty')) + '</p>'
     if (list.length) {
       body += '<h4 class="wb-trash-sub">' + esc(t('workbench.trash.items_head', { n: list.length })) + '</h4>'
         + '<ul class="wb-items">' + list.map(function (it) {
@@ -22627,6 +22630,11 @@
     if (e.button === 1 && newTabNav(e)) e.preventDefault()
   })
 
+  // #944: Escape shuts the Trash / Rescue drop-down that lies over the folder tree.
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && WB.open && (WB.trashOpen || WB.rescueOpen)) { WB.trashOpen = false; WB.rescueOpen = false; render() }
+  })
+
   document.addEventListener('click', function (e) {
     if (newTabNav(e)) { e.preventDefault(); return }
     var openBtn = e.target.closest('[data-wb-open]')
@@ -22635,6 +22643,13 @@
       return
     }
     if (!WB.open) return
+    // #944: a click anywhere outside the open Trash / Rescue drop-down closes it (the click itself still does its own thing).
+    // The drop-down's own buttons and its confirm box (restore, purge, warn-*) keep it open.
+    if ((WB.trashOpen || WB.rescueOpen) && !e.target.closest('.wb-trash') && !e.target.closest('.wb-warn-box')) {
+      var keepAct = e.target.closest('[data-wb-act]')
+      var keepName = keepAct ? keepAct.getAttribute('data-wb-act') || '' : ''
+      if (!/^(file-|item-(restore|purge)|kuka-open|trash-|rescue-|warn-)/.test(keepName)) { WB.trashOpen = false; WB.rescueOpen = false; render() }
+    }
     var panelBtn = e.target.closest('[data-wb-panel]')
     if (panelBtn) { WB.panel = panelBtn.getAttribute('data-wb-panel'); render(); return }
     var itemBtn = e.target.closest('[data-wb-item]')
@@ -22764,6 +22779,7 @@
       ;((WB.treeUp && WB.treeUp.mism) || []).forEach(function (m) { if (m.suggested) rd[m.name] = m.suggested })
       treeUploadSend(rd)
     }
+    else if (a === 'trash-close') { WB.trashOpen = false; render() }
     else if (a === 'trash-toggle') { WB.trashOpen = !WB.trashOpen; if (WB.trashOpen) WB.rescueOpen = false; render() }
     else if (a === 'rescue-toggle') { WB.rescueOpen = !WB.rescueOpen; if (WB.rescueOpen) WB.trashOpen = false; render() }
     else if (a === 'rescue-restore') runRescue(false)

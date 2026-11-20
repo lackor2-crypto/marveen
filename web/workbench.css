@@ -198,6 +198,7 @@
 .wb-trash-card-meta { display: block; font-size: 0.8rem; opacity: 0.7; margin: 2px 0 8px; }
 .wb-trash-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .wb-trash-card-actions .wb-item-del { padding: 6px 12px; }
+.wb-pop-bar { display: flex; justify-content: flex-end; margin: -4px 0 4px; }
 .wb-trash-sub { margin: 10px 0 4px; font-size: 0.9rem; font-weight: 600; }
 .wb-trash-card-actions .wb-item-del:hover:not(:disabled) { border-color: var(--accent, #2563eb); }
 .wb-trash-card-actions .wb-mini-danger:hover:not(:disabled) { border-color: #dc2626; color: #dc2626; }
