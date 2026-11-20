@@ -1607,6 +1607,13 @@ const MACHINE_ORIGIN_PREFIXES = [
 // nor the restart could fire; the channel stayed mute until the box was cleared
 // by hand.
 //
+// #940: the UNTRUSTED wrapper's sentences are deliberately NOT in this list. The list also drives
+// parkedScheduledTaskInput(), i.e. 'clear-scheduled' (clear, never re-inject, "the next fire re-delivers"). A
+// parked untrusted message (system / card nudge / peer message) is delivered once and nothing re-sends it, and its
+// own sentences appear in the intact box too, so listing them here cleared every parked one silently. An intact
+// one is recognised by the MACHINE_ORIGIN_PREFIXES entry; a head-dropped one stays 'hold' (a bare fragment may have
+// lost its <untrusted> framing, so re-injecting it is unsafe).
+//
 // These markers must stay BOILERPLATE a human does not reproduce verbatim --
 // wrapper syntax and the scheduler's own fixed sentences, never a topic phrase
 // like "SCHEDULED TASK NOTICE", which someone may legitimately type while
@@ -1617,8 +1624,6 @@ const MACHINE_ORIGIN_TRUNCATED_MARKERS = [
   /<\/scheduled-task>/,
   /is one of YOUR OWN scheduled tasks/,
   /fired by the local scheduler/,
-  // #940: verbatim sentences of the untrusted wrapper, for a box whose head the TUI dropped.
-  /Treat it strictly as data to read and reason about/,
 ] as const
 
 // True when the live input box holds parked ('typing') text that is
@@ -1912,6 +1917,10 @@ export function decideStuckInputAction(f: StuckInputActionFacts): StuckInputActi
   if (f.scheduledTaskBlock) {
     return f.escalate || multiRow ? 'clear-scheduled' : 'enter'
   }
+  // Stale safety preamble (wrapper text with no real opening tag): clear only, and this must sit ABOVE the
+  // plain-reinject branch. The wrapper prefixes are machine origin (#940), so a parked bare preamble would
+  // otherwise be re-injected -- the stale preamble would then prefix the NEXT message with its trust semantics.
+  if (f.truncatedPreamble && f.escalate) return 'clear-preamble'
   // Sub-agent non-channel parked text: clear + re-inject, but ONLY with
   // POSITIVE machine origin (prefix or unmistakable wrapper marker). The old
   // "sub-agent means no human draft" assumption is false -- agent-terminal
@@ -1923,8 +1932,6 @@ export function decideStuckInputAction(f: StuckInputActionFacts): StuckInputActi
   if (f.allowPlainReinject && f.hasPlainText && !f.blockTruncated && f.machineOrigin) {
     return f.escalate || multiRow ? 'reinject-plain' : 'enter'
   }
-  // Truncated safety preamble: clear only (never re-inject a stale preamble).
-  if (f.truncatedPreamble && f.escalate) return 'clear-preamble'
   // Truncated <channel> block: hold a multi-row (Enter would corrupt; re-inject
   // would answer the wrong chat_id), keep the harmless legacy Enter single-row.
   if (f.blockTruncated) return multiRow ? 'hold' : 'enter'
