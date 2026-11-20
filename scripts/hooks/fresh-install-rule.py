@@ -34,6 +34,8 @@ GYOKEROK: hibajelzesnel ne csak a mutatott gombot javitsd: keresd meg, hol haszn
 maskeppen ugyanaz a fuggveny/szabaly/renderer, es a KOZOS okot javitsd egyszerre (R16).
 REGRESSZIOS TESZT: hibajavitashoz teszt kell ugyanabban a commitban (javitas nelkul piros, javitassal zold);
 ha gepi teszttel tenyleg nem foghato meg, a kartyara ird le, miert nincs (R40).
+NE FAGYASZD LE A GEPET: lassu gepen is mukodjon; a fo szalon tilos a szinkron lemez-/CPU-munka (statSync/readFileSync ciklus, scryptSync),
+sok fajlnal gyorsitotar/aszinkron; merd lassu lemezen (/api/perf/stalls) (R42).
 MUNKADARAB MAPPA: csak a Kontextus es a Teendo fajl lehet benne, sajat segedfajl (Jogi kontextus stb.) TILOS (R24).
 A zaro 5+1 pontos onellenorzest ird is le a valaszodban (`fresh-install-usable` skill).""")
 
