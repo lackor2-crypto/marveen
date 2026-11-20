@@ -22,11 +22,6 @@ describe('picture delete button', () => {
     const line = CSS.split('\n').find((l) => l.startsWith('.wb-dp-img-tools {')) || ''
     expect(line).toMatch(/z-index: 3/)
   })
-  it('the Word-document picture frame has a delete button sharing the Delete key code', () => {
-    expect(JS).toContain("dl.setAttribute('data-de-img-del', '1')")
-    expect(JS).toContain('function deleteSelected()')
-    expect(JS).toContain('deleteSelected() })')
-  })
   it('the label exists in both languages', () => {
     for (const l of ['hu', 'en']) {
       const f = readFileSync(join(__dirname, '..', '..', 'web', 'lang', l + '.js'), 'utf8')

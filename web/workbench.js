@@ -1602,7 +1602,6 @@
     WB.textEdit = null
     if (WB.img && WB.img.itemId !== id) WB.img = null
     if (WB.vid && WB.vid.itemId !== id) WB.vid = null
-    if (WB.docEdit && WB.docEdit.itemId !== id) WB.docEdit = null
     if (WB.pdfEdit && WB.pdfEdit.itemId !== id) {
       if (WB.pdfEdit.doc && WB.pdfEdit.doc.destroy) { try { WB.pdfEdit.doc.destroy() } catch (_e) {} }
       WB.pdfEdit = null
@@ -3036,19 +3035,6 @@
     })
   }
 
-  /** #501: a Word-type file opens in the editable editor by itself (once per item and version), like a table
-   *  opens as a grid. Closing the editor does not reopen it. */
-  function docAutoOpen() {
-    var p = WB.preview
-    if (!p || !WB.selectedId || WB.docEdit || WB.pdfEdit || WB.textEdit) return
-    if (!docEditableExt(p) || !docCanEdit(p)) return
-    var key = WB.selectedId + ':' + (p.version_id || '')
-    if (WB.docAutoKey === key) return
-    WB.docAutoKey = key
-    var id = WB.selectedId
-    setTimeout(function () { if (WB.selectedId === id && !WB.docEdit) openDocEdit() }, 0)
-  }
-
   /** #475: the ticked files that still exist, split into pictures (file-name order) and the rest. */
   function selectedFiles() {
     var wf = WB.workFolders || { files: {} }
@@ -4414,8 +4400,6 @@
   // minden ujrarajzolas elvinne a kurzort es a be nem mentett modositast. A
   // szerkeszto sajat csomopontban el, amit a render() utan visszateszunk.
 
-  var DOC_EDIT_EXTS = { docx: 1, doc: 1, odt: 1, rtf: 1 }
-
   function docCurrent() {
     return !WB.previewVersion || (WB.detail && WB.detail.item && WB.previewVersion === WB.detail.item.current_version_id)
   }
@@ -4424,13 +4408,6 @@
     return !!(p && !archived() && docCurrent() && WB.detail && WB.detail.item && WB.selectedId)
   }
 
-  function docEditableExt(p) {
-    if (!p || p.kind !== 'office') return null
-    var ext = (p.office && p.office.ext) || String(p.name || '').split('.').pop().toLowerCase()
-    return DOC_EDIT_EXTS[ext] ? ext : null
-  }
-
-  function docEditOpen() { return !!(WB.docEdit && WB.docEdit.itemId === WB.selectedId) }
   function pdfEditOpen() { return !!(WB.pdfEdit && WB.pdfEdit.itemId === WB.selectedId) }
 
   /** A szerkeszto-gombok az elonezet felett (Word: szerkesztes; PDF: jeloles +
@@ -4438,748 +4415,16 @@
    *  mondat, hogy miert. */
   function docButtonsHtml(p) {
     if (!p) return ''
-    var isDoc = !!docEditableExt(p)
     var isPdf = p.kind === 'pdf' && p.available
-    if (!isDoc && !isPdf) return ''
+    if (!isPdf) return ''
     if (!docCanEdit(p)) {
       return (!archived() && !docCurrent()) ? '<p class="wb-hint">' + esc(t('workbench.docedit.old_version')) + '</p>' : ''
-    }
-    if (isDoc) {
-      return '<p class="wb-docedit-actions"><button type="button" class="btn-primary btn-compact" data-wb-act="doc-edit">' + esc(t('workbench.docedit.open')) + '</button></p>'
-        + '<p class="wb-hint">' + esc(t('workbench.docedit.open_hint')) + '</p>'
     }
     var busy = WB.pdfToDocxBusy === WB.selectedId
     return '<p class="wb-docedit-actions"><button type="button" class="btn-primary btn-compact" data-wb-act="pdf-edit">' + esc(t('workbench.pdfedit.open')) + '</button> '
       + '<button type="button" class="btn-secondary btn-compact" data-wb-act="pdf-to-docx"' + (busy ? ' disabled' : '') + '>'
       + esc(busy ? t('workbench.pdfedit.to_docx_busy') : t('workbench.pdfedit.to_docx')) + '</button></p>'
       + '<p class="wb-hint">' + esc(t('workbench.pdfedit.open_hint')) + '</p>'
-  }
-
-  // ---- Word-szerkeszto ----
-
-  /** Egy dokumentum-HTML-bol MINDEN futtathato reszt kiveszunk, mielott az
-   *  oldalba kerul (a szerver is tisztit; ez a masodik zar). A DOMParser
-   *  dokumentuma "halott": abban semmi nem fut le, amig at nem visszuk. */
-  function docCleanTree(root) {
-    var bad = root.querySelectorAll('script,iframe,object,embed,frame,frameset,applet,link,meta,base,form,input,button,textarea,select')
-    for (var i = bad.length - 1; i >= 0; i--) { if (bad[i].parentNode) bad[i].parentNode.removeChild(bad[i]) }
-    var all = root.querySelectorAll('*')
-    for (var j = 0; j < all.length; j++) {
-      var el = all[j]
-      for (var k = el.attributes.length - 1; k >= 0; k--) {
-        var an = el.attributes[k].name.toLowerCase()
-        var av = String(el.attributes[k].value || '').trim().toLowerCase()
-        if (an.indexOf('on') === 0) el.removeAttribute(el.attributes[k].name)
-        else if ((an === 'href' || an === 'src' || an === 'xlink:href') && /^(javascript|vbscript):/.test(av)) el.removeAttribute(el.attributes[k].name)
-        else if (an === 'src' && el.tagName === 'IMG' && av.indexOf('data:') !== 0) el.removeAttribute('src')
-      }
-    }
-  }
-
-  /** A dokumentum sajat stilusait a szerkeszto-lapra SZUKITJUK, hogy ne
-   *  szinezzek at a Munkapad tobbi reszet. Az eredeti stilus-szoveg valtozatlanul
-   *  megmarad a menteshez. */
-  function docScopeCss(css) {
-    var out = []
-    String(css || '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--|-->/g, '')
-      .replace(/([^{}@]+)\{([^{}]*)\}/g, function (_m, sel, body) {
-        var scoped = String(sel).split(',').map(function (s) {
-          s = s.trim()
-          if (!s) return ''
-          if (/^(html|body)\b/i.test(s)) return '.wb-docedit-page' + s.replace(/^(html|body)/i, '')
-          return '.wb-docedit-page ' + s
-        }).filter(Boolean).join(', ')
-        if (scoped) out.push(scoped + ' {' + body + '}')
-        return ''
-      })
-    return out.join('\n')
-  }
-
-  function openDocEdit() {
-    var p = WB.preview
-    var ext = docEditableExt(p)
-    if (!ext || !docCanEdit(p)) return
-    var itemId = WB.selectedId
-    WB.docEdit = { itemId: itemId, ext: ext, name: p.name || '', loading: true, busy: false, error: null, detail: null, dirty: false, host: null, page: null, head: '', baseVersion: null, range: null, brandKey: null }
-    // The toolbar shows the brand colours first (K-4.2), so the brand is loaded in the background.
-    ensureBrand()
-    render()
-    api('GET', '/api/workbench/items/' + encodeURIComponent(itemId) + '/doc-html').then(function (r) {
-      var st = WB.docEdit
-      if (!st || st.itemId !== itemId) return
-      st.loading = false
-      if (!r.ok) {
-        st.error = r.message
-        st.detail = (r.data && r.data.detail) || null
-        render()
-        return
-      }
-      st.baseVersion = r.data.base_version || ''
-      docBuildHost(st, String(r.data.html || ''))
-      render()
-      if (st.page && typeof st.page.focus === 'function') st.page.focus()
-    })
-  }
-
-  function docEditHtml() {
-    var st = WB.docEdit
-    if (st.loading) return '<p class="wb-muted">' + esc(t('workbench.docedit.loading')) + '</p>'
-    if (st.error) {
-      return '<p class="wb-preview-bad">' + esc(st.error) + '</p>'
-        + (st.detail ? '<p class="wb-hint">' + esc(st.detail) + '</p>' : '')
-        + '<p><button type="button" class="btn-secondary btn-compact" data-wb-act="doc-edit-close">' + esc(t('workbench.docedit.back')) + '</button></p>'
-    }
-    return '<div class="wb-docedit-slot" data-wb-docedit="1"></div>'
-  }
-
-  var DOC_TOOLS = [
-    ['undo', '&#8630;'], ['redo', '&#8631;'], ['|'],
-    ['bold', '<b>B</b>'], ['italic', '<i>I</i>'], ['underline', '<u>U</u>'], ['strikeThrough', '<s>S</s>'], ['|'],
-    ['block', ''], ['font', ''], ['size', ''], ['|'],
-    ['insertUnorderedList', '&#8226;&#8226;'], ['insertOrderedList', '1.2.'], ['outdent', '&#8676;'], ['indent', '&#8677;'], ['|'],
-    ['justifyLeft', '&#8676;&#8801;'], ['justifyCenter', '&#8801;'], ['justifyRight', '&#8801;&#8677;'], ['justifyFull', '&#9776;'], ['|'],
-    ['linesp', ''], ['spaceafter', ''], ['|'],
-    ['foreColor', ''], ['hiliteColor', ''], ['removeFormat', '&#10007;'], ['sign', '&#9997;']
-  ]
-
-  function docBuildHost(st, html) {
-    var doc = new DOMParser().parseFromString(html, 'text/html')
-    var styles = doc.querySelectorAll('style')
-    var css = ''
-    for (var i = 0; i < styles.length; i++) css += styles[i].textContent + '\n'
-    // A mentes a DOKUMENTUM eredeti fejevel megy vissza (lapmeret, margok,
-    // bekezdes-stilusok) -- a LibreOffice ebbol tudja, mi volt az eredeti.
-    st.head = '<meta charset="utf-8"><title></title>' + (css ? '<style type="text/css">' + css.replace(/<\/style/gi, '') + '</style>' : '')
-    docCleanTree(doc.body)
-    var host = document.createElement('div')
-    host.className = 'wb-docedit'
-    var bar = document.createElement('div')
-    bar.className = 'wb-docedit-bar'
-    bar.innerHTML = DOC_TOOLS.map(function (tool) {
-      var c = tool[0]
-      if (c === '|') return '<span class="wb-docedit-sep"></span>'
-      if (c === 'block') {
-        return '<select class="wb-docedit-select" data-de-block title="' + escA(t('workbench.docedit.t_block')) + '">'
-          + '<option value="">' + esc(t('workbench.docedit.t_block')) + '</option>'
-          + '<option value="p">' + esc(t('workbench.docedit.block_p')) + '</option>'
-          + '<option value="h1">' + esc(t('workbench.docedit.block_h1')) + '</option>'
-          + '<option value="h2">' + esc(t('workbench.docedit.block_h2')) + '</option>'
-          + '<option value="h3">' + esc(t('workbench.docedit.block_h3')) + '</option></select>'
-      }
-      // #718: the same font / size / spacing choices as the court-document ribbon (DP_* lists).
-      if (c === 'size') {
-        return '<select class="wb-docedit-select" data-de-size title="' + escA(t('workbench.docedit.t_size')) + '">'
-          + '<option value="">' + esc(t('workbench.docedit.t_size')) + '</option>'
-          + DP_SIZES.map(function (z) { return '<option value="' + z + '">' + z + ' pt</option>' }).join('') + '</select>'
-      }
-      if (c === 'font') {
-        return '<select class="wb-docedit-select" data-de-font title="' + escA(t('workbench.dp.fmt_font')) + '">'
-          + '<option value="">' + esc(t('workbench.dp.fmt_font')) + '</option>'
-          + DP_FONTS.map(function (f) { return '<option value="' + escA(f) + '">' + esc(f) + '</option>' }).join('') + '</select>'
-      }
-      if (c === 'linesp') {
-        return '<select class="wb-docedit-select" data-de-linesp title="' + escA(t('workbench.dp.fmt_linesp')) + '">'
-          + '<option value="">' + esc(t('workbench.dp.fmt_linesp')) + '</option>'
-          + DP_LINESP.map(function (v) { return '<option value="' + v + '">' + esc(t('workbench.dp.fmt_linesp_opt', { v: String(v).replace('.', window._lang === 'en' ? '.' : ',') })) + '</option>' }).join('') + '</select>'
-      }
-      if (c === 'spaceafter') {
-        return '<select class="wb-docedit-select" data-de-spaceafter title="' + escA(t('workbench.dp.fmt_spaceafter')) + '">'
-          + '<option value="">' + esc(t('workbench.dp.fmt_spaceafter')) + '</option>'
-          + DP_SPACEAFTER.map(function (v) { return '<option value="' + v + '">' + esc(t('workbench.dp.fmt_spaceafter_opt', { v: v })) + '</option>' }).join('') + '</select>'
-      }
-      if (c === 'sign') {
-        return '<button type="button" class="wb-docedit-btn" data-de="sign" title="' + escA(t('workbench.dp.ins_sign')) + '" aria-label="' + escA(t('workbench.dp.ins_sign')) + '">' + tool[1] + '</button>'
-      }
-      if (c === 'foreColor' || c === 'hiliteColor') {
-        // The project's brand colours go in front of the colour field (K-4.2); docBrandFill fills the slot.
-        return '<span class="wb-docedit-brand" data-de-brand="' + c + '"></span>'
-          + '<label class="wb-docedit-color" title="' + escA(t('workbench.docedit.t_' + c)) + '">'
-          + (c === 'foreColor' ? 'A' : '&#9608;')
-          + '<input type="color" data-de-color="' + c + '" value="' + (c === 'foreColor' ? '#c00000' : '#ffff00') + '"></label>'
-      }
-      return '<button type="button" class="wb-docedit-btn" data-de="' + c + '" title="' + escA(t('workbench.docedit.t_' + c)) + '">' + tool[1] + '</button>'
-    }).join('')
-    var style = document.createElement('style')
-    style.textContent = docScopeCss(css)
-    var paper = document.createElement('div')
-    paper.className = 'wb-docedit-paper'
-    var page = document.createElement('div')
-    page.className = 'wb-docedit-page'
-    page.setAttribute('contenteditable', 'true')
-    page.setAttribute('spellcheck', 'true')
-    page.setAttribute('role', 'textbox')
-    page.setAttribute('aria-multiline', 'true')
-    page.setAttribute('aria-label', st.name || t('workbench.docedit.open'))
-    // adoptNode MOVES the node out of the parsed document. importNode only copied it, so
-    // doc.body.firstChild never changed and the loop never ended: the tab froze on any document
-    // that had content.
-    while (doc.body.firstChild) page.appendChild(document.adoptNode(doc.body.firstChild))
-    // A picture the server restored as free (position:absolute) hangs off its paragraph: that block is its anchor.
-    Array.prototype.slice.call(page.querySelectorAll('img')).forEach(function (im) {
-      if (!/position:\s*absolute/i.test(im.getAttribute('style') || '')) return
-      var b = im
-      while (b && b.parentNode && b.parentNode !== page) b = b.parentNode
-      if (b && b.parentNode === page && b.style) b.style.position = 'relative'
-    })
-    paper.appendChild(page)
-    var foot = document.createElement('div')
-    foot.className = 'wb-docedit-foot'
-    foot.innerHTML = '<button type="button" class="btn-primary btn-compact" data-de-act="save">' + esc(t('workbench.docedit.save')) + '</button> '
-      + '<button type="button" class="btn-secondary btn-compact" data-de-act="cancel">' + esc(t('common.cancel')) + '</button>'
-      + '<span class="wb-docedit-status" data-de-status></span>'
-      + '<p class="wb-hint">' + esc(t('workbench.docedit.hint', { ext: '.' + st.ext })) + '</p>'
-    host.appendChild(style)
-    host.appendChild(bar)
-    host.appendChild(paper)
-    host.appendChild(foot)
-    // Sajat figyelok: a gepeles es a formazas NEM rajzolja ujra a Munkapadot.
-    bar.addEventListener('mousedown', function (e) {
-      // A gomb ne vegye el a kijelolest a szovegtol.
-      if (e.target && e.target.closest && e.target.closest('[data-de], [data-de-swatch]')) e.preventDefault()
-    })
-    bar.addEventListener('click', function (e) {
-      var b = e.target && e.target.closest ? e.target.closest('[data-de]') : null
-      if (b) { if (b.getAttribute('data-de') === 'sign') docSignInsert(); else docExec(b.getAttribute('data-de')); return }
-      var sw = e.target && e.target.closest ? e.target.closest('[data-de-swatch]') : null
-      if (!sw) return
-      var cmd = sw.getAttribute('data-de-swatch')
-      var hex = sw.getAttribute('data-wb-hex')
-      if ((cmd !== 'foreColor' && cmd !== 'hiliteColor') || !/^#[0-9a-fA-F]{6}$/.test(hex || '')) return
-      docExec(cmd, hex)
-      // The colour field next to the buttons shows the colour just used, as after picking it there.
-      var field = bar.querySelector('[data-de-color="' + cmd + '"]')
-      if (field) field.value = hex
-    })
-    bar.addEventListener('change', function (e) {
-      var el = e.target
-      if (!el) return
-      if (el.hasAttribute('data-de-block') && el.value) { docExec('formatBlock', el.value); el.value = '' }
-      else if (el.hasAttribute('data-de-size') && el.value) { docSetSize(Number(el.value)); el.value = '' }
-      else if (el.hasAttribute('data-de-font') && el.value) { docExec('fontName', el.value); el.value = '' }
-      else if (el.hasAttribute('data-de-linesp') && el.value) { docParaStyle('lineHeight', el.value); el.value = '' }
-      else if (el.hasAttribute('data-de-spaceafter') && el.value !== '') { docParaStyle('marginBottom', el.value + 'pt'); el.value = '' }
-      else if (el.hasAttribute('data-de-color')) docExec(el.getAttribute('data-de-color'), el.value)
-    })
-    page.addEventListener('input', function () { st.dirty = true; docStatus('') })
-    var remember = function () { docSaveRange(st) }
-    page.addEventListener('keyup', remember)
-    page.addEventListener('mouseup', remember)
-    page.addEventListener('blur', remember)
-    docImgDragInit(st, page)
-    foot.addEventListener('click', function (e) {
-      var b = e.target && e.target.closest ? e.target.closest('[data-de-act]') : null
-      if (!b) return
-      if (b.getAttribute('data-de-act') === 'save') saveDocEdit()
-      else closeDocEdit(false)
-    })
-    st.host = host
-    st.page = page
-    docBrandFill(st)
-  }
-
-  /** The brand colour buttons in front of the editor's colour fields (K-4.2: brand colours first in
-   *  every colour picker). The toolbar is built once, when the document opens, and the brand may
-   *  arrive (or change) later -- so every render calls this, and it rewrites the slots only when the
-   *  brand colours changed. Without a brand the slots stay empty. */
-  function docBrandFill(st) {
-    if (!st || !st.host) return
-    var key = JSON.stringify((WB.brand && WB.brand.colors) || [])
-    if (st.brandKey === key) return
-    st.brandKey = key
-    var slots = st.host.querySelectorAll('[data-de-brand]')
-    for (var i = 0; i < slots.length; i++) {
-      slots[i].innerHTML = brandSwatchRow('data-de-swatch="' + escA(slots[i].getAttribute('data-de-brand')) + '"', '')
-    }
-  }
-
-  /** #719: a picture (the signature) in the Word editor is moved with the mouse: it is grabbed, a line shows where
-   *  it will land, and on release it becomes a paragraph of its own before/after the block under the pointer
-   *  (left / centre / right by the pointer's horizontal third). The browser's native image drag is switched
-   *  off, so it can never reach the Workbench's file/item drop handlers. */
-  function docImgDragInit(st, page) {
-    var drag = null
-    var menu = null
-    var WRAP_TAGS = /^(P|H[1-6]|DIV|LI|BLOCKQUOTE)$/
-    /** Put the picture in its new place. mode: 'left' | 'right' = the text runs round it, anchored to the start of
-     *  `anchor`; 'l' | 'c' | 'r' = a line of its own (before/after `anchor`). */
-    function place(img, mode, anchor, after) {
-      var old = img.parentNode
-      while (old && old.parentNode && old.parentNode !== page) old = old.parentNode
-      var w = img.style.width || '5cm'
-      img.removeAttribute('align')
-      if (mode === 'left' || mode === 'right') {
-        if (!anchor || !WRAP_TAGS.test(anchor.tagName)) return false
-        img.setAttribute('align', mode)
-        img.style.cssText = 'float:' + mode + ';width:' + w + ';margin:0 ' + (mode === 'left' ? '0.4cm 0.2cm 0' : '0 0.2cm 0.4cm')
-        anchor.insertBefore(img, anchor.firstChild)
-      } else {
-        img.style.cssText = 'width:' + w
-        var p = document.createElement('p')
-        p.style.textAlign = mode === 'l' ? 'left' : (mode === 'r' ? 'right' : 'center')
-        p.appendChild(img)
-        if (!anchor) page.appendChild(p)
-        else if (after) anchor.parentNode.insertBefore(p, anchor.nextSibling)
-        else anchor.parentNode.insertBefore(p, anchor)
-      }
-      if (old && old !== img.parentNode && old.parentNode && !old.textContent.trim() && !old.querySelector('img')) old.parentNode.removeChild(old)
-      st.dirty = true
-      docStatus('')
-      docSaveRange(st)
-      return true
-    }
-    var IMG_MODES = [
-      ['l', 'workbench.docedit.img_line_left', '&#8676;'], ['c', 'workbench.docedit.img_line_center', '&#8596;'], ['r', 'workbench.docedit.img_line_right', '&#8677;'],
-      ['left', 'workbench.docedit.img_wrap_left', '&#9700;'], ['right', 'workbench.docedit.img_wrap_right', '&#9701;'],
-      ['over', 'workbench.dp.img_mode_over', '&#9635;']
-    ]
-    /** Which of IMG_MODES the picture is in now (read from the page, the only source of truth). */
-    function modeOf(img) {
-      if (img.style.position === 'absolute') return 'over'
-      var f = img.style.cssFloat || img.getAttribute('align')
-      if (f === 'left' || f === 'right') return f
-      var ta = img.parentNode && img.parentNode.style ? img.parentNode.style.textAlign : ''
-      return ta === 'left' ? 'l' : ta === 'right' ? 'r' : 'c'
-    }
-    /** Put the picture in one of IMG_MODES (the toolbar and the right-click menu both come here). */
-    function applyMode(img, mode) {
-      if (mode === 'over') {
-        if (img.style.position === 'absolute') return
-        var r0 = img.getBoundingClientRect()
-        var old0 = anchorBlock(img)
-        putAt(img, r0.left, r0.top)
-        if (old0 !== anchorBlock(img)) dropEmpty(old0)
-        st.dirty = true; docStatus(''); docSaveRange(st)
-        return
-      }
-      var par = img
-      while (par.parentNode && par.parentNode !== page) par = par.parentNode
-      if (mode === 'left' || mode === 'right') {
-        // the picture sits in a paragraph of its own: the text that runs round it is the NEXT block
-        var anchor = par
-        if (par === img || !par.textContent.trim()) anchor = par.nextElementSibling || par.previousElementSibling
-        if (!anchor || !place(img, mode, anchor, false)) place(img, 'c', par, true)
-      } else if (par !== img && !par.textContent.trim() && par.tagName === 'P') {
-        // already on a line of its own: only the alignment changes
-        img.style.cssText = 'width:' + (img.style.width || '5cm')
-        img.removeAttribute('align')
-        par.style.textAlign = mode === 'l' ? 'left' : (mode === 'r' ? 'right' : 'center')
-        st.dirty = true; docStatus(''); docSaveRange(st)
-      } else {
-        place(img, mode, par, true)
-      }
-    }
-    var PX_CM = 96 / 2.54
-    var sel = null
-    var frame = null
-    function scaleOf() { return page.offsetWidth ? page.getBoundingClientRect().width / page.offsetWidth : 1 }
-    function showFrame() {
-      if (!sel || !sel.isConnected) { hideFrame(); return }
-      if (!frame) {
-        frame = document.createElement('div')
-        frame.style.cssText = 'position:fixed;border:2px solid #2563eb;pointer-events:none;z-index:99998;box-sizing:border-box'
-        document.body.appendChild(frame)
-      }
-      if (!frame.firstChild) {
-        // Corner handle: drag to scale the picture (aspect kept), like the court document's one.
-        var hd = document.createElement('span')
-        hd.setAttribute('data-de-img-size', '1')
-        hd.setAttribute('role', 'slider')
-        hd.setAttribute('aria-label', t('workbench.dp.img_resize'))
-        hd.title = t('workbench.dp.img_resize')
-        hd.style.cssText = 'position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:3px;background:#2563eb;border:2px solid #fff;cursor:nwse-resize;pointer-events:auto;touch-action:none'
-        hd.addEventListener('pointerdown', onSizeDown)
-        frame.appendChild(hd)
-        // The court document's picture buttons (Boss TG 3839): own line left / centre / right, text runs round it
-        // left / right, free over the text -- the same choices as the right-click menu, one click away.
-        var tools = document.createElement('span')
-        tools.className = 'wb-dp-img-tools'
-        tools.setAttribute('data-de-img-tools', '1')
-        tools.style.cssText = 'opacity:1;pointer-events:auto;top:auto;bottom:100%;margin-bottom:4px;white-space:nowrap'
-        IMG_MODES.forEach(function (m) {
-          var bt = document.createElement('button')
-          bt.type = 'button'
-          bt.className = 'wb-dp-img-al'
-          bt.setAttribute('data-de-img-mode', m[0])
-          bt.title = t(m[1])
-          bt.setAttribute('aria-label', t(m[1]))
-          bt.innerHTML = m[2]
-          bt.addEventListener('mousedown', function (ev) { ev.preventDefault(); ev.stopPropagation() })
-          bt.addEventListener('click', function (ev) {
-            ev.preventDefault(); ev.stopPropagation()
-            var img = sel
-            if (!img) return
-            applyMode(img, m[0])
-            select(img)
-          })
-          tools.appendChild(bt)
-        })
-        // A delete button for every picture, a signature too (Boss TG 4675).
-        var dl = document.createElement('button')
-        dl.type = 'button'
-        dl.className = 'wb-dp-img-al'
-        dl.setAttribute('data-de-img-del', '1')
-        dl.title = t('workbench.tw.pic_del')
-        dl.setAttribute('aria-label', t('workbench.tw.pic_del'))
-        dl.innerHTML = '&#10005;'
-        dl.addEventListener('mousedown', function (ev) { ev.preventDefault(); ev.stopPropagation() })
-        dl.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); deleteSelected() })
-        tools.appendChild(dl)
-        frame.appendChild(tools)
-      }
-      var cur = modeOf(sel)
-      Array.prototype.forEach.call(frame.querySelectorAll('[data-de-img-mode]'), function (bt) {
-        var on = bt.getAttribute('data-de-img-mode') === cur
-        bt.classList.toggle('is-on', on)
-        bt.setAttribute('aria-pressed', on ? 'true' : 'false')
-      })
-      var r = sel.getBoundingClientRect()
-      frame.style.left = r.left + 'px'; frame.style.top = r.top + 'px'; frame.style.width = r.width + 'px'; frame.style.height = r.height + 'px'
-    }
-    function setWidthPx(img, wPx) {
-      var cm = Math.max(0.5, Math.round(wPx / PX_CM * 100) / 100)
-      img.style.width = cm + 'cm'
-      img.style.height = 'auto'
-      img.removeAttribute('width'); img.removeAttribute('height')
-    }
-    function onSizeDown(e) {
-      if (!sel) return
-      e.preventDefault(); e.stopPropagation()
-      var hd = e.currentTarget
-      var img = sel
-      var sc = scaleOf()
-      var startX = e.clientX
-      var startW = img.getBoundingClientRect().width / sc
-      try { hd.setPointerCapture(e.pointerId) } catch (_e) { /* nem baj */ }
-      function move(ev) { setWidthPx(img, Math.max(20, startW + (ev.clientX - startX) / sc)); showFrame() }
-      function up() {
-        hd.removeEventListener('pointermove', move); hd.removeEventListener('pointerup', up); hd.removeEventListener('pointercancel', up)
-        st.dirty = true; docStatus(''); docSaveRange(st); showFrame()
-      }
-      hd.addEventListener('pointermove', move); hd.addEventListener('pointerup', up); hd.addEventListener('pointercancel', up)
-    }
-    function hideFrame() { if (frame && frame.parentNode) frame.parentNode.removeChild(frame); frame = null }
-    function unselect() {
-      sel = null; hideFrame()
-      document.removeEventListener('keydown', onSelKey, true)
-      document.removeEventListener('mousedown', onSelOutside, true)
-      window.removeEventListener('scroll', showFrame, true)
-    }
-    function onSelOutside(e) { if (e.target && e.target.closest && e.target.closest('[data-de-img-size],[data-de-img-tools]')) return; if (!e.target || e.target.tagName !== 'IMG' || !page.contains(e.target)) unselect() }
-    function select(img) {
-      if (sel !== img) unselect()
-      sel = img
-      document.addEventListener('keydown', onSelKey, true)
-      document.addEventListener('mousedown', onSelOutside, true)
-      window.addEventListener('scroll', showFrame, true)
-      showFrame()
-    }
-    /** The top-level block of the page that holds an element. */
-    function anchorBlock(el) {
-      var b = el
-      while (b && b.parentNode && b.parentNode !== page) b = b.parentNode
-      return b && b.parentNode === page ? b : null
-    }
-    /** Put the picture at a screen position (px of its top-left corner), anchored to the block under it. The
-     *  picture is a free one: left from the text column, top from its paragraph (the document keeps both). */
-    function putAt(img, left, top) {
-      var sc = scaleOf()
-      var pr = page.getBoundingClientRect()
-      var cs = getComputedStyle(page)
-      var contentLeft = pr.left + (parseFloat(cs.paddingLeft) || 0) * sc
-      var h = img.getBoundingClientRect().height
-      var mid = top + h / 2
-      var cur = anchorBlock(img)
-      var hit = null
-      Array.prototype.slice.call(page.children).forEach(function (el) {
-        if (hit || !/^(P|H[1-6]|DIV|LI|BLOCKQUOTE)$/.test(el.tagName)) return
-        var br = el.getBoundingClientRect()
-        if (mid >= br.top && mid <= br.bottom) hit = el
-      })
-      var anchor = hit || cur || page.firstElementChild
-      if (!anchor) return
-      if (anchor !== cur || img.parentNode !== anchor) {
-        anchor.style.position = 'relative'
-        anchor.insertBefore(img, anchor.firstChild)
-      }
-      var ar = anchor.getBoundingClientRect()
-      img.style.position = 'absolute'
-      img.style.left = (Math.round((left - contentLeft) / sc / PX_CM * 100) / 100) + 'cm'
-      img.style.top = (Math.round((top - ar.top) / sc / PX_CM * 100) / 100) + 'cm'
-      img.style.margin = '0'
-      img.style.cssFloat = 'none'
-      img.removeAttribute('align')
-    }
-    function dropEmpty(old) {
-      if (old && old.parentNode === page && !old.textContent.trim() && !old.querySelector('img')) page.removeChild(old)
-    }
-    function nudge(img, dxMm, dyMm) {
-      var r = img.getBoundingClientRect()
-      var k = scaleOf() * PX_CM / 10
-      var oldBlock = anchorBlock(img)
-      putAt(img, r.left + dxMm * k, r.top + dyMm * k)
-      if (oldBlock !== anchorBlock(img)) dropEmpty(oldBlock)
-      st.dirty = true; docStatus(''); docSaveRange(st); showFrame()
-    }
-    function onSelKey(e) {
-      if (!sel) return
-      if (e.key === 'Escape') { unselect(); return }
-      if (e.key === '+' || e.key === '-') {
-        e.preventDefault(); e.stopPropagation()
-        setWidthPx(sel, sel.getBoundingClientRect().width / scaleOf() * (e.key === '+' ? 1.05 : 0.95))
-        st.dirty = true; docStatus(''); showFrame(); return
-      }
-      var step = e.shiftKey ? 5 : 1
-      var d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key]
-      if (d) { e.preventDefault(); e.stopPropagation(); nudge(sel, d[0], d[1]) }
-      else if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault(); e.stopPropagation()
-        deleteSelected()
-      }
-    }
-    // Removes the selected picture (the Delete key and the toolbar's delete button share this).
-    function deleteSelected() {
-      if (!sel || !sel.parentNode) return
-      var old = anchorBlock(sel)
-      sel.parentNode.removeChild(sel)
-      dropEmpty(old)
-      unselect(); st.dirty = true; docStatus('')
-    }
-    function cleanup() {
-      drag = null
-      document.removeEventListener('mousemove', onMove, true)
-      document.removeEventListener('mouseup', onUp, true)
-      page.style.cursor = ''
-    }
-    function onMove(e) {
-      if (!drag) return
-      if (!drag.on && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) < 3) return
-      drag.on = true
-      e.preventDefault()
-      page.style.cursor = 'grabbing'
-      putAt(drag.img, drag.sl + (e.clientX - drag.x), drag.st + (e.clientY - drag.y))
-      showFrame()
-    }
-    function onUp(e) {
-      var d = drag
-      e.preventDefault(); e.stopPropagation()
-      cleanup()
-      if (!d || !d.on) return
-      if (d.par !== anchorBlock(d.img)) dropEmpty(d.par)
-      st.dirty = true; docStatus(''); docSaveRange(st)
-      showFrame()
-    }
-    function closeMenu() {
-      if (menu && menu.parentNode) menu.parentNode.removeChild(menu)
-      menu = null
-      document.removeEventListener('mousedown', outside, true)
-    }
-    function outside(e) { if (menu && !menu.contains(e.target)) closeMenu() }
-    page.addEventListener('contextmenu', function (e) {
-      if (!e.target || e.target.tagName !== 'IMG') return
-      e.preventDefault()
-      closeMenu()
-      var img = e.target
-      var items = IMG_MODES
-      menu = document.createElement('div')
-      menu.style.cssText = 'position:fixed;z-index:99999;background:#fff;color:#111;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:4px;min-width:230px;left:' + Math.min(e.clientX, window.innerWidth - 250) + 'px;top:' + Math.min(e.clientY, window.innerHeight - 230) + 'px'
-      items.forEach(function (it) {
-        var bt = document.createElement('button')
-        bt.type = 'button'
-        bt.textContent = t(it[1])
-        bt.style.cssText = 'display:block;width:100%;text-align:left;padding:7px 10px;border:0;background:transparent;color:inherit;cursor:pointer;border-radius:6px;font:inherit'
-        bt.addEventListener('mouseenter', function () { bt.style.background = '#e2e8f0' })
-        bt.addEventListener('mouseleave', function () { bt.style.background = 'transparent' })
-        bt.addEventListener('click', function () {
-          closeMenu()
-          applyMode(img, it[0])
-          if (sel === img) showFrame()
-        })
-        menu.appendChild(bt)
-      })
-      document.body.appendChild(menu)
-      document.addEventListener('mousedown', outside, true)
-    })
-    page.addEventListener('dragstart', function (e) {
-      if (e.target && e.target.tagName === 'IMG') e.preventDefault()
-    })
-    page.addEventListener('mousedown', function (e) {
-      if (e.button !== 0 || !e.target || e.target.tagName !== 'IMG') return
-      e.preventDefault()
-      var img = e.target
-      var r = img.getBoundingClientRect()
-      drag = { img: img, par: anchorBlock(img), x: e.clientX, y: e.clientY, sl: r.left, st: r.top, on: false }
-      select(img)
-      document.addEventListener('mousemove', onMove, true)
-      document.addEventListener('mouseup', onUp, true)
-    })
-  }
-
-  function docSaveRange(st) {
-    try {
-      var sel = window.getSelection && window.getSelection()
-      if (sel && sel.rangeCount && st.page && st.page.contains(sel.anchorNode)) st.range = sel.getRangeAt(0).cloneRange()
-    } catch (_e) { /* nincs kijeloles */ }
-  }
-
-  function docRestoreRange(st) {
-    if (!st.range || !st.page) return
-    try {
-      var sel = window.getSelection()
-      sel.removeAllRanges()
-      sel.addRange(st.range)
-    } catch (_e) { /* a kijeloles mar nem ervenyes */ }
-  }
-
-  function docExec(cmd, value) {
-    var st = WB.docEdit
-    if (!st || !st.page || st.busy) return
-    if (document.activeElement !== st.page) { st.page.focus(); docRestoreRange(st) }
-    try {
-      if (cmd === 'hiliteColor' && !document.queryCommandSupported('hiliteColor')) cmd = 'backColor'
-      document.execCommand('styleWithCSS', false, cmd === 'hiliteColor' || cmd === 'backColor')
-      if (cmd === 'formatBlock') document.execCommand('formatBlock', false, '<' + value + '>')
-      else document.execCommand(cmd, false, value == null ? null : value)
-    } catch (_e) { /* a bongeszo nem ismeri: nem tortenik semmi */ }
-    st.dirty = true
-    docSaveRange(st)
-  }
-
-  /** Font size in real points (execCommand only knows 1-7): mark with size 7, then turn the marks into pt spans. */
-  function docSetSize(pt) {
-    var st = WB.docEdit
-    if (!st || !st.page || st.busy || !(pt > 0)) return
-    if (document.activeElement !== st.page) { st.page.focus(); docRestoreRange(st) }
-    try {
-      document.execCommand('styleWithCSS', false, false)
-      document.execCommand('fontSize', false, '7')
-    } catch (_e) { return }
-    var marks = st.page.querySelectorAll('font[size="7"]')
-    for (var i = 0; i < marks.length; i++) {
-      var sp = document.createElement('span')
-      sp.style.fontSize = pt + 'pt'
-      while (marks[i].firstChild) sp.appendChild(marks[i].firstChild)
-      marks[i].parentNode.replaceChild(sp, marks[i])
-    }
-    st.dirty = true
-    docSaveRange(st)
-  }
-
-  /** Paragraph-level style (line spacing, space after) on every paragraph the selection touches. */
-  function docParaStyle(prop, value) {
-    var st = WB.docEdit
-    if (!st || !st.page || st.busy) return
-    if (document.activeElement !== st.page) { st.page.focus(); docRestoreRange(st) }
-    var sel = window.getSelection && window.getSelection()
-    if (!sel || !sel.rangeCount) return
-    var range = sel.getRangeAt(0)
-    var els = []
-    var all = st.page.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li')
-    for (var i = 0; i < all.length; i++) { try { if (range.intersectsNode(all[i])) els.push(all[i]) } catch (_e) { /* detached */ } }
-    if (!els.length) {
-      var n = sel.anchorNode
-      var e = n && (n.nodeType === 3 ? n.parentNode : n)
-      var b = e && e.closest ? e.closest('p,h1,h2,h3,h4,h5,h6,li,div') : null
-      if (b && b !== st.page && st.page.contains(b)) els.push(b)
-    }
-    for (var j = 0; j < els.length; j++) els[j].style[prop] = value
-    st.dirty = true
-    docSaveRange(st)
-  }
-
-  /** "Insert signature": the same picker as the court documents; the picture lands at the cursor as an inline image. */
-  function docSignInsert() {
-    var st = WB.docEdit
-    if (!st || !st.page || st.busy) return
-    docSaveRange(st)
-    dpSignPicker('', '', function (rel) {
-      fetch('/api/life/file?rel=' + encodeURIComponent(rel)).then(function (res) {
-        if (!res.ok) throw new Error('http')
-        return res.blob()
-      }).then(function (blob) {
-        return new Promise(function (resolve, reject) {
-          var url = URL.createObjectURL(blob)
-          var img = new Image()
-          img.onload = function () {
-            // Shrunk to at most 600 px wide, so the saved document stays small.
-            var w = Math.min(600, img.naturalWidth || 600)
-            var h = Math.max(1, Math.round(w * (img.naturalHeight || w) / (img.naturalWidth || w)))
-            var cv = document.createElement('canvas')
-            cv.width = w; cv.height = h
-            cv.getContext('2d').drawImage(img, 0, 0, w, h)
-            URL.revokeObjectURL(url)
-            resolve({ data: cv.toDataURL('image/png'), w: w, h: h })
-          }
-          img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('img')) }
-          img.src = url
-        })
-      }).then(function (pic) {
-        var s2 = WB.docEdit
-        if (!s2 || !s2.page) return
-        s2.page.focus()
-        docRestoreRange(s2)
-        // 5 cm wide like a handwritten signature; the height follows the picture's own proportion.
-        document.execCommand('insertHTML', false, '<img src="' + pic.data + '" alt="" style="width:5cm">')
-        s2.dirty = true
-        docSaveRange(s2)
-      }).catch(function () { window.showToast(t('workbench.docedit.sign_failed')) })
-    })
-  }
-
-  function docStatus(text) {
-    var st = WB.docEdit
-    if (!st || !st.host) return
-    var el = st.host.querySelector('[data-de-status]')
-    if (el) el.textContent = text || ''
-  }
-
-  function docEditMount() {
-    if (!pdfDomOk()) return
-    var st = WB.docEdit
-    var slot = document.querySelector('[data-wb-docedit]')
-    if (!st || !st.host || !slot) return
-    docBrandFill(st)
-    if (st.host.parentNode !== slot) {
-      var had = document.activeElement === st.page || (st.host.parentNode == null && st.range)
-      slot.appendChild(st.host)
-      if (had && st.page) { st.page.focus(); docRestoreRange(st) }
-    }
-  }
-
-  function closeDocEdit(force) {
-    var st = WB.docEdit
-    if (!st) return
-    if (!force && st.dirty && !window.confirm(t('workbench.docedit.confirm_discard'))) return
-    WB.docEdit = null
-    render()
-  }
-
-  function saveDocEdit() {
-    var st = WB.docEdit
-    if (!st || st.busy || !st.page) return
-    var itemId = st.itemId
-    var html = '<!DOCTYPE html>\n<html><head>' + st.head + '</head><body>' + st.page.innerHTML + '</body></html>\n'
-    st.busy = true
-    docStatus(t('workbench.docedit.saving'))
-    var btns = st.host.querySelectorAll('[data-de-act]')
-    for (var i = 0; i < btns.length; i++) btns[i].disabled = true
-    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/doc-html?base_version=' + encodeURIComponent(st.baseVersion || '')
-      + '&lang=' + encodeURIComponent(window._lang || 'hu')
-    var done = function (msg, detail) {
-      var s2 = WB.docEdit
-      if (!s2 || s2.itemId !== itemId) return
-      s2.busy = false
-      for (var j = 0; j < btns.length; j++) btns[j].disabled = false
-      docStatus(msg + (detail ? ' (' + detail + ')' : ''))
-      window.showToast(msg)
-    }
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/html; charset=utf-8' }, body: html }).then(function (res) {
-      return res.json().catch(function () { return null }).then(function (data) {
-        if (!res.ok) { done((data && data.message) || t('workbench.err.http', { status: res.status }), data && data.detail); return }
-        if (WB.docEdit && WB.docEdit.itemId === itemId) WB.docEdit = null
-        applyVersions(data)
-        window.showToast(t('workbench.docedit.saved', { n: data && data.version ? data.version.version_no : '', name: (data && data.name) || '' }))
-      })
-    }).catch(function () { done(t('workbench.err.network')) })
   }
 
   // ---- PDF: raíras, kiemeles, kitakaras ----
@@ -5549,6 +4794,9 @@
         return
       }
       applyVersions(r.data)
+      // #945: the new .docx is read onto the court-document page (the one editor), not opened in a second one.
+      if (WB.textImportTried) WB.textImportTried[itemId] = false
+      loadDetail(itemId); load(WB.projectId)
       window.showToast(t('workbench.pdfedit.to_docx_done', { n: r.data && r.data.version ? r.data.version.version_no : '', name: (r.data && r.data.name) || '' }))
     })
   }
@@ -6742,7 +5990,6 @@
     // TABLAZAT (#406, 15. pont): nyitva a racs -> az van a helyen.
     if (tableOpen()) return '<div class="wb-preview">' + head + manualStepsHtml(WB.detail && WB.detail.item) + tableHtml() + '</div>'
     // DOKUMENTUM-SZERKESZTES (#444): nyitva a szerkeszto -> az van a helyen.
-    if (docEditOpen()) return '<div class="wb-preview">' + head + docEditHtml() + '</div>'
     if (pdfEditOpen()) return '<div class="wb-preview">' + head + pdfEditHtml() + '</div>'
     var tableBtn = tableButtonHtml(p)
     if (!p.available && p.reason === 'needs_conversion') {
@@ -15715,7 +14962,7 @@
    *  allitjuk "Mentve"-nek mindig. */
   function savedState() {
     if (WB.busy || WB.versionBusy || WB.partBusy || WB.upload || WB.docFinalizing) return 'saving'
-    var editing = WB.docEdit || WB.pdfEdit || WB.textEdit || WB.partEdit || WB.partNewOpen || WB.canvasEdit
+    var editing = WB.pdfEdit || WB.textEdit || WB.partEdit || WB.partNewOpen || WB.canvasEdit
       || (WB.table && WB.table.dirty) || (WB.img && WB.img.dirty)
     return editing ? 'editing' : 'saved'
   }
@@ -18738,7 +17985,6 @@
         if (!WB.textImportError) return '<div class="wb-sh-doc-body"><p class="wb-muted wb-center">' + esc(t('workbench.worddoc.reading')) + '</p></div>'
         return '<div class="wb-sh-doc-body">' + previewHtml(true) + '</div>'
       }
-      docAutoOpen()
       return '<div class="wb-sh-doc-body">' + (WB.textImportError && !needsPage(dit) ? '<p class="wb-preview-bad">' + esc(WB.textImportError) + '</p>' : '') + previewHtml(true) + '</div>'
     }
     // #536: the file of this document was deleted (it sits in the trash): say so, instead of an empty drafting editor.
@@ -22136,7 +21382,6 @@
     // helyere (vagy uj dokumentumnal elinditjuk a betoltest).
     pdfMount()
     // A dokumentum-szerkeszto (#444) is tartos csomopont: vissza a helyere.
-    docEditMount()
     pdfEditMount()
     if (vidKeep) videoRestore(vidKeep)
     frVtPlayerMount()
@@ -22819,8 +22064,6 @@
     else if (a === 'compare-open') openCompare()
     else if (a === 'compare-close') { WB.compare = null; render() }
     else if (a === 'text-edit') openTextEdit()
-    else if (a === 'doc-edit') openDocEdit()
-    else if (a === 'doc-edit-close') closeDocEdit(true)
     else if (a === 'pdf-edit') openPdfEdit()
     else if (a === 'pdf-edit-close') closePdfEdit(true)
     else if (a === 'pdf-to-docx') pdfToDocx()
