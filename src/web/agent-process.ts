@@ -1199,6 +1199,24 @@ function runTmux(host: string | null, tmuxArgs: string[], opts: { timeout?: numb
 
 const SESSION_MUTATING_TMUX_VERBS = new Set(['new-session', 'kill-session', 'kill-server', 'rename-session'])
 
+/**
+ * Non-blocking twin of runTmux() (#935): the same invalidation rules and timeouts, but the fork runs off the
+ * event loop. Every `async` function that drives a pane (clear, inject, Enter) must use this one: the
+ * synchronous form parked the dashboard's main thread for as long as tmux took (the live sampler caught
+ * 750-1250 ms in stuck-input-watcher -> clearInputBuffer -> runTmux -> execFileSync).
+ */
+export function runTmuxAsync(host: string | null, tmuxArgs: string[], opts: { timeout?: number } = {}): Promise<void> {
+  if (!host) invalidateObservedPanes()
+  if (host) ensureControlDir()
+  const inv = buildTmuxInvocation(host, tmuxBin(), tmuxArgs)
+  return new Promise<void>((resolve, reject) => {
+    execFile(inv.file, inv.args, { timeout: opts.timeout ?? (host ? 8000 : 3000) }, (err) => {
+      if (!host && SESSION_MUTATING_TMUX_VERBS.has(tmuxArgs[0])) { localSessions.invalidate(); localSessionStarts.invalidate() }
+      if (err) reject(err); else resolve()
+    })
+  })
+}
+
 function captureTmux(host: string | null, tmuxArgs: string[], opts: { timeout?: number } = {}): string {
   if (host) ensureControlDir()
   const inv = buildTmuxInvocation(host, tmuxBin(), tmuxArgs)
@@ -2031,7 +2049,7 @@ async function dismissSurveyModalIfPresent(session: string, host: string | null 
   try {
     const pane = await capturePaneOnHostAsync(session, host)
     if (pane == null || !SURVEY_MODAL_RX.test(pane)) return
-    runTmux(host, ['send-keys', '-t', session, '0'], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, '0'], { timeout: 5000 })
     // Modal close is one frame; settle window so the next send-keys lands in
     // the prompt input, not the now-stale modal handler.
     await delay(300)
@@ -2053,9 +2071,9 @@ export async function dismissResumeSummaryModalIfPresent(session: string, host: 
   try {
     const pane = await captureTmuxAsyncArgs(host, ['capture-pane', '-t', session, '-p'])
     if (!RESUME_SUMMARY_MODAL_RX.test(pane)) return
-    runTmux(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
     await delay(100)
-    runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
     // /compact starts immediately and can run for minutes; we only need to
     // unblock the modal so detectPaneState can transition off 'unknown'.
     await delay(300)
@@ -2093,9 +2111,9 @@ export async function answerLoginMethodMenu(session: string, host: string | null
   try {
     const pane = await capturePaneOnHostAsync(session, host)
     if (pane == null || !paneShowsLoginMethodMenu(pane)) return false
-    runTmux(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
     await delay(150)
-    runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
     await delay(300)
     logger.info({ session }, 'Answered /login method menu: option 1 (Claude subscription), never the API-billing option')
     return true
@@ -2120,9 +2138,9 @@ export async function dismissModelConsentDialogIfPresent(session: string, host: 
   try {
     const pane = await capturePaneOnHostAsync(session, host)
     if (pane == null || !detectsModelConsentDialog(pane)) return
-    runTmux(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
     await delay(150)
-    runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
     await delay(300)
     logger.info({ session }, 'Answered model usage-credit consent dialog: kept the configured model (option 1, never the switch default)')
   } catch (err) {
@@ -2156,22 +2174,22 @@ export async function answerFirstRunGates(
 ): Promise<'cleared' | 'login' | 'unchanged'> {
   let acted = false
   for (let i = 0; i < FIRST_RUN_ANSWER_MAX_STEPS; i++) {
-    const pane = capturePane(session, host)
+    const pane = await capturePaneStrippedAsync(session, host)
     const gate: FirstRunGateKind | null = pane != null ? detectsFirstRunGate(pane) : null
     if (gate == null) return acted ? 'cleared' : 'unchanged'
     if (gate === 'login') return 'login'
     try {
       if (gate === 'trust') {
-        runTmux(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
+        await runTmuxAsync(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
         await delay(150)
-        runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+        await runTmuxAsync(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
       } else if (gate === 'bypass-permissions') {
-        runTmux(host, ['send-keys', '-t', session, '2'], { timeout: 5000 })
+        await runTmuxAsync(host, ['send-keys', '-t', session, '2'], { timeout: 5000 })
         await delay(150)
-        runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+        await runTmuxAsync(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
       } else {
         // theme / welcome: Enter accepts the highlighted default and moves on.
-        runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+        await runTmuxAsync(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
       }
     } catch (err) {
       logger.warn({ err, session, gate }, 'first-run gate: answer keystroke failed')
@@ -2219,7 +2237,7 @@ export async function scheduleIdentitySetup(session: string, displayName: string
         void (async () => {
           try {
             for (const cmd of identitySlashCommands(displayName)) {
-              runTmux(host, ['send-keys', '-t', session, cmd, 'Enter'], { timeout: 5000 })
+              await runTmuxAsync(host, ['send-keys', '-t', session, cmd, 'Enter'], { timeout: 5000 })
               await delay(1000)
             }
             logger.info({ session, displayName }, 'Set session /name')
@@ -2305,9 +2323,9 @@ export async function waitForPaneIdle(
 // so tmux interprets them as control sequences.
 export async function clearInputBuffer(session: string, host: string | null = null): Promise<void> {
   try {
-    const pane = capturePane(session, host)
+    const pane = await capturePaneStrippedAsync(session, host)
     for (const key of parkedClearSequence(pane != null ? parkedInputRowCount(pane) : 0)) {
-      runTmux(host, ['send-keys', '-t', session, key], { timeout: 5000 })
+      await runTmuxAsync(host, ['send-keys', '-t', session, key], { timeout: 5000 })
     }
     // Settle briefly so the next send-keys lands in the freshly cleared
     // buffer rather than racing the clear.
@@ -2339,19 +2357,19 @@ const PLACEHOLDER_DISCARD_SETTLE_MS = 450
 // into an already-empty box. Returns true if the placeholder was cleared.
 async function discardPlaceholderBuffer(session: string, host: string | null = null): Promise<boolean> {
   for (let i = 0; i < PLACEHOLDER_DISCARD_MAX; i++) {
-    const pane = capturePane(session, host)
+    const pane = await capturePaneStrippedAsync(session, host)
     // Stop pressing once the stub is gone -- a further Ctrl-C on an empty box
     // would quit the TUI.
     if (pane != null && !detectsPastePlaceholder(pane)) return true
     try {
-      runTmux(host, ['send-keys', '-t', session, 'C-c'], { timeout: 5000 })
+      await runTmuxAsync(host, ['send-keys', '-t', session, 'C-c'], { timeout: 5000 })
     } catch (err) {
       logger.warn({ err, session }, 'discardPlaceholderBuffer: Ctrl-C send failed')
       return false
     }
     await delay(PLACEHOLDER_DISCARD_SETTLE_MS)
   }
-  const finalPane = capturePane(session, host)
+  const finalPane = await capturePaneStrippedAsync(session, host)
   return finalPane != null && !detectsPastePlaceholder(finalPane)
 }
 
@@ -2496,11 +2514,11 @@ export async function sendPromptToSession(
     let i = 0
     while (i < oneLine.length) {
       const { chunk, end } = computeTmuxChunk(oneLine, i, CHUNK, TMUX_CHUNK_MAX_SLIDE)
-      runTmux(host, ['send-keys', '-t', session, '-l', chunk], { timeout: 5000 })
+      await runTmuxAsync(host, ['send-keys', '-t', session, '-l', chunk], { timeout: 5000 })
       i = end
       if (i < oneLine.length) await delay(30)
     }
-    runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
   }
   await sendChunks()
 
@@ -2525,7 +2543,7 @@ export async function sendPromptToSession(
   const payloadHint = oneLine.slice(0, Math.min(oneLine.length, 96))
   for (let attempt = 0; ; attempt++) {
     await delay(SUBMIT_RETRY_POLL_MS)
-    const pane = capturePane(session, host)
+    const pane = await capturePaneStrippedAsync(session, host)
     const action = decideSubmitFollowup(pane, payloadHint, attempt, SUBMIT_RETRY_MAX_ATTEMPTS)
     if (action === 'done') break
     if (action === 'give-up') {
@@ -2551,7 +2569,7 @@ export async function sendPromptToSession(
     }
     // action === 'retry-enter'
     try {
-      runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+      await runTmuxAsync(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
     } catch (err) {
       logger.warn({ err, session, attempt }, 'Retry-Enter send failed')
       break
@@ -2664,6 +2682,18 @@ export function capturePane(session: string, host: string | null = null): string
     // (a banner otherwise pins detectPaneState 'unknown', blocking scheduler +
     // inter-agent delivery). See stripSessionTitleBanner.
     return stripAllAnsi(stripSessionTitleBanner(captureTmux(host, ['capture-pane', '-t', session, '-e', '-p'])))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Non-blocking twin of capturePane() (#935): same `-e` capture, same banner/ANSI stripping, the fork runs off
+ * the event loop. Null on any error, exactly like capturePane().
+ */
+export async function capturePaneStrippedAsync(session: string, host: string | null = null): Promise<string | null> {
+  try {
+    return stripAllAnsi(stripSessionTitleBanner(await captureTmuxAsyncArgs(host, ['capture-pane', '-t', session, '-e', '-p'])))
   } catch {
     return null
   }
@@ -2823,7 +2853,7 @@ const unwedgeAttempts = new Map<string, { last: number; sig: string; fails: numb
 // short settle, so input a human or agent is actively typing is never clobbered.
 // Returns true if it cleared something (caller should retry delivery next tick).
 export async function clearStaleParkedInput(session: string, host: string | null = null): Promise<boolean> {
-  const a = capturePane(session, host)
+  const a = await capturePaneStrippedAsync(session, host)
   if (a == null || detectPaneState(a) !== 'typing') return false
   // DIM-GUARD (2026-06-30, Szabi insight): extract the parked TEXT from the
   // dim-stripped (-e) view. Ghost/phantom frames -- stale captures, placeholder
@@ -2847,7 +2877,7 @@ export async function clearStaleParkedInput(session: string, host: string | null
   if (prev && prev.sig === parked && nowMs - prev.last < UNWEDGE_COOLDOWN_MS) return false
 
   await delay(PARKED_STABLE_CONFIRM_MS)
-  const b = capturePane(session, host)
+  const b = await capturePaneStrippedAsync(session, host)
   // Changed (someone is typing) or already cleared -> leave it alone, and do not
   // record an attempt (this was never a stuck box). Compare on the SAME dim-
   // stripped view as the initial extraction so a dim ghost can't flip the result.
@@ -2878,10 +2908,10 @@ export async function clearStaleParkedInput(session: string, host: string | null
   // immediately instead of spending the whole budget.
   const sequence = parkedClearSequence(parkedInputRowCount(a))
   for (let i = 0; i < sequence.length; i++) {
-    runTmux(host, ['send-keys', '-t', session, sequence[i]], { timeout: 5000 })
+    await runTmuxAsync(host, ['send-keys', '-t', session, sequence[i]], { timeout: 5000 })
     if (i % PARKED_CLEAR_RECHECK_EVERY === PARKED_CLEAR_RECHECK_EVERY - 1) {
       await delay(PARKED_CLEAR_SETTLE_MS)
-      const after = capturePane(session, host)
+      const after = await capturePaneStrippedAsync(session, host)
       if (after == null || detectPaneState(after) !== 'typing') break
     }
   }
@@ -2890,7 +2920,7 @@ export async function clearStaleParkedInput(session: string, host: string | null
   // Verify the box is ACTUALLY empty before claiming success: only then is the
   // pending message safe to deliver next tick. Otherwise record the failure so
   // the cooldown guard above backs us off instead of hammering every tick.
-  const final = capturePane(session, host)
+  const final = await capturePaneStrippedAsync(session, host)
   const stillStuck = final != null && detectPaneState(final) === 'typing' && parkedInputText(final) === parked
   if (stillStuck) {
     const fails = (prev && prev.sig === parked ? prev.fails : 0) + 1

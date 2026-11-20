@@ -19,7 +19,7 @@
   "src/web/card-work-guard.ts": 2,
   "src/web/channel-health-monitor.ts": 1,
   "src/web/channel-mcp-reconnect.ts": 16,
-  "src/web/channel-monitor.ts": 13,
+  "src/web/channel-monitor.ts": 9,
   "src/web/channel-plugin-unlock.ts": 16,
   "src/web/channel-poller-reap.ts": 6,
   "src/web/claude-auth-presence.ts": 1,

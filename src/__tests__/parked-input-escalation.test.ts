@@ -38,6 +38,11 @@ vi.mock('node:child_process', async (orig) => ({
     }
     return ''
   }),
+  // #935: clearStaleParkedInput forks tmux asynchronously now (runTmuxAsync / capturePaneStrippedAsync), same recording.
+  execFile: vi.fn((_file: string, args: string[], _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+    h.calls.push(args)
+    cb(null, args.includes('capture-pane') ? (args.includes('-e') ? (h.eView ?? h.PARKED) : h.PARKED) : '')
+  }),
 }))
 vi.mock('../notify.js', () => ({ notifyChannel: vi.fn(async () => {}), notifyTelegram: vi.fn(async () => {}) }))
 

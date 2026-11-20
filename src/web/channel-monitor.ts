@@ -19,6 +19,7 @@ import {
   observedParkedInputView,
   invalidateObservedPanes,
   clearInputBuffer,
+  runTmuxAsync,
   dismissResumeSummaryModalIfPresent,
   dismissModelConsentDialogIfPresent,
   stampFableOverageConsentSharedRoots,
@@ -407,7 +408,7 @@ async function performStuckInputAction(
           // first (no-op when absent); an Enter on the then-idle prompt is
           // harmless.
           await dismissModelConsentDialogIfPresent(session)
-          execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 5000 })
+          await runTmuxAsync(null, ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 5000 })
         }
         submitted = true
         break
@@ -425,7 +426,7 @@ async function performStuckInputAction(
         // Enter must never reach the model consent dialog (its default SWITCHES
         // the model). No-op when the dialog is absent.
         await dismissModelConsentDialogIfPresent(session)
-        execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 5000 })
+        await runTmuxAsync(null, ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 5000 })
         submitted = true
         break
       case 'hold':
@@ -1753,7 +1754,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
             // kerdest sosem latta (a Telegramon van, nem a panelen).
             logger.warn({ session: t.session, agent: label }, 'Session parked on a tool-permission prompt nobody can answer -- Escape + telling the agent it was not the owner')
             try {
-              execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(t.session), 'Escape'], { timeout: 5000 })
+              await runTmuxAsync(null, ['send-keys', '-t', exactTmuxTarget(t.session), 'Escape'], { timeout: 5000 })
               await sendPromptToSession(t.session, PERMISSION_CANCELLED_NOTE)
             } catch (err) {
               logger.warn({ err, session: t.session }, 'Permission-prompt recovery failed')
@@ -1767,7 +1768,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
             // kivaltó ok, hogy beragad?"): without it the cause cannot be read back after the Escape.
             logger.warn({ session: t.session, agent: label, paneTail: paneNow.split('\n').slice(-16).join('\n') }, 'Session parked in a blocking interactive menu -- sending Escape to recover')
             try {
-              execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(t.session), 'Escape'], { timeout: 5000 })
+              await runTmuxAsync(null, ['send-keys', '-t', exactTmuxTarget(t.session), 'Escape'], { timeout: 5000 })
             } catch (err) {
               logger.warn({ err, session: t.session }, 'Menu-recovery Escape failed')
             }
