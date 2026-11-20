@@ -43,6 +43,6 @@ describe('every write drops the remembered view (#949)', () => {
   it('web.ts clears it before any non-GET /api/ request', async () => {
     const { readFileSync } = await import('node:fs')
     const src = readFileSync(new URL('../web.ts', import.meta.url), 'utf8')
-    expect(src).toMatch(/method !== 'GET' && path\.startsWith\('\/api\/'\)\) clearProjectPlacesCache\(\)/)
+    expect(src).toMatch(/method !== 'GET' && path\.startsWith\('\/api\/'\)\) \{ clearProjectPlacesCache\(\); clearProjectItemFilesCache\(\) \}/)
   })
 })

@@ -71,3 +71,23 @@ export function projectItemFiles(projectId: string): { files: ProjectItemFile[];
   }
   return { files, truncated }
 }
+
+/**
+ * #949: the Documents panel asks for this list with every answer, and it reads every folder of every work item with
+ * one stat per file -- on the slow Windows mount that is seconds of a frozen main thread per call. The panel's answer
+ * is remembered for a few seconds (like the places view); a change made through the panel asks for `fresh`, and any
+ * write request drops it (web.ts).
+ */
+export const ITEM_FILES_TTL_MS = 15_000
+const itemFilesCache = new Map<string, { at: number; value: { files: ProjectItemFile[]; truncated: boolean } }>()
+export function clearProjectItemFilesCache(): void { itemFilesCache.clear() }
+
+export function projectItemFilesCached(projectId: string, opts: { fresh?: boolean; now?: number } = {}): { files: ProjectItemFile[]; truncated: boolean } {
+  const now = opts.now ?? Date.now()
+  const hit = itemFilesCache.get(projectId)
+  if (!opts.fresh && hit && now - hit.at < ITEM_FILES_TTL_MS) return hit.value
+  const value = projectItemFiles(projectId)
+  if (itemFilesCache.size > 200) itemFilesCache.clear()
+  itemFilesCache.set(projectId, { at: now, value })
+  return value
+}

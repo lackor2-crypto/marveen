@@ -47,6 +47,23 @@ const clean = (rel: string): string => String(rel || '').replace(/\\/g, '/').rep
 const dirOf = (rel: string): string => { const r = clean(rel); const i = r.lastIndexOf('/'); return i < 0 ? '' : r.slice(0, i) }
 const nameOf = (rel: string): string => { const r = clean(rel); return r.slice(r.lastIndexOf('/') + 1) }
 
+/**
+ * #949: a directory test remembered for ONE computation. The same folder is asked about again and again (once per
+ * material, annex and work item), and on the slow Windows mount each ask is a realpath + stat of ~10 ms.
+ */
+function memoIsDir(): (rel: string) => boolean {
+  const seen = new Map<string, boolean>()
+  return (rel: string): boolean => {
+    const hit = seen.get(rel)
+    if (hit !== undefined) return hit
+    const a = resolveLifePath(rel)
+    let ok = false
+    if (a) { try { ok = statSync(a).isDirectory() } catch { ok = false } }
+    seen.set(rel, ok)
+    return ok
+  }
+}
+
 function treeReachable(): boolean {
   const abs = resolveLifePath('')
   if (!abs) return false
@@ -99,26 +116,29 @@ function computeProjectPlacesView(projectId: string): ProjectPlaceView[] {
   // A stored path is either project-relative or already a path of the Life tree: both are accepted.
   // A folder that was moved to another project's tree is stored as that tree's own path ("Család/..."): when the
   // project-relative reading is not a folder but the path itself is one, the path is the place.
-  const isDir = (rel: string): boolean => { const a = resolveLifePath(rel); if (!a) return false; try { return statSync(a).isDirectory() } catch { return false } }
-  const inTree = (p: string): string => {
+  const isDir = memoIsDir()
+  // #949: a material or an annex is a FILE, so the question is asked about its FOLDER (one answer per folder, not
+  // per file): the folder inside the project's tree, or -- moved to another tree -- the folder's own path.
+  const folderInTree = (p: string): string => {
     const c = clean(p)
-    if (c === base || c.startsWith(base + '/')) return c
-    const joined = base + '/' + c
-    return !isDir(joined) && isDir(c) ? c : joined
+    if (c === base || c.startsWith(base + '/')) return dirOf(c)
+    const d = dirOf(c)
+    const joined = base + (d ? '/' + d : '')
+    return d && !isDir(joined) && isDir(d) ? d : joined
   }
   if (base) {
     const items = getDb().prepare('SELECT id, title, folder FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; title: string; folder: string | null }[]
     // #539: the same rule as the files list -- an item without a folder of its own lives in the folder it was made in.
-    const whereItemIs = new Map(projectItemFolders(projectId).map((x) => [x.item_id, x.rel] as const))
+    const whereItemIs = new Map(projectItemFolders(projectId, isDir).map((x) => [x.item_id, x.rel] as const))
     for (const it of items) {
       const f = whereItemIs.get(it.id)
       if (f) add(f, 'item', it.title, 'item:' + it.id, it.id)
       // An item whose folder was never recorded still has its materials somewhere: those folders are its places.
       const mats = getDb().prepare('SELECT path FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').all(it.id) as { path: string }[]
-      for (const m of mats) add(dirOf(inTree(m.path)), 'item', it.title, 'item:' + it.id, it.id)
+      for (const m of mats) add(folderInTree(m.path), 'item', it.title, 'item:' + it.id, it.id)
       for (const a of listAnnexes(it.id)) {
         if (a.linked) continue
-        add(dirOf(inTree(a.path)), 'annex', baseName(a.path), 'annex:' + it.id + ':' + a.path, it.id)
+        add(folderInTree(a.path), 'annex', baseName(a.path), 'annex:' + it.id + ':' + a.path, it.id)
       }
     }
   }
@@ -128,9 +148,7 @@ function computeProjectPlacesView(projectId: string): ProjectPlaceView[] {
   const out: ProjectPlaceView[] = []
   for (const rel of new Set([...found.keys(), ...manual])) {
     const e = found.get(rel)
-    let exists = false
-    const abs = resolveLifePath(rel)
-    if (abs) { try { exists = statSync(abs).isDirectory() } catch { exists = false } }
+    const exists = isDir(rel)
     const reasons = e ? e.reasons : []
     const itemCounts: Record<string, number> = {}
     for (const r of reasons) if (r.item_id) itemCounts[r.item_id] = (itemCounts[r.item_id] || 0) + 1
@@ -152,12 +170,12 @@ function baseName(p: string): string { return nameOf(p) }
  * presentation and its 20 pictures are there") such an item had no folder at all here, so its documents panel was
  * empty. The project root and the shared work-items box are nobody's folder: an item that sits loose there gets none.
  */
-export function projectItemFolders(projectId: string): { item_id: string; title: string; rel: string; shallow?: true }[] {
+export function projectItemFolders(projectId: string, isDirIn?: (rel: string) => boolean): { item_id: string; title: string; rel: string; shallow?: true }[] {
   ensureAssetTables()
   const project = getProject(projectId)
   const base = clean(project?.folder_path || '')
   if (!base) return []
-  const isDir = (rel: string): boolean => { const a = resolveLifePath(rel); if (!a) return false; try { return statSync(a).isDirectory() } catch { return false } }
+  const isDir = isDirIn ?? memoIsDir()
   const toLife = (f: string): string => (f === base || f.startsWith(base + '/') ? f : (!isDir(base + '/' + f) && isDir(f) ? f : base + '/' + f))
   const box = project ? findWorkItemsBox(project) : null
   const nobodys = new Set<string>([base, ...(box ? [toLife(clean(box))] : [])])
