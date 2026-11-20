@@ -826,8 +826,9 @@ describe('telegram command surface', () => {
     it('a plain message goes to the single PINNED project as a task', () => {
       seedThree()
       upsertCodeSession({ ...TRADING, pinned: true })
-      // Boss (TG 3172/3176): an accepted message draws NO "Atadva" receipt.
-      expect(replyForInbound('javitsd a kerekitest', '1', 'owner', true)).toBeNull()
+      // Boss (TG 3172/3176): an accepted message draws NO "Atadva" hand-over talk. #942: it does draw a
+      // short "Megkaptam" receipt, so the owner can see the message arrived.
+      expect(replyForInbound('javitsd a kerekitest', '1', 'owner', true)).toMatch(/Megkaptam/)
       const tasks = listCodeTasks({})
       expect(tasks).toHaveLength(1)
       expect(tasks[0]!.project).toBe('tradingbot')
@@ -836,18 +837,39 @@ describe('telegram command surface', () => {
 
     it('a plain message with one project and no pin goes to that project', () => {
       upsertCodeSession(MARVIN)
-      expect(replyForInbound('nezd at', '1', 'owner', true)).toBeNull()
+      expect(replyForInbound('nezd at', '1', 'owner', true)).toMatch(/Megkaptam/)
       expect(listCodeTasks({})).toHaveLength(1)
     })
 
-    // Boss (TG 3172/3176): no receipt and no queue talk, however many tasks are ahead.
-    it('never answers an accepted message with a receipt or queue note', () => {
+    // #942 (Boss, Telegram, 2026-11-20: "nem mutatod hogy vetted az infot. ez hiba"): an accepted message
+    // used to draw no reply at all. It now draws a short receipt -- but still never the hand-over talk
+    // Boss rejected in TG 3172/3176 ("Atadva: <projekt> (id)", queue counts).
+    it('answers an accepted message with a short receipt, never with hand-over or queue talk', () => {
       upsertCodeSession(MARVIN)
-      expect(replyForInbound('elso feladat', '1', 'owner', true)).toBeNull()
+      const first = replyForInbound('elso feladat', '1', 'owner', true)
+      expect(first).toMatch(/Megkaptam, dolgozom rajta/)
       claimNextCodeTask('test-host')
-      expect(replyForInbound('dolgozol?', '1', 'owner', true)).toBeNull()
-      expect(replyForInbound('harmadik', '1', 'owner', true)).toBeNull()
+      // A task is running now: the receipt turns honest ("queued") but carries no counts or ids.
+      const second = replyForInbound('dolgozol?', '1', 'owner', true)
+      expect(second).toMatch(/Megkaptam, sorban/)
+      const third = replyForInbound('harmadik', '1', 'owner', true)
+      for (const r of [first, second, third]) {
+        expect(r).not.toMatch(/Atadva|\(\w{8}\)|ota\)|varakozik|waiting ahead/i)
+        expect(r).not.toMatch(/marvin|marveen/i)
+      }
       expect(listCodeTasks({})).toHaveLength(3)
+    })
+
+    it('a "/code <project> <prompt>" command is acknowledged too, not just a plain sentence', () => {
+      upsertCodeSession(MARVIN)
+      const r = replyForInbound('/code marvin nezd at a naplot', '1', 'owner', true)
+      expect(r).toMatch(/Megkaptam/)
+      expect(listCodeTasks({})).toHaveLength(1)
+    })
+
+    it('a lone "1" with no pending topic question is an ordinary message and is acknowledged', () => {
+      upsertCodeSession(MARVIN)
+      expect(replyForInbound('1', '1', 'owner', true)).toMatch(/Megkaptam/)
     })
 
     it('ambiguous (several projects, no single pin): asks with the list, enqueues nothing', () => {
