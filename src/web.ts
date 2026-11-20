@@ -153,6 +153,7 @@ import { tryHandleDebateReports } from './web/routes/debate-reports.js'
 import { tryHandleOpenRouterOverview } from './web/routes/openrouter-overview.js'
 import { tryHandleIdeas } from './web/routes/ideas.js'
 import { tryHandleProjects } from './web/routes/projects.js'
+import { clearProjectPlacesCache } from './project-places-auto.js'
 import { tryHandleWorkbench } from './web/routes/workbench.js'
 import { tryHandleBackup } from './web/routes/backup.js'
 import { tryHandleBackupRestore } from './web/routes/backup-restore.js'
@@ -308,6 +309,8 @@ export function startWebServer(port = 3420): http.Server {
     }
 
     try {
+      // #949: any write may move a project's folders or documents: the remembered places view is dropped.
+      if (method !== 'GET' && path.startsWith('/api/')) clearProjectPlacesCache()
       const routeCtx: RouteContext = { req, res, path, method, url, fedPeer: fedPeerForCtx, auth: ctxAuth }
 
       // A betekinto link nyilvanos lapja (#406, 18. pont): /view/<token>, nem

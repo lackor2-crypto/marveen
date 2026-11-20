@@ -2402,7 +2402,7 @@ function courtOut(itemId: string): ReturnType<typeof itemCourtState> & { check_c
 }
 
 /** The Documents panel in one answer: the documents by role, the related projects, and what is still open before closing. */
-function projectDocsOut(projectId: string): Record<string, unknown> {
+function projectDocsOut(projectId: string, opts: { fresh?: boolean } = {}): Record<string, unknown> {
   return {
     ...listProjectDocs(projectId), roles: PROJECT_DOC_ROLES,
     // #530 (Boss TG 8535): the project's "no limits" (reading) switch; a mode, so that it can grow later.
@@ -2410,7 +2410,7 @@ function projectDocsOut(projectId: string): Record<string, unknown> {
     close: projectCloseCheck(projectId), related: listRelatedProjects(projectId), relatable: relatableProjects(projectId),
     // #530 (chapter 50): the folders of the Life tree this matter belongs to; `exists` is measured now.
     // #530 (Boss TG 8544): found by the system from the project's documents and work items, plus the ones added by hand.
-    places: projectPlacesView(projectId),
+    places: projectPlacesView(projectId, { fresh: !!opts.fresh }),
     // #530 (Boss TG 2845): the files lying in the work items' folders -- the project's documents, found by the system.
     item_files: projectItemFiles(projectId),
   }
@@ -2955,7 +2955,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = await addProjectDoc(project.id, String(body['rel'] ?? ''), { role: body['role'], note: body['note'] }, actor(ctx))
     if (!r.ok) return failDetail(res, r.code === 'file_missing' ? 404 : 400, 'pdoc_' + r.code, lang, r.detail)
-    json(res, { ok: true, id: r.id, ...projectDocsOut(project.id) }, 201)
+    json(res, { ok: true, id: r.id, ...projectDocsOut(project.id, { fresh: true }) }, 201)
     return true
   }
   {
@@ -2970,7 +2970,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
       const r = method === 'DELETE' ? removeProjectDoc(project.id, m[1] as string) : updateProjectDoc(project.id, m[1] as string, { role: body['role'], note: body['note'], ai: body['ai'] })
       if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'pdoc_' + r.code, lang, r.detail)
-      json(res, { ok: true, ...projectDocsOut(project.id) })
+      json(res, { ok: true, ...projectDocsOut(project.id, { fresh: true }) })
       return true
     }
   }
@@ -3022,7 +3022,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = setProjectAiAccess(project.id, body['mode'], actor(ctx))
     if (!r.ok) return failDetail(res, 400, 'pdoc_' + r.code, lang, r.detail)
-    json(res, { ok: true, ...projectDocsOut(project.id) })
+    json(res, { ok: true, ...projectDocsOut(project.id, { fresh: true }) })
     return true
   }
 
@@ -3140,7 +3140,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     }
     const r = method === 'POST' ? addProjectPlace(project.id, rel, actor(ctx)) : removeProjectPlace(project.id, rel)
     if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'pplace_' + r.code, lang, r.detail)
-    json(res, { ok: true, ...projectDocsOut(project.id) }, method === 'POST' ? 201 : 200)
+    json(res, { ok: true, ...projectDocsOut(project.id, { fresh: true }) }, method === 'POST' ? 201 : 200)
     return true
   }
 
@@ -3163,7 +3163,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!project) return fail(res, 404, 'project_not_found', lang)
     const r = method === 'POST' ? addRelatedProject(project.id, other, actor(ctx)) : removeRelatedProject(project.id, other)
     if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 400, 'prel_' + r.code, lang, r.detail)
-    json(res, { ok: true, ...projectDocsOut(project.id) }, method === 'POST' ? 201 : 200)
+    json(res, { ok: true, ...projectDocsOut(project.id, { fresh: true }) }, method === 'POST' ? 201 : 200)
     return true
   }
 
