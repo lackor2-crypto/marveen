@@ -3766,6 +3766,84 @@ export function ensureGlobalRegressionTestRule(): void {
   atomicWriteFileSync(path, updated)
 }
 
+const NOFREEZE_BEGIN = '<!-- BEGIN GENERATED: no-freeze-rule (auto-generated, do not edit by hand) -->'
+const NOFREEZE_END = '<!-- END GENERATED: no-freeze-rule -->'
+const NOFREEZE_BLOCK_RE = new RegExp(
+  `${NOFREEZE_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${NOFREEZE_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildNoFreezeBody(): string {
+  return [
+    '## NE FAGYASZD LE A GEPET -- LASSU GEPEN IS MUKODJON -- A TULAJDONOS TORVENYE',
+    '',
+    'A Marveennek lassu gepen, lassu (halozati vagy Windows) meghajton is mukodnie kell, es sosem',
+    'fagyaszthatja le a szamitogepet. A dashboard FO SZALAN tilos a szinkron lemez- vagy CPU-munka:',
+    'statSync / realpathSync / readdirSync / readFileSync ciklusban, scryptSync, nagy JSON.parse, kulso',
+    'program varasa. Ha egy kereshez sok fajl vagy eroforras kell: gyorsitotar, aszinkron hivas vagy',
+    'hatterfolyamat, es az ismetlodo lekeres hivasszama legyen korlatos (nincs "minden elemre egy',
+    'lemezhivas"). Fejlesztes kozben nezd meg lassu lemezen is: a /api/perf/stalls es a',
+    '/api/perf/slow-fs megmutatja, mi tartja a fo szalat. Egy fagyas-javitashoz regresszios teszt tartozik.',
+    'Ez mindenkire all: szakerto, segedmunkas, kod-hid session, projekt chat-asszisztens.',
+    'Reszletek: `marveen-learned-rules` R42, skill: `no-freeze-development`.',
+  ].join('\n')
+}
+
+/** Beviszi a szabalyt: a gep lefagyasztasanak tilalma (kanban #950) egy agens sajat CLAUDE.md-jebe. */
+export function ensureNoFreezeSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${NOFREEZE_BEGIN}\n${agentRuleBody('no-freeze', buildNoFreezeBody())}\n${NOFREEZE_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = NOFREEZE_BLOCK_RE.test(existing)
+    ? existing.replace(NOFREEZE_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben
+ *  futo agens is ezt olvassa. */
+export function ensureGlobalNoFreezeRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${NOFREEZE_BEGIN}\n${ruleBody('no-freeze', buildNoFreezeBody())}\n${NOFREEZE_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = NOFREEZE_BLOCK_RE.test(existing)
+    ? existing.replace(NOFREEZE_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
 const ITEMFILES_BEGIN = '<!-- BEGIN GENERATED: workitem-folder-files-rule (auto-generated, do not edit by hand) -->'
 const ITEMFILES_END = '<!-- END GENERATED: workitem-folder-files-rule -->'
 const ITEMFILES_BLOCK_RE = new RegExp(

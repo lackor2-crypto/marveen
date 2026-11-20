@@ -1004,6 +1004,15 @@ mérted helyette. Mindenkire áll, aki javít: szakértő, segédmunkás, és a 
 egy „fix" című landolásban nincs teszt-fájl. Skill: `marveen-learned-rules` R40; minden ágens megkapja
 (`ensureRegressionTestSection`, `ensureGlobalRegressionTestRule`).
 
+## ⛔ NE FAGYASZD LE A GÉPET -- LASSÚ GÉPEN IS MŰKÖDJÖN ({{OWNER_NAME}}, TG 7046, #950, törvény)
+
+A Marveennek lassú gépen és lassú (hálózati vagy Windows) meghajtón is működnie kell, és sosem fagyaszthatja
+le a számítógépet. A dashboard FŐ SZÁLÁN tilos a szinkron lemez- vagy CPU-munka (`statSync` / `realpathSync` /
+`readFileSync` ciklusban, `scryptSync`, nagy `JSON.parse`, külső program várása). Sok fájlnál gyorsítótár,
+aszinkron hívás vagy háttérfolyamat kell, és az ismétlődő lekérés hívásszáma legyen korlátos. Fejlesztés közben
+lassú lemezen is mérd (`/api/perf/stalls`, `/api/perf/slow-fs`). Skill: `no-freeze-development`, `marveen-learned-rules`
+R42; minden ágens megkapja (`ensureNoFreezeSection`, `ensureGlobalNoFreezeRule`).
+
 ## ⛔ MUNKADARAB MAPPÁJÁBAN CSAK A KONTEXTUS ÉS A TEENDŐ FÁJL LEHET (Boss, TG 4287, törvény)
 
 Munkadarab mappájába (Munkapad) tilos saját segédfájlt írni: se „Jogi kontextus", se összefoglaló,

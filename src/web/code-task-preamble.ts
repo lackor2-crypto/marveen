@@ -34,6 +34,7 @@ import { PROJECT_ROOT, APP_LANG, WEB_PORT } from '../config.js'
 import { toLocalWorkspacePath } from './code-bridge-workspace.js'
 import type { CodeTaskOrigin } from './code-bridge-store.js'
 import { REGRESSION_TEST_DISPATCH_EN, REGRESSION_TEST_DISPATCH_HU } from '../regression-test-rule.js'
+import { NO_FREEZE_DISPATCH_EN, NO_FREEZE_DISPATCH_HU } from '../no-freeze-rule.js'
 
 /** What kind of host MARVEEN runs on. The caller measures it (detectHostKind);
  *  this module never guesses, because a wrong guess prints a path that cannot
@@ -277,6 +278,8 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
   // 8. A bug fix always carries a regression test (kanban #839): a code-bridge session reads only THIS text,
   // not the fleet's CLAUDE.md files, so the rule is said here too -- for every task, fresh installs included.
   out.push(`8. ${hu ? REGRESSION_TEST_DISPATCH_HU : REGRESSION_TEST_DISPATCH_EN}`)
+  // 9. The machine must never freeze (kanban #950): the same, for every task and fresh installs.
+  out.push(`9. ${hu ? NO_FREEZE_DISPATCH_HU : NO_FREEZE_DISPATCH_EN}`)
 
   return out.join('\n')
 }

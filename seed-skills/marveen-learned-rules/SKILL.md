@@ -469,3 +469,12 @@ listában csak az áll, ami a próba előtt is ott volt. A gép is fogja: ideigl
 könyvtára, `/tmp`, `/var/tmp`, Windows `AppData\Local\Temp`) a felderítés magától nem csinál projektet, és
 a korábban így keletkezett kártyát a következő körben leveszi; a tulajdonos kézzel bekötött mappája marad.
 Kód: `isTempWorkspacePath()` (`src/web/routes/code.ts`), teszt: `code-bridge-temp-workspace-914.test.ts`.
+
+### R42 -- Ne fagyaszd le a gépet: lassú gépen is működjön (tulajdonos, TG 7046, #950, törvény)
+**Hiba:** a dashboard 11-12 másodpercre lefagyott, legalább 50-szer (2026-11-20). Az ok a #949-ben: a projekt-helyek
+nézete minden válaszhoz ezer szinkron `stat`/`realpath` hívást futtatott a lassú Windows-meghajtón (9p), és ez
+tartotta a főszálat; máshol `scryptSync` (~1 s) blokkolt.
+**Szabály:** a fő szálon tilos a szinkron lemez- és CPU-munka ciklusban; sok fájlnál gyorsítótár / aszinkron hívás /
+háttérfolyamat, korlátos hívásszám; fejlesztés közben lassú lemezen is mérd (`/api/perf/stalls`, `/api/perf/slow-fs`).
+Mindenkire áll (szakértő, segédmunkás, kód-híd session, chat-asszisztens). Kód: `buildNoFreezeBody()`,
+`NO_FREEZE_DISPATCH_HU/EN`; skill: `no-freeze-development`.
