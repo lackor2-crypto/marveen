@@ -100,8 +100,11 @@ describe('batched capture', () => {
 })
 
 // --- stuck-input recovery: detect on the observed picture, act on a fresh one
+// STUCKINPUT805: only a MACHINE-injected parked prompt is recovered (clear + re-inject); a fragment of unknown origin
+// may be the owner's own typing and is held. The fixture is therefore a channel injection, so the test keeps measuring
+// what it is about: the fresh-capture gate.
 const SEP = '─'.repeat(80)
-const PARKED = ['', SEP, '❯ Valami amit a felhasznalo elkezdett geppelni, meg nem kuldte el', SEP, '  ⏵⏵ bypass permissions on (shift+tab to cycle)'].join('\n')
+const PARKED = ['', SEP, '❯ <channel source="plugin:telegram:telegram" chat_id="1" message_id="2">Valami amit a gep beillesztett, meg nem kuldte el</channel>', SEP, '  ⏵⏵ bypass permissions on (shift+tab to cycle)'].join('\n')
 const EMPTY = ['', SEP, '❯ ', SEP, '  ⏵⏵ bypass permissions on (shift+tab to cycle)'].join('\n')
 
 const ap = vi.hoisted(() => ({
