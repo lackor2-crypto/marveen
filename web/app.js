@@ -38566,6 +38566,8 @@ async function loadDepoPage() {
   bind('depoPhotosGoBtn', () => switchPage('photos'))
   bind('depoSyncRunBtn', () => _depoRunSync())
   bind('depoRestoreFindBtn', () => _depoRestoreFind())
+  bind('depoCollectPreviewBtn', () => _depoCollectStart(true))
+  bind('depoCollectRunBtn', () => _depoCollectStart(false))
   bind('depoGoIntezoBtn', () => switchPage('intezo'))
   bind('depoBackupPreviewBtn', () => _depoBackupMeasure())
   bind('depoBackupAddBtn', () => _depoBackupAdd())
@@ -39255,7 +39257,7 @@ async function _depoRefresh() {
   if (list && s) {
     // RETIRED (#513): a downward Drive copy from before. It no longer runs; it
     // is listed only so it can be unlinked. No copies: the list stays empty.
-    const regiek = (s.pairs || []).filter((p) => !p.backup)
+    const regiek = (s.pairs || []).filter((p) => !p.backup && !p.collect)
     if (!regiek.length) {
       list.innerHTML = ''
     } else {
@@ -40579,6 +40581,8 @@ async function _depoLoadSyncAccounts() {
     const opciok = lista.map((a) => '<option value="' + escapeHtml(a) + '">' + escapeHtml(a) + '</option>').join('')
     if (sel) sel.innerHTML = opciok
     sel2.innerHTML = opciok
+    const sel3 = document.getElementById('depoCollectAccount')
+    if (sel3) sel3.innerHTML = opciok
     // Ha egyetlen fiok sincs bekotve, azt KI KELL MONDANI: ures legordulovel a
     // user azt hinne, elromlott valami.
     if (note) note.textContent = lista.length ? '' : t('dsync.no_accounts')
@@ -40601,7 +40605,7 @@ function _depoShowSyncJob(job) {
   // azt kell tudnia ellenorizni.
   const fel = job.uploaded || 0
   const kuka = job.trashed || 0
-  if (job.kind === 'restore') {
+  if (job.kind === 'restore' || job.kind === 'collect') {
     _depoRestoreShowJob(job)
     el.textContent = ''
     return
@@ -40899,6 +40903,19 @@ async function _depoRestoreFind() {
   })
 }
 
+async function _depoCollectStart(dryRun) {
+  const account = (document.getElementById('depoCollectAccount') || {}).value || ''
+  if (!account) { showToast(t('drestore.need_account')); return }
+  if (!dryRun && !confirm(t('dcollect.run_confirm', { account: account }))) return
+  try {
+    const r = await _depoPost('/api/drive/sync/collect', { account: account, dryRun: !!dryRun })
+    _depoRestoreShowJob(r && r.job)
+    _depoStartPoll()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('drestore.failed'))
+  }
+}
+
 async function _depoRestoreStart(i, dryRun) {
   const f = _depoRestoreFolders[i]
   if (!f) return
@@ -40917,16 +40934,18 @@ async function _depoRestoreStart(i, dryRun) {
 }
 
 function _depoRestoreShowJob(job) {
-  const el = document.getElementById('depoRestoreStatus')
+  const isCollect = job && job.kind === 'collect'
+  const el = document.getElementById(isCollect ? 'depoCollectStatus' : 'depoRestoreStatus')
   if (!el || !job) return
+  const K = isCollect ? 'dcollect.' : 'drestore.'
   const vars = { n: String(job.downloaded || 0), have: String(job.upToDate || 0), b: _depoBytes(job.bytes || 0), skip: String(job.skipped || 0), fail: String(job.failed || 0) }
   let txt
   if (job.running) {
-    txt = t(job.dryRun ? 'drestore.previewing' : 'drestore.running', vars) + (job.current ? ' · ' + job.current : '')
+    txt = t(job.dryRun ? K + 'previewing' : K + 'running', vars) + (job.current ? ' · ' + job.current : '')
   } else if (job.fatal) {
-    txt = t('drestore.stopped', { error: job.fatal })
+    txt = t(K + 'stopped', { error: job.fatal })
   } else {
-    txt = t(job.dryRun ? 'drestore.preview_done' : 'drestore.done', vars)
+    txt = t(job.dryRun ? K + 'preview_done' : K + 'done', vars)
     if (job.skipped) txt += ' ' + t('drestore.skipped', vars)
     if (job.failed) txt += ' ' + t('drestore.failed_n', vars)
     if (job.partial) txt += ' ' + t('drestore.partial')
