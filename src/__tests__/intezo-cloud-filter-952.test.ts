@@ -43,20 +43,20 @@ describe('Intezo cloud filter (#952)', () => {
     expect(names(cf._cfFilter([file('Cegek/a.pdf'), file('Cegek/Temp/b.pdf'), file('Zsolt/c.pdf')], 'up', rules))).toEqual(['Cegek/a.pdf'])
   })
 
-  it('"down": what has no rule, an explicit "do not back up", or something left out stays', () => {
+  it('"down": what has no rule or an explicit "do not back up" stays; deliberately left-out items do not count', () => {
     const list = [dir('Cegek'), dir('Csalad'), dir('Zsolt'), file('x.txt')]
     // Cegek has a do-not-back-up sub-folder -> still has something not up
     expect(names(cf._cfFilter(list, 'down', rules))).toEqual(['Cegek', 'Csalad', 'Zsolt', 'x.txt'])
     expect(names(cf._cfFilter([dir('Cegek/Temp'), dir('Cegek/Szamla')], 'down', rules))).toEqual(['Cegek/Temp'])
   })
 
-  it('a fully covered folder is hidden in "down", and a left-out folder/type counts as not up', () => {
+  it('a fully covered folder is hidden in "down", and a deliberately left-out folder/type counts as neither up nor still to upload', () => {
     const only = [{ path: 'Cegek', target: drive }]
     expect(names(cf._cfFilter([dir('Cegek'), dir('Cegek/Sub')], 'down', only))).toEqual([])
     expect(names(cf._cfFilter([dir('Cegek'), dir('Cegek/Sub')], 'up', only))).toEqual(['Cegek', 'Cegek/Sub'])
     const r = [{ path: 'Csalad/Anna/Iratok', target: drive, exclude: ['Regi', '*.fxt'] }]
-    expect(cf._cfState(file('Csalad/Anna/Iratok/Regi/a.pdf'), r)).toEqual({ up: false, down: true })
-    expect(cf._cfState(file('Csalad/Anna/Iratok/t.FXT'), r)).toEqual({ up: false, down: true })
+    expect(cf._cfState(file('Csalad/Anna/Iratok/Regi/a.pdf'), r)).toEqual({ up: false, down: false })
+    expect(cf._cfState(file('Csalad/Anna/Iratok/t.FXT'), r)).toEqual({ up: false, down: false })
     expect(cf._cfState(file('Csalad/Anna/Iratok/ok.pdf'), r)).toEqual({ up: true, down: false })
     expect(cf._cfState(dir('Csalad/Anna/Iratok/Regi'), r).up).toBe(false)
   })
@@ -95,9 +95,12 @@ describe('Intezo cloud filter (#952)', () => {
     expect(cf._cfState(dir(p + '/Media'), real)).toEqual({ up: true, down: false })
     expect(cf._cfState(dir(p), real)).toEqual({ up: true, down: false })
     expect(names(cf._cfFilter([dir(p + '/Media'), dir(p + '/Projektek')], 'down', real))).not.toContain(p + '/Media')
-    // an excluded folder NOTHING else covers is still not up
-    const lone = [{ path: p, target: { kind: 'drive', account: 'a' }, exclude: ['Media/Fotok'] }]
-    expect(cf._cfState(dir(p + '/Media'), lone)).toEqual({ up: true, down: true })
+    // TG 7163: a folder whose own rule only leaves sub-folders / types out is on the cloud: it never shows in "down"
+    const proj = [{ path: p + '/Projektek', target: { kind: 'mega', account: 'lackor3' }, exclude: ['Tester', 'logs', '*.fxt'] }]
+    expect(cf._cfState(dir(p + '/Projektek'), proj)).toEqual({ up: true, down: false })
+    expect(names(cf._cfFilter([dir(p + '/Projektek')], 'down', proj))).toEqual([])
+    // and what it leaves out is neither up nor still to upload
+    expect(cf._cfState(dir(p + '/Projektek/Tester'), proj)).toEqual({ up: false, down: false })
   })
   it('the folder mark does not call an excluded sub-folder "backed up" (same blind spot, TG 7156)', () => {
     const fnSrc = (name: string) => {
