@@ -90,8 +90,7 @@ for a in $AGENTS; do
   if [ $(( now - wstart )) -ge 3600 ]; then wstart="$now"; count=0; fi
 
   if [ "$count" -ge "$MAX_PER_HOUR" ]; then
-    notify_once "budget-$a" "$(ol "⚠️ A(z) $a sub-agens ebben az oraban mar $MAX_PER_HOUR ujraprobat elhasznalt, es tovabbra is szolgaltatoi hibara fut. Erdemes megnezni a modelljet." \
-      "⚠️ The $a sub-agent already used $MAX_PER_HOUR retries this hour and still hits provider errors. Worth checking its model.")"
+    # Owner decision (TG 7282): an exhausted retry budget is NOT worth a Telegram message -- log only.
     log "$a: elfogyott az ora-keret ($count/$MAX_PER_HOUR) -- varok"
     continue
   fi
