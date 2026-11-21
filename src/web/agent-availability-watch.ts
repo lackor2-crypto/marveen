@@ -70,6 +70,16 @@ export function isAgentSignedOut(agent: string, now: number = Date.now()): boole
 
 export function _resetSignedOutCache(): void { signedOutCache = null }
 
+/** Pure: what the in-flight watchdog does with a tracked task whose agent may be signed out.
+ *  'none' = not a signed-out case, carry on with the normal checks (a pane that is BUSY is working, so a stale
+ *  signed-out flag must not reclaim it and run the task twice); 'keep' = leave the entry, never alert (it never
+ *  started: the verify-started check re-queues it); 'reclaim' = it was running when the login was lost, hand it to
+ *  the retry queue for a working agent. */
+export function decideSignedOutInflight(i: { signedOut: boolean; sawBusy: boolean; paneBusy: boolean }): 'none' | 'keep' | 'reclaim' {
+  if (!i.signedOut || i.paneBusy) return 'none'
+  return i.sawBusy ? 'reclaim' : 'keep'
+}
+
 export function readAvailabilityState(): AvailabilityState {
   try {
     if (!existsSync(STATE_PATH)) return { agents: {}, notifiedAt: {} }

@@ -52,19 +52,13 @@ import {
 } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import {
-  isAgentQuotaBlocked,
   pickAnyTarget,
   firstWorkingAgent,
   decideVerifyStarted,
   shouldReassignFromDeadAgent,
 } from './agent-availability.js'
-import { isAgentSignedOut } from './agent-availability-watch.js'
-
-/** Cannot run a task now: at the usage wall OR signed out (TG 7172: a signed-out agent kept getting injected, then the
- *  in-flight watchdog alerted 30 minutes later). Every scheduling gate uses this instead of the bare quota check. */
-function isAgentUnableToWork(agentName: string, now: number = Date.now()): boolean {
-  return isAgentQuotaBlocked(agentName, now) || isAgentSignedOut(agentName, now)
-}
+import { decideSignedOutInflight, isAgentSignedOut } from './agent-availability-watch.js'
+import { isAgentUnableToWork } from './agent-able-to-work.js'
 import { sendTelegramMessage } from './telegram.js'
 import { runCommandTask } from './command-task.js'
 import { detectsFirstRunGate, detectPaneState, paneShowsLimitBlock, type PaneState } from '../pane-state.js'
@@ -1254,8 +1248,13 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // TG 7172 / #956: a SIGNED-OUT agent cannot run the task and is to be left alone (owner order, TG 3861): never
       // alert about it. Inside the verify window the verify-started check above re-queues a task that never started;
       // one that was already running when the login was lost goes back to the retry queue for a working agent.
-      if (isAgentSignedOut(entry.agentName, now)) {
-        if (!entry.sawBusy) continue
+      const signedOutAction = decideSignedOutInflight({
+        signedOut: isAgentSignedOut(entry.agentName, now),
+        sawBusy: entry.sawBusy === true,
+        paneBusy: state === 'busy',
+      })
+      if (signedOutAction === 'keep') continue
+      if (signedOutAction === 'reclaim') {
         insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, 'agent-quota')
         logger.warn({ task: entry.taskName, agent: entry.agentName }, 'Agent signed out while running a scheduled task -- work reclaimed to the retry queue, no alert')
         taskInflightMap.delete(key)
