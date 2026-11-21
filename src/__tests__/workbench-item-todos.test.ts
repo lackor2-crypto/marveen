@@ -47,18 +47,18 @@ describe('to-do file', () => {
   })
 
   it('the sweep makes it beside the context file, named after the item, and a rename moves it', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const ctx = readItemContext(item())!
     const rel = `${dirname(ctx.rel)}/${todoFileName('Wohngeld hianypotlas')}`
     expect(existsSync(join(dir, ...rel.split('/')))).toBe(true)
     renameWorkItem(item(), 'Wohngeld ujra')
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const folder = dirname(readItemContext(item())!.rel)
     expect(readdirSync(join(dir, ...folder.split('/'))).filter(isTodoFileName)).toEqual([todoFileName('Wohngeld ujra')])
   })
 
   it('it follows the list: a new to-do and a tick change the file, a second pass changes nothing', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const folder = dirname(readItemContext(item())!.rel)
     const rel = `${folder}/${todoFileName('Wohngeld hianypotlas')}`
     const a = addTodo({ work_item_id: itemId, text: 'Attach the payslips', due_date: null, repeat: null, by: 'test', source: 'agent' })

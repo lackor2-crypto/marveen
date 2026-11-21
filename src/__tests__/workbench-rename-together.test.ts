@@ -40,7 +40,7 @@ beforeEach(async () => {
   const dirRel = `Projektek/Video/${folder}`
   writeFileSync(abs(`${dirRel}/uj-video.timeline.json`), '{}')
   getDb().prepare('UPDATE work_items SET source_path = ? WHERE id = ?').run(`${dirRel}/uj-video.timeline.json`, aId)
-  await sweepItemContexts()
+  await sweepItemContexts({ full: true })
 })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); delete process.env['MARVEEN_DEPOT'] })
 

@@ -47,27 +47,27 @@ describe('debate report scaffolding', () => {
   })
   it('a report item gets neither a context nor a to-do file', async () => {
     const id = await make('Vitáztatás jelentés: Mennyi a lakbér?')
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(rows('work_item_context', id)).toBe(0)
     expect(rows('work_item_todo_file', id)).toBe(0)
   })
   it('a normal item still gets both', async () => {
     const id = await make('Wohngeld')
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(rows('work_item_context', id)).toBe(1)
     expect(rows('work_item_todo_file', id)).toBe(1)
   })
   it('untouched generated files of an old report are removed, edited ones stay', async () => {
     const a = await make('Wohngeld A')
     const b = await make('Wohngeld B')
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const aCtx = getDb().prepare('SELECT rel FROM work_item_context WHERE item_id = ?').get(a) as { rel: string }
     const aTodo = getDb().prepare('SELECT rel FROM work_item_todo_file WHERE item_id = ?').get(a) as { rel: string }
     const bCtx = getDb().prepare('SELECT rel FROM work_item_context WHERE item_id = ?').get(b) as { rel: string }
     retitle(a, 'Wohngeld A', 'Vitáztatás jelentés: A')
     retitle(b, 'Wohngeld B', 'Vitáztatás jelentés: B')
     writeFileSync(abs(bCtx.rel), readFileSync(abs(bCtx.rel), 'utf8') + '\nfontos kezi jegyzet\n')
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(existsSync(abs(aCtx.rel))).toBe(false)
     expect(existsSync(abs(aTodo.rel))).toBe(false)
     expect(rows('work_item_context', a)).toBe(0)

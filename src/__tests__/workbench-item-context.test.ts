@@ -39,7 +39,7 @@ const where = () => readItemContext(item())!
 
 describe('context file next to the work item', () => {
   it('the sweep makes it, named after the item, in the item folder', async () => {
-    const r = await sweepItemContexts()
+    const r = await sweepItemContexts({ full: true })
     expect(r.created).toBeGreaterThanOrEqual(1)
     const ctx = where()
     expect(ctx.rel.endsWith('/' + contextFileName('Wohngeld hianypotlas'))).toBe(true)
@@ -47,21 +47,21 @@ describe('context file next to the work item', () => {
     expect(ctx.text).toContain('marveen:files:begin')
   })
   it('a renamed item renames the file, and a second sweep changes nothing', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const before = where().rel
     renameWorkItem(item(), 'Wohngeld ujra')
-    const r = await sweepItemContexts()
+    const r = await sweepItemContexts({ full: true })
     expect(r.renamed).toBe(1)
     const after = where().rel
     expect(after).not.toBe(before)
     expect(after.endsWith(contextFileName('Wohngeld ujra'))).toBe(true)
     expect(existsSync(join(dir, ...before.split('/')))).toBe(false)
-    expect((await sweepItemContexts()).renamed).toBe(0)
+    expect((await sweepItemContexts({ full: true })).renamed).toBe(0)
   })
   // #945 (Boss): two "Kontextus" files under the item's files: the materials row kept the item's FIRST name
   // ("Kontextus - Új dokumentum.md") beside the real, renamed file.
   it('#945: the materials rows of the context and to-do file follow the item rename; uploaded names stay', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const ctxRel = where().rel
     const folder = ctxRel.split('/').slice(0, -1).join('/')
     const todoRel = `${folder}/${todoFileName('Wohngeld hianypotlas')}`
@@ -70,7 +70,7 @@ describe('context file next to the work item', () => {
     const up = `${folder}/Feltoltes/lev.pdf`
     registerAsset(itemId, up, 'Az en nevem a levelhez.pdf', 'x', 1, null)
     renameWorkItem(item(), 'Wohngeld ujra')
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const names = listWorkItemAssets(itemId).map((a) => a.name)
     expect(names).toContain(contextFileName('Wohngeld ujra'))
     expect(names).toContain(todoFileName('Wohngeld ujra'))
@@ -79,10 +79,10 @@ describe('context file next to the work item', () => {
     expect(names).toContain('Az en nevem a levelhez.pdf')
   })
   it('#945: a row that already carries a stale first name is healed by the next sweep', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const ctxRel = where().rel
     registerAsset(itemId, ctxRel, 'Kontextus - Új dokumentum.md', 'x', 1, null)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const names = listWorkItemAssets(itemId).map((a) => a.name)
     expect(names).not.toContain('Kontextus - Új dokumentum.md')
     expect(names.filter((n) => n.startsWith('Kontextus -')).length).toBe(1)
@@ -94,12 +94,12 @@ describe('context file next to the work item', () => {
     const rel = `${folder}/${contextFileName('Wohngeld hianypotlas')}`
     writeFileSync(join(dir, ...rel.split('/')), '# kezi kontextus\nfontos tartalom\n')
     assignWorkItemFolder(itemId, sub)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(where().rel).toBe(rel)
     expect(readFileSync(join(dir, ...rel.split('/')), 'utf8')).toContain('fontos tartalom')
   })
   it('append goes under the section, rewrite keeps the machine block', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const a = appendItemContext(item(), getProject(pid)!, 'decisions', 'Hatarido: 2026-11-01')
     expect(a.ok).toBe(true)
     expect(where().text).toMatch(/## (Döntések|Decisions)\s+Hatarido: 2026-11-01/)
@@ -113,13 +113,13 @@ describe('context file next to the work item', () => {
 
 describe('appending to the Task section', () => {
   it('lands before the machine block, replaces the placeholder and survives a refresh', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const a = appendItemContext(item(), getProject(pid)!, 'task', 'Wohngeld Hiánypótlás')
     expect(a.ok).toBe(true)
     const t = where().text
     expect(t.indexOf('Wohngeld Hiánypótlás')).toBeLessThan(t.indexOf('marveen:files:begin'))
     expect(t).not.toMatch(/még nincs felismerve|not recognised yet/)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(where().text).toContain('Wohngeld Hiánypótlás')
   })
 })
@@ -128,7 +128,7 @@ describe('the first chat message is the task (#794)', () => {
   it('fills the Task section once, while it is still the placeholder; later messages and a missing file change nothing', async () => {
     // no context file yet: nothing is made
     expect(recordTaskFromChat(item(), getProject(pid)!, 'Levelet akarok irni')).toBe(false)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(recordTaskFromChat(item(), getProject(pid)!, '   ')).toBe(false)
     expect(recordTaskFromChat(item(), getProject(pid)!, 'Levelet akarok irni a berlini rendorsegnek, cim: rendorseg@example.org')).toBe(true)
     const t = where().text
@@ -143,26 +143,26 @@ describe('the first chat message is the task (#794)', () => {
 
 describe('JSON files carry the item name', () => {
   it('a legacy timestamp-named canvas file is renamed with the item name and the version follows', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const folder = where().rel.split('/').slice(0, -1).join('/')
     const legacy = `${folder}/20261007-153333.canvas.json`
     writeFileSync(join(dir, ...legacy.split('/')), '{}')
     createWorkItemVersion(itemId, { source_path: legacy })
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const v = getWorkItem(itemId)!.source_path || ''
     expect(v.endsWith('wohngeld-hianypotlas 20261007-153333.canvas.json')).toBe(true)
     expect(existsSync(join(dir, ...v.split('/')))).toBe(true)
     expect(existsSync(join(dir, ...legacy.split('/')))).toBe(false)
   })
   it('a rename of the item renames the JSON file too', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const folder = where().rel.split('/').slice(0, -1).join('/')
     const f = `${folder}/wohngeld-hianypotlas 20261007-153333.canvas.json`
     writeFileSync(join(dir, ...f.split('/')), '{}')
     createWorkItemVersion(itemId, { source_path: f })
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     renameWorkItem(item(), 'Wohngeld ujra')
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const v = getWorkItem(itemId)!.source_path || ''
     expect(v.endsWith('wohngeld-ujra 20261007-153333.canvas.json')).toBe(true)
   })
@@ -193,7 +193,7 @@ function legacyPointAt(rel: string): void {
 }
 describe('the context file is never the work item file', () => {
   it('attaching it as the item file is refused with a human sentence', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const rel = where().rel
     const r = await callWorkbench(`/api/workbench/items/${itemId}/versions`, 'POST', { source_path: rel })
     expect(r.status).toBe(400)
@@ -201,26 +201,26 @@ describe('the context file is never the work item file', () => {
     expect(item().source_path).toBeNull()
   })
   it('an item the chat already pointed at its context file is put back by the sweep (and its versions cleaned)', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const rel = where().rel
     legacyPointAt(rel)
     legacyPointAt(rel)
     expect(item().source_path).toBe(rel)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(item().source_path).toBeNull()
     const { listWorkItemVersions } = await import('../workbench.js')
     expect(listWorkItemVersions(itemId).some((v) => v.source_path === rel)).toBe(false)
     // idempotent
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(item().source_path).toBeNull()
   })
   it('an item with a real earlier file goes back to that file, not to nothing', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const rel = where().rel
     const real = rel.replace(/[^/]+$/, 'kerelem.docx')
     createWorkItemVersion(itemId, { source_path: real })
     legacyPointAt(rel)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(item().source_path).toBe(real)
   })
 })
@@ -235,15 +235,15 @@ describe('a language version has no context file of its own', () => {
     return r.item
   }
   it('the sweep makes one file for the original and none for the version, even in the same folder', async () => {
-    const orig = (await (async () => { await sweepItemContexts(); return where() })())
+    const orig = (await (async () => { await sweepItemContexts({ full: true }); return where() })())
     const de = makeDe()
-    await sweepItemContexts()
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
+    await sweepItemContexts({ full: true })
     expect(ctxFiles(orig.rel)).toEqual([contextFileName('Wohngeld hianypotlas')])
     expect(readItemContext(getWorkItem(de.id)!)!.rel).toBe(orig.rel)
   })
   it('append and rewrite on the version go to the original file; nothing else appears', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const orig = where()
     const de = getWorkItem(makeDe().id)!
     expect(appendItemContext(de, getProject(pid)!, 'info', 'Fordítási megjegyzés').ok).toBe(true)
@@ -253,13 +253,13 @@ describe('a language version has no context file of its own', () => {
   })
   it('a version made before any original file existed still gets no file of its own', async () => {
     const de = getWorkItem(makeDe().id)!
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const rel = readItemContext(item())!.rel
     expect(ctxFiles(rel)).toEqual([contextFileName('Wohngeld hianypotlas')])
     expect(readItemContext(de)!.rel).toBe(rel)
   })
   it('an old pointer of the version is cleared and the file is not written back after it is removed', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const rel = where().rel
     const de = getWorkItem(makeDe().id)!
     const stray = `${rel.split('/').slice(0, -1).join('/')}/${contextFileName(de.title)}`
@@ -267,8 +267,8 @@ describe('a language version has no context file of its own', () => {
     const { getDb } = await import('../db.js')
     getDb().prepare('INSERT OR REPLACE INTO work_item_context (item_id, rel, stem) VALUES (?, ?, ?)').run(de.id, stray, 'x')
     rmSync(join(dir, ...stray.split('/')))
-    await sweepItemContexts()
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
+    await sweepItemContexts({ full: true })
     expect(ctxFiles(rel)).toEqual([contextFileName('Wohngeld hianypotlas')])
     expect((getDb().prepare('SELECT rel FROM work_item_context WHERE item_id = ?').get(de.id) as { rel: string }).rel).toBe('')
   })
@@ -277,7 +277,7 @@ describe('a language version has no context file of its own', () => {
 // #593: the guard lives in the data layer, so no way of setting a file (new item, new version, direct call) can attach the notes.
 describe('the context file is refused by the data layer, not only by one route', () => {
   it('createWorkItemVersion refuses the context file and the to-do file, and changes nothing', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const rel = where().rel
     const r = createWorkItemVersion(itemId, { source_path: rel })
     expect(r).toEqual({ ok: false, code: 'context_not_attachable' })
@@ -286,7 +286,7 @@ describe('the context file is refused by the data layer, not only by one route',
     expect(item().source_path).toBeNull()
   })
   it('creating an item straight onto a context file is refused (HTTP and direct)', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const rel = where().rel
     const direct = createWorkItem({ project_id: pid, type: 'document', title: 'Masik', source_path: rel })
     expect(direct).toEqual({ ok: false, code: 'context_not_attachable' })
@@ -295,7 +295,7 @@ describe('the context file is refused by the data layer, not only by one route',
     expect(viaHttp.body.error).toBe('context_not_attachable')
   })
   it('a real file is still attachable', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const real = where().rel.replace(/[^/]+$/, 'kerelem.docx')
     const r = createWorkItemVersion(itemId, { source_path: real })
     expect(r.ok).toBe(true)
@@ -306,7 +306,7 @@ describe('the context file is refused by the data layer, not only by one route',
 // #869: one item's pass held the event loop for 5.7 s on a slow mount (readdirSync walk); it must hand the loop back often.
 describe('the one-item pass steps instead of blocking', () => {
   it('yields at least once per folder it reads', async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const ctx = where()
     const itemDir = join(dir, ...ctx.rel.split('/').slice(0, -1))
     for (let i = 0; i < 6; i++) { mkdirSync(join(itemDir, `Anyag ${i}`), { recursive: true }); writeFileSync(join(itemDir, `Anyag ${i}`, 'a.txt'), 'x') }
@@ -331,7 +331,7 @@ describe('the one-item pass steps instead of blocking', () => {
 describe('a language version lists no Kontextus / Teendő row of its own', () => {
   const noteRows = (id: string) => listWorkItemAssets(id).filter((a) => /^(Kontextus|Context|Teendő|To do) - /.test(a.name))
   const setup = async () => {
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     addSection(itemId, '1. Tenyallas')
     const r = createVariant(item(), 'de', 'teszt')
     if (!r.ok) throw new Error(r.detail)
@@ -341,7 +341,7 @@ describe('a language version lists no Kontextus / Teendő row of its own', () =>
   }
   it('the folder sync does not register the shared context / to-do file for the version, the original keeps one row each', async () => {
     const de = await setup()
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     listWorkItemAssetsSynced(itemId)
     listWorkItemAssetsSynced(de.id)
     expect(noteRows(de.id)).toEqual([])
@@ -349,11 +349,11 @@ describe('a language version lists no Kontextus / Teendő row of its own', () =>
   })
   it('rows the version already carries (made before the fix) are taken off the list by the next pass, the files stay', async () => {
     const de = await setup()
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     const folder = where().rel.split('/').slice(0, -1).join('/')
     for (const n of [contextFileName('Wohngeld hianypotlas'), todoFileName('Wohngeld hianypotlas')]) registerAsset(de.id, `${folder}/${n}`, n, 'x', 1, null)
     expect(noteRows(de.id)).toHaveLength(2)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(noteRows(de.id)).toEqual([])
     listWorkItemAssetsSynced(itemId)
     expect(noteRows(itemId)).toHaveLength(2)

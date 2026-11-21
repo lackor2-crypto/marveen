@@ -35,7 +35,7 @@ describe('an item made from an existing file is plain', () => {
     const id = c.body.item.id as string
     expect(getWorkItem(id)!.source_path).toBe('Projektek/Plain/Antrag.docx')
     expect(isPlainItem(id)).toBe(true)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(readdirSync(projDir)).toEqual(before)
     expect(readItemContext(getWorkItem(id)!)).toBeNull()
   })
@@ -61,7 +61,7 @@ describe('an item made from an existing file is plain', () => {
     ensureItemTodoFile(getWorkItem(id)!, project)
     expect(readItemContext(getWorkItem(id)!)).not.toBeNull()
     markPlainItem(id)
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(readItemContext(getWorkItem(id)!)).toBeNull()
     expect(readdirSync(join(projDir, ...(getWorkItem(id)!.container_folder ? [] : []))).filter((n) => /^(Kontextus|Teend)/.test(n))).toEqual([])
   })

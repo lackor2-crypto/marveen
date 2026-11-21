@@ -421,18 +421,37 @@ export function removeReportScaffolding(item: WorkItemRow): number {
 }
 
 let running = false
+
+/**
+ * #962 (Boss TG 7315, "A"): the 3-minute pass used to re-check EVERY item's files on the slow F: drive (600-1900 ms
+ * main-thread stalls, 21 in a day). Now the frequent pass looks only at items changed lately or never handled; the
+ * full pass (which also follows a folder renamed in the Explorer) runs once an hour and at the first pass after start.
+ */
+export const FULL_SWEEP_MS = 3_600_000
+export const RECENT_ITEM_MS = 15 * 60_000
+let lastFullSweep = 0
+export function isFullSweepDue(last: number, now = Date.now()): boolean { return last === 0 || now - last >= FULL_SWEEP_MS }
+export function itemNeedsLightPass(updatedAt: number, hasRow: boolean, now = Date.now(), nameChanged = false): boolean {
+  return !hasRow || nameChanged || now - updatedAt <= RECENT_ITEM_MS
+}
 /** Every item of every open project. Yields between items: the depot can sit on a slow mount. */
-export async function sweepItemContexts(): Promise<{ items: number; created: number; renamed: number; json: number }> {
+export async function sweepItemContexts(opts: { full?: boolean } = {}): Promise<{ items: number; created: number; renamed: number; json: number }> {
   const out = { items: 0, created: 0, renamed: 0, json: 0 }
   if (running) return out
   running = true
   let reads = 0
+  const full = opts.full === true || isFullSweepDue(lastFullSweep)
+  ensureTable()
   try {
     for (const p of listProjects({ includeArchived: false })) {
       if (p.status === 'closed') continue
       const project = getProject(p.id)
       if (!project || !project.folder_path) continue
       for (const item of listWorkItems(project.id)) {
+        if (!full) {
+          const row = readRow(item.id) // database only, no disk
+          if (!itemNeedsLightPass(item.updated_at, !!row, Date.now(), !!row && row.stem !== itemStem(item.title))) continue
+        }
         try {
           const r = await drainStepsYielding(reconcileItemContextSteps(item, project), 4)
           out.items++
@@ -446,6 +465,7 @@ export async function sweepItemContexts(): Promise<{ items: number; created: num
         await sleep0()
       }
     }
+    if (full) lastFullSweep = Date.now()
   } finally { running = false }
   if (out.created || out.renamed || out.json) logger.info(out, '[item-context] pass done')
   return out
