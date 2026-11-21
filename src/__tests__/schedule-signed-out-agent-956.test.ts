@@ -25,7 +25,9 @@ vi.mock('../web/agent-availability-watch.js', async (orig) => {
 })
 
 import { resolveScheduledTargets } from '../web/schedule-runner.js'
-import { signedOutAgents } from '../web/agent-availability-watch.js'
+import { signedOutAgents, decideSignedOutInflight } from '../web/agent-availability-watch.js'
+import { isAgentUnableToWork } from '../web/agent-able-to-work.js'
+import { resolveKanbanDispatchTarget } from '../kanban-dispatch.js'
 import { MAIN_AGENT_ID } from '../config.js'
 
 describe('scheduler and a signed-out agent (#956)', () => {
@@ -57,13 +59,29 @@ describe('scheduler and a signed-out agent (#956)', () => {
     expect([...set]).toEqual(['a'])
   })
 
-  it('the in-flight watchdog never alerts for a signed-out agent (guard sits before the timeout decision)', () => {
-    const src = readFileSync(join(process.cwd(), 'src', 'web', 'schedule-runner.ts'), 'utf8')
-    const guard = src.indexOf('if (isAgentSignedOut(entry.agentName, now))')
-    const decide = src.indexOf('const decision = decideTaskTimeout(')
-    expect(guard).toBeGreaterThan(0)
-    expect(decide).toBeGreaterThan(guard)
-    // the bare quota check is called in ONE place only: inside the isAgentUnableToWork wrapper
-    expect(src.match(/isAgentQuotaBlocked\(/g)).toHaveLength(1)
+  it('the in-flight watchdog: signed out + never started = keep, no alert; was running = reclaim', () => {
+    expect(decideSignedOutInflight({ signedOut: true, sawBusy: false, paneBusy: false })).toBe('keep')
+    expect(decideSignedOutInflight({ signedOut: true, sawBusy: true, paneBusy: false })).toBe('reclaim')
+  })
+
+  it('a BUSY pane is working: a stale signed-out flag must not reclaim it (no double run)', () => {
+    expect(decideSignedOutInflight({ signedOut: true, sawBusy: true, paneBusy: true })).toBe('none')
+  })
+
+  it('not signed out: the watchdog carries on with its normal checks', () => {
+    expect(decideSignedOutInflight({ signedOut: false, sawBusy: true, paneBusy: false })).toBe('none')
+    expect(decideSignedOutInflight({ signedOut: false, sawBusy: false, paneBusy: false })).toBe('none')
+  })
+
+  it('the kanban dispatch also skips a signed-out agent (same capability gate as the scheduler)', () => {
+    const base = {
+      ownerName: 'Owner', botName: 'Bot', mainAgentId: MAIN_AGENT_ID, agentNames: ['lackor3', 'usalackor'],
+      isRunning: () => true,
+      isBlocked: (n: string) => isAgentUnableToWork(n),
+    }
+    expect(resolveKanbanDispatchTarget('lackor3', base)).toBeNull()
+    expect(resolveKanbanDispatchTarget('usalackor', base)).toBe('usalackor')
+    const src = readFileSync(join(process.cwd(), 'src', 'web', 'routes', 'kanban.ts'), 'utf8')
+    expect(src).toContain('isBlocked: a => isAgentUnableToWork(a)')
   })
 })

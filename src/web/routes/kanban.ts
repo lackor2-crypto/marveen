@@ -18,7 +18,7 @@ import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
 import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, PROJECT_ROOT, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS, KANBAN_LABEL_COLORS_REJECTED, KANBAN_LABEL_COLORS_OVERFLOW } from '../../config.js'
 import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
-import { isAgentQuotaBlocked } from '../agent-availability.js'
+import { isAgentUnableToWork } from '../agent-able-to-work.js'
 import { resolveKanbanDispatchTarget } from '../../kanban-dispatch.js'
 import { createCardWithRules, refuseArchivedProject } from '../../kanban-create.js'
 import { ensureApprovalForWaitingCard, withdrawApprovalForCardLeavingWaiting } from './approvals.js'
@@ -145,8 +145,9 @@ function fireKanbanDispatch(id: string, actor?: string | null): void {
       isRunning: isAgentRunning,
       // Awake is not able: don't dispatch a card into an agent that is at its
       // usage wall (Boss, 2026-09-14 -- the same capability gate as the
-      // scheduler). Fresh install with no snapshot -> not blocked -> unchanged.
-      isBlocked: isAgentQuotaBlocked,
+      // scheduler). A signed-out agent cannot work either (#956). Fresh install
+      // with no snapshot -> not blocked -> unchanged.
+      isBlocked: a => isAgentUnableToWork(a),
       actor,
     })
     if (!target) return
