@@ -60,13 +60,16 @@ describe('awaited Life-tree walks (#953)', () => {
   it('the event loop runs while a big tree is read (a timer fires before the walk ends)', async () => {
     for (let i = 0; i < 60; i++) mkdirSync(join(root, PERSON, `Mappa${i}`, 'al'), { recursive: true })
     const cfg = loadLifeConfig()
+    // A self-rescheduling setImmediate runs once per loop turn: it counts the turns the walk lets through (not clock-dependent).
     let ticks = 0
-    const timer = setInterval(() => { ticks++ }, 0)
+    let running = true
+    const spin = (): void => { if (!running) return; ticks++; setImmediate(spin) }
+    setImmediate(spin)
     const out = await A.buildKnownFoldersAsync(cfg)
-    clearInterval(timer)
+    running = false
     expect(out.length).toBeGreaterThanOrEqual(120)
     // The synchronous walk gives the timer no chance at all (0 ticks); the awaited one yields between directories.
-    expect(ticks).toBeGreaterThan(5)
+    expect(ticks).toBeGreaterThan(20)
   })
 
   it('the server paths no longer call the synchronous walks', () => {
