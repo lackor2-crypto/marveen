@@ -15,7 +15,7 @@ function load() {
   const localStorage = { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v } }
   const _bkNorm = (p: string) => String(p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   // eslint-disable-next-line no-new-func
-  return new Function('localStorage', '_bkNorm', block + '\nreturn { _cfMode, _cfSetMode, _cfState, _cfFilter }')(localStorage, _bkNorm)
+  return new Function('localStorage', '_bkNorm', block + '\nreturn { _cfMode, _cfSetMode, _cfState, _cfFilter, _cfProvenNoFiles }')(localStorage, _bkNorm)
 }
 const drive = { kind: 'drive', account: 'a' }
 const dir = (rel: string) => ({ rel, isDir: true })
@@ -134,5 +134,21 @@ describe('Intezo cloud filter (#952)', () => {
     expect(off('Család/X', {}, new Set([''])), 'all: closed').toBe(false)
     expect(on('Zárt', {}, new Set([''])), 'a folder the user closed stays closed').toBe(false)
     expect(app).toContain("if (cfSel.value === 'all') { _intezoTreeOpenSet = new Set(); _intezoTreeSaveOpen() }")
+  })
+  // TG 7181: "not up" shows no folder without any file under it.
+  it('"not up" hides provably file-less folders, keeps unknown / measuring ones; "up" and "all" are untouched', () => {
+    const withC = (rel: string, content: any) => ({ rel, isDir: true, content })
+    const none = withC('Csalad/Ures', { state: 'empty', folders: 0, files: 0, deep: 'empty' })
+    const onlyEmptyDirs = withC('Csalad/Megosztott', { state: 'has', folders: 3, files: 0, deep: 'empty' })
+    const hasFile = withC('Csalad/Iratok', { state: 'has', folders: 1, files: 0, deep: 'has' })
+    const unknown = withC('Csalad/Ismeretlen', { state: 'has', folders: 1, files: 0, deep: 'unknown' })
+    const pending = withC('Csalad/Mer', { state: 'unknown', folders: null, files: null, deep: 'unknown', pending: true })
+    const noInfo = dir('Csalad/Nincsadat')
+    const none2 = [{ path: 'Cegek', target: drive }]
+    const list = [none, onlyEmptyDirs, hasFile, unknown, pending, noInfo, file('Csalad/x.txt')]
+    expect(names(cf._cfFilter(list, 'down', none2))).toEqual(['Csalad/Iratok', 'Csalad/Ismeretlen', 'Csalad/Mer', 'Csalad/Nincsadat', 'Csalad/x.txt'])
+    expect(names(cf._cfFilter(list, 'up', [{ path: 'Csalad', target: drive }]))).toHaveLength(7)
+    expect(cf._cfFilter(list, 'all', none2)).toBe(list)
+    expect(cf._cfProvenNoFiles(file('a'))).toBe(false)
   })
 })
