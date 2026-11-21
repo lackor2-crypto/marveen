@@ -43064,7 +43064,12 @@ function _intezoTreeIsLeaf(entry) {
   return c.state === 'empty' || (c.state === 'has' && c.folders === 0)
 }
 
-/** Cloud filter on ("only up" / "only not up"): every folder of the tree is open (Boss TG 7170). */
+/** Boss TG 7191: the filter opens the tree only three levels down (Marvin = 0, Csalad = 1, a person = 2, its children = 3);
+ *  a fully opened tree took minutes to load. Deeper folders open by the arrow, one by one. */
+const _INTEZO_TREE_AUTO_DEPTH = 3
+function _intezoTreeDepth(rel) { return rel ? String(rel).split('/').length : 0 }
+
+/** Cloud filter on ("only up" / "only not up"): the tree opens by itself, down to _INTEZO_TREE_AUTO_DEPTH (Boss TG 7170). */
 function _intezoTreeAllOpen() {
   return _cfMode() !== 'all' && Array.isArray(_bkRules) && !_bkError
 }
@@ -43072,7 +43077,7 @@ function _intezoTreeAllOpen() {
 function _intezoTreeIsOpen(rel, entry, forced) {
   if (entry && _intezoTreeIsLeaf(entry)) return false
   if (_intezoTreeCollapsed.has(rel)) return false
-  return forced.has(rel) || _intezoTreeAllOpen() || _intezoTreeOpenRels().has(rel)
+  return forced.has(rel) || (_intezoTreeAllOpen() && _intezoTreeDepth(rel) < _INTEZO_TREE_AUTO_DEPTH) || _intezoTreeOpenRels().has(rel)
 }
 
 /** Expanded folders whose children are not loaded yet (and whose parents are visible). */
@@ -45534,8 +45539,10 @@ async function _bkOpenMap() {
         // A caption row where the group (Drive / MEGA / Photos) changes, so the groups are visible.
         const gk = r.target ? r.target.kind + '\u0000' + r.target.account : ''
         const pk = i > 0 && rules[i - 1].target ? rules[i - 1].target.kind + '\u0000' + rules[i - 1].target.account : (i > 0 ? '' : null)
+        // Boss TG 7189: a thick line where the cloud KIND changes (Drive | Photos | MEGA), so the blocks read apart.
+        const kindChanged = i > 0 && (r.target ? r.target.kind : '') !== (rules[i - 1].target ? rules[i - 1].target.kind : '')
         const head = gk !== pk
-          ? '<tr class="bk-map-group"><td colspan="4" style="padding:8px 6px 2px;font-weight:600;border-bottom:1px solid var(--border)">'
+          ? '<tr class="bk-map-group' + (kindChanged ? ' bk-map-kind-break' : '') + '"><td colspan="4" style="padding:' + (kindChanged ? '14px' : '8px') + ' 6px 2px;font-weight:600;border-bottom:1px solid var(--border)' + (kindChanged ? ';border-top:5px solid var(--text-muted,#6b7280)' : '') + '">'
             + escapeHtml(r.target ? _bkTargetText(r.target) : t('backup.none')) + '</td></tr>' : ''
         const acc = r.target ? _bkAccounts.find((x) => x.kind === r.target.kind && x.account === r.target.account) : null
         const used = _bkUsedText(acc)
