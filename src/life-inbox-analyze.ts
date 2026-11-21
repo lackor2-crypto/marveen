@@ -16,6 +16,7 @@
 // A valodi implementacio a jovahagyas UTAN egy kulon modulban `setOcrAdapter`/
 // `setFaceAdapter` hivassal koto be -- ITT egy sor sem valtozik.
 import { type Dirent, existsSync, readdirSync, statSync, openSync, closeSync, readSync, fstatSync } from 'node:fs'
+import { readdir as readdirAsync, stat as statAsync } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { inflateSync, inflateRawSync } from 'node:zlib'
 import { APP_LANG } from './config.js'
@@ -343,6 +344,56 @@ export function buildLearnedIndex(config: LifeConfig): LearnedIndex {
   // Each person's folder is walked from its own place (with a `personsGroup`
   // it is `Család/<név>`, not the root) -- depth 1 is the category level.
   for (const p of config.persons) walk(join(root, ...personRel(config, p.name).split('/')), 1, p.id, null)
+  return idx
+}
+
+/** Lets the event loop breathe between directories (#953): one await of a macrotask per directory read. */
+const yieldToLoop = (): Promise<void> => new Promise((r) => setImmediate(r))
+
+/**
+ * The same index as buildLearnedIndex, for the dashboard server (#953). The synchronous walk held the main thread for
+ * up to 268 s on the slow depot disk (Boss TG 7144): it is the SAME rules, but every directory read is awaited
+ * (fs.promises, file types from the listing, no stat per entry) and the loop is released between directories.
+ */
+export async function buildLearnedIndexAsync(config: LifeConfig): Promise<LearnedIndex> {
+  const idx: LearnedIndex = { personTokens: new Map(), categoryTokens: new Map(), sampleCount: 0 }
+  const root = explorerRoot()
+  if (!root) return idx
+  let scanned = 0
+
+  async function walk(absDir: string, depth: number, ownerPersonId: string | null, categoryKey: string | null): Promise<void> {
+    if (depth > MAX_SCAN_DEPTH || scanned >= MAX_SCAN_FILES) return
+    let entries: Dirent[]
+    try { entries = await readdirAsync(absDir, { withFileTypes: true }) } catch { return }
+    await yieldToLoop()
+    for (const de of entries) {
+      const entry = de.name
+      if (scanned >= MAX_SCAN_FILES) return
+      if (entry.startsWith('.')) continue
+      if (SKIP_ANY_DIR.has(entry)) continue
+      if (depth === 0 && SKIP_ROOT_DIRS.has(entry)) continue
+      const abs = join(absDir, entry)
+      let st: { isDirectory(): boolean; isFile(): boolean } = de
+      if (de.isSymbolicLink()) { try { st = await statAsync(abs) } catch { continue } }
+      if (st.isDirectory()) {
+        let nextOwner = ownerPersonId
+        let nextCategory = categoryKey
+        if (depth === 1 && ownerPersonId) {
+          const key = lifeKeyForName(entry)
+          if (key) nextCategory = key
+        }
+        await walk(abs, depth + 1, nextOwner, nextCategory)
+      } else if (st.isFile() && ownerPersonId && categoryKey) {
+        scanned++
+        idx.sampleCount++
+        for (const tok of tokenize(entry)) {
+          bump(idx.personTokens, tok, ownerPersonId)
+          bump(idx.categoryTokens, tok, categoryKey)
+        }
+      }
+    }
+  }
+  for (const p of config.persons) await walk(join(root, ...personRel(config, p.name).split('/')), 1, p.id, null)
   return idx
 }
 
@@ -1112,6 +1163,40 @@ function walkKnownFolders(absDir: string, relPrefix: string, personId: string, o
   }
 }
 
+async function walkKnownFoldersAsync(absDir: string, relPrefix: string, personId: string, out: KnownFolder[], depth: number): Promise<void> {
+  if (depth > MAX_KNOWN_FOLDER_DEPTH || out.length >= MAX_KNOWN_FOLDERS) return
+  let entries: Dirent[]
+  try { entries = await readdirAsync(absDir, { withFileTypes: true }) } catch { return }
+  await yieldToLoop()
+  for (const de of entries) {
+    if (out.length >= MAX_KNOWN_FOLDERS) return
+    const name = de.name
+    if (name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information') continue
+    const abs = join(absDir, name)
+    let isDir = de.isDirectory()
+    // Only a symlink needs a stat to see what it points at (the listing already told the type of everything else).
+    if (de.isSymbolicLink()) { try { isDir = (await statAsync(abs)).isDirectory() } catch { continue } }
+    if (!isDir) continue
+    const rel = relPrefix ? `${relPrefix}/${name}` : name
+    out.push({ rel, display: humanLocation(rel), personId })
+    await walkKnownFoldersAsync(abs, rel, personId, out, depth + 1)
+  }
+}
+
+/** buildKnownFolders for the dashboard server (#953): awaited directory reads, no stat per entry, the loop is released between directories. */
+export async function buildKnownFoldersAsync(config: LifeConfig, _lang: string = APP_LANG): Promise<KnownFolder[]> {
+  const root = explorerRoot()
+  if (!root) return []
+  const out: KnownFolder[] = []
+  for (const person of config.persons) {
+    const personPath = personRel(config, person.name)
+    const personAbs = join(root, ...personPath.split('/'))
+    if (!existsSync(personAbs)) continue
+    await walkKnownFoldersAsync(personAbs, personPath, person.id, out, 0)
+  }
+  return out
+}
+
 /**
  * A MAR LETEZO mappak a fan belul, teljes melysegben (kartya #246).
  *
@@ -1307,10 +1392,10 @@ function inboxBatch(names: string[] | undefined, lang: string): InboxBatch {
   return { items, base }
 }
 
-function finishBatch(suggestions: InboxSuggestion[], config: LifeConfig, base: InboxBatch['base'], lang: string): AnalyzeResult {
+function finishBatch(suggestions: InboxSuggestion[], config: LifeConfig, base: InboxBatch['base'], lang: string, knownFolders?: KnownFolder[]): AnalyzeResult {
   return {
     reason: 'ok', suggestions,
-    knownFolders: buildKnownFolders(config, lang),
+    knownFolders: knownFolders ?? buildKnownFolders(config, lang),
     ocrAvailable: base.ocrAvailable, faceRecognitionAvailable: base.faceRecognitionAvailable,
     message: T(lang, `${suggestions.length} tétel elemezve.`, `${suggestions.length} item(s) analyzed.`),
   }
@@ -1344,7 +1429,9 @@ export async function analyzeInboxAsync(
     prefetched.set(item.name, await prefetchItem(sniffType(abs), abs))
   }
   const config = loadLifeConfig()
-  const index = buildLearnedIndex(config)
+  // #953: both tree walks are awaited -- the synchronous versions held the dashboard for minutes on a slow disk.
+  const index = await buildLearnedIndexAsync(config)
   const suggestions = batch.items.map((item) => analyzeInboxItem(item, config, index, lang, prefetched.get(item.name)))
-  return { ...finishBatch(suggestions, config, batch.base, lang), prefetched }
+  const knownFolders = await buildKnownFoldersAsync(config, lang)
+  return { ...finishBatch(suggestions, config, batch.base, lang, knownFolders), prefetched }
 }
