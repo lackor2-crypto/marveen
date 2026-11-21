@@ -78,7 +78,7 @@ export async function tryHandleConnectorsHu(ctx: RouteContext): Promise<boolean>
   if (path === '/api/connectors-hu/configure' && method === 'POST') {
     try {
       const body = await readBody(req)
-      const { token } = JSON.parse(body.toString()) as { token: string }
+      const { token } = (JSON.parse(body.toString()) ?? {}) as { token: string }
       if (!token?.trim()) {
         json(res, { ok: false, configured: false, syncOutput: 'Token is required' }, 400)
         return true

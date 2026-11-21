@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 describe('src/web.ts top-level catch uses the classifier', () => {
   it('imports isMalformedBodyError and answers 400 before the 500', () => {
     const src = readFileSync(fileURLToPath(new URL('../web.ts', import.meta.url)), 'utf8')
-    expect(src).toMatch(/import \{ isMalformedBodyError \} from '\.\/web\/malformed-body\.js'/)
+    expect(src).toMatch(/import \{ isMalformedBodyError(, isBodyShapeError)? \} from '\.\/web\/malformed-body\.js'/)
     const i400 = src.search(/if \(isMalformedBodyError\(err\)\)[\s\S]{0,900}?\}, 400\)/)
     const i500 = src.indexOf("json(res, { error: 'Szerver hiba' }, 500)")
     expect(i400).toBeGreaterThan(-1)

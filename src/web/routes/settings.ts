@@ -279,7 +279,7 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/settings' && method === 'POST') {
     try {
       const body = await readBody(req)
-      const { key, value, actor } = JSON.parse(body.toString())
+      const { key, value, actor } = JSON.parse(body.toString()) ?? {}
 
       if (!key || typeof key !== 'string') {
         json(res, { error: 'Missing or invalid "key"' }, 400)

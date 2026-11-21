@@ -36,7 +36,7 @@ export async function tryHandleAutonomy(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/autonomy' && method === 'POST') {
     try {
       const body = await readBody(req)
-      const { key, level } = JSON.parse(body.toString())
+      const { key, level } = JSON.parse(body.toString()) ?? {}
 
       if (!key || typeof level !== 'number' || level < 1 || level > 3) {
         json(res, { error: 'invalid_input', message: 'Hiányzó kategória vagy érvénytelen szint (1 és 3 között lehet).' }, 400)
@@ -78,7 +78,7 @@ export async function tryHandleAutonomy(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/autonomy/agent' && method === 'POST') {
     try {
       const body = await readBody(req)
-      const { agent, admin } = JSON.parse(body.toString())
+      const { agent, admin } = JSON.parse(body.toString()) ?? {}
 
       if (typeof agent !== 'string' || !agent.trim()) {
         json(res, { error: 'invalid_input', message: 'Meg kell adni, melyik ágensről van szó.' }, 400)
