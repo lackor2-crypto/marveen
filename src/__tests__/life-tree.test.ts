@@ -443,13 +443,13 @@ describe('mkdirLife', () => {
 
 describe('searchLife', () => {
   beforeEach(() => { ensureLifeTree(cfg, 'hu') })
-  it('nev szerint talal, mappan atnyulva is', () => {
+  it('nev szerint talal, mappan atnyulva is', async () => {
     writeFileSync(join(depot, 'Teszt Elek', 'Jogi', 'birosagi-vegzes.pdf'), 'x', 'utf8')
-    const r = searchLife('', 'vegzes')
+    const r = await searchLife('', 'vegzes')
     expect(r.entries.some((e) => e.name === 'birosagi-vegzes.pdf')).toBe(true)
   })
-  it('ures keresesre nem ad vissza mindent', () => {
-    expect(searchLife('', '  ').entries).toEqual([])
+  it('ures keresesre nem ad vissza mindent', async () => {
+    expect((await searchLife('', '  ')).entries).toEqual([])
   })
 })
 

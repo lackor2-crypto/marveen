@@ -22,7 +22,7 @@ import {
   existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
   copyFileSync, rmSync, rmdirSync, type Stats, type Dirent,
 } from 'node:fs'
-import { cp } from 'node:fs/promises'
+import { cp, readdir as readdirAsync, stat as statAsync } from 'node:fs/promises'
 import { join, dirname, basename, resolve, sep } from 'node:path'
 import { APP_LANG } from './config.js'
 import { getDb } from './db.js'
@@ -2020,8 +2020,19 @@ export function autoPurgeTrash(days: number, most = Date.now()): { torolt: numbe
  * kereseshez indexelni kellene, es egy 8 GB-os keptar vegigolvasasa minden
  * gepelesnel hasznalhatatlan lenne. Aki tartalomra keres, azt a Marveen AI
  * oldalarol teszi.
+ *
+ * ASZINKRON (#944 ellenorzes): a regi, szinkron valtozat bejarasonkent egy
+ * blokkolo statSync-et hivott (akar 20000-et), lassu (9p/Windows) lemezen ez
+ * 47-70 masodpercre leallitotta a dashboard fo szalat, es minden mas keres
+ * (munkapad-lista, dirsize, agent/status) megallt mogotte. Most a mappa-
+ * listazas tipusokkal jon (Dirent: nem kell bejegyzesenkent stat), stat csak
+ * a TALALATHOZ es a jelkapcsolathoz/bekotes-celhoz kell, es a bejaras minden
+ * lepes utan atadja a vezerlest. `opts.cancelled`: a hivo (a kereso kliens
+ * elment) leallithatja a bejarast.
  */
-export function searchLife(rel: string, query: string, limit = 200, lang = APP_LANG): { entries: LifeEntry[]; truncated: boolean } {
+export async function searchLife(
+  rel: string, query: string, limit = 200, lang = APP_LANG, opts: { cancelled?: () => boolean } = {},
+): Promise<{ entries: LifeEntry[]; truncated: boolean }> {
   const q = String(query || '').trim().toLowerCase()
   if (!q) return { entries: [], truncated: false }
   const startAbs = resolveLifePath(rel)
@@ -2040,35 +2051,52 @@ export function searchLife(rel: string, query: string, limit = 200, lang = APP_L
   const kukaIs = isInTrash(startRel)
   const queue: Array<{ abs: string; rel: string }> = [{ abs: startAbs, rel: startRel }]
   let visited = 0
+  let cancelled = false
+  const yieldLoop = () => new Promise<void>((done) => setImmediate(done))
   while (queue.length && entries.length < limit && visited < 20000) {
+    if (opts.cancelled?.()) { cancelled = true; break }
     const dir = queue.shift()!
-    let names: string[]
-    try { names = readdirSync(dir.abs) } catch { names = [] }
-    const kids: Array<{ name: string; abs: string }> = names
-      .filter((n) => !n.startsWith('.'))
-      .map((n) => ({ name: n, abs: join(dir.abs, n) }))
+    let names: Array<{ name: string; abs: string; dirent: Dirent | null }>
+    try {
+      names = (await readdirAsync(dir.abs, { withFileTypes: true }))
+        .filter((d) => !d.name.startsWith('.'))
+        .map((d) => ({ name: d.name, abs: join(dir.abs, d.name), dirent: d as Dirent | null }))
+    } catch { names = [] }
     // Ugyanaz a csere, mint a listaban: a bekotes a meglevo azonos nevu mappat
-    // lecsereli, kulonben uj mappakent all be.
+    // lecsereli, kulonben uj mappakent all be. A bekotes cel a lemezen mas
+    // lehet, mint a nev -- annak a tipusat nem ismerjuk (dirent: null -> stat).
     for (const m of mountsInside(dir.rel)) {
       const name = m.rel.split('/').pop() as string
       const mAbs = resolveLifePath(m.rel)
       if (!mAbs) continue
-      const at = kids.findIndex((k) => k.name === name)
-      if (at >= 0) kids[at] = { name, abs: mAbs }
-      else kids.push({ name, abs: mAbs })
+      const at = names.findIndex((k) => k.name === name)
+      if (at >= 0) names[at] = { name, abs: mAbs, dirent: null }
+      else names.push({ name, abs: mAbs, dirent: null })
     }
-    for (const { name, abs: full } of kids) {
+    for (const { name, abs: full, dirent } of names) {
       visited++
-      let st: Stats
-      try { st = statSync(full) } catch { continue }
       const childRel = dir.rel ? `${dir.rel}/${name}` : name
       if (!kukaIs && isInTrash(childRel)) continue
-      if (name.toLowerCase().includes(q)) {
+      const hit = name.toLowerCase().includes(q)
+      // A tipus a listabol jon; stat (a jelkapcsolatot kovetve, mint eddig:
+      // a torott link kimarad) csak ha talalat van, vagy a tipus nem biztos.
+      let st: Stats | null = null
+      let isDir: boolean
+      if (dirent && !dirent.isSymbolicLink()) {
+        isDir = dirent.isDirectory()
+      } else {
+        try { st = await statAsync(full) } catch { continue }
+        isDir = st.isDirectory()
+      }
+      if (hit) {
         if (entries.length >= limit) { truncated = true; break }
+        if (!st) { try { st = await statAsync(full) } catch { continue } }
         entries.push(entryFrom(full, name, st, dir.rel, false, lang))
       }
-      if (st.isDirectory()) queue.push({ abs: full, rel: childRel })
+      if (isDir) queue.push({ abs: full, rel: childRel })
     }
+    // A fo szal ne maradjon a bejaras mogott: mas keresek is sorra kerulnek.
+    await yieldLoop()
   }
-  return { entries, truncated: truncated || queue.length > 0 }
+  return { entries, truncated: truncated || cancelled || queue.length > 0 }
 }

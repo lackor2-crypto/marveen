@@ -230,7 +230,7 @@ describe('bekotes egy lemezen URES mappa alatt (GIT_REPOS-eset)', () => {
   it('a kereso a bekotesen at is talal, a FA szerinti utvonallal', async () => {
     const { searchLife } = await import('../life-explorer.js')
     addMount({ rel: MOUNT, target: `${DEPOT_PHOTOS}/teszt-fiok` })
-    const r = searchLife('Teszt Elek', 'nyaralas')
+    const r = await searchLife('Teszt Elek', 'nyaralas')
     expect(r.entries.map((e) => e.rel)).toContain(`${MOUNT}/nyaralas.jpg`)
   })
 })
