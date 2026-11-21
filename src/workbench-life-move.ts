@@ -17,7 +17,7 @@ import { sentStatus, sentVersionIds, type SentStatus } from './workbench-docsent
 import { roleOfFolderName } from './workbench-misplaced.js'
 import { contextTarget } from './workbench-life-context.js'
 import { ensureExtraFolderOnce } from './workbench-life-case.js'
-import { analyzeInboxItem, buildLearnedIndex, prefetchItem, sniffType } from './life-inbox-analyze.js'
+import { analyzeInboxItem, buildLearnedIndexAsync, prefetchItem, sniffType, type LearnedIndex } from './life-inbox-analyze.js'
 import { credentialRisk } from './life-inbox.js'
 import { lifeName, loadLifeConfig } from './life-tree.js'
 import { isContextFileName } from './workbench-item-context.js'
@@ -77,15 +77,20 @@ const SUGGEST_BUDGET_MS = 20000
  * kept for ten minutes.
  */
 const INDEX_TTL_MS = 10 * 60_000
-let indexCache: { at: number; value: ReturnType<typeof buildLearnedIndex> } | null = null
-function learnedIndexCached(config: Parameters<typeof buildLearnedIndex>[0]): ReturnType<typeof buildLearnedIndex> {
+let indexCache: { at: number; value: LearnedIndex } | null = null
+// One walk at a time (#953): two dialogs opening together share the walk in progress instead of starting a second one.
+let indexBuilding: Promise<LearnedIndex> | null = null
+async function learnedIndexCached(config: Parameters<typeof buildLearnedIndexAsync>[0]): Promise<LearnedIndex> {
   if (indexCache && Date.now() - indexCache.at < INDEX_TTL_MS) return indexCache.value
-  const value = buildLearnedIndex(config)
-  indexCache = { at: Date.now(), value }
-  return value
+  if (!indexBuilding) {
+    indexBuilding = buildLearnedIndexAsync(config)
+      .then((value) => { indexCache = { at: Date.now(), value }; return value })
+      .finally(() => { indexBuilding = null })
+  }
+  return indexBuilding
 }
 /** Tests only. */
-export function _resetLearnedIndexCache(): void { indexCache = null }
+export function _resetLearnedIndexCache(): void { indexCache = null; indexBuilding = null }
 
 /**
  * One suggestion per candidate file, from the same rules the inbox sorter uses (owner by name/content, kind by
@@ -97,7 +102,7 @@ export async function suggestLifeTargets(files: LifeMoveCandidate[], lang: strin
   const out = new Map<string, LifeMoveSuggestion>()
   let config
   let index
-  try { config = loadLifeConfig(); index = learnedIndexCached(config) } catch { return out }
+  try { config = loadLifeConfig(); index = await learnedIndexCached(config) } catch { return out }
   if (!config.persons.length) return out
   const until = Date.now() + SUGGEST_BUDGET_MS
   for (const f of files.slice(0, MAX_SUGGESTED)) {
