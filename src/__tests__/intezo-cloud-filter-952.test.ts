@@ -83,4 +83,38 @@ describe('Intezo cloud filter (#952)', () => {
       }
     }
   })
+  // TG 7156 (Boss's real rules): the person's folder leaves Media/Fotok and Projektek out of ITS rule, but both are
+  // covered by their own rules (Photos / MEGA). They are on the cloud -- not "left out".
+  it('an excluded sub-folder covered by ANOTHER rule is not "not up" (Media, the person folder)', () => {
+    const p = 'Csalad/Laszlo'
+    const real = [
+      { path: p, target: { kind: 'drive', account: 'lackor2' }, exclude: ['Media/Fotok', 'Projektek'] },
+      { path: p + '/Media/Fotok', target: { kind: 'photos', account: 'lackor3' } },
+      { path: p + '/Projektek', target: { kind: 'mega', account: 'lackor3' } },
+    ]
+    expect(cf._cfState(dir(p + '/Media'), real)).toEqual({ up: true, down: false })
+    expect(cf._cfState(dir(p), real)).toEqual({ up: true, down: false })
+    expect(names(cf._cfFilter([dir(p + '/Media'), dir(p + '/Projektek')], 'down', real))).not.toContain(p + '/Media')
+    // an excluded folder NOTHING else covers is still not up
+    const lone = [{ path: p, target: { kind: 'drive', account: 'a' }, exclude: ['Media/Fotok'] }]
+    expect(cf._cfState(dir(p + '/Media'), lone)).toEqual({ up: true, down: true })
+  })
+  it('the folder mark does not call an excluded sub-folder "backed up" (same blind spot, TG 7156)', () => {
+    const fnSrc = (name: string) => {
+      const a = app.indexOf('function ' + name + '(')
+      const b = app.indexOf('\n}\n', a)
+      return app.slice(a, b + 3)
+    }
+    const _bkNorm = (p: string) => String(p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+    const rules = [{ path: 'P', target: { kind: 'mega', account: 'm' }, exclude: ['Tester', '*.hst'] }]
+    const t = (k: string) => k
+    const src = block + '\n' + fnSrc('_bkEffective') + '\n' + fnSrc('_bkTargetText') + '\n' + fnSrc('_bkKindName') + '\n' + fnSrc('_bkFromText')
+      + '\n' + fnSrc('_bkBadge') + '\nreturn _bkBadge'
+    // eslint-disable-next-line no-new-func
+    const badge = new Function('localStorage', '_bkNorm', '_bkRules', 't', 'escapeHtml', src)({ getItem: () => null, setItem: () => {} }, _bkNorm, rules, t, (x: string) => x)
+    expect(badge({ rel: 'P/Tester', isDir: true })).toContain('backup.none')
+    expect(badge({ rel: 'P/Tester', isDir: true })).toContain('backup.tip_left_out')
+    expect(badge({ rel: 'P/Other', isDir: true })).toContain('☁')
+    for (const lang of ['hu', 'en']) expect(readFileSync(join(root, 'web', 'lang', lang + '.js'), 'utf8')).toContain("'backup.tip_left_out'")
+  })
 })
