@@ -67,8 +67,9 @@ describe('POST /api/kanban with a taken id', () => {
     expect((await post({ id: '  sync-44 ', title: 'Second' })).status).toBe(409)
   })
 
-  it('any other insert error is still an error, not a 409 (here: a status the table refuses)', async () => {
-    await expect(post({ id: 'sync-45', title: 'Bad', status: 'nonsense' })).rejects.toThrow(/CHECK constraint/)
+  it('a status the table refuses is a clear 400 (#959), never a 409 and never a stored card', async () => {
+    const r = await post({ id: 'sync-45', title: 'Bad', status: 'nonsense' })
+    expect(r.status).toBe(400)
     expect(getKanbanCard('sync-45')).toBeUndefined()
   })
 
