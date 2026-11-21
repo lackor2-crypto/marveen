@@ -44,6 +44,32 @@ export const MAX_NOTIFY_ATTEMPTS = 5
 const STATE_PATH = join(STORE_DIR, 'agent-availability.json')
 const LOG_PATH = join(STORE_DIR, 'agent-availability.log')
 
+/** Pure: the names of the agents whose last measurement says "signed out". */
+export function signedOutAgents(state: AvailabilityState): Set<string> {
+  const out = new Set<string>()
+  for (const [name, a] of Object.entries(state.agents || {})) if (a && a.reason === 'signed_out') out.add(name)
+  return out
+}
+
+const SIGNED_OUT_CACHE_MS = 10_000
+let signedOutCache: { at: number; names: Set<string> } | null = null
+
+/** Is the agent signed out right now (the last minute-measurement)? A signed-out agent cannot run anything, so the
+ *  scheduler must neither inject into it nor alert about it (TG 7172). Cached for 10 s: the scheduler asks per tick
+ *  and per agent, and the state file must not be read synchronously in a loop. Unreadable state = false (fail-open). */
+export function isAgentSignedOut(agent: string, now: number = Date.now()): boolean {
+  try {
+    if (!signedOutCache || now - signedOutCache.at > SIGNED_OUT_CACHE_MS || now < signedOutCache.at) {
+      signedOutCache = { at: now, names: signedOutAgents(readAvailabilityState()) }
+    }
+    return signedOutCache.names.has(agent)
+  } catch {
+    return false
+  }
+}
+
+export function _resetSignedOutCache(): void { signedOutCache = null }
+
 export function readAvailabilityState(): AvailabilityState {
   try {
     if (!existsSync(STATE_PATH)) return { agents: {}, notifiedAt: {} }

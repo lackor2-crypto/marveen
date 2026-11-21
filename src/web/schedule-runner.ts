@@ -58,6 +58,13 @@ import {
   decideVerifyStarted,
   shouldReassignFromDeadAgent,
 } from './agent-availability.js'
+import { isAgentSignedOut } from './agent-availability-watch.js'
+
+/** Cannot run a task now: at the usage wall OR signed out (TG 7172: a signed-out agent kept getting injected, then the
+ *  in-flight watchdog alerted 30 minutes later). Every scheduling gate uses this instead of the bare quota check. */
+function isAgentUnableToWork(agentName: string, now: number = Date.now()): boolean {
+  return isAgentQuotaBlocked(agentName, now) || isAgentSignedOut(agentName, now)
+}
 import { sendTelegramMessage } from './telegram.js'
 import { runCommandTask } from './command-task.js'
 import { detectsFirstRunGate, detectPaneState, paneShowsLimitBlock, type PaneState } from '../pane-state.js'
@@ -539,7 +546,7 @@ async function attemptFireTask(
   // #702: a quota-blocked agent cannot run anything, and its parked session
   // never reads as busy -- injecting (or auto-starting it) only feeds an endless
   // retry. Defer without touching the session; the caller queues / reassigns.
-  if (!task.targetSession && isAgentQuotaBlocked(agentName)) {
+  if (!task.targetSession && isAgentUnableToWork(agentName)) {
     logger.warn({ task: task.name, agent: agentName }, 'Schedule target agent is at its usage wall, not injecting (deferred to retry queue / reassign)')
     return 'quota-blocked'
   }
@@ -855,16 +862,16 @@ export function taskInjectionRank(t: Pick<ScheduledTask, 'forceSend' | 'type'>):
 // to the main agent", which is exactly what silently bound every task to Marvin.
 export function resolveScheduledTargets(agent: string | undefined): string[] {
   if (agent === 'all') {
-    return [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a) && !isAgentQuotaBlocked(a))]
+    return [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a) && !isAgentUnableToWork(a))]
   }
   if (agent === 'any' || !agent) {
     const ordered = [MAIN_AGENT_ID, ...listAgentNames()]
-    return [pickAnyTarget(ordered, isAgentRunning, isAgentQuotaBlocked, MAIN_AGENT_ID)]
+    return [pickAnyTarget(ordered, isAgentRunning, isAgentUnableToWork, MAIN_AGENT_ID)]
   }
   // Pinned to one agent: a quota-blocked one cannot run it (#702), so hand it to
   // whoever can; with nobody working keep the pin (the retry queue holds it).
-  if (isAgentQuotaBlocked(agent)) {
-    const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentQuotaBlocked)
+  if (isAgentUnableToWork(agent)) {
+    const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentUnableToWork)
     if (working) return [working]
   }
   return [agent]
@@ -1233,13 +1240,24 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // retry queue, which re-routes it (firstWorkingAgent) to an agent that can
       // actually run it. Only a PROVABLE non-start re-queues, so a fast task
       // that finished between sweeps is never double-run.
-      const blockedNow = isAgentQuotaBlocked(entry.agentName, now)
+      const blockedNow = isAgentUnableToWork(entry.agentName, now)
       if (decideVerifyStarted({ injectedAt: entry.injectedAt, sawBusy: entry.sawBusy, blockedNow }, now) === 'refire') {
         insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, 'did-not-start')
         logger.warn(
           { task: entry.taskName, agent: entry.agentName, session: entry.session },
           'Scheduled task fired into a quota-blocked session and never started -- re-queued for delivery to a working agent',
         )
+        taskInflightMap.delete(key)
+        continue
+      }
+
+      // TG 7172 / #956: a SIGNED-OUT agent cannot run the task and is to be left alone (owner order, TG 3861): never
+      // alert about it. Inside the verify window the verify-started check above re-queues a task that never started;
+      // one that was already running when the login was lost goes back to the retry queue for a working agent.
+      if (isAgentSignedOut(entry.agentName, now)) {
+        if (!entry.sawBusy) continue
+        insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, 'agent-quota')
+        logger.warn({ task: entry.taskName, agent: entry.agentName }, 'Agent signed out while running a scheduled task -- work reclaimed to the retry queue, no alert')
         taskInflightMap.delete(key)
         continue
       }
@@ -1325,7 +1343,7 @@ export function startScheduleRunner(): NodeJS.Timeout {
       const wantAny = taskDef.agent === 'any' || !taskDef.agent
       if (wantAny) {
         const ordered = [MAIN_AGENT_ID, ...listAgentNames()]
-        const working = firstWorkingAgent(ordered, isAgentRunning, isAgentQuotaBlocked)
+        const working = firstWorkingAgent(ordered, isAgentRunning, isAgentUnableToWork)
         // Don't migrate onto an agent that already has its OWN pending row for
         // this task in this tick's snapshot: that row will be processed on its
         // own turn, and migrating here too would fire the task twice.
@@ -1348,9 +1366,9 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // An 'all' task already runs on every working agent on its own rows, so
       // moving a dead agent's row onto one of them would run it twice there --
       // that row is only held until the wall comes down.
-      if (!migrated && !taskDef.targetSession && taskDef.agent !== 'all' && isAgentQuotaBlocked(fireAgent, now)
+      if (!migrated && !taskDef.targetSession && taskDef.agent !== 'all' && isAgentUnableToWork(fireAgent, now)
         && shouldReassignFromDeadAgent(row.attempt_count, row.last_reason)) {
-        const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentQuotaBlocked)
+        const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentUnableToWork)
         if (working && working !== fireAgent) {
           logger.warn({ task: row.task_name, from: fireAgent, to: working, attempts: row.attempt_count },
             'Pending retry reassigned off a quota-blocked agent')
