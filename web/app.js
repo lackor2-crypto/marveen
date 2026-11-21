@@ -41423,6 +41423,16 @@ async function loadIntezoPage() {
   bind('intezoSortKey', 'change', () => _intezoSortSave({ key: document.getElementById('intezoSortKey').value }))
   bind('intezoSortDir', 'click', () => _intezoSortSave({ dir: _intezoSortState().dir === 'asc' ? 'desc' : 'asc' }))
   _intezoSyncSortControls()
+  const cfSel = document.getElementById('intezoCloudFilter')
+  if (cfSel && !cfSel._intezoBound) {
+    cfSel._intezoBound = 1
+    cfSel.value = _cfMode()
+    cfSel.addEventListener('change', () => {
+      _cfSetMode(cfSel.value)
+      _intezoRender()
+      _intezoTreeRender()
+    })
+  }
   const viewSel = document.getElementById('intezoViewMode')
   if (viewSel) {
     viewSel.value = _intezoViewMode()
@@ -42343,7 +42353,7 @@ async function _intezoOpen(rel) {
     // Only redraw a listing of THIS folder -- mid-click it may still be the old one.
     void _bkLoad().then(() => {
       const L = _intezoListing
-      if (L && (L.searching || typeof L.rel !== 'string' || L.rel === _intezoPath)) _intezoRender()
+      if (L && (L.searching || typeof L.rel !== 'string' || L.rel === _intezoPath)) { _intezoRender(); _intezoTreeRender() }
     })
   } catch (e) { /* a sugok nelkul is listazunk */ }
   const cached = navigated ? _intezoListCache.get(_intezoListKey(uj)) : null
@@ -42738,11 +42748,24 @@ function _intezoRender() {
   }
 
   const ordered = _intezoOrder(L)
-  const rows = ordered.rows
+  // #952: the cloud filter. Unknown rules (not loaded / could not be asked) never
+  // filter: "could not ask" is not "nothing is on the cloud".
+  const cfMode = _cfMode()
+  const cfOn = cfMode !== 'all' && Array.isArray(_bkRules) && !_bkError
+  const rows = cfOn ? _cfFilter(ordered.rows, cfMode, _bkRules) : ordered.rows
   const heads = ordered.heads
   _intezoShown = { L: L, rows: rows }
+  const cfNote = document.getElementById('intezoCloudNote')
+  if (cfNote) {
+    const unknown = cfMode !== 'all' && (!Array.isArray(_bkRules) || !!_bkError)
+    cfNote.hidden = !unknown && !(cfOn && rows.length < ordered.rows.length)
+    cfNote.textContent = unknown ? (_bkError ? t('intezo.cloud_unknown', { why: _bkError }) : t('intezo.cloud_loading'))
+      : cfOn && rows.length < ordered.rows.length ? t('intezo.cloud_hidden_n', { n: ordered.rows.length - rows.length }) : ''
+  }
   if (!rows.length) {
-    list.innerHTML = L.message ? '' : '<p style="opacity:.7" data-i18n="intezo.empty">Ez a mappa üres.</p>'
+    list.innerHTML = L.message ? '' : cfOn && ordered.rows.length
+      ? '<p style="opacity:.7">' + escapeHtml(t(cfMode === 'up' ? 'intezo.cloud_empty_up' : 'intezo.cloud_empty_down')) + '</p>'
+      : '<p style="opacity:.7" data-i18n="intezo.empty">Ez a mappa üres.</p>'
     return
   }
   // intezo-list: every other row gets a darker background (zebra), so a long
@@ -43121,6 +43144,12 @@ function _intezoTreeRender() {
   // Stays in view under the pinned header while the long list on the right scrolls.
   if (head) box.style.top = (head.offsetHeight + 6) + 'px'
   const forced = _intezoTreeForced()
+  // #952: the cloud filter also thins the tree; the folder we stand in always stays.
+  const cfMode = _cfMode()
+  const cfTreeOn = cfMode !== 'all' && Array.isArray(_bkRules) && !_bkError
+  const cfTreeKeep = (kids) => cfTreeOn && kids
+    ? kids.filter((k) => !k.isDir || k.rel === _intezoPath || String(_intezoPath).startsWith(k.rel + '/') || _cfFilter([k], cfMode, _bkRules).length)
+    : kids
   // TAGOLAS (#388). Boss: "a bal menü átláthatatlan [...] Korpás Lászlóra ha
   // ráklikkelek, akkor ami az összes [...] alatt van, annak a hátterét az
   // egésznek megváltoztatni". Minden felso szintu ag (szemely, ceg) SAJAT
@@ -43151,7 +43180,7 @@ function _intezoTreeRender() {
       + (entry && entry.caution ? ' style="color:var(--danger,#d33)"' : '')
       + '>' + escapeHtml(name) + '</a></div>'
     if (open) {
-      const kids = _intezoTreeKids.get(rel)
+      const kids = cfTreeKeep(_intezoTreeKids.get(rel))
       if (_intezoTreeErr.has(rel)) {
         h += '<div class="intezo-tree-note" style="padding-left:' + (22 + depth * 14) + 'px">'
           + escapeHtml(_intezoTreeErr.get(rel)) + '</div>'
@@ -45228,6 +45257,80 @@ function _bkSplitText(r) {
 }
 
 function _bkFromText(from) { return from ? from : t('backup.root') }
+
+// === CLOUD FILTER IN THE INTEZO (card #952) ===
+// Boss, 2026-11-21 (TG 7123): "csak azt jeleníti meg, ami fent van a felhőben /
+// csak ami még nincs felszinkronizálva / alap: mindent". A folder stays visible
+// when ANYTHING under it matches; a file by its own state. "Up" = covered by a
+// backup rule that has a target (own or the nearest ancestor's), minus what that
+// rule leaves out. Pure functions of the already loaded rules: no disk, no
+// request, so a slow disk cannot make the switch hang.
+// CLOUD-FILTER-BEGIN
+function _cfMode() {
+  try { const m = localStorage.getItem('intezoCloudFilter'); return m === 'up' || m === 'down' ? m : 'all' } catch (e) { return 'all' }
+}
+function _cfSetMode(m) {
+  try { localStorage.setItem('intezoCloudFilter', m === 'up' || m === 'down' ? m : 'all') } catch (e) { /* private mode: the choice lives until reload */ }
+}
+/** What the covering rule leaves out: is `rel` (inside the rule's folder `from`) one of them? */
+function _cfLeftOut(rule, from, rel, isDir) {
+  const ex = rule && Array.isArray(rule.exclude) ? rule.exclude : []
+  if (!ex.length) return false
+  let within = _bkNorm(rel)
+  if (from) within = within === from ? '' : within.slice(from.length + 1)
+  const low = within.toLowerCase()
+  for (const x of ex) {
+    if (x.charAt(0) === '*') {
+      if (!isDir && low.endsWith(x.slice(1).toLowerCase())) return true
+    } else {
+      const d = x.toLowerCase()
+      if (low === d || low.startsWith(d + '/')) return true
+    }
+  }
+  return false
+}
+/** { up, down }: does the entry itself / anything under it count as on the cloud / not on it. */
+function _cfState(e, rules) {
+  const rel = _bkNorm(e.rel)
+  const by = new Map((rules || []).map((r) => [r.path, r]))
+  let p = e.isDir ? rel : (rel.lastIndexOf('/') > -1 ? rel.slice(0, rel.lastIndexOf('/')) : '')
+  let rule = null
+  for (;;) {
+    if (by.has(p)) { rule = by.get(p); break }
+    if (!p) break
+    const i = p.lastIndexOf('/')
+    p = i > -1 ? p.slice(0, i) : ''
+  }
+  const covered = !!(rule && rule.target)
+  const out = covered && _cfLeftOut(rule, rule.path, rel, !!e.isDir)
+  if (!e.isDir) return { up: covered && !out, down: !(covered && !out) }
+  let up = covered && !out
+  let down = !covered || out
+  if (covered && !out) {
+    const ex = Array.isArray(rule.exclude) ? rule.exclude : []
+    const pre = rel ? rel + '/' : ''
+    const from = rule.path ? rule.path + '/' : ''
+    // Something below is left out (a sub-folder, or a file type that may occur here).
+    for (const x of ex) {
+      if (x.charAt(0) === '*') { down = true; break }
+      const abs = (from + x).toLowerCase()
+      if (abs.startsWith(pre.toLowerCase())) { down = true; break }
+    }
+  }
+  const below = rel ? rel + '/' : ''
+  for (const r of rules || []) {
+    if (r === rule || !(below ? r.path.startsWith(below) : r.path !== '')) continue
+    if (r.target) up = true
+    else down = true
+  }
+  return { up: up, down: down }
+}
+/** Keep the entries the filter lets through. `all` or unknown rules = untouched. */
+function _cfFilter(entries, mode, rules) {
+  if ((mode !== 'up' && mode !== 'down') || !Array.isArray(rules)) return entries
+  return entries.filter((e) => { const s = _cfState(e, rules); return mode === 'up' ? s.up : s.down })
+}
+// CLOUD-FILTER-END
 
 /** The mark next to a folder's name. Empty when no rule reaches the folder. */
 function _bkBadge(e) {
