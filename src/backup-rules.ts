@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path'
 import { STORE_DIR } from './config.js'
 
-export type BackupKind = 'drive' | 'mega'
+export type BackupKind = 'drive' | 'photos' | 'mega'
 
 export interface BackupTarget { kind: BackupKind; account: string }
 
@@ -34,7 +34,18 @@ export interface BackupRule {
    * sub-folder `Projektek/Axxa` or a file type `*.fxt`). Absent = nothing.
    */
   exclude?: string[]
+  /**
+   * Only for a Google Photos rule: one folder's loose files shared over more
+   * than one account (one Google account holds 15 GB, a family's photo folder
+   * can hold 24 GB). The rule's own account keeps the files whose name sorts
+   * BEFORE the first `from`; each entry takes the files from its `from` up to
+   * the next entry's `from` (names compared lower-case, plain order). Sub-folders
+   * are not split here: give a sub-folder its own rule instead.
+   */
+  split?: PhotoSplitPart[]
 }
+
+export interface PhotoSplitPart { account: string; from: string }
 
 export interface EffectiveRule {
   target: BackupTarget | null
@@ -68,15 +79,48 @@ export function loadBackupRules(): { rules: BackupRule[]; broken: string | null 
     for (const r of raw as any[]) {
       if (!r || typeof r.path !== 'string') continue
       const t = r.target
-      const target: BackupTarget | null = t && (t.kind === 'drive' || t.kind === 'mega') && typeof t.account === 'string' && t.account
+      const target: BackupTarget | null = t && (t.kind === 'drive' || t.kind === 'photos' || t.kind === 'mega') && typeof t.account === 'string' && t.account
         ? { kind: t.kind, account: t.account } : null
       const exclude = Array.isArray(r.exclude) ? r.exclude.filter((x: unknown) => typeof x === 'string' && x) : []
-      rules.push({ path: normRulePath(r.path), target, setAt: String(r.setAt || ''), ...(exclude.length ? { exclude } : {}) })
+      const split = target?.kind === 'photos' ? cleanSplit(r.split, target.account) : []
+      rules.push({ path: normRulePath(r.path), target, setAt: String(r.setAt || ''), ...(exclude.length ? { exclude } : {}), ...(split.length ? { split } : {}) })
     }
     return { rules, broken: null }
   } catch (e: any) {
     return { rules: [], broken: String(e?.message || e) }
   }
+}
+
+/** Keep only well-formed split entries: a name, an account other than the rule's own, one entry per account and per name. */
+function cleanSplit(raw: unknown, own: string): PhotoSplitPart[] {
+  if (!Array.isArray(raw)) return []
+  const out: PhotoSplitPart[] = []
+  const accounts = new Set<string>([own])
+  const froms = new Set<string>()
+  for (const x of raw as any[]) {
+    const account = typeof x?.account === 'string' ? x.account.trim() : ''
+    const from = typeof x?.from === 'string' ? x.from.trim() : ''
+    if (!account || !from || accounts.has(account) || froms.has(from.toLowerCase())) continue
+    accounts.add(account); froms.add(from.toLowerCase())
+    out.push({ account, from })
+  }
+  return out.sort((a, b) => cmpName(a.from, b.from))
+}
+
+function cmpName(a: string, b: string): number {
+  const x = a.toLowerCase(); const y = b.toLowerCase()
+  return x < y ? -1 : x > y ? 1 : 0
+}
+
+/** Which account a loose file of a split Google Photos folder belongs to. */
+export function splitAccountFor(rule: Pick<BackupRule, 'target' | 'split'>, fileName: string): string | null {
+  if (!rule.target) return null
+  let owner = rule.target.account
+  for (const p of rule.split || []) {
+    if (cmpName(fileName, p.from) >= 0) owner = p.account
+    else break
+  }
+  return owner
 }
 
 function saveBackupRules(rules: BackupRule[]): void {
@@ -145,7 +189,8 @@ export function setBackupRule(input: SetRuleInput, now = new Date()): BackupRule
   const target = input.action === 'target' ? { kind: input.target.kind, account: input.target.account } : null
   // Changing where a folder goes keeps what it leaves out.
   const prev = loaded.rules.find((r) => r.path === path)
-  const next = [...rest, { path, target, setAt: now.toISOString(), ...(prev?.exclude?.length ? { exclude: prev.exclude } : {}) }]
+  const keepSplit = target?.kind === 'photos' && prev?.target?.kind === 'photos' ? cleanSplit(prev.split, target.account) : []
+  const next = [...rest, { path, target, setAt: now.toISOString(), ...(prev?.exclude?.length ? { exclude: prev.exclude } : {}), ...(keepSplit.length ? { split: keepSplit } : {}) }]
   saveBackupRules(next)
   return next
 }
@@ -184,3 +229,26 @@ export function setBackupExclude(path: string, exclude: string[]): BackupRule[] 
   saveBackupRules(next)
   return next
 }
+
+/**
+ * Set how one Google Photos folder's loose files are shared over more accounts
+ * (an empty list removes the split). Only a folder with its OWN Google Photos
+ * rule can have one. Returns the new list.
+ */
+export function setBackupSplit(path: string, split: PhotoSplitPart[]): BackupRules_ {
+  const loaded = loadBackupRules()
+  if (loaded.broken) throw new Error(`backup-rules.json is unreadable: ${loaded.broken}`)
+  const p = normRulePath(path)
+  const rule = loaded.rules.find((r) => r.path === p)
+  if (!rule || !rule.target || rule.target.kind !== 'photos') throw new Error('no_photos_rule')
+  const clean = cleanSplit(split, rule.target.account)
+  if (clean.length !== split.length) throw new Error('bad_split')
+  const next = loaded.rules.map((r) => {
+    if (r.path !== p) return r
+    const { split: _old, ...rest } = r
+    return clean.length ? { ...rest, split: clean } : rest
+  })
+  saveBackupRules(next)
+  return next
+}
+type BackupRules_ = BackupRule[]

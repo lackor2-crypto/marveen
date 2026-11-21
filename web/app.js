@@ -39434,7 +39434,7 @@ async function _storagesOverview() {
       total = ' <strong>' + escapeHtml(t('storages.ov_total', { files: String(f), size: _depoBytes(b) })) + '</strong>'
     }
     return '<div class="stor-ov-acc" style="border:1px solid var(--border,#ddd);border-radius:8px;padding:8px 12px;margin:8px 0">'
-      + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><strong>' + escapeHtml(a.kind === 'mega' ? t('storages.ov_kind_mega') : t('storages.ov_kind_drive')) + ' · ' + escapeHtml(a.name) + '</strong>'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><strong>' + escapeHtml(a.kind === 'mega' ? t('storages.ov_kind_mega') : a.kind === 'photos' ? t('storages.ov_kind_photos') : t('storages.ov_kind_drive')) + ' · ' + escapeHtml(a.name) + '</strong>'
       + total
       + '<button class="btn-secondary btn-compact" data-stor-ov="measure" data-kind="' + escapeHtml(a.kind) + '" data-account="' + escapeHtml(a.account) + '">' + escapeHtml(t('storages.ov_measure')) + '</button></div>'
       + _storagesOvTree(a.entries, sizes, key) + '</div>'
@@ -45214,7 +45214,17 @@ function _bkEffective(rel) {
 
 function _bkTargetText(tg) {
   if (!tg) return t('backup.none')
-  return (tg.kind === 'mega' ? 'MEGA' : 'Drive') + ' · ' + tg.account
+  return _bkKindName(tg.kind) + ' · ' + tg.account
+}
+
+function _bkKindName(kind) {
+  return kind === 'mega' ? 'MEGA' : kind === 'photos' ? t('backup.group_photos') : 'Drive'
+}
+
+/** The accounts a split Google Photos rule shares its loose files over (own account first), as text. */
+function _bkSplitText(r) {
+  if (!r || !r.target || !r.split || !r.split.length) return ''
+  return t('backup.split_summary', { list: [r.target.account].concat(r.split.map(function (s) { return s.account })).join(', ') })
 }
 
 function _bkFromText(from) { return from ? from : t('backup.root') }
@@ -45227,7 +45237,7 @@ function _bkBadge(e) {
   const txt = eff.target ? '☁ ' + _bkTargetText(eff.target) : '⊘ ' + t('backup.none')
   const tip = eff.own ? t('backup.tip_own', { target: _bkTargetText(eff.target) })
     : t('backup.tip_inherited', { target: _bkTargetText(eff.target), from: _bkFromText(eff.from) })
-  const color = eff.target ? (eff.target.kind === 'mega' ? '#c2410c' : '#2563eb') : 'var(--text-muted,#888)'
+  const color = eff.target ? (eff.target.kind === 'mega' ? '#c2410c' : eff.target.kind === 'photos' ? '#7c3aed' : '#2563eb') : 'var(--text-muted,#888)'
   return ' <span class="intezo-backup' + (eff.own ? ' own' : '') + '" title="' + escapeHtml(tip) + '"'
     + ' style="font-size:11px;white-space:nowrap;margin-left:6px;color:' + color
     + ';opacity:' + (eff.own ? '1' : '.5') + (eff.own ? ';font-weight:600' : '') + '">'
@@ -45313,23 +45323,27 @@ async function _bkOpenPicker(entry) {
     p.textContent = t('backup.no_accounts')
     box.appendChild(p)
   }
-  for (const kind of ['drive', 'mega']) {
+  for (const kind of ['drive', 'photos', 'mega']) {
     const list = _bkAccounts.filter((a) => a.kind === kind)
     if (!list.length) continue
     const g = document.createElement('div')
     g.style.cssText = 'font-size:12px;font-weight:600;margin:10px 0 2px;opacity:.8'
-    g.textContent = kind === 'mega' ? t('backup.group_mega') : t('backup.group_drive')
+    g.textContent = kind === 'mega' ? t('backup.group_mega') : kind === 'photos' ? t('backup.group_photos') : t('backup.group_drive')
     box.appendChild(g)
     for (const a of list) {
       const free = typeof a.free === 'number' ? t('backup.free', { n: _bkGb(a.free) }) : t('backup.free_unknown')
       const mine = eff.own && eff.target && eff.target.kind === a.kind && eff.target.account === a.account
-      box.appendChild(_bkButton((mine ? '✓ ' : '') + (kind === 'mega' ? 'MEGA' : 'Drive') + ' · ' + a.account, free,
+      box.appendChild(_bkButton((mine ? '✓ ' : '') + _bkKindName(kind) + ' · ' + a.account, free,
         choose({ action: 'target', kind: a.kind, account: a.account })))
     }
   }
   const sep = document.createElement('div')
   sep.style.cssText = 'height:1px;background:var(--border);margin:10px 0'
   box.appendChild(sep)
+  const ownRule = eff.own ? (_bkRules || []).find((x) => x.path === _bkNorm(entry.rel)) : null
+  if (ownRule && ownRule.target && ownRule.target.kind === 'photos') {
+    box.appendChild(_bkButton('✂ ' + t('backup.split_btn'), _bkSplitText(ownRule), () => { back.remove(); _bkOpenSplit(ownRule) }))
+  }
   box.appendChild(_bkButton('⊘ ' + t('backup.opt_none'), '', choose({ action: 'none' })))
   if (eff.own) {
     const parent = _bkNorm(entry.rel).split('/').slice(0, -1).join('/')
@@ -45337,6 +45351,42 @@ async function _bkOpenPicker(entry) {
     const pstate = pe.from === null ? t('backup.no_rule') : _bkTargetText(pe.target)
     box.appendChild(_bkButton('↩ ' + t('backup.opt_inherit', { state: pstate }), '', choose({ action: 'inherit' })))
   }
+  box.appendChild(_bkButton(t('backup.cancel'), '', () => back.remove()))
+}
+
+/** Share one Google Photos folder's loose files over more accounts (nothing is uploaded by this). */
+function _bkOpenSplit(rule) {
+  const { back, box } = _bkPanel(t('backup.split_title', { name: rule.path || t('backup.root') }))
+  const help = document.createElement('p')
+  help.style.cssText = 'font-size:12px;margin:0 0 8px;opacity:.85'
+  help.textContent = t('backup.split_help', { account: rule.target.account })
+  box.appendChild(help)
+  const ta = document.createElement('textarea')
+  ta.rows = 5
+  ta.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px'
+  ta.placeholder = t('backup.split_placeholder')
+  ta.value = (rule.split || []).map((s) => s.account + ' ' + s.from).join('\n')
+  box.appendChild(ta)
+  const msg = document.createElement('p')
+  msg.style.cssText = 'font-size:13px;color:var(--danger);margin:6px 0'
+  box.appendChild(msg)
+  box.appendChild(_bkButton(t('backup.split_save'), '', async () => {
+    const split = ta.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+      const i = l.search(/\s/)
+      return i < 0 ? { account: l, from: '' } : { account: l.slice(0, i).trim(), from: l.slice(i).trim() }
+    })
+    try {
+      const res = await fetch('/api/backup-rules/split?lang=' + (window._lang || 'hu'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: rule.path, split: split }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { msg.textContent = d.error || t('backup.save_failed', { msg: String(res.status) }); return }
+      back.remove()
+      await _bkLoad()
+      _intezoRender()
+    } catch (e) { msg.textContent = t('backup.save_failed', { msg: (e && e.message) || '' }) }
+  }))
   box.appendChild(_bkButton(t('backup.cancel'), '', () => back.remove()))
 }
 
@@ -45367,11 +45417,18 @@ async function _bkOpenMap() {
       + '</th><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_target')) + '</th><th></th></tr></thead><tbody>'
       + rules.map((r) => '<tr><td style="padding:3px 6px;word-break:break-word">' + escapeHtml(_bkFromText(r.path))
         + '</td><td style="padding:3px 6px;white-space:nowrap">' + escapeHtml(r.target ? '☁ ' + _bkTargetText(r.target) : '⊘ ' + t('backup.none'))
+        + (_bkSplitText(r) ? '<div style="font-size:11px;opacity:.75;white-space:normal">' + escapeHtml(_bkSplitText(r)) + '</div>' : '')
         + '</td><td style="padding:3px 6px;text-align:right;white-space:nowrap">'
+        + (r.target && r.target.kind === 'photos' ? '<a href="#" data-bk-split="' + escapeHtml(r.path) + '">' + escapeHtml(t('backup.split_link')) + '</a> · ' : '')
         + (r.target && r.target.kind === 'mega' ? '<a href="#" data-bk-mega="' + escapeHtml(r.path) + '">' + escapeHtml(t('backup.mega_upload_link')) + '</a> · ' : '')
         + '<a href="#" data-bk-go="' + escapeHtml(r.path) + '">'
         + escapeHtml(t('backup.map_open')) + '</a></td></tr>').join('') + '</tbody>'
     box.appendChild(tbl)
+    tbl.querySelectorAll('a[data-bk-split]').forEach((a) => a.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      const rule = rules.find((x) => x.path === (a.getAttribute('data-bk-split') || ''))
+      if (rule) { back.remove(); _bkOpenSplit(rule) }
+    }))
     tbl.querySelectorAll('a[data-bk-mega]').forEach((a) => a.addEventListener('click', (ev) => {
       ev.preventDefault()
       const rule = rules.find((x) => x.path === (a.getAttribute('data-bk-mega') || ''))
@@ -45388,6 +45445,10 @@ async function _bkOpenMap() {
     const counts = new Map()
     for (const r of rules) if (r.target) {
       const k = r.target.kind + '\u0000' + r.target.account
+      counts.set(k, (counts.get(k) || 0) + 1)
+    }
+    for (const r of rules) if (r.target && r.split) for (const s of r.split) {
+      const k = r.target.kind + '\u0000' + s.account
       counts.set(k, (counts.get(k) || 0) + 1)
     }
     const lines = []
