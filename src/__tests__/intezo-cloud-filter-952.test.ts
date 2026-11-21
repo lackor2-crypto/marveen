@@ -75,7 +75,7 @@ describe('Intezo cloud filter (#952)', () => {
     expect(html).toContain('id="intezoCloudFilter"')
     expect(html).toContain('id="intezoCloudNote"')
     expect(app).toMatch(/_cfFilter\(ordered\.rows, cfMode, _bkRules\)/)
-    expect(app).toContain('cfTreeKeep(kids.filter')
+    expect(app).toContain('cfTreeKeep(_intezoTreeKids.get(rel))')
     for (const lang of ['hu', 'en']) {
       const l = readFileSync(join(root, 'web', 'lang', `${lang}.js`), 'utf8')
       for (const k of ['cloud_filter', 'cloud_all', 'cloud_up', 'cloud_down', 'cloud_empty_up', 'cloud_empty_down', 'cloud_hidden_n', 'cloud_unknown', 'cloud_loading']) {

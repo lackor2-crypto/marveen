@@ -43147,7 +43147,7 @@ function _intezoTreeRender() {
   // #952: the cloud filter also thins the tree; the folder we stand in always stays.
   const cfMode = _cfMode()
   const cfTreeOn = cfMode !== 'all' && Array.isArray(_bkRules) && !_bkError
-  const cfTreeKeep = (kids) => cfTreeOn
+  const cfTreeKeep = (kids) => cfTreeOn && kids
     ? kids.filter((k) => !k.isDir || k.rel === _intezoPath || String(_intezoPath).startsWith(k.rel + '/') || _cfFilter([k], cfMode, _bkRules).length)
     : kids
   // TAGOLAS (#388). Boss: "a bal menü átláthatatlan [...] Korpás Lászlóra ha
@@ -43180,7 +43180,7 @@ function _intezoTreeRender() {
       + (entry && entry.caution ? ' style="color:var(--danger,#d33)"' : '')
       + '>' + escapeHtml(name) + '</a></div>'
     if (open) {
-      const kids = _intezoTreeKids.get(rel)
+      const kids = cfTreeKeep(_intezoTreeKids.get(rel))
       if (_intezoTreeErr.has(rel)) {
         h += '<div class="intezo-tree-note" style="padding-left:' + (22 + depth * 14) + 'px">'
           + escapeHtml(_intezoTreeErr.get(rel)) + '</div>'
@@ -43188,7 +43188,7 @@ function _intezoTreeRender() {
         h += '<div class="intezo-tree-note" style="padding-left:' + (22 + depth * 14) + 'px">'
           + escapeHtml(t('intezo.tree_loading')) + '</div>'
       } else if (kids.length) {
-        h += '<ul role="group">' + _intezoStdFirst(cfTreeKeep(kids.filter((k) => _intezoTreeIsChild(rel, k))))
+        h += '<ul role="group">' + _intezoStdFirst(kids.filter((k) => _intezoTreeIsChild(rel, k)))
           .map((k, i) => node(k.rel, k.displayName || k.name, k, depth + 1, i)).join('') + '</ul>'
       }
     }
