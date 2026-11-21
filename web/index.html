@@ -3320,6 +3320,13 @@
                bongeszoben marad. -->
           <!-- MENTESI TERKEP (#350): minden mappa-szabaly egy listaban. -->
           <button type="button" id="intezoBackupMapBtn" class="btn-secondary" style="margin-left:auto;padding:2px 8px;font-size:13px" data-i18n="backup.map_btn" data-i18n-title="backup.map_btn_tip" title="Melyik mappa melyik felhő-fiókba menne">☁ Mentési térkép</button>
+          <!-- FELHO-SZURO (#952): minden / csak ami fent van / csak ami nincs fent. -->
+          <label><span data-i18n="intezo.cloud_filter">Felhő:</span>
+            <select id="intezoCloudFilter" style="font-size:13px;padding:2px 6px" data-i18n-title="intezo.cloud_filter_tip" title="Csak azt mutatja, ami a felhőhöz van kötve, vagy csak azt, ami még nincs.">
+              <option value="all" data-i18n="intezo.cloud_all">Minden</option>
+              <option value="up" data-i18n="intezo.cloud_up">Csak ami fent van</option>
+              <option value="down" data-i18n="intezo.cloud_down">Csak ami nincs fent</option>
+            </select></label>
           <label><span data-i18n="intezo.view_mode">Nézet:</span>
             <select id="intezoViewMode" style="font-size:13px;padding:2px 6px">
               <option value="details" data-i18n="intezo.view_details">Részletek</option>
@@ -3370,6 +3377,7 @@
         <nav id="intezoTree" class="intezo-tree" data-i18n-aria-label="intezo.tree_aria" aria-label="Mappafa"></nav>
         <div class="intezo-main">
         <div id="intezoMessage" class="info-box" hidden></div>
+        <div id="intezoCloudNote" class="info-box" hidden role="status"></div>
         <div id="intezoPath" style="font-size:12px;opacity:.7;margin-bottom:6px"></div>
         <!-- ABOVE the list (#389): below 2000 tiles nobody ever scrolled to it. -->
         <p id="intezoTruncated" style="font-size:13px;opacity:.8" hidden data-i18n="intezo.truncated">
