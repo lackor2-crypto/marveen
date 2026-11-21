@@ -3127,7 +3127,7 @@ window._i18n.hu = {
   'dsync.unlink_confirm':       'Leválasztod ezt a régi tükröt? A gépeden és a Drive-on lévő fájlokhoz nem nyúlok.',
   'dsync.unlink_failed':        'Nem sikerült leválasztani.',
   'dcollect.title':             'Gyűjtés a Tárolókba',
-  'dcollect.what_html':         'Ami a fiók Drive-jára <strong>kívülről</strong> került (telefon, valaki más feltöltése), itt lehozod a gépre, a <strong>Rendszer / Tárolók / Drive / fiók</strong> mappába. Csak lefelé megy: nem tölt fel, nem töröl sehol, nem ír felül, és kihagyja, ami már megvan az Életfában. Marvin saját mentés-mappáját sem hozza le. Utána te rendezed az Életfába; a bekapcsolt gyűjtés az éjszakai futással magától is lehoz újat.',
+  'dcollect.what_html':         'Ami a fiók Drive-jára <strong>kívülről</strong> került (telefon, valaki más feltöltése), itt lehozod a gépre, a <strong>Rendszer / Tárolók / Drive / fiók</strong> mappába. Csak lefelé megy: nem tölt fel, nem töröl sehol, nem ír felül, és kihagyja, ami már megvan az Életfában. Marvin saját mentés-fájljait sem hozza le. Utána te rendezed az Életfába; a bekapcsolt gyűjtés az éjszakai futással magától is lehoz újat.',
   'dcollect.step1':             'Melyik fiók Drive-ját gyűjtsem?',
   'dcollect.run_btn':           'Gyűjtés indítása',
   'dcollect.run_confirm':       'Lehozzam a(z) {account} Drive-ján lévő új fájlokat a Tárolók / Drive / {account} mappába? Csak lefelé megy, semmit nem töltök fel és nem törlök.',

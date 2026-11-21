@@ -22,6 +22,7 @@ describe('collectSkip + restoreWalk (#957)', () => {
   const tree = {
     root: [
       { id: 'b', name: 'Marveen mentések', mimeType: FOLDER },
+
       { id: 'm', name: 'Marveen mentés', mimeType: FOLDER },
       { id: 'mk', name: 'Egyeb', mimeType: FOLDER, appProperties: { marveenPath: 'Család' } },
       { id: 'c', name: 'calls.xml', size: '10', md5Checksum: 'aa' },
@@ -29,7 +30,7 @@ describe('collectSkip + restoreWalk (#957)', () => {
       { id: 'sub', name: 'Telefon', mimeType: FOLDER },
     ],
     sub: [{ id: 'd', name: 'deep.xml', size: '5', md5Checksum: 'cc' }, { id: 'bb2', name: 'Marveen mentések', mimeType: FOLDER }],
-    b: [{ id: 'z', name: 'backup.mbk', size: '1', md5Checksum: 'dd' }],
+    b: [{ id: 'z', name: 'marveen-backup-20261121-191400-desktop-x.mbk', size: '1', md5Checksum: 'dd' }, { id: 'y', name: 'sms-2026.xml', size: '9', md5Checksum: 'ee' }],
   } as Record<string, RestoreEntry[]>
   const run = async (dryRun: boolean, inLife: string[]) => {
     const base = mkdtempSync(join(tmpdir(), 'collect957-'))
@@ -42,10 +43,12 @@ describe('collectSkip + restoreWalk (#957)', () => {
   }
   it('skips Marvin\'s own backup folders (top level only), files already in the Life tree; downloads the rest', async () => {
     const { base, d, r } = await run(false, ['aa'])
-    expect(d.downloaded.sort()).toEqual(['deep.xml', 'new.xml'])
+    // Marvin's own .mbk and the marked / fixed-name backup folders stay up; another app's file in
+    // the plural "Marveen mentések" folder (the SMS XML) DOES come down.
+    expect(d.downloaded.sort()).toEqual(['deep.xml', 'new.xml', 'sms-2026.xml'])
     expect(r.present).toBe(1)
-    expect(r.skipped.filter((s) => /saját mentése/.test(s.reason)).length).toBe(3)
-    expect(existsSync(join(base, 'Marveen mentések'))).toBe(false)
+    expect(r.skipped.filter((s) => /saját/.test(s.reason)).length).toBe(3)
+    expect(existsSync(join(base, 'Marveen mentések', 'marveen-backup-20261121-191400-desktop-x.mbk'))).toBe(false)
     rmSync(base, { recursive: true, force: true })
   })
   it('never overwrites a file that is already there', async () => {
@@ -59,7 +62,7 @@ describe('collectSkip + restoreWalk (#957)', () => {
   it('a preview writes nothing', async () => {
     const { base, d, r } = await run(true, [])
     expect(d.downloaded).toEqual([])
-    expect(r.downloaded).toBe(3)
+    expect(r.downloaded).toBe(4)
     rmSync(base, { recursive: true, force: true })
   })
 })
