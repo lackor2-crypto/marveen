@@ -15,7 +15,7 @@ function load() {
   const localStorage = { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v } }
   const _bkNorm = (p: string) => String(p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   // eslint-disable-next-line no-new-func
-  return new Function('localStorage', '_bkNorm', block + '\nreturn { _cfMode, _cfSetMode, _cfState, _cfFilter, _cfProvenNoFiles, _cfDownHasFiles, _cfNeedKids }')(localStorage, _bkNorm)
+  return new Function('localStorage', '_bkNorm', block + '\nreturn { _cfMode, _cfSetMode, _cfState, _cfFilter, _cfTreeKeep, _cfProvenNoFiles, _cfDownHasFiles, _cfNeedKids }')(localStorage, _bkNorm)
 }
 const drive = { kind: 'drive', account: 'a' }
 const dir = (rel: string) => ({ rel, isDir: true })
@@ -192,5 +192,22 @@ describe('Intezo cloud filter (#952)', () => {
   it('the list loads the children it needs and is wired in', () => {
     expect(app).toContain("if (cfOn && cfMode === 'down') void _cfLoadKids(rows)")
     expect(app).toContain('async function _cfLoadKids(rows)')
+  })
+})
+
+// #964 (Boss TG 7334): with "only what is up" the tree still showed Rendszer/Tarolok/Drive, the folder Boss stood in,
+// although nothing under it is on a cloud. The open folder must get no exception.
+describe('cloud filter tree (#964)', () => {
+  const cf = load() as any
+  const rules = [{ path: 'Család/Korpás László', target: drive }]
+  const kids = [dir('Család'), dir('Rendszer'), file('OLVASS_EL.md')]
+  it('"up" drops a folder with nothing on a cloud, even when it is the open one', () => {
+    const kept = cf._cfTreeKeep(kids, 'up', rules, () => undefined).map((e: any) => e.rel)
+    expect(kept).toContain('Család')
+    expect(kept).not.toContain('Rendszer')
+  })
+  it('the app no longer keeps the open path in the filtered tree', () => {
+    expect(app).not.toMatch(/k\.rel === _intezoPath \|\| String\(_intezoPath\)\.startsWith\(k\.rel \+ '\/'\) \|\| _cfFilter/)
+    expect(app).toContain('_cfTreeKeep(kids, cfMode, _bkRules')
   })
 })

@@ -43178,11 +43178,12 @@ function _intezoTreeRender() {
   // Stays in view under the pinned header while the long list on the right scrolls.
   if (head) box.style.top = (head.offsetHeight + 6) + 'px'
   const forced = _intezoTreeForced()
-  // #952: the cloud filter also thins the tree; the folder we stand in always stays.
+  // #952: the cloud filter also thins the tree. #964 (Boss TG 7334): the folder we stand in does NOT stay when it does
+  // not match -- "ha nincs semmi hozza kotve, miert jelenik itt meg?"; the list on the right explains the empty view.
   const cfMode = _cfMode()
   const cfTreeOn = cfMode !== 'all' && Array.isArray(_bkRules) && !_bkError
   const cfTreeKeep = (kids) => cfTreeOn && kids
-    ? kids.filter((k) => !k.isDir || k.rel === _intezoPath || String(_intezoPath).startsWith(k.rel + '/') || _cfFilter([k], cfMode, _bkRules, (r) => _intezoTreeKids.get(r)).length)
+    ? _cfTreeKeep(kids, cfMode, _bkRules, (r) => _intezoTreeKids.get(r))
     : kids
   // TAGOLAS (#388). Boss: "a bal menü átláthatatlan [...] Korpás Lászlóra ha
   // ráklikkelek, akkor ami az összes [...] alatt van, annak a hátterét az
@@ -45377,6 +45378,11 @@ function _cfNeedKids(entries, rules, kidsOf, skip, out, depth) {
     if ((depth || 0) < 12) _cfNeedKids(kids, rules, kidsOf, skip, out, (depth || 0) + 1)
   }
   return out
+}
+/** The tree's entries under the filter: files untouched, a folder only when the filter lets it through (the open folder
+ *  gets no exception: a folder with nothing on the cloud must not stay in a "only what is up" tree). */
+function _cfTreeKeep(kids, mode, rules, kidsOf) {
+  return kids.filter((k) => !k.isDir || _cfFilter([k], mode, rules, kidsOf).length)
 }
 // CLOUD-FILTER-END
 /** "Not up" looks inside a folder before listing it (Boss TG 7197), so the children of the listed folders get loaded --
