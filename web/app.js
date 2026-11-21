@@ -45309,7 +45309,19 @@ function _cfState(e, rules) {
 /** Keep the entries the filter lets through. `all` or unknown rules = untouched. */
 function _cfFilter(entries, mode, rules) {
   if ((mode !== 'up' && mode !== 'down') || !Array.isArray(rules)) return entries
-  return entries.filter((e) => { const s = _cfState(e, rules); return mode === 'up' ? s.up : s.down })
+  return entries.filter((e) => {
+    // TG 7181: "not up" never lists a folder with no file anywhere under it -- nothing in it could go up. Only a PROVEN
+    // emptiness counts (measured: empty, or only empty sub-folders); unknown / still measuring stays listed.
+    if (mode === 'down' && _cfProvenNoFiles(e)) return false
+    const s = _cfState(e, rules)
+    return mode === 'up' ? s.up : s.down
+  })
+}
+/** A folder measured to hold no file at any depth. */
+function _cfProvenNoFiles(e) {
+  const c = e && e.isDir ? e.content : null
+  if (!c || c.pending) return false
+  return c.state === 'empty' || (c.state === 'has' && c.deep === 'empty')
 }
 // CLOUD-FILTER-END
 
