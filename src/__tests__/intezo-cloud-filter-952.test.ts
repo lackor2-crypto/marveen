@@ -123,12 +123,14 @@ describe('Intezo cloud filter (#952)', () => {
       return app.slice(a, b + 3)
     }
     const mk = (mode: string) => {
-      const src = fnSrc('_intezoTreeAllOpen') + '\n' + fnSrc('_intezoTreeIsOpen') + '\nreturn _intezoTreeIsOpen'
+      const src = 'const _INTEZO_TREE_AUTO_DEPTH = 3\n' + fnSrc('_intezoTreeDepth') + '\n' + fnSrc('_intezoTreeAllOpen') + '\n' + fnSrc('_intezoTreeIsOpen') + '\nreturn _intezoTreeIsOpen'
       // eslint-disable-next-line no-new-func
       return new Function('_cfMode', '_bkRules', '_bkError', '_intezoTreeIsLeaf', '_intezoTreeCollapsed', '_intezoTreeOpenRels', src)(
         () => mode, [], false, () => false, new Set(['Zárt']), () => new Set())
     }
     const on = mk('down'), up = mk('up'), off = mk('all')
+    expect(on('A/B/C', {}, new Set([''])), 'level 3 folder is shown but not opened by itself (TG 7191)').toBe(false)
+    expect(on('A/B', {}, new Set([''])), 'level 2 folder is opened').toBe(true)
     expect(on('Család/X', {}, new Set([''])), 'down: open').toBe(true)
     expect(up('Család/X', {}, new Set([''])), 'up: open').toBe(true)
     expect(off('Család/X', {}, new Set([''])), 'all: closed').toBe(false)
@@ -150,5 +152,11 @@ describe('Intezo cloud filter (#952)', () => {
     expect(names(cf._cfFilter(list, 'up', [{ path: 'Csalad', target: drive }]))).toHaveLength(7)
     expect(cf._cfFilter(list, 'all', none2)).toBe(list)
     expect(cf._cfProvenNoFiles(file('a'))).toBe(false)
+  })
+  // TG 7189: a thick line between the cloud kinds in the backup map.
+  it('the backup map marks the break between Drive / Photos / MEGA blocks with a thick line', () => {
+    expect(app).toContain("const kindChanged = i > 0 && (r.target ? r.target.kind : '') !== (rules[i - 1].target ? rules[i - 1].target.kind : '')")
+    expect(app).toContain('border-top:5px solid')
+    expect(app).toContain('bk-map-kind-break')
   })
 })
