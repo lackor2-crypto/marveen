@@ -2573,3 +2573,10 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
 .wb-sh-tech-fold { all: unset; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
 .wb-sh-tech-fold:focus-visible { outline: 2px solid var(--accent, #5b5bd6); outline-offset: 2px; }
 .wb-sh-tech-grp-shut { gap: 0; }
+
+/* #936 (mobile): the stacked layout makes the tree panel a fixed 320px box (flex-basis 320px in a column), which cut the Trash / new-item
+   drop-down (.wb-pop, absolute, up to 60vh) off at the panel's bottom: the Restore buttons lay under the next section and could not be tapped.
+   While a drop-down is open the panel takes the room it needs (60vh + the header above it); it scrolls inside itself beyond that. */
+@media (max-width: 900px) {
+  .wb-fr-panel:has(.wb-pin .wb-pop) { flex-basis: auto; height: auto; min-height: calc(60vh + 160px); }
+}
