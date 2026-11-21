@@ -45311,10 +45311,14 @@ function _cfState(e, rules) {
     const pre = rel ? rel + '/' : ''
     const from = rule.path ? rule.path + '/' : ''
     // Something below is left out (a sub-folder, or a file type that may occur here).
+    // An excluded sub-folder that ANOTHER rule with a target covers (own rule at it or at a folder between) is on the
+    // cloud through that rule -- it is not "left out" (Boss TG 7156: Media / Projektek showed as not up).
+    const coveredElsewhere = (abs) => (rules || []).some((r2) => r2 !== rule && r2.target && r2.path.length > rule.path.length
+      && (abs === r2.path.toLowerCase() || abs.startsWith(r2.path.toLowerCase() + '/')))
     for (const x of ex) {
       if (x.charAt(0) === '*') { down = true; break }
       const abs = (from + x).toLowerCase()
-      if (abs.startsWith(pre.toLowerCase())) { down = true; break }
+      if (abs.startsWith(pre.toLowerCase()) && !coveredElsewhere(abs)) { down = true; break }
     }
   }
   const below = rel ? rel + '/' : ''
@@ -45337,10 +45341,15 @@ function _bkBadge(e) {
   if (!e || !e.isDir || !_bkRules) return ''
   const eff = _bkEffective(e.rel)
   if (eff.from === null) return ''
-  const txt = eff.target ? '☁ ' + _bkTargetText(eff.target) : '⊘ ' + t('backup.none')
-  const tip = eff.own ? t('backup.tip_own', { target: _bkTargetText(eff.target) })
+  // A folder the covering rule LEAVES OUT (its exclude list) is not backed up by that rule, whatever the mark of the
+  // parent says (TG 7156: the same blind spot as the cloud filter had).
+  const rule = eff.own || !eff.target ? null : (_bkRules || []).find((r) => r.path === eff.from)
+  const leftOut = !!(rule && _cfLeftOut(rule, rule.path, e.rel, true))
+  const txt = eff.target && !leftOut ? '☁ ' + _bkTargetText(eff.target) : '⊘ ' + t('backup.none')
+  const tip = leftOut ? t('backup.tip_left_out', { from: _bkFromText(eff.from) })
+    : eff.own ? t('backup.tip_own', { target: _bkTargetText(eff.target) })
     : t('backup.tip_inherited', { target: _bkTargetText(eff.target), from: _bkFromText(eff.from) })
-  const color = eff.target ? (eff.target.kind === 'mega' ? '#c2410c' : eff.target.kind === 'photos' ? '#7c3aed' : '#2563eb') : 'var(--text-muted,#888)'
+  const color = eff.target && !leftOut ? (eff.target.kind === 'mega' ? '#c2410c' : eff.target.kind === 'photos' ? '#7c3aed' : '#2563eb') : 'var(--text-muted,#888)'
   return ' <span class="intezo-backup' + (eff.own ? ' own' : '') + '" title="' + escapeHtml(tip) + '"'
     + ' style="font-size:11px;white-space:nowrap;margin-left:6px;color:' + color
     + ';opacity:' + (eff.own ? '1' : '.5') + (eff.own ? ';font-weight:600' : '') + '">'
