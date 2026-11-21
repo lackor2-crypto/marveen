@@ -45303,24 +45303,11 @@ function _cfState(e, rules) {
   }
   const covered = !!(rule && rule.target)
   const out = covered && _cfLeftOut(rule, rule.path, rel, !!e.isDir)
-  if (!e.isDir) return { up: covered && !out, down: !(covered && !out) }
-  let up = covered && !out
-  let down = !covered || out
-  if (covered && !out) {
-    const ex = Array.isArray(rule.exclude) ? rule.exclude : []
-    const pre = rel ? rel + '/' : ''
-    const from = rule.path ? rule.path + '/' : ''
-    // Something below is left out (a sub-folder, or a file type that may occur here).
-    // An excluded sub-folder that ANOTHER rule with a target covers (own rule at it or at a folder between) is on the
-    // cloud through that rule -- it is not "left out" (Boss TG 7156: Media / Projektek showed as not up).
-    const coveredElsewhere = (abs) => (rules || []).some((r2) => r2 !== rule && r2.target && r2.path.length > rule.path.length
-      && (abs === r2.path.toLowerCase() || abs.startsWith(r2.path.toLowerCase() + '/')))
-    for (const x of ex) {
-      if (x.charAt(0) === '*') { down = true; break }
-      const abs = (from + x).toLowerCase()
-      if (abs.startsWith(pre.toLowerCase()) && !coveredElsewhere(abs)) { down = true; break }
-    }
-  }
+  // Deliberately left out (the rule's exclude list) counts as neither: it was chosen not to go up, so it is not "still to upload" (Boss TG 7163).
+  if (out) return { up: false, down: false }
+  if (!e.isDir) return { up: covered, down: !covered }
+  let up = covered
+  let down = !covered
   const below = rel ? rel + '/' : ''
   for (const r of rules || []) {
     if (r === rule || !(below ? r.path.startsWith(below) : r.path !== '')) continue
