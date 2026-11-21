@@ -963,6 +963,8 @@ window._i18n.en = {
   'backup.map_title': 'Backup map',
   'backup.map_empty': 'No folder has a backup rule yet. Right-click a folder in the Explorer and choose “Backup setting…”.',
   'backup.map_col_folder': 'Folder',
+  'backup.map_col_used': 'Used',
+  'backup.map_col_used_tip': 'How much of the account is used out of its total (at the last measurement).',
   'backup.map_col_target': 'Where',
   'backup.map_open': 'open',
   'backup.map_accounts': 'Per account:',

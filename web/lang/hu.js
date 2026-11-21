@@ -991,6 +991,8 @@ window._i18n.hu = {
   'backup.map_title': 'Mentési térkép',
   'backup.map_empty': 'Még egy mappához sincs mentési szabály. Kattints jobb egérgombbal egy mappára az Intézőben, és válaszd a „Mentés beállítása…” pontot.',
   'backup.map_col_folder': 'Mappa',
+  'backup.map_col_used': 'Foglalt',
+  'backup.map_col_used_tip': 'Az adott fiókból mennyi foglalt az összesből (a legutóbbi méréskor).',
   'backup.map_col_target': 'Hova',
   'backup.map_open': 'megnyitás',
   'backup.map_accounts': 'Fiókonként:',
