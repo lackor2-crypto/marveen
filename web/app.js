@@ -45349,14 +45349,14 @@ function _bkBadge(e) {
 
 function _bkGb(bytes) { return (bytes / 1e9).toFixed(1) }
 
-function _bkPanel(titleText) {
+function _bkPanel(titleText, widthPx) {
   document.querySelectorAll('.bk-panel-backdrop').forEach((el) => el.remove())
   const back = document.createElement('div')
   back.className = 'bk-panel-backdrop'
   back.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding:6vh 16px'
   const box = document.createElement('div')
   box.style.cssText = 'background:var(--bg-modal);color:var(--text);border:1px solid var(--border);border-radius:10px;'
-    + 'box-shadow:0 12px 36px rgba(0,0,0,.25);width:min(560px,100%);max-height:84vh;overflow:auto;padding:16px 18px'
+    + 'box-shadow:0 12px 36px rgba(0,0,0,.25);width:min(' + (widthPx || 560) + 'px,100%);max-height:84vh;overflow:auto;padding:16px 18px'
   const h = document.createElement('h3')
   h.style.cssText = 'margin:0 0 10px;font-size:16px'
   h.textContent = titleText
@@ -45494,9 +45494,26 @@ function _bkOpenSplit(rule) {
 }
 
 /** "Backup map": every rule in one list, and what points at each account. */
+// BACKUP MAP ORDER (card #951, Boss TG 7136): Drive accounts together, MEGA
+// accounts together, and inside each the same account's rules one after the
+// other -- never lackor3, usalackor, lackor3 again.
+// BK-MAP-ORDER-BEGIN
+const _BK_KIND_RANK = { drive: 0, photos: 1, mega: 2 }
+function _bkMapOrder(rules) {
+  const rank = (r) => r.target ? (_BK_KIND_RANK[r.target.kind] ?? 3) : 4
+  const acct = (r) => r.target ? String(r.target.account || '') : ''
+  return (rules || []).slice().sort((a, b) =>
+    rank(a) - rank(b) || acct(a).localeCompare(acct(b)) || String(a.path).localeCompare(String(b.path)))
+}
+/** "8,0 / 15,0 GB" -- used of total; null when the account was never measured. */
+function _bkUsedText(a) {
+  if (!a || typeof a.free !== 'number' || typeof a.total !== 'number' || !(a.total > 0)) return null
+  return _bkGb(Math.max(0, a.total - a.free)).replace('.', ',') + ' / ' + _bkGb(a.total).replace('.', ',') + ' GB'
+}
+// BK-MAP-ORDER-END
 async function _bkOpenMap() {
   await _bkLoad()
-  const { back, box } = _bkPanel(t('backup.map_title'))
+  const { back, box } = _bkPanel(t('backup.map_title'), 780)
   const note = document.createElement('p')
   note.style.cssText = 'margin:0 0 10px;font-size:12px;opacity:.75'
   note.textContent = t('backup.pick_note')
@@ -45507,7 +45524,7 @@ async function _bkOpenMap() {
     er.textContent = _bkError
     box.appendChild(er)
   }
-  const rules = (_bkRules || []).slice().sort((a, b) => a.path.localeCompare(b.path))
+  const rules = _bkMapOrder(_bkRules)
   if (!rules.length) {
     const p = document.createElement('p')
     p.style.cssText = 'font-size:13px'
@@ -45517,15 +45534,28 @@ async function _bkOpenMap() {
     const tbl = document.createElement('table')
     tbl.style.cssText = 'width:100%;font-size:13px;border-collapse:collapse'
     tbl.innerHTML = '<thead><tr><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_folder'))
-      + '</th><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_target')) + '</th><th></th></tr></thead><tbody>'
-      + rules.map((r) => '<tr><td style="padding:3px 6px;word-break:break-word">' + escapeHtml(_bkFromText(r.path))
+      + '</th><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_target'))
+      + '</th><th style="text-align:right;padding:3px 6px;white-space:nowrap" title="' + escapeHtml(t('backup.map_col_used_tip')) + '">' + escapeHtml(t('backup.map_col_used'))
+      + '</th><th></th></tr></thead><tbody>'
+      + rules.map((r, i) => {
+        // A caption row where the group (Drive / MEGA / Photos) changes, so the groups are visible.
+        const gk = r.target ? r.target.kind + '\u0000' + r.target.account : ''
+        const pk = i > 0 && rules[i - 1].target ? rules[i - 1].target.kind + '\u0000' + rules[i - 1].target.account : (i > 0 ? '' : null)
+        const head = gk !== pk
+          ? '<tr class="bk-map-group"><td colspan="4" style="padding:8px 6px 2px;font-weight:600;border-bottom:1px solid var(--border)">'
+            + escapeHtml(r.target ? _bkTargetText(r.target) : t('backup.none')) + '</td></tr>' : ''
+        const acc = r.target ? _bkAccounts.find((x) => x.kind === r.target.kind && x.account === r.target.account) : null
+        const used = _bkUsedText(acc)
+        return head + '<tr><td style="padding:3px 6px;word-break:break-word">' + escapeHtml(_bkFromText(r.path))
         + '</td><td style="padding:3px 6px;white-space:nowrap">' + escapeHtml(r.target ? '☁ ' + _bkTargetText(r.target) : '⊘ ' + t('backup.none'))
         + (_bkSplitText(r) ? '<div style="font-size:11px;opacity:.75;white-space:normal">' + escapeHtml(_bkSplitText(r)) + '</div>' : '')
+        + '</td><td class="bk-map-used" style="padding:3px 6px;text-align:right;white-space:nowrap">'
+        + escapeHtml(r.target ? (used || t('backup.free_unknown')) : '')
         + '</td><td style="padding:3px 6px;text-align:right;white-space:nowrap">'
         + (r.target && r.target.kind === 'photos' ? '<a href="#" data-bk-split="' + escapeHtml(r.path) + '">' + escapeHtml(t('backup.split_link')) + '</a> · ' : '')
         + (r.target && r.target.kind === 'mega' ? '<a href="#" data-bk-mega="' + escapeHtml(r.path) + '">' + escapeHtml(t('backup.mega_upload_link')) + '</a> · ' : '')
         + '<a href="#" data-bk-go="' + escapeHtml(r.path) + '">'
-        + escapeHtml(t('backup.map_open')) + '</a></td></tr>').join('') + '</tbody>'
+        + escapeHtml(t('backup.map_open')) + '</a></td></tr>' }).join('') + '</tbody>'
     box.appendChild(tbl)
     tbl.querySelectorAll('a[data-bk-split]').forEach((a) => a.addEventListener('click', (ev) => {
       ev.preventDefault()
@@ -45555,10 +45585,14 @@ async function _bkOpenMap() {
       counts.set(k, (counts.get(k) || 0) + 1)
     }
     const lines = []
-    for (const [k, n] of counts) {
+    const ordered = [...counts].sort((x, y) => {
+      const [kx, ax] = x[0].split('\u0000'), [ky, ay] = y[0].split('\u0000')
+      return (_BK_KIND_RANK[kx] ?? 3) - (_BK_KIND_RANK[ky] ?? 3) || ax.localeCompare(ay)
+    })
+    for (const [k, n] of ordered) {
       const [kind, account] = k.split('\u0000')
       const a = _bkAccounts.find((x) => x.kind === kind && x.account === account)
-      const free = a && typeof a.free === 'number' ? t('backup.free', { n: _bkGb(a.free) }) : t('backup.free_unknown')
+      const free = _bkUsedText(a) || (a && typeof a.free === 'number' ? t('backup.free', { n: _bkGb(a.free) }) : t('backup.free_unknown'))
       lines.push('<li>' + escapeHtml(t('backup.map_account_line', { target: _bkTargetText({ kind, account }), n: n, free: free })) + '</li>')
     }
     if (lines.length) sum.innerHTML = '<b>' + escapeHtml(t('backup.map_accounts')) + '</b><ul style="margin:4px 0 0 18px;padding:0">' + lines.join('') + '</ul>'
