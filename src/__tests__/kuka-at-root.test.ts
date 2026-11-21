@@ -158,14 +158,14 @@ describe('walkers leave the Kuka out', () => {
     mkdirSync(join(root, 'Beérkező', 'elo-projekt', '.git'), { recursive: true })
   })
 
-  it('search from the root does not return Kuka items', () => {
-    const names = searchLife('', 'level').entries.map((e) => e.name)
+  it('search from the root does not return Kuka items', async () => {
+    const names = (await searchLife('', 'level')).entries.map((e) => e.name)
     expect(names).toContain('megtartott-level.txt')
     expect(names).not.toContain('kidobott-level.txt')
   })
 
-  it('search started INSIDE the Kuka still finds them', () => {
-    const names = searchLife(KUKA, 'level').entries.map((e) => e.name)
+  it('search started INSIDE the Kuka still finds them', async () => {
+    const names = (await searchLife(KUKA, 'level')).entries.map((e) => e.name)
     expect(names).toContain('kidobott-level.txt')
   })
 

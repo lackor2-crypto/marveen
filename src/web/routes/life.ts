@@ -693,7 +693,13 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/life/search' && method === 'GET') {
     const rel = url.searchParams.get('path') || ''
     const q = url.searchParams.get('q') || ''
-    send(res, 200, searchLife(rel, q, 200, uiLang(url)))
+    // The walk is asynchronous (#944: the sync one froze the main thread for a minute on a slow disk); a search
+    // whose client has gone (the next keystroke aborted it) stops walking instead of piling up.
+    let gone = false
+    res.on('close', () => { gone = true })
+    const found = await searchLife(rel, q, 200, uiLang(url), { cancelled: () => gone })
+    if (gone) return true
+    send(res, 200, found)
     return true
   }
 
