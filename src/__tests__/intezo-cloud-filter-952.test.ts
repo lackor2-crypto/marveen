@@ -43,22 +43,23 @@ describe('Intezo cloud filter (#952)', () => {
     expect(names(cf._cfFilter([file('Cegek/a.pdf'), file('Cegek/Temp/b.pdf'), file('Zsolt/c.pdf')], 'up', rules))).toEqual(['Cegek/a.pdf'])
   })
 
-  it('"down": what has no rule or an explicit "do not back up" stays; deliberately left-out items do not count', () => {
+  it('"down": what has no cloud assigned stays (no rule, or an explicit "do not back up")', () => {
     const list = [dir('Cegek'), dir('Csalad'), dir('Zsolt'), file('x.txt')]
     // Cegek has a do-not-back-up sub-folder -> still has something not up
     expect(names(cf._cfFilter(list, 'down', rules))).toEqual(['Cegek', 'Csalad', 'Zsolt', 'x.txt'])
     expect(names(cf._cfFilter([dir('Cegek/Temp'), dir('Cegek/Szamla')], 'down', rules))).toEqual(['Cegek/Temp'])
   })
 
-  it('a fully covered folder is hidden in "down", and a deliberately left-out folder/type counts as neither up nor still to upload', () => {
+  it('a fully covered folder is hidden in "down", and the exclude list of a rule changes nothing: only the assignment counts', () => {
     const only = [{ path: 'Cegek', target: drive }]
     expect(names(cf._cfFilter([dir('Cegek'), dir('Cegek/Sub')], 'down', only))).toEqual([])
     expect(names(cf._cfFilter([dir('Cegek'), dir('Cegek/Sub')], 'up', only))).toEqual(['Cegek', 'Cegek/Sub'])
+    // TG 7166: the exclude list of a rule is ignored -- assigned to a cloud = up, not assigned = not up
     const r = [{ path: 'Csalad/Anna/Iratok', target: drive, exclude: ['Regi', '*.fxt'] }]
-    expect(cf._cfState(file('Csalad/Anna/Iratok/Regi/a.pdf'), r)).toEqual({ up: false, down: false })
-    expect(cf._cfState(file('Csalad/Anna/Iratok/t.FXT'), r)).toEqual({ up: false, down: false })
-    expect(cf._cfState(file('Csalad/Anna/Iratok/ok.pdf'), r)).toEqual({ up: true, down: false })
-    expect(cf._cfState(dir('Csalad/Anna/Iratok/Regi'), r).up).toBe(false)
+    expect(cf._cfState(file('Csalad/Anna/Iratok/Regi/a.pdf'), r)).toEqual({ up: true, down: false })
+    expect(cf._cfState(file('Csalad/Anna/Iratok/t.FXT'), r)).toEqual({ up: true, down: false })
+    expect(cf._cfState(dir('Csalad/Anna/Iratok/Regi'), r)).toEqual({ up: true, down: false })
+    expect(cf._cfState(file('Csalad/Anna/Egyeb/x.pdf'), r)).toEqual({ up: false, down: true })
   })
 
   it('no rules at all: nothing is up, everything is not', () => {
@@ -83,26 +84,22 @@ describe('Intezo cloud filter (#952)', () => {
       }
     }
   })
-  // TG 7156 (Boss's real rules): the person's folder leaves Media/Fotok and Projektek out of ITS rule, but both are
-  // covered by their own rules (Photos / MEGA). They are on the cloud -- not "left out".
-  it('an excluded sub-folder covered by ANOTHER rule is not "not up" (Media, the person folder)', () => {
+  // TG 7156 / 7163 / 7166 (Boss's real rules): Projektek is assigned to MEGA lackor3, Media/Fotok to Photos, the person
+  // folder to Drive -- all are on the cloud whatever any exclude list says.
+  it('assigned folders are up and never listed under "not up", exclude lists ignored (TG 7166)', () => {
     const p = 'Csalad/Laszlo'
     const real = [
       { path: p, target: { kind: 'drive', account: 'lackor2' }, exclude: ['Media/Fotok', 'Projektek'] },
       { path: p + '/Media/Fotok', target: { kind: 'photos', account: 'lackor3' } },
-      { path: p + '/Projektek', target: { kind: 'mega', account: 'lackor3' } },
+      { path: p + '/Projektek', target: { kind: 'mega', account: 'lackor3' }, exclude: ['Tester', 'logs', '*.fxt'] },
     ]
-    expect(cf._cfState(dir(p + '/Media'), real)).toEqual({ up: true, down: false })
-    expect(cf._cfState(dir(p), real)).toEqual({ up: true, down: false })
-    expect(names(cf._cfFilter([dir(p + '/Media'), dir(p + '/Projektek')], 'down', real))).not.toContain(p + '/Media')
-    // TG 7163: a folder whose own rule only leaves sub-folders / types out is on the cloud: it never shows in "down"
-    const proj = [{ path: p + '/Projektek', target: { kind: 'mega', account: 'lackor3' }, exclude: ['Tester', 'logs', '*.fxt'] }]
-    expect(cf._cfState(dir(p + '/Projektek'), proj)).toEqual({ up: true, down: false })
-    expect(names(cf._cfFilter([dir(p + '/Projektek')], 'down', proj))).toEqual([])
-    // and what it leaves out is neither up nor still to upload
-    expect(cf._cfState(dir(p + '/Projektek/Tester'), proj)).toEqual({ up: false, down: false })
+    for (const rel of [p, p + '/Media', p + '/Media/Fotok', p + '/Projektek', p + '/Projektek/Tester']) {
+      expect(cf._cfState(dir(rel), real), rel).toEqual({ up: true, down: false })
+    }
+    expect(names(cf._cfFilter([dir(p), dir(p + '/Media'), dir(p + '/Projektek')], 'down', real))).toEqual([])
+    expect(names(cf._cfFilter([dir(p), dir(p + '/Projektek')], 'up', real))).toEqual([p, p + '/Projektek'])
   })
-  it('the folder mark does not call an excluded sub-folder "backed up" (same blind spot, TG 7156)', () => {
+  it('the folder mark shows the assignment only (excluded sub-folder of an assigned folder is marked backed up)', () => {
     const fnSrc = (name: string) => {
       const a = app.indexOf('function ' + name + '(')
       const b = app.indexOf('\n}\n', a)
@@ -115,9 +112,27 @@ describe('Intezo cloud filter (#952)', () => {
       + '\n' + fnSrc('_bkBadge') + '\nreturn _bkBadge'
     // eslint-disable-next-line no-new-func
     const badge = new Function('localStorage', '_bkNorm', '_bkRules', 't', 'escapeHtml', src)({ getItem: () => null, setItem: () => {} }, _bkNorm, rules, t, (x: string) => x)
-    expect(badge({ rel: 'P/Tester', isDir: true })).toContain('backup.none')
-    expect(badge({ rel: 'P/Tester', isDir: true })).toContain('backup.tip_left_out')
+    expect(badge({ rel: 'P/Tester', isDir: true })).toContain('☁')
     expect(badge({ rel: 'P/Other', isDir: true })).toContain('☁')
-    for (const lang of ['hu', 'en']) expect(readFileSync(join(root, 'web', 'lang', lang + '.js'), 'utf8')).toContain("'backup.tip_left_out'")
+  })
+  // TG 7170: filter on -> the whole tree is open; plain view -> closed.
+  it('the tree opens every folder while the cloud filter is on, and stays closed in the plain view', () => {
+    const fnSrc = (name: string) => {
+      const a = app.indexOf('function ' + name + '(')
+      const b = app.indexOf('\n}\n', a)
+      return app.slice(a, b + 3)
+    }
+    const mk = (mode: string) => {
+      const src = fnSrc('_intezoTreeAllOpen') + '\n' + fnSrc('_intezoTreeIsOpen') + '\nreturn _intezoTreeIsOpen'
+      // eslint-disable-next-line no-new-func
+      return new Function('_cfMode', '_bkRules', '_bkError', '_intezoTreeIsLeaf', '_intezoTreeCollapsed', '_intezoTreeOpenRels', src)(
+        () => mode, [], false, () => false, new Set(['Zárt']), () => new Set())
+    }
+    const on = mk('down'), up = mk('up'), off = mk('all')
+    expect(on('Család/X', {}, new Set([''])), 'down: open').toBe(true)
+    expect(up('Család/X', {}, new Set([''])), 'up: open').toBe(true)
+    expect(off('Család/X', {}, new Set([''])), 'all: closed').toBe(false)
+    expect(on('Zárt', {}, new Set([''])), 'a folder the user closed stays closed').toBe(false)
+    expect(app).toContain("if (cfSel.value === 'all') { _intezoTreeOpenSet = new Set(); _intezoTreeSaveOpen() }")
   })
 })

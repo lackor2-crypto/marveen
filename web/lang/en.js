@@ -924,7 +924,6 @@ window._i18n.en = {
   'backup.no_rule': 'no backup rule',
   'backup.root': 'the whole Marveen folder',
   'backup.tip_own': 'Backup: {target} (this folder’s own rule). Right-click → Backup setting… to change it.',
-  'backup.tip_left_out': 'The rule of {from} leaves this folder out, so it is not backed up. Right-click → Backup setting… if it needs a target.',
   'backup.tip_inherited': 'Backup: {target}, inherited from: {from}. Right-click → Backup setting… if this folder needs another target.',
   'backup.pick_title': 'Where should this folder be backed up: {name}?',
   'backup.pick_now_none': 'Now: there is no backup rule for this folder, nor above it.',
