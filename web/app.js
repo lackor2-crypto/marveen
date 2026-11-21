@@ -42755,7 +42755,7 @@ function _intezoRender() {
   // filter: "could not ask" is not "nothing is on the cloud".
   const cfMode = _cfMode()
   const cfOn = cfMode !== 'all' && Array.isArray(_bkRules) && !_bkError
-  const rows = cfOn ? _cfFilter(ordered.rows, cfMode, _bkRules) : ordered.rows
+  const rows = cfOn ? _cfFilter(ordered.rows, cfMode, _bkRules, (r) => _intezoTreeKids.get(r)) : ordered.rows
   const heads = ordered.heads
   _intezoShown = { L: L, rows: rows }
   const cfNote = document.getElementById('intezoCloudNote')
@@ -42765,6 +42765,7 @@ function _intezoRender() {
     cfNote.textContent = unknown ? (_bkError ? t('intezo.cloud_unknown', { why: _bkError }) : t('intezo.cloud_loading'))
       : cfOn && rows.length < ordered.rows.length ? t('intezo.cloud_hidden_n', { n: ordered.rows.length - rows.length }) : ''
   }
+  if (cfOn && cfMode === 'down') void _cfLoadKids(rows)
   if (!rows.length) {
     list.innerHTML = L.message ? '' : cfOn && ordered.rows.length
       ? '<p style="opacity:.7">' + escapeHtml(t(cfMode === 'up' ? 'intezo.cloud_empty_up' : 'intezo.cloud_empty_down')) + '</p>'
@@ -43162,7 +43163,7 @@ function _intezoTreeRender() {
   const cfMode = _cfMode()
   const cfTreeOn = cfMode !== 'all' && Array.isArray(_bkRules) && !_bkError
   const cfTreeKeep = (kids) => cfTreeOn && kids
-    ? kids.filter((k) => !k.isDir || k.rel === _intezoPath || String(_intezoPath).startsWith(k.rel + '/') || _cfFilter([k], cfMode, _bkRules).length)
+    ? kids.filter((k) => !k.isDir || k.rel === _intezoPath || String(_intezoPath).startsWith(k.rel + '/') || _cfFilter([k], cfMode, _bkRules, (r) => _intezoTreeKids.get(r)).length)
     : kids
   // TAGOLAS (#388). Boss: "a bal menü átláthatatlan [...] Korpás Lászlóra ha
   // ráklikkelek, akkor ami az összes [...] alatt van, annak a hátterét az
@@ -45300,7 +45301,7 @@ function _cfState(e, rules) {
     p = i > -1 ? p.slice(0, i) : ''
   }
   const covered = !!(rule && rule.target)
-  if (!e.isDir) return { up: covered, down: !covered }
+  if (!e.isDir) return { up: covered, down: !covered, covered: covered }
   let up = covered
   let down = !covered
   const below = rel ? rel + '/' : ''
@@ -45309,18 +45310,33 @@ function _cfState(e, rules) {
     if (r.target) up = true
     else down = true
   }
-  return { up: up, down: down }
+  return { up: up, down: down, covered: covered }
 }
-/** Keep the entries the filter lets through. `all` or unknown rules = untouched. */
-function _cfFilter(entries, mode, rules) {
+/** Keep the entries the filter lets through. `all` or unknown rules = untouched. `kidsOf(rel)` returns the loaded child
+ *  entries of a folder (or undefined when not loaded yet); it lets "not up" look INSIDE a folder (Boss TG 7197). */
+function _cfFilter(entries, mode, rules, kidsOf) {
   if ((mode !== 'up' && mode !== 'down') || !Array.isArray(rules)) return entries
   return entries.filter((e) => {
-    // TG 7181: "not up" never lists a folder with no file anywhere under it -- nothing in it could go up. Only a PROVEN
-    // emptiness counts (measured: empty, or only empty sub-folders); unknown / still measuring stays listed.
-    if (mode === 'down' && _cfProvenNoFiles(e)) return false
     const s = _cfState(e, rules)
-    return mode === 'up' ? s.up : s.down
+    if (mode === 'up') return s.up
+    return s.down && _cfDownHasFiles(e, rules, kidsOf, 0)
   })
+}
+/** "Not up" lists a folder only when a FILE under it is really not on a cloud (Boss TG 7181 / TG 7197): no file at any
+ *  depth, or every file sitting under an assigned sub-folder, means nothing is left to go up. Only PROVEN facts hide a
+ *  folder; anything not loaded / not measured yet stays listed. */
+function _cfDownHasFiles(e, rules, kidsOf, depth) {
+  if (!e.isDir) return true
+  if (_cfProvenNoFiles(e)) return false
+  const s = _cfState(e, rules)
+  if (!s.down) return false
+  const c = e.content
+  if (!c || c.pending || c.state !== 'has') return true
+  // Files directly in the folder follow the folder's own effective rule.
+  if (!s.covered && c.files > 0) return true
+  const kids = typeof kidsOf === 'function' && depth < 12 ? kidsOf(e.rel) : undefined
+  if (!Array.isArray(kids)) return true
+  return kids.some((k) => k.isDir && _cfDownHasFiles(k, rules, kidsOf, depth + 1))
 }
 /** A folder measured to hold no file at any depth. */
 function _cfProvenNoFiles(e) {
@@ -45328,7 +45344,46 @@ function _cfProvenNoFiles(e) {
   if (!c || c.pending) return false
   return c.state === 'empty' || (c.state === 'has' && c.deep === 'empty')
 }
+/** Folders whose "not up" verdict still waits for their children (unloaded), so the filter can look inside them. */
+function _cfNeedKids(entries, rules, kidsOf, skip, out, depth) {
+  out = out || []
+  for (const e of entries) {
+    if (!e || !e.isDir || _cfProvenNoFiles(e)) continue
+    const s = _cfState(e, rules)
+    const c = e.content
+    if (!s.down || !c || c.pending || c.state !== 'has') continue
+    if (!s.covered && c.files > 0) continue
+    const kids = kidsOf(e.rel)
+    if (!Array.isArray(kids)) { if (!skip.has(e.rel) && out.indexOf(e.rel) < 0) out.push(e.rel); continue }
+    if ((depth || 0) < 12) _cfNeedKids(kids, rules, kidsOf, skip, out, (depth || 0) + 1)
+  }
+  return out
+}
 // CLOUD-FILTER-END
+/** "Not up" looks inside a folder before listing it (Boss TG 7197), so the children of the listed folders get loaded --
+ *  eight at a time, level by level -- and the list and the tree are drawn again when something arrived. */
+let _cfKidsBusy = false
+const _cfKidsFailed = new Set()
+async function _cfLoadKids(rows) {
+  if (_cfKidsBusy || !Array.isArray(_bkRules)) return
+  _cfKidsBusy = true
+  let loaded = false
+  try {
+    for (let round = 0; round < 12; round++) {
+      const need = _cfNeedKids(rows, _bkRules, (r) => _intezoTreeKids.get(r), _cfKidsFailed)
+      if (!need.length) break
+      for (let at = 0; at < need.length; at += 8) await Promise.all(need.slice(at, at + 8).map(async (rel) => {
+        try {
+          const d = await _intezoGet('/api/life/list?deep=0&lang=' + (window._lang || 'hu') + '&path=' + encodeURIComponent(rel))
+          if (d && Array.isArray(d.folders) && !d.message) { _intezoTreeKids.set(rel, d.folders); loaded = true } else _cfKidsFailed.add(rel)
+        } catch (e) { _cfKidsFailed.add(rel) }
+      }))
+    }
+  } finally {
+    _cfKidsBusy = false
+  }
+  if (loaded && _cfMode() === 'down') { _intezoRender(); _intezoTreeRender() }
+}
 
 /** The mark next to a folder's name. Empty when no rule reaches the folder. */
 function _bkBadge(e) {
