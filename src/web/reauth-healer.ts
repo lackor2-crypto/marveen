@@ -432,7 +432,9 @@ async function checkSession(label: string, session: string, isMain: boolean, qui
     void restartFirstRunGatedAgent(label, session)
   }
   if (decision.escalate) {
-    logger.error({ label, session, reason: reauth.reason, quiet }, 'reauth-healer: dead OAuth token on live session -- escalating to owner')
+    // #960: nothing is escalated to the owner any more (logged-out accounts are silent, TG 3861), so this is
+    // a plain state line, not an ERROR claiming an escalation that never happens.
+    logger.warn({ label, session, reason: reauth.reason, quiet }, 'reauth-healer: dead OAuth token on live session (state only, no Telegram alert -- see the next line for the hold/quiet decision)')
     const hold = escalationHoldNow(label, isMain)
     if (hold === 'main-working') {
       logger.info({ label, session, reason: reauth.reason }, 'reauth-healer: dead-token escalation held back -- main agent is actively working (available=ok), the pane "Not logged in" is a stale quota artifact')
