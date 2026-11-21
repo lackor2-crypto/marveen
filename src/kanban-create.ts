@@ -45,6 +45,7 @@ export interface CardCandidate { id: string; seq: number | null; title: string; 
 export type CreateCardOutcome =
   | { ok: true; id: string; labels: string[]; linked: string[] }
   | { ok: false; code: 'label_error'; error: string }
+  | { ok: false; code: 'invalid_field'; error: string }
   | { ok: false; code: 'related_required'; error: string; similar: CardCandidate[] }
   | { ok: false; code: 'same_project'; error: string; cards: CardCandidate[] }
   | { ok: false; code: 'project_required'; error: string; projects: ProjectCandidate[] }
@@ -171,11 +172,32 @@ export function sameProjectMessage(cards: CardCandidate[]): string {
     + `Ha ez TENYLEG onallo projekt, kuldd ujra "separate_project": "<miert onallo, legalabb ${SEPARATE_PROJECT_MIN_CHARS} karakter>" mezovel.`
 }
 
+export const KANBAN_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const
+const KANBAN_STATUS_VALUES = ['planned', 'in_progress', 'testing', 'waiting', 'done'] as const
+
+/**
+ * #958: the table's CHECK constraints reject an unknown priority or status, and the
+ * raw SQLite error surfaced as a bare "Szerver hiba" (HTTP 500). One shared check, used
+ * by the create gate and by PUT, says in a sentence what IS accepted. Returns null when fine.
+ */
+export function kanbanFieldRefusal(data: { priority?: unknown; status?: unknown } | null | undefined): string | null {
+  if (!data) return null
+  if (data.priority !== undefined && data.priority !== null && !(KANBAN_PRIORITIES as readonly string[]).includes(String(data.priority))) {
+    return `Ismeretlen prioritás: ${String(data.priority)} -- a kártya NEM változott. Elfogadott: ${KANBAN_PRIORITIES.join(', ')}. / Unknown priority: ${String(data.priority)}. Accepted: ${KANBAN_PRIORITIES.join(', ')}.`
+  }
+  if (data.status !== undefined && data.status !== null && !(KANBAN_STATUS_VALUES as readonly string[]).includes(String(data.status))) {
+    return `Ismeretlen állapot: ${String(data.status)} -- a kártya NEM változott. Elfogadott: ${KANBAN_STATUS_VALUES.join(', ')}. / Unknown status: ${String(data.status)}. Accepted: ${KANBAN_STATUS_VALUES.join(', ')}.`
+  }
+  return null
+}
+
 /**
  * Egy uj kanban kartya, a fenti harom szabállyal. A visszateres SOSE dob: a
  * hivo (HTTP utvonal vagy agent-tool) donti el, hogyan mondja el a hibat.
  */
 export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome {
+  const refusal = kanbanFieldRefusal(data as { priority?: unknown; status?: unknown })
+  if (refusal) return { ok: false, code: 'invalid_field', error: refusal }
   // Rebuilt from upstream e3cf63a9 (#413): a caller may supply its own id (a
   // readable slug). Resolve it HERE, once: the `{ id, ...cardFields }` spread
   // below let the supplied id win in the stored row while this function
