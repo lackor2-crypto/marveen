@@ -60,6 +60,7 @@ import { brakeAlertText, planRemoteDeletions } from '../../drive-remote-delete.j
 import { sendMarveenAlert } from '../telegram.js'
 import { notifyLang } from '../code-bridge-notify.js'
 import { resolveLifePath, toLifeRel, trashLife } from '../../life-explorer.js'
+import { matchCloudFiles, type CloudMatch } from '../../life-dup-index.js'
 import { driveErrorKind, driveHibaUzenet, driveVeglegesenElutasitva } from '../../drive-error-kind.js'
 import { DRIVE_QUOTA_PATH, loadDriveQuotas, parseStorageQuota, recordDriveQuota } from '../../drive-quota.js'
 import {
@@ -603,13 +604,28 @@ async function listFolder(folderId: string, token: TokenForras): Promise<any[]> 
   let pageToken = ''
   do {
     const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
-    const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,size,modifiedTime,appProperties)')
+    const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType,size,modifiedTime,md5Checksum,appProperties)')
     const page = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''
     const data = await driveJson(`${DRIVE_FILES_URL}?q=${q}&fields=${fields}&pageSize=200${page}`, token)
     for (const f of data.files || []) out.push(f)
     pageToken = data.nextPageToken || ''
   } while (pageToken)
   return out
+}
+
+
+/**
+ * #957: a Drive file whose content (md5) is already somewhere in the Life tree
+ * outside this mirror's own folder is NOT downloaded again -- the owner already
+ * has it. Returns the Life-tree place that holds it, or '' when it must come down.
+ * Only a PROVEN match counts (`present`: same size + same md5); a probable or
+ * unknown one never skips a download.
+ */
+export function lifeCopyOutside(match: CloudMatch | undefined, ownRel: string): string {
+  if (!match || match.state !== 'present') return ''
+  const own = ownRel.replace(/\/+$/, '')
+  const hit = match.where.find((w) => !own || !(w === own || w.startsWith(own + '/')))
+  return hit || ''
 }
 
 /**
@@ -1247,6 +1263,14 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
         })
         if (job) job.skipped++
         continue
+      }
+      // #957: already in the Life tree (same md5) -> do not pull it down again.
+      if (!known && !exported && f.md5Checksum && f.size) {
+        const m = matchCloudFiles([{ name: f.name || seg, size: Number(f.size), md5: f.md5Checksum }])[0]
+        if (lifeCopyOutside(m, toLifeRel(base))) {
+          if (job) job.upToDate++
+          continue
+        }
       }
       try {
         const size = await downloadTo(plan.url, token, dest)
