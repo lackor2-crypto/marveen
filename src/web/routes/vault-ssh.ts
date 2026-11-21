@@ -72,7 +72,7 @@ export async function tryHandleVaultSsh(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/vault/ssh-servers' && method === 'POST') {
     try {
       const body = await readBody(req)
-      const data = JSON.parse(body.toString())
+      const data = JSON.parse(body.toString()) ?? {}
 
       const name = typeof data.name === 'string' ? data.name.trim() : ''
       const host = typeof data.host === 'string' ? data.host.trim() : ''

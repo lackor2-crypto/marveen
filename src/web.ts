@@ -178,7 +178,7 @@ import { tryHandleVaultSshKeys } from './web/routes/vault-ssh-keys.js'
 import { tryHandleBrowser } from './web/routes/browser.js'
 import { resumeVideoGenerations } from './workbench-video-gen-jobs.js'
 import type { RouteContext } from './web/routes/types.js'
-import { isMalformedBodyError } from './web/malformed-body.js'
+import { isMalformedBodyError, isBodyShapeError } from './web/malformed-body.js'
 import { gatedInterval, gateStats } from './background-gate.js'
 import { currentPressure, machineBusy, pressureLimits } from './machine-pressure.js'
 
@@ -417,6 +417,18 @@ export function startWebServer(port = 3420): http.Server {
         json(res, {
           error: 'bad_json_body',
           message: 'Hibás JSON törzs, a kérés nem hajtódott végre: a szöveges mezőkben a sortörést és az idézőjelet escape-elni kell. / Malformed JSON body, the request was not executed: escape newlines and quotes inside text fields.',
+        }, 400)
+        return
+      }
+      // #961: valid JSON of the wrong shape (null, a number for text, an array for an object) is the caller's mistake too.
+      if (isBodyShapeError(err, method, req.headers['content-length'] as string | undefined)) {
+        logger.warn(
+          { method, path, bytes: req.headers['content-length'] ?? '?', reason: (err as Error).message },
+          'Request body has the wrong shape -- the request was refused with 400 (a handler assumed another field type)',
+        )
+        json(res, {
+          error: 'bad_body_shape',
+          message: 'A kérés törzse jó JSON, de a mezők típusa nem az, amit a művelet vár (pl. szám szöveg helyén), ezért nem hajtódott végre. / The request body is valid JSON, but a field has the wrong type for this action, so nothing was done.',
         }, 400)
         return
       }

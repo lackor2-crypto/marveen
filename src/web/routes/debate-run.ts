@@ -128,7 +128,7 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/debate/attachment' && method === 'POST') {
     let body: { rel?: string; item?: string; name?: string; data_base64?: string }
-    try { body = JSON.parse((await readBody(req)).toString()) } catch { return fail(res, 400, 'bad_json', T(l, 'Hibás kérés.', 'Bad request.')) }
+    try { body = JSON.parse((await readBody(req)).toString()) ?? {} } catch { return fail(res, 400, 'bad_json', T(l, 'Hibás kérés.', 'Bad request.')) }
     const noText = (): true => fail(res, 422, 'no_text', T(l,
       'Ebből a fájlból nem tudtam szöveget kiolvasni (kép vagy beszkennelt lap lehet). Másold be a szövegét a kérdés mezőbe.',
       'I could not read any text from this file (it may be a picture or a scan). Paste its text into the question field.'))
@@ -165,7 +165,7 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/debate/run' && method === 'POST') {
     let body: { session?: string; project?: string; workItem?: string; question?: string; models?: string[]; attachments?: unknown; steer?: string; mode?: string; strength?: string; swapRoles?: boolean; judge?: string }
-    try { body = JSON.parse((await readBody(req)).toString()) } catch { return fail(res, 400, 'bad_json', T(l, 'Hibás kérés.', 'Bad request.')) }
+    try { body = JSON.parse((await readBody(req)).toString()) ?? {} } catch { return fail(res, 400, 'bad_json', T(l, 'Hibás kérés.', 'Bad request.')) }
     const project = body.project ? getProject(String(body.project))?.id ?? null : null
     try {
       const workItem = project && body.workItem ? (getWorkItem(String(body.workItem))?.project_id === project ? String(body.workItem) : null) : null
@@ -195,7 +195,7 @@ export async function tryHandleDebateRun(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/debate/estimate' && method === 'POST') {
     let body: { session?: string; question?: string; models?: string[]; attachments?: unknown; steer?: string; mode?: string; strength?: string; swapRoles?: boolean; judge?: string }
-    try { body = JSON.parse((await readBody(req)).toString()) } catch { return fail(res, 400, 'bad_json', T(l, 'Hibás kérés.', 'Bad request.')) }
+    try { body = JSON.parse((await readBody(req)).toString()) ?? {} } catch { return fail(res, 400, 'bad_json', T(l, 'Hibás kérés.', 'Bad request.')) }
     const prices = new Map<string, ModelPrice>()
     try {
       for (const m of (await openRouterModelsWithin(Date.now(), 3000)) ?? []) prices.set(m.id, { promptPrice: m.promptPrice, completionPrice: m.completionPrice })
