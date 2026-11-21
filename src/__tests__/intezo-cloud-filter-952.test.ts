@@ -15,7 +15,7 @@ function load() {
   const localStorage = { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v } }
   const _bkNorm = (p: string) => String(p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   // eslint-disable-next-line no-new-func
-  return new Function('localStorage', '_bkNorm', block + '\nreturn { _cfMode, _cfSetMode, _cfState, _cfFilter, _cfProvenNoFiles }')(localStorage, _bkNorm)
+  return new Function('localStorage', '_bkNorm', block + '\nreturn { _cfMode, _cfSetMode, _cfState, _cfFilter, _cfProvenNoFiles, _cfDownHasFiles, _cfNeedKids }')(localStorage, _bkNorm)
 }
 const drive = { kind: 'drive', account: 'a' }
 const dir = (rel: string) => ({ rel, isDir: true })
@@ -56,10 +56,10 @@ describe('Intezo cloud filter (#952)', () => {
     expect(names(cf._cfFilter([dir('Cegek'), dir('Cegek/Sub')], 'up', only))).toEqual(['Cegek', 'Cegek/Sub'])
     // TG 7166: the exclude list of a rule is ignored -- assigned to a cloud = up, not assigned = not up
     const r = [{ path: 'Csalad/Anna/Iratok', target: drive, exclude: ['Regi', '*.fxt'] }]
-    expect(cf._cfState(file('Csalad/Anna/Iratok/Regi/a.pdf'), r)).toEqual({ up: true, down: false })
-    expect(cf._cfState(file('Csalad/Anna/Iratok/t.FXT'), r)).toEqual({ up: true, down: false })
-    expect(cf._cfState(dir('Csalad/Anna/Iratok/Regi'), r)).toEqual({ up: true, down: false })
-    expect(cf._cfState(file('Csalad/Anna/Egyeb/x.pdf'), r)).toEqual({ up: false, down: true })
+    expect(cf._cfState(file('Csalad/Anna/Iratok/Regi/a.pdf'), r)).toMatchObject({ up: true, down: false })
+    expect(cf._cfState(file('Csalad/Anna/Iratok/t.FXT'), r)).toMatchObject({ up: true, down: false })
+    expect(cf._cfState(dir('Csalad/Anna/Iratok/Regi'), r)).toMatchObject({ up: true, down: false })
+    expect(cf._cfState(file('Csalad/Anna/Egyeb/x.pdf'), r)).toMatchObject({ up: false, down: true })
   })
 
   it('no rules at all: nothing is up, everything is not', () => {
@@ -75,7 +75,7 @@ describe('Intezo cloud filter (#952)', () => {
   it('is wired in: the select, the list, the tree, HU+EN texts', () => {
     expect(html).toContain('id="intezoCloudFilter"')
     expect(html).toContain('id="intezoCloudNote"')
-    expect(app).toMatch(/_cfFilter\(ordered\.rows, cfMode, _bkRules\)/)
+    expect(app).toMatch(/_cfFilter\(ordered\.rows, cfMode, _bkRules, \(r\) => _intezoTreeKids\.get\(r\)\)/)
     expect(app).toContain('cfTreeKeep(_intezoTreeKids.get(rel))')
     for (const lang of ['hu', 'en']) {
       const l = readFileSync(join(root, 'web', 'lang', `${lang}.js`), 'utf8')
@@ -94,7 +94,7 @@ describe('Intezo cloud filter (#952)', () => {
       { path: p + '/Projektek', target: { kind: 'mega', account: 'lackor3' }, exclude: ['Tester', 'logs', '*.fxt'] },
     ]
     for (const rel of [p, p + '/Media', p + '/Media/Fotok', p + '/Projektek', p + '/Projektek/Tester']) {
-      expect(cf._cfState(dir(rel), real), rel).toEqual({ up: true, down: false })
+      expect(cf._cfState(dir(rel), real), rel).toMatchObject({ up: true, down: false })
     }
     expect(names(cf._cfFilter([dir(p), dir(p + '/Media'), dir(p + '/Projektek')], 'down', real))).toEqual([])
     expect(names(cf._cfFilter([dir(p), dir(p + '/Projektek')], 'up', real))).toEqual([p, p + '/Projektek'])
@@ -158,5 +158,39 @@ describe('Intezo cloud filter (#952)', () => {
     expect(app).toContain("const kindChanged = i > 0 && (r.target ? r.target.kind : '') !== (rules[i - 1].target ? rules[i - 1].target.kind : '')")
     expect(app).toContain('border-top:5px solid')
     expect(app).toContain('bk-map-kind-break')
+  })
+  // TG 7197: Digitalis has files, but only under Szoftverek, which is assigned to MEGA -> nothing there is "not up".
+  it('"not up" hides a folder whose files all sit under assigned sub-folders (Boss: Digitalis)', () => {
+    const mega = { kind: 'mega', account: 'lackor3' }
+    const r = [{ path: 'Digitalis/Szoftverek', target: mega }]
+    const m = (rel: string, state: string, files: number, deep: string) => ({ rel, isDir: true, content: { state, files, folders: 0, deep } })
+    const digi = m('Digitalis', 'has', 0, 'has')
+    const kids: Record<string, any[]> = {
+      Digitalis: [m('Digitalis/Domainek', 'empty', 0, 'empty'), m('Digitalis/Eszkozok', 'empty', 0, 'empty'), m('Digitalis/Szoftverek', 'has', 0, 'has')],
+    }
+    const kidsOf = (rel: string) => kids[rel]
+    expect(cf._cfFilter([digi], 'down', r, kidsOf), 'every file is under the assigned Szoftverek').toEqual([])
+    expect(cf._cfFilter([digi], 'down', r), 'children not loaded: unknown stays listed').toEqual([digi])
+    kids.Digitalis.push(m('Digitalis/Jegyzetek', 'has', 3, 'has'))
+    expect(cf._cfFilter([digi], 'down', r, kidsOf), 'an unassigned sub-folder with files keeps it').toEqual([digi])
+    const own = m('Digitalis', 'has', 2, 'has')
+    kids.Digitalis.pop()
+    expect(cf._cfFilter([own], 'down', r, kidsOf), 'a file directly in the unassigned folder keeps it').toEqual([own])
+  })
+  it('"not up" asks for the children of a folder it must look inside, and only those', () => {
+    const mega = { kind: 'mega', account: 'lackor3' }
+    const r = [{ path: 'Digitalis/Szoftverek', target: mega }]
+    const m = (rel: string, state: string, files: number, deep: string) => ({ rel, isDir: true, content: { state, files, folders: 0, deep } })
+    const kids: Record<string, any[]> = {}
+    const kidsOf = (rel: string) => kids[rel]
+    const rows = [m('Digitalis', 'has', 0, 'has'), m('Gyors', 'has', 4, 'has'), m('Ures', 'empty', 0, 'empty')]
+    expect(cf._cfNeedKids(rows, r, kidsOf, new Set())).toEqual(['Digitalis'])
+    expect(cf._cfNeedKids(rows, r, kidsOf, new Set(['Digitalis'])), 'a failed load is not asked again').toEqual([])
+    kids.Digitalis = [m('Digitalis/X', 'has', 0, 'has')]
+    expect(cf._cfNeedKids(rows, r, kidsOf, new Set())).toEqual(['Digitalis/X'])
+  })
+  it('the list loads the children it needs and is wired in', () => {
+    expect(app).toContain("if (cfOn && cfMode === 'down') void _cfLoadKids(rows)")
+    expect(app).toContain('async function _cfLoadKids(rows)')
   })
 })
