@@ -57,8 +57,8 @@ describe('lefele tukrot nem lehet tobbe felvenni', () => {
     expect(blokk).toContain("code: 'mirror_retired'")
   })
 
-  it('a futtatas csak a mentes-parokat viszi', () => {
-    expect(server).toMatch(/cfg\.pairs\)\.filter\(\(p\) => p\.backup\)/)
+  it('a futtatas csak a mentes-parokat es a #957 gyujto-parokat viszi (a regi ketiranyu tukrot soha)', () => {
+    expect(server).toMatch(/cfg\.pairs\)\.filter\(\(p\) => p\.backup \|\| p\.collect\)/)
   })
 
   it('a regi tukor-par a listaban csak levalaszthato', () => {
