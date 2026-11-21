@@ -2608,7 +2608,7 @@ async function docPageExport(itemId: string, version: unknown): Promise<DocPageE
 }
 
 /** The html an export / send uses for the item (the document page's, or a Word file's), or why the page could not be rendered. */
-async function exportDocSource(itemId: string, version: unknown): Promise<{ docHtml?: string; docPageFailed?: string | null }> {
+export async function exportDocSource(itemId: string, version: unknown): Promise<{ docHtml?: string; docPageFailed?: string | null }> {
   const page = await docPageExport(itemId, version)
   if (page && 'failed' in page) return { docPageFailed: page.failed ?? '' }
   if (page) return { docHtml: page.html }

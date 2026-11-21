@@ -8905,6 +8905,13 @@
       + '</div>'
   }
 
+  /** #947: is there a real "original file" to offer? A drawing, a presentation and a video timeline are kept as internal
+   *  data files (.canvas.json / .deck.json / .timeline.json), which mean nothing to the owner: no download link, no mail attachment. */
+  function exportHasOriginal(p) {
+    if (!p || !p.rel) return false
+    return ['canvas', 'deck', 'timeline'].indexOf(p.kind) < 0
+  }
+
   function exportPanelHtml() {
     if (WB.detail && WB.detail.item && WB.detail.item.type === 'video') return videoExportPanelHtml()
     var p = WB.preview || {}
@@ -8916,7 +8923,7 @@
       rows.push('<div class="wb-exp-row"><a class="btn-secondary" href="' + escA(p.url) + '&download=1" target="_blank" rel="noopener">' + esc(t('workbench.exp.office_pdf')) + '</a></div>')
     }
     rows.push('<div class="wb-exp-row wb-exp-docs"><span class="wb-hint">' + esc(t('workbench.exp.docs')) + '</span> '
-      + ['docx', 'odt', 'doc', 'rtf', 'txt', 'epub'].map(function (f) {
+      + (p.kind === 'image' ? ['docx', 'odt', 'doc', 'rtf', 'epub'] : ['docx', 'odt', 'doc', 'rtf', 'txt', 'epub']).map(function (f) {
         return '<button type="button" class="btn-secondary" data-wb-act="export-doc" data-wb-fmt="' + f + '"'
           + (WB.docBusy ? ' disabled' : '') + '>' + esc(WB.docBusy === f ? t('workbench.exp.doc_busy') : t('workbench.exp.doc_' + f)) + '</button>'
       }).join('') + '</div>')
@@ -8924,7 +8931,7 @@
       + (png ? '<button type="button" class="btn-secondary" data-wb-act="export-png"' + (WB.pngBusy ? ' disabled' : '') + '>'
         + esc(WB.pngBusy ? t('workbench.exp.png_busy') : t('workbench.exp.png')) + '</button>' : '')
       + '<a class="btn-secondary" href="' + escA(exportPageUrl('&download=1')) + '" download>' + esc(t('workbench.exp.html')) + '</a>'
-      + (p.rel ? '<a class="btn-secondary" href="/api/life/file?rel=' + escA(encodeURIComponent(p.rel)) + '&download=1" target="_blank" rel="noopener">'
+      + (exportHasOriginal(p) ? '<a class="btn-secondary" href="/api/life/file?rel=' + escA(encodeURIComponent(p.rel)) + '&download=1" target="_blank" rel="noopener">'
         + esc(t('workbench.exp.source')) + '</a>' : '')
       + '</div>')
     if (!png) rows.push('<p class="wb-hint">' + esc(t('workbench.exp.png_none')) + '</p>')
@@ -8991,7 +8998,7 @@
       + '<label class="wb-label" for="wbSendAttach">' + esc(t('workbench.exp.send_attach')) + '</label>'
       + '<select class="wb-input" id="wbSendAttach">'
       + '<option value="html"' + (d.attachment !== 'source' ? ' selected' : '') + '>' + esc(t('workbench.exp.attach_html')) + '</option>'
-      + (p.rel ? '<option value="source"' + (d.attachment === 'source' ? ' selected' : '') + '>' + esc(t('workbench.exp.attach_source', { name: p.name || '' })) + '</option>' : '')
+      + (exportHasOriginal(p) ? '<option value="source"' + (d.attachment === 'source' ? ' selected' : '') + '>' + esc(t('workbench.exp.attach_source', { name: p.name || '' })) + '</option>' : '')
       + '</select>'
       + (st && st.error ? '<p class="wb-preview-bad">' + esc(st.error) + '</p>' : '')
       + '<div class="wb-form-actions"><button type="submit" class="btn-primary" data-wb-act="send-request"' + (busy ? ' disabled' : '') + '>'

@@ -36,7 +36,8 @@ import { resolveLifePath } from './life-explorer.js'
 import { getProject } from './projects.js'
 import { fileKind } from './file-kind.js'
 import { buildPreview } from './workbench-preview.js'
-import { readCanvas, renderCanvasForItem } from './workbench-canvas-store.js'
+import { readCanvas, renderCanvasForItem, imageResolverFor } from './workbench-canvas-store.js'
+import { deckStore, renderSlideSvg } from './workbench-deck.js'
 import { getWorkItem, listWorkItemParts, type WorkItemRow } from './workbench.js'
 
 type Lang = 'hu' | 'en'
@@ -54,6 +55,7 @@ const W = {
     imageMissing: 'A kép nem olvasható', imageTooBig: 'A kép túl nagy a beágyazáshoz',
     fileOnly: 'Ez a munkadarab egy fájl, amit ez a lap nem tud megjeleníteni. Az eredeti fájlt töltsd le a Munkapadról.',
     generated: 'Készült',
+    noSlides: 'Ebben a prezentációban még nincs dia.',
     docPageFailed: 'A dokumentum-oldalt nem sikerült kirenderelni, ezért nem tudom megmutatni (a tartalma megvan). Ha nincs LibreOffice a gépen, a Munkapad „Mi működik ezen a gépen?” paneljén látod.',
   },
   en: {
@@ -63,6 +65,7 @@ const W = {
     imageMissing: 'The image cannot be read', imageTooBig: 'The image is too large to embed',
     fileOnly: 'This work item is a file this page cannot show. Download the original from the Workbench.',
     generated: 'Generated',
+    noSlides: 'This presentation has no slides yet.',
     docPageFailed: 'The document page could not be rendered, so it cannot be shown here (its content is intact). If LibreOffice is missing on this machine, the Workbench "What works on this machine?" panel shows it.',
   },
 } as const
@@ -83,6 +86,19 @@ function imageDataUri(rel: string, budget: { left: number }): { ok: true; uri: s
   budget.left -= buf.length
   const mime = fileKind(basename(abs)).mime || 'application/octet-stream'
   return { ok: true, uri: `data:${mime};base64,${buf.toString('base64')}` }
+}
+
+/** A page width the pictures of a drawing / slides are shown at (px): fits an A4 page, and Word / LibreOffice size the picture from it. */
+const EXPORT_PICTURE_WIDTH = 640
+
+/**
+ * A drawing (SVG) as a PICTURE element. An inline <svg> prints in a browser, but Word, LibreOffice (ODT / RTF / EPUB) drop it,
+ * so the exported file had no drawing at all (#947); an <img> with the SVG as a data address is kept by all of them.
+ */
+function svgPicture(svg: string, width: number, height: number, alt: string): string {
+  const w = Math.min(EXPORT_PICTURE_WIDTH, Math.max(1, Math.round(width)))
+  const h = Math.max(1, Math.round(height * (w / Math.max(1, width))))
+  return `<img src="data:image/svg+xml;base64,${Buffer.from(svg, 'utf-8').toString('base64')}" alt="${esc(alt)}" width="${w}" height="${h}">`
 }
 
 function paragraphs(text: string): string {
@@ -133,8 +149,18 @@ export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang:
     blocks.push(img(p.rel, item.title, null))
   } else if (p.kind === 'canvas') {
     const c = readCanvas(item.id, wantedVersion)
-    if (c.ok) blocks.push(`<div class="canvas">${renderCanvasForItem(item, c.doc)}</div>`)
+    if (c.ok) blocks.push(`<div class="canvas">${svgPicture(renderCanvasForItem(item, c.doc), c.doc.width, c.doc.height, item.title)}</div>`)
     else blocks.push(`<p class="missing">${esc(opts.fileOnly ?? w.fileOnly)}</p>`)
+  } else if (p.kind === 'deck') {
+    // #947: a presentation is its slides (each a drawing), in order; it used to say "this page cannot show the file".
+    const d = deckStore().read(item.id, wantedVersion)
+    if (d.ok && d.doc.slides.length) {
+      const resolveImage = imageResolverFor(project || null)
+      d.doc.slides.forEach((slide, i) => {
+        blocks.push(`<figure class="slide">${svgPicture(renderSlideSvg(slide, { resolveImage }), slide.canvas.width, slide.canvas.height, `${item.title} ${i + 1}`)}</figure>`)
+      })
+    } else if (d.ok) blocks.push(`<p class="missing">${esc(w.noSlides)}</p>`)
+    else blocks.push(`<p class="missing">${esc(opts.fileOnly ?? w.fileOnly)}${p.name ? ` (${esc(p.name)})` : ''}</p>`)
   } else {
     blocks.push(`<p class="missing">${esc(opts.fileOnly ?? w.fileOnly)}${p.name ? ` (${esc(p.name)})` : ''}</p>`)
   }
@@ -161,7 +187,8 @@ export function buildExportPage(item: WorkItemRow, wantedVersion: unknown, lang:
   p { margin: 0 0 12px; white-space: normal; word-break: break-word; }
   pre { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Consolas, monospace; font-size: 0.9rem; }
   figure { margin: 0 0 16px; page-break-inside: avoid; break-inside: avoid; }
-  figure img, .canvas svg { max-width: 100%; height: auto; display: block; }
+  figure img, .canvas img { max-width: 100%; height: auto; display: block; }
+  figure.slide img { border: 1px solid #ccc; }
   figcaption { color: #444; font-size: 0.9rem; margin-top: 4px; }
   .docbody p, .docbody h1, .docbody h2, .docbody h3, .docbody li { position: relative; }
   .docbody img { max-width: none; }

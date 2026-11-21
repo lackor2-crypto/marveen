@@ -21,6 +21,7 @@ import { listPostFiles, getPostFile, POST_PLATFORMS } from '../../workbench-post
 import { planHandoff, buildHandoffZip, HANDOFF_MAX_BYTES } from '../../workbench-handoff.js'
 import { resolveShareToken, noteShareView, shareLangHint, type ShareRow } from '../../workbench-share.js'
 import type { RouteContext } from './types.js'
+import { exportDocSource } from './workbench.js'
 
 type Lang = 'hu' | 'en'
 
@@ -119,7 +120,8 @@ function untilText(s: ShareRow): string {
 /** A munkadarab letoltheto fajlja (Raktar-relativ ut + abszolut), ha van. */
 function itemFile(itemId: string): { abs: string; name: string; size: number } | null {
   const p = buildPreview(itemId)
-  if (!p.rel || p.kind === 'parts') return null
+  // #947: a drawing / presentation / timeline is kept as an internal data file (.canvas.json ...): not an "original" to hand out.
+  if (!p.rel || p.kind === 'parts' || p.kind === 'canvas' || p.kind === 'deck' || p.kind === 'timeline') return null
   const abs = resolveLifePath(p.rel)
   if (!abs) return null
   try {
@@ -145,11 +147,32 @@ function postSection(s: ShareRow, token: string, type: string): string {
   return `<div class="meta" style="border:1px solid #ccc;border-radius:8px;padding:8px 10px;margin:8px 0"><strong>${esc(t.postTitle)}</strong><br>${list}<span class="muted">${esc(t.postPdf)}</span></div>`
 }
 
-function itemPage(res: RouteContext['res'], s: ShareRow, token: string): void {
+type DocSrc = { docHtml?: string; docPageFailed?: string | null }
+/** The page of a document item is rendered by LibreOffice: a public link must not start it on every view, so the result is kept a short while. */
+const DOC_SRC_TTL_MS = 30_000
+const DOC_SRC_MAX = 50
+const docSrcCache = new Map<string, { at: number; p: Promise<DocSrc> }>()
+
+function shareDocSource(itemId: string): Promise<DocSrc> {
+  const now = Date.now()
+  const hit = docSrcCache.get(itemId)
+  if (hit && now - hit.at < DOC_SRC_TTL_MS) return hit.p
+  if (docSrcCache.size >= DOC_SRC_MAX) {
+    for (const [k, v] of docSrcCache) if (now - v.at >= DOC_SRC_TTL_MS) docSrcCache.delete(k)
+    if (docSrcCache.size >= DOC_SRC_MAX) docSrcCache.delete(docSrcCache.keys().next().value as string)
+  }
+  const p = exportDocSource(itemId, null).catch((e): DocSrc => ({ docPageFailed: e instanceof Error ? e.message : String(e) }))
+  docSrcCache.set(itemId, { at: now, p })
+  return p
+}
+
+async function itemPage(res: RouteContext['res'], s: ShareRow, token: string): Promise<void> {
   const t = T[s.lang]
   const item = getWorkItem(s.work_item_id as string)!
   const file = itemFile(item.id)
-  const exp = buildExportPage(item, null, s.lang, { toolbar: false, fileOnly: file ? t.fileOnly : t.noFile })
+  // #947: a document / Word item shows its text (the same page as the export), not "no content yet".
+  const src = await shareDocSource(item.id)
+  const exp = buildExportPage(item, null, s.lang, { toolbar: false, fileOnly: file ? t.fileOnly : t.noFile, docHtml: src.docHtml, docPageFailed: src.docPageFailed })
   const banner = `<p class="meta" style="border:1px solid #ccc;border-radius:8px;padding:8px 10px">${esc(t.banner)} · ${esc(t.until)}: ${esc(untilText(s))}`
     + (file ? `<br><a class="btn" href="/view/${esc(token)}/file" download>${esc(t.download)}</a> <span class="muted">(${esc(file.name)})</span>` : '')
     + '</p>' + postSection(s, token, item.type)
@@ -200,7 +223,7 @@ export async function tryHandleWorkbenchShareView(ctx: RouteContext): Promise<bo
 
   if (!m[2]) {
     noteShareView(s.id)
-    if (s.kind === 'item') itemPage(res, s, token)
+    if (s.kind === 'item') await itemPage(res, s, token)
     else handoffPage(res, s, token)
     return true
   }
