@@ -25,7 +25,7 @@ beforeEach(async () => {
   mkdirSync(join(dir, 'Projektek', 'Nemet'), { recursive: true })
   const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: pid, type: 'document', title: 'Level a DRV-nek' })
   itemId = c.body.item.id as string
-  await sweepItemContexts()
+  await sweepItemContexts({ full: true })
   const s = addSection(itemId, 'Level')
   if (!s.ok) throw new Error('fejezet')
   addBlock(itemId, s.section.id, { text: 'Címzett:\nDeutsche Rentenversicherung Bund\nClearingstelle\n10704 Berlin', author: 'agent' })

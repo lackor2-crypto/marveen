@@ -25,7 +25,7 @@ beforeEach(async () => {
   const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: p.project.id, type: 'document', title: 'Wohngeld' })
   itemId = c.body.item.id as string
   assignWorkItemFolder(itemId, 'Kerelem')
-  await sweepItemContexts()
+  await sweepItemContexts({ full: true })
 })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); delete process.env['MARVEEN_DEPOT'] })
 
@@ -37,7 +37,7 @@ describe('Eletfa rename of the item folder', () => {
     followFolderMove('Projektek/Nemet/Kerelem', 'Projektek/Nemet/2026-10_uj_kerelem')
     const it = getWorkItem(itemId)!
     expect(String(it.folder ?? '')).not.toBe('Kerelem')
-    await sweepItemContexts()
+    await sweepItemContexts({ full: true })
     expect(existsSync(join(dir, 'Projektek/Nemet/Kerelem'))).toBe(false) // no phantom folder under the old name
     const after = readItemContext(getWorkItem(itemId)!)!
     expect(after.rel.startsWith('Projektek/Nemet/2026-10_uj_kerelem/')).toBe(true)

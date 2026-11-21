@@ -23,7 +23,7 @@ beforeEach(async () => {
   mkdirSync(join(dir, 'Projektek', 'Nemet'), { recursive: true })
   const c = await callWorkbench('/api/workbench/items', 'POST', { project_id: p.project.id, type: 'document', title: 'Level a hivatalnak' })
   itemId = c.body.item.id as string
-  await sweepItemContexts()
+  await sweepItemContexts({ full: true })
 })
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); delete process.env['MARVEEN_DEPOT'] })
 
