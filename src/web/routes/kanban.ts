@@ -20,7 +20,7 @@ import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
 import { isAgentUnableToWork } from '../agent-able-to-work.js'
 import { resolveKanbanDispatchTarget } from '../../kanban-dispatch.js'
-import { createCardWithRules, refuseArchivedProject } from '../../kanban-create.js'
+import { createCardWithRules, refuseArchivedProject, kanbanFieldRefusal } from '../../kanban-create.js'
 import { ensureApprovalForWaitingCard, withdrawApprovalForCardLeavingWaiting } from './approvals.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
@@ -451,6 +451,8 @@ const archivedNote = (card: { archived_at: number | null } | undefined): { archi
       }, 400)
       return true
     }
+    const badField = kanbanFieldRefusal(data)
+    if (badField) { json(res, { error: 'invalid_field', message: badField }, 400); return true }
     if (data.project !== undefined) data.project = resolveProjectRef(data.project)
     // #795: a card may stay in a project that was archived later (the dashboard sends the whole card back), but
     // it cannot be moved INTO one.
