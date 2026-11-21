@@ -41429,6 +41429,9 @@ async function loadIntezoPage() {
     cfSel.value = _cfMode()
     cfSel.addEventListener('change', () => {
       _cfSetMode(cfSel.value)
+      // TG 7170: filter on -> the whole tree opens; plain view -> everything closed again.
+      _intezoTreeCollapsed = new Set()
+      if (cfSel.value === 'all') { _intezoTreeOpenSet = new Set(); _intezoTreeSaveOpen() }
       _intezoRender()
       _intezoTreeRender()
     })
@@ -43061,10 +43064,15 @@ function _intezoTreeIsLeaf(entry) {
   return c.state === 'empty' || (c.state === 'has' && c.folders === 0)
 }
 
+/** Cloud filter on ("only up" / "only not up"): every folder of the tree is open (Boss TG 7170). */
+function _intezoTreeAllOpen() {
+  return _cfMode() !== 'all' && Array.isArray(_bkRules) && !_bkError
+}
+
 function _intezoTreeIsOpen(rel, entry, forced) {
   if (entry && _intezoTreeIsLeaf(entry)) return false
   if (_intezoTreeCollapsed.has(rel)) return false
-  return forced.has(rel) || _intezoTreeOpenRels().has(rel)
+  return forced.has(rel) || _intezoTreeAllOpen() || _intezoTreeOpenRels().has(rel)
 }
 
 /** Expanded folders whose children are not loaded yet (and whose parents are visible). */
@@ -43110,7 +43118,8 @@ async function _intezoTreeSync() {
     for (let round = 0; round < 12; round++) {
       const need = _intezoTreeMissing()
       if (!need.length) break
-      await Promise.all(need.map(async (rel) => {
+      // Batches of 8 at a time: a fully opened tree has many folders, they must not hit the server all at once.
+      for (let at0 = 0; at0 < need.length; at0 += 8) await Promise.all(need.slice(at0, at0 + 8).map(async (rel) => {
         try {
           const d = await _intezoGet('/api/life/list?deep=0&lang=' + (window._lang || 'hu')
             + '&path=' + encodeURIComponent(rel))
@@ -45262,8 +45271,7 @@ function _bkFromText(from) { return from ? from : t('backup.root') }
 // Boss, 2026-11-21 (TG 7123): "csak azt jeleníti meg, ami fent van a felhőben /
 // csak ami még nincs felszinkronizálva / alap: mindent". A folder stays visible
 // when ANYTHING under it matches; a file by its own state. "Up" = covered by a
-// backup rule that has a target (own or the nearest ancestor's), minus what that
-// rule leaves out. Pure functions of the already loaded rules: no disk, no
+// backup rule that has a target (own or the nearest ancestor's). Pure functions of the already loaded rules: no disk, no
 // request, so a slow disk cannot make the switch hang.
 // CLOUD-FILTER-BEGIN
 function _cfMode() {
@@ -45272,24 +45280,9 @@ function _cfMode() {
 function _cfSetMode(m) {
   try { localStorage.setItem('intezoCloudFilter', m === 'up' || m === 'down' ? m : 'all') } catch (e) { /* private mode: the choice lives until reload */ }
 }
-/** What the covering rule leaves out: is `rel` (inside the rule's folder `from`) one of them? */
-function _cfLeftOut(rule, from, rel, isDir) {
-  const ex = rule && Array.isArray(rule.exclude) ? rule.exclude : []
-  if (!ex.length) return false
-  let within = _bkNorm(rel)
-  if (from) within = within === from ? '' : within.slice(from.length + 1)
-  const low = within.toLowerCase()
-  for (const x of ex) {
-    if (x.charAt(0) === '*') {
-      if (!isDir && low.endsWith(x.slice(1).toLowerCase())) return true
-    } else {
-      const d = x.toLowerCase()
-      if (low === d || low.startsWith(d + '/')) return true
-    }
-  }
-  return false
-}
-/** { up, down }: does the entry itself / anything under it count as on the cloud / not on it. */
+/** { up, down }: does the entry itself / anything under it count as on the cloud / not on it.
+ *  Boss, TG 7166: "Hozza van rendelve, vagy nincs hozza rendelve egy felho. Ez szamit." -- only the ASSIGNMENT of a
+ *  cloud (Drive / MEGA / Photos) counts; what a rule's exclude list leaves out does not change it. */
 function _cfState(e, rules) {
   const rel = _bkNorm(e.rel)
   const by = new Map((rules || []).map((r) => [r.path, r]))
@@ -45302,9 +45295,6 @@ function _cfState(e, rules) {
     p = i > -1 ? p.slice(0, i) : ''
   }
   const covered = !!(rule && rule.target)
-  const out = covered && _cfLeftOut(rule, rule.path, rel, !!e.isDir)
-  // Deliberately left out (the rule's exclude list) counts as neither: it was chosen not to go up, so it is not "still to upload" (Boss TG 7163).
-  if (out) return { up: false, down: false }
   if (!e.isDir) return { up: covered, down: !covered }
   let up = covered
   let down = !covered
@@ -45328,15 +45318,10 @@ function _bkBadge(e) {
   if (!e || !e.isDir || !_bkRules) return ''
   const eff = _bkEffective(e.rel)
   if (eff.from === null) return ''
-  // A folder the covering rule LEAVES OUT (its exclude list) is not backed up by that rule, whatever the mark of the
-  // parent says (TG 7156: the same blind spot as the cloud filter had).
-  const rule = eff.own || !eff.target ? null : (_bkRules || []).find((r) => r.path === eff.from)
-  const leftOut = !!(rule && _cfLeftOut(rule, rule.path, e.rel, true))
-  const txt = eff.target && !leftOut ? '☁ ' + _bkTargetText(eff.target) : '⊘ ' + t('backup.none')
-  const tip = leftOut ? t('backup.tip_left_out', { from: _bkFromText(eff.from) })
-    : eff.own ? t('backup.tip_own', { target: _bkTargetText(eff.target) })
+  const txt = eff.target ? '☁ ' + _bkTargetText(eff.target) : '⊘ ' + t('backup.none')
+  const tip = eff.own ? t('backup.tip_own', { target: _bkTargetText(eff.target) })
     : t('backup.tip_inherited', { target: _bkTargetText(eff.target), from: _bkFromText(eff.from) })
-  const color = eff.target && !leftOut ? (eff.target.kind === 'mega' ? '#c2410c' : eff.target.kind === 'photos' ? '#7c3aed' : '#2563eb') : 'var(--text-muted,#888)'
+  const color = eff.target ? (eff.target.kind === 'mega' ? '#c2410c' : eff.target.kind === 'photos' ? '#7c3aed' : '#2563eb') : 'var(--text-muted,#888)'
   return ' <span class="intezo-backup' + (eff.own ? ' own' : '') + '" title="' + escapeHtml(tip) + '"'
     + ' style="font-size:11px;white-space:nowrap;margin-left:6px;color:' + color
     + ';opacity:' + (eff.own ? '1' : '.5') + (eff.own ? ';font-weight:600' : '') + '">'

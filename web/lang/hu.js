@@ -952,7 +952,6 @@ window._i18n.hu = {
   'backup.no_rule': 'nincs mentési szabály',
   'backup.root': 'a teljes Marveen mappa',
   'backup.tip_own': 'Mentés: {target} (ennek a mappának a saját szabálya). Jobb klikk → Mentés beállítása… a módosításhoz.',
-  'backup.tip_left_out': 'Ezt a mappát a(z) {from} szabálya kihagyja, ezért nincs mentve. Jobb klikk → Mentés beállítása…, ha kell neki cél.',
   'backup.tip_inherited': 'Mentés: {target} – örökölve innen: {from}. Jobb klikk → Mentés beállítása…, ha ennek a mappának más cél kell.',
   'backup.pick_title': 'Hova mentsük ezt a mappát: {name}?',
   'backup.pick_now_none': 'Most: ehhez a mappához még nincs mentési szabály, és felette sincs.',
