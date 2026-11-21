@@ -2007,13 +2007,16 @@ async function runRestore(pair: SyncPair, dryRun: boolean): Promise<void> {
 export function collectSkip(ownRel: string, matchOf: (f: RestoreEntry) => CloudMatch | undefined) {
   return (f: RestoreEntry, rel: string, isFolder: boolean): string => {
     if (isFolder) {
-      const top = !rel.includes('/')
+      // Only the folders Marvin itself made for the Life-tree backup (marked, or the fixed name).
+      // The plural "Marveen mentések" is NOT skipped as a folder: other apps (SMS Backup & Restore)
+      // keep their files there too -- only Marvin's own .mbk files inside it are left alone.
       const marked = !!(f.appProperties && f.appProperties[BACKUP_PATH_PROP] !== undefined)
-      if (top && (marked || f.name === MENTES_MAPPA || f.name === 'Marveen mentések')) {
+      if (!rel.includes('/') && (marked || f.name === MENTES_MAPPA)) {
         return 'Marvin saját mentése a Drive-on, ezt nem hozzuk le (a gépen megvan az eredeti)'
       }
       return ''
     }
+    if (/^marveen-backup-.*\.mbk$/i.test(f.name)) return 'Marvin saját biztonsági mentése, ezt nem hozzuk le (a gépen megvan)'
     if (String(f.mimeType || '').startsWith('application/vnd.google-apps.')) return ''
     if (!f.md5Checksum || !f.size) return ''
     return lifeCopyOutside(matchOf(f), ownRel) ? 'in-life' : ''
