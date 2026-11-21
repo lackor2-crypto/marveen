@@ -3,6 +3,7 @@
 //   GET  /api/backup-rules        -- every rule + the accounts a rule can point to
 //   POST /api/backup-rules/set    -- {path, action: 'target'|'none'|'inherit', kind?, account?}
 //   POST /api/backup-rules/exclude -- {path, exclude}: what this folder's backup leaves out
+//   POST /api/backup-rules/split  -- {path, split:[{account, from}]}: share a Google Photos folder's loose files over more accounts
 //   POST /api/backup-rules/mega/preview -- {path}: what an upload WOULD do (uploads nothing)
 //   POST /api/backup-rules/mega/run     -- {path}: upload exactly the last preview's list
 //   POST /api/backup-rules/mega/mirror/preview -- {account}: Raktar/Tarolok/MEGA/<account> -> account root (#360)
@@ -14,7 +15,7 @@
 // Setting a rule NEVER uploads anything (Boss, 2026-09-24: "de még ne töltsd
 // fel semmit"). It only records where a folder SHOULD go.
 import { json, readBody, reqLang, L } from '../http-helpers.js'
-import { loadBackupRules, setBackupRule, setBackupExclude, normRulePath, childExclusions, type BackupKind, type BackupRule } from '../../backup-rules.js'
+import { loadBackupRules, setBackupRule, setBackupExclude, setBackupSplit, normRulePath, childExclusions, type BackupKind, type BackupRule } from '../../backup-rules.js'
 import { loadDriveQuotas } from '../../drive-quota.js'
 import { readMegaAccounts, readMegaQuota, measureMegaQuota, rcloneBin, defaultRunner } from '../../mega.js'
 import { excludeRules, normalizeExcludes } from '../../backup-exclude.js'
@@ -58,6 +59,8 @@ export function backupAccounts(): BackupAccount[] {
       measuredAt: q?.at || null,
     })
   }
+  // Google Photos lives in the same Google account (and the same 15 GB) as Drive: same names, same free space.
+  for (const d of out.filter((o) => o.kind === 'drive')) out.push({ ...d, kind: 'photos' })
   const mq = readMegaQuota()
   for (const m of readMegaAccounts().sort((x, y) => x.name.localeCompare(y.name))) {
     const q = mq[m.name]
@@ -383,6 +386,37 @@ export async function tryHandleBackupRules(ctx: RouteContext): Promise<boolean> 
     return true
   }
 
+  if (path === '/api/backup-rules/split' && method === 'POST') {
+    const data = await readJson(ctx)
+    const raw: any[] = Array.isArray(data.split) ? data.split : []
+    const split = raw.map((x) => ({ account: String(x?.account ?? '').trim(), from: String(x?.from ?? '').trim() }))
+    const known = new Set(backupAccounts().filter((a) => a.kind === 'photos').map((a) => a.account))
+    const unknown = split.find((s) => !known.has(s.account))
+    if (unknown) {
+      json(res, {
+        error: L(lang, `Ez a fiók nincs bekötve: ${unknown.account || '(üres)'}. Csak bekötött Google-fiókra oszthatod a fotókat.`, `This account is not connected: ${unknown.account || '(empty)'}. You can only share photos over connected Google accounts.`),
+        code: 'unknown_account',
+      }, 400)
+      return true
+    }
+    try {
+      json(res, { ok: true, rules: setBackupSplit(String(data.path ?? ''), split) })
+    } catch (e: any) {
+      const m = String(e?.message || e)
+      const noRule = m === 'no_photos_rule'
+      const bad = m === 'bad_split'
+      json(res, {
+        error: noRule
+          ? L(lang, 'Szétosztást csak olyan mappánál lehet megadni, amelynek saját Google Fotók célja van.', 'A split can only be set on a folder that has its own Google Photos target.')
+          : bad
+            ? L(lang, 'Minden sorban egy másik fiók és egy fájlnév kell, és egy fiók vagy fájlnév csak egyszer szerepelhet.', 'Each line needs a different account and a file name, and an account or a file name may appear only once.')
+            : L(lang, `A szétosztást nem tudtam elmenteni: ${m}`, `Could not save the split: ${m}`),
+        code: noRule ? 'no_rule' : bad ? 'bad_split' : 'save_failed',
+      }, noRule || bad ? 400 : 500)
+    }
+    return true
+  }
+
   if (path === '/api/backup-rules/set' && method === 'POST') {
     let data: any = {}
     try { data = JSON.parse((await readBody(req)).toString('utf-8') || '{}') } catch { data = {} }
@@ -405,8 +439,8 @@ export async function tryHandleBackupRules(ctx: RouteContext): Promise<boolean> 
       if (!known) {
         json(res, {
           error: L(lang,
-            'Ez a fiók nincs bekötve. A Drive-fiókot a Drive lapon, a MEGA-fiókot a Raktár lapon tudod felvenni.',
-            'This account is not connected. Add a Drive account on the Drive page, a MEGA account on the Depot page.'),
+            'Ez a fiók nincs bekötve. A Google-fiókot (Drive, Fotók) a Drive lapon, a MEGA-fiókot a Raktár lapon tudod felvenni.',
+            'This account is not connected. Add a Google account on the Drive page, a MEGA account on the Depot page.'),
           code: 'unknown_account',
         }, 400)
         return true

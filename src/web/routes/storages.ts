@@ -32,7 +32,7 @@ import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRe
 import { syncAllRepos, lastSyncState, scanReposNeedingCommitPush } from '../../git-sync.js'
 import { dispatchCommitPush, readLastDispatch } from '../commit-push-job.js'
 import { displayLabelFor } from '../../life-labels.js'
-import { loadBackupRules, childExclusions, normRulePath } from '../../backup-rules.js'
+import { loadBackupRules, childExclusions, normRulePath, type BackupRule } from '../../backup-rules.js'
 import { excludeRules } from '../../backup-exclude.js'
 import { merjMentendot, MAX_LOCAL_FILES } from './drive-sync.js'
 import { resolveLifePath } from '../../life-explorer.js'
@@ -66,6 +66,15 @@ async function readJson(req: RouteContext['req']): Promise<any> {
  * mindkettot tudja. Ezert nincs kulon "fotos fiok" fogalom -- ha valakinek
  * nincs Fotok-engedelye, az a sor `present:false`-kent latszik, nem tunik el.
  */
+/** Which loose files of a shared Google Photos folder this account holds, as a short human phrase (file names compared lower-case). */
+export function splitText(r: Pick<BackupRule, 'target' | 'split'>, account: string): string {
+  const parts = r.split || []
+  if (r.target && r.target.account === account) return parts.length ? `< ${parts[0].from}` : ''
+  const i = parts.findIndex((p) => p.account === account)
+  if (i < 0) return ''
+  return parts[i + 1] ? `${parts[i].from} … < ${parts[i + 1].from}` : `≥ ${parts[i].from}`
+}
+
 function accountSources(): { drive: string[]; photos: string[]; mega: string[] } {
   const g = googleAccountNames()
   return { drive: g.accounts, photos: g.accounts, mega: megaAccountNames() }
@@ -141,13 +150,20 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
     const { rules, broken } = loadBackupRules()
     const names = new Map<string, string>()
     for (const row of currentRows()) names.set(row.kind + ':' + row.account, row.name)
-    const accounts = new Map<string, { kind: string; account: string; name: string; entries: Array<{ path: string; exclude: string[]; setAt: string }> }>()
+    const accounts = new Map<string, { kind: string; account: string; name: string; entries: Array<{ path: string; exclude: string[]; setAt: string; part?: string }> }>()
     for (const r of rules) {
       if (!r.target) continue
       const key = r.target.kind + ':' + r.target.account
       let a = accounts.get(key)
       if (!a) { a = { kind: r.target.kind, account: r.target.account, name: names.get(key) || r.target.account, entries: [] }; accounts.set(key, a) }
-      a.entries.push({ path: r.path, exclude: r.exclude || [], setAt: r.setAt })
+      a.entries.push({ path: r.path, exclude: r.exclude || [], setAt: r.setAt, ...(r.split?.length ? { part: splitText(r, r.target.account) } : {}) })
+      // A shared Google Photos folder also shows up under the other accounts it is shared over.
+      for (const s of r.split || []) {
+        const k2 = 'photos:' + s.account
+        let b = accounts.get(k2)
+        if (!b) { b = { kind: 'photos', account: s.account, name: names.get(k2) || s.account, entries: [] }; accounts.set(k2, b) }
+        b.entries.push({ path: r.path, exclude: r.exclude || [], setAt: r.setAt, part: splitText(r, s.account) })
+      }
     }
     const list = [...accounts.values()].sort((x, y) => (x.kind + x.name).localeCompare(y.kind + y.name, 'hu'))
     for (const a of list) a.entries.sort((x, y) => x.path.localeCompare(y.path, 'hu'))
