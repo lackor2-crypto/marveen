@@ -2121,6 +2121,23 @@
           <div id="depoRestoreList" style="margin-top:8px"></div>
           <p class="subtitle" id="depoRestoreStatus" style="margin:8px 0 0"></p>
         </div>
+        <!-- #957 COLLECT: one account's Drive comes down into its own storage folder. Download only. -->
+        <div id="depoCollectBox" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border, #333)">
+          <h3 style="margin:0 0 6px;font-size:14px" data-i18n="dcollect.title">Gyűjtés a Tárolókba</h3>
+          <p class="subtitle" style="margin:0 0 10px" data-i18n-html="dcollect.what_html">
+            Ami a fiók Drive-jára <strong>kívülről</strong> került (telefon, valaki más feltöltése), itt lehozod a gépre,
+            a <strong>Rendszer / Tárolók / Drive / fiók</strong> mappába. Csak lefelé megy: nem tölt fel, nem töröl
+            sehol, nem ír felül, és kihagyja, ami már megvan az Életfában. Marvin saját mentés-mappáját sem hozza le.
+            Utána te rendezed az Életfába; a bekapcsolt gyűjtés az éjszakai futással magától is lehoz újat.
+          </p>
+          <div class="form-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <label for="depoCollectAccount" style="font-size:13px" data-i18n="dcollect.step1">Melyik fiók Drive-ját gyűjtsem?</label>
+            <select id="depoCollectAccount" class="input" style="width:auto"></select>
+            <button class="btn-secondary btn-compact" id="depoCollectPreviewBtn" data-i18n="drestore.preview_btn">Előnézet</button>
+            <button class="btn-primary btn-compact" id="depoCollectRunBtn" data-i18n="dcollect.run_btn">Gyűjtés indítása</button>
+          </div>
+          <p class="subtitle" id="depoCollectStatus" style="margin:8px 0 0"></p>
+        </div>
       </div>
     </div>
       </div>
