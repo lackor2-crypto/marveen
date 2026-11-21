@@ -908,7 +908,7 @@
       + (WB.trashOpen ? '▾ ' : '▸ ') + esc(t('workbench.trash.title')) + ' ' + esc(n ? '(' + n + ')' : t('workbench.trash.empty_short')) + '</button>'
     if (!WB.trashOpen) return '<div class="wb-trash">' + head + '</div>'
     var ro = archived() || WB.trashBusy ? ' disabled' : ''
-    // #944 (Boss TG 6848-6850): the drop-down opened by itself after a delete and could only be shut by finding the toggle again, so it
+    // #936 (Boss TG 6848-6850): the drop-down opened by itself after a delete and could only be shut by finding the toggle again, so it
     // seemed stuck on top of the folder tree. It now has its own Close button, closes on a click outside it and on Escape.
     var body = '<div class="wb-pop-bar"><button type="button" class="wb-linklike" data-wb-act="trash-close" aria-label="' + escA(t('workbench.trash.close')) + '">\u2715 ' + esc(t('workbench.trash.close')) + '</button></div>'
       + '<p class="wb-hint">' + esc(t(n ? 'workbench.trash.hint' : 'workbench.trash.empty')) + '</p>'
@@ -21882,7 +21882,7 @@
     if (e.button === 1 && newTabNav(e)) e.preventDefault()
   })
 
-  // #944: Escape shuts the Trash / Rescue drop-down that lies over the folder tree.
+  // #936: Escape shuts the Trash / Rescue drop-down that lies over the folder tree.
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && WB.open && (WB.trashOpen || WB.rescueOpen)) { WB.trashOpen = false; WB.rescueOpen = false; render() }
   })
@@ -21895,7 +21895,7 @@
       return
     }
     if (!WB.open) return
-    // #944: a click anywhere outside the open Trash / Rescue drop-down closes it (the click itself still does its own thing).
+    // #936: a click anywhere outside the open Trash / Rescue drop-down closes it (the click itself still does its own thing).
     // The drop-down's own buttons and its confirm box (restore, purge, warn-*) keep it open.
     if ((WB.trashOpen || WB.rescueOpen) && !e.target.closest('.wb-trash') && !e.target.closest('.wb-warn-box')) {
       var keepAct = e.target.closest('[data-wb-act]')
