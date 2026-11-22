@@ -38,6 +38,15 @@ describe('test-sandbox rule', () => {
     expect(d).toContain('UJ PROJEKTET LETREHOZNI TILOS')
     expect(d).not.toContain('nyiss egyet sandbox')
   })
+  it('the main-agent CLAUDE.md template carries the same "PROBA first, never a second project" wording (#976, fresh clone)', () => {
+    const t = readFileSync(join(PROJECT_ROOT, 'templates', 'CLAUDE.md.template'), 'utf-8')
+    const i = t.indexOf('TESZTELÉS A PRÓBA-PROJEKTBEN')
+    expect(i).toBeGreaterThan(-1)
+    const section = t.slice(i, i + 1200)
+    expect(section).toContain('ELŐSZÖR')
+    expect(section).toContain('PROBA')
+    expect(section).toContain('SOHA ne nyiss')
+  })
   it('appends once, idempotently; skips main agent and agents without CLAUDE.md', () => {
     const dir = agentDir(THROWAWAY)
     mkdirSync(dir, { recursive: true })
