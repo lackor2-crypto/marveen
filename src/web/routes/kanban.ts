@@ -512,6 +512,9 @@ const archivedNote = (card: { archived_at: number | null } | undefined): { archi
       json(res, { error: `Invalid expected_status. Accepted: ${KANBAN_STATUSES.join(', ')}` }, 400)
       return true
     }
+    // #959: the move target is required and must be a real column -- same shared check as create/PUT, a clear 400 instead of a bare 500.
+    const badStatus = kanbanFieldRefusal({ status: String(status) })
+    if (badStatus) { json(res, { error: 'invalid_field', message: badStatus }, 400); return true }
     if (await refuseUnfinishedWaiting(ctx, id, status, parsed)) return true
     if (moveKanbanCard(id, status, sort_order ?? 0, actor, hasExpected ? { expectedStatus: expected_status } : undefined)) {
       // Wake the assigned agent once when the card enters in_progress -- unless
