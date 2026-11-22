@@ -33,6 +33,11 @@ describe('test-sandbox rule', () => {
     const sk = readFileSync(join(PROJECT_ROOT, 'seed-skills/test-in-sandbox-project/SKILL.md'), 'utf-8')
     expect(sk).toContain('NEVER create a project yourself')
   })
+  it('the short digest agents read first carries the same ban (Boss TG 7468)', () => {
+    const d = readFileSync(join(PROJECT_ROOT, 'src/web/rule-digests.ts'), 'utf-8')
+    expect(d).toContain('UJ PROJEKTET LETREHOZNI TILOS')
+    expect(d).not.toContain('nyiss egyet sandbox')
+  })
   it('appends once, idempotently; skips main agent and agents without CLAUDE.md', () => {
     const dir = agentDir(THROWAWAY)
     mkdirSync(dir, { recursive: true })
