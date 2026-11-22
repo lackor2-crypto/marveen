@@ -37,11 +37,11 @@ AGENTS="$(python3 -c 'import json,sys;print("\n".join(json.load(open(sys.argv[1]
 RETRY_MSG="$(ol "Az elozo probalkozasod szolgaltatoi hibara futott (nem a te hibad). Probald ujra a legutobbi feladatot ugyanugy. Ha ismet ugyanaz a hiba jon, ne probalkozz tovabb, csak jelezd egy mondatban, hogy mi a hiba." \
   "Your previous attempt hit a provider error (not your fault). Retry the last task the same way. If the same error comes again, do not try further, just say in one sentence what the error is.")"
 
-notify_once(){ # $1=kulcs  $2=uzenet   -- ugyanarrol csak egyszer szolunk / 6 ora
+notify_once(){ # $1=kulcs  $2=uzenet   -- ugyanarrol csak egyszer szolunk / 30 nap (Boss TG 7361: kulso szolgaltatoi hiba legfeljebb havonta)
   local key="$STATEDIR/.notified-$1" now last
   now="$(date +%s)"
   last="$(cat "$key" 2>/dev/null | tr -dc '0-9')"; last="${last:-0}"
-  if [ $(( now - last )) -lt 21600 ]; then return 0; fi
+  if [ $(( now - last )) -lt 2592000 ]; then return 0; fi
   echo "$now" > "$key"
   [ -x "$NOTIFY" ] && bash "$NOTIFY" "$2" >/dev/null 2>&1
   log "ertesites elkuldve: $1"
