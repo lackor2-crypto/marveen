@@ -35,6 +35,18 @@ export function lastMegaCollect(account?: string): MegaCollectResult | MegaColle
 /** The rclone filter that keeps the account's own backup folder out of every collect. */
 export const MEGA_COLLECT_EXCLUDE = `/${MEGA_BACKUP_DIR}/**`
 
+/**
+ * How many files an `rclone copy -v` run copied. The runner keeps only the last 20 000 characters of stderr, so counting
+ * the "Copied (new)" lines undercounts a big run (measured: 601 copied, 204 lines left); the final statistics block
+ * ("Transferred:  601 / 601, 100%") is always inside that tail, so the larger of the two is the truth.
+ */
+export function countCopied(stderr: string): number {
+  const lines = (stderr.match(/: Copied \(new\)/g) || []).length
+  let stat = 0
+  for (const m of stderr.matchAll(/^Transferred:\s+(\d+) \/ (\d+), /gm)) stat = Number(m[1])
+  return Math.max(lines, stat)
+}
+
 export async function collectMegaAccount(
   name: string,
   opts: { run?: Runner; bin?: string | null; dest?: string | null; now?: () => number } = {},
@@ -42,7 +54,8 @@ export async function collectMegaAccount(
   const now = opts.now ?? Date.now
   const done = (r: Omit<MegaCollectResult, 'account' | 'finishedAt'>): MegaCollectResult => {
     const res = { account: name, finishedAt: now(), ...r }
-    last.set(name, res)
+    // A refused second start is not a result: it must not overwrite what the run that is going (or just ended) reported.
+    if (r.error !== 'already_running') last.set(name, res)
     return res
   }
   const acc = readMegaAccounts().find((a) => a.name === name)
@@ -57,16 +70,19 @@ export async function collectMegaAccount(
   try {
     const run = opts.run ?? longRunner
     const conf = ['--config', rcloneConfigPath()]
-    const ls = await run(bin, ['lsjson', '-R', '--files-only', '--no-mimetype', '--exclude', MEGA_COLLECT_EXCLUDE, ...conf, `${acc.remote}:`])
+    // `size --json` answers with a few bytes however big the account is. A full `lsjson -R` listing of a big account
+    // is hundreds of MB that would be JSON.parsed on the dashboard's main thread (R42), only to count it.
+    const ls = await run(bin, ['size', '--json', '--exclude', MEGA_COLLECT_EXCLUDE, ...conf, `${acc.remote}:`])
     if (ls.code !== 0) return done({ ok: false, copied: 0, remoteFiles: 0, error: 'list_failed', detail: ls.stderr.trim().slice(-400) })
-    let remoteFiles = 0
-    try { const a = JSON.parse(ls.stdout || '[]'); remoteFiles = Array.isArray(a) ? a.length : 0 } catch { return done({ ok: false, copied: 0, remoteFiles: 0, error: 'bad_output' }) }
+    let remoteFiles = NaN
+    try { const a = JSON.parse(ls.stdout || '{}'); remoteFiles = typeof a?.count === 'number' ? a.count : NaN } catch { /* bad_output below */ }
+    if (Number.isNaN(remoteFiles)) return done({ ok: false, copied: 0, remoteFiles: 0, error: 'bad_output' })
     if (remoteFiles === 0) return done({ ok: true, empty: true, copied: 0, remoteFiles: 0 })
 
     const cp = await run(bin, ['copy', `${acc.remote}:`, dest, '--ignore-existing', '--exclude', MEGA_COLLECT_EXCLUDE,
       '--transfers', String(MEGA_TRANSFERS), '-v', ...conf])
     if (cp.code !== 0) return done({ ok: false, copied: 0, remoteFiles, error: 'copy_failed', detail: cp.stderr.trim().slice(-400) })
-    const copied = (cp.stderr.match(/: Copied \(new\)/g) || []).length
+    const copied = countCopied(cp.stderr)
     return done({ ok: true, copied, remoteFiles })
   } finally {
     running.delete(name)
