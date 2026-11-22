@@ -38582,6 +38582,7 @@ async function loadDepoPage() {
   var ovHost = document.getElementById('storagesOverview')
   if (ovHost && !ovHost._ovBound) { ovHost._ovBound = 1; ovHost.addEventListener('click', _storagesOvClick) }
   bind('storagesGitSyncBtn', () => _storagesGitSync())
+  bind('storagesMegaCollectBtn', () => _storagesMegaCollect())
   // A tablazat gombjai delegalva: a sorok minden frissiteskor ujra keszulnek,
   // soronkent felkotott kezelo eseten az ujrarajzolas utan nemak lennenek.
   const storTbl = document.getElementById('storagesTable')
@@ -40499,6 +40500,33 @@ function _storagesAskToken(account) {
       if (e.key === 'Enter' && e.target === inp) close(inp.value)
     }
   })
+}
+
+/** MEGA gyujtes (#969): hatterben indul, a gomb alatt latszik az allapot. Add-only: semmit nem ir felul, nem torol. */
+async function _storagesMegaCollect() {
+  var el = document.getElementById('storagesMegaCollectState')
+  var btn = document.getElementById('storagesMegaCollectBtn')
+  var say = function (m) { if (el) el.textContent = m || '' }
+  try {
+    if (btn) btn.disabled = true
+    say(t('storages.mega_collect_run'))
+    var r = await _depoPost('/api/storages/mega/collect', {})
+    if (!r || r.ok === false || r.started === false) { say((r && r.message) || ''); return }
+    for (var i = 0; i < 4000; i++) {
+      await new Promise(function (ok) { setTimeout(ok, 3000) })
+      var st = await _depoGet('/api/storages/mega/collect')
+      if (st && st.running && st.running.length) { say(t('storages.mega_collect_run') + ' (' + st.running.join(', ') + ')'); continue }
+      var res = (st && st.last) || [], copied = 0, empty = 0, failed = 0
+      res.forEach(function (x) { if (!x.ok) failed++; else if (x.empty) empty++; copied += x.copied || 0 })
+      say(t('storages.mega_collect_done', { copied: String(copied), empty: String(empty), failed: String(failed) }))
+      break
+    }
+  } catch (e) {
+    say(t('storages.mega_collect_err') + (e && e.message ? e.message : e))
+  } finally {
+    if (btn) btn.disabled = false
+  }
+  await _storagesRefresh()
 }
 
 async function _storagesGitSync() {
