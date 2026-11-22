@@ -280,7 +280,7 @@ function encrypt(plaintext: string): string {
   return Buffer.concat([salt, iv, tag, encrypted]).toString('base64')
 }
 
-function decryptWithKey(master: Buffer, packed: string): string {
+export function decryptWithKey(master: Buffer, packed: string): string {
   const buf = Buffer.from(packed, 'base64')
   const salt = buf.subarray(0, SALT_LENGTH)
   const iv = buf.subarray(SALT_LENGTH, SALT_LENGTH + IV_LENGTH)
