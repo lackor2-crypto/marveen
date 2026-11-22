@@ -719,6 +719,83 @@ const _netStatus = (() => {
     }).catch(() => { /* stays broken: the real error is already visible in the network log */ })
   }, true)
 
+  // TOKEN MODE, links and downloads (#979): a page NAVIGATION (window.open, <a href target=_blank>, <a download>) cannot
+  // send the Authorization header, so every direct /api/... address answered {"error":"Unauthorized"} in the new tab
+  // (real case: the Download button of a file in the Explorer). The same address is therefore fetched through the
+  // token-adding fetch above and handed to the browser as a blob: saved for a download, opened in the tab for a view.
+  const nativeOpen = window.open.bind(window)
+  const apiNavToken = () => {
+    let token = sessionToken
+    if (!token) { try { token = localStorage.getItem(TOKEN_KEY) } catch { token = '' } }
+    return token || ''
+  }
+  const apiNavName = (res, url, hint) => {
+    if (hint) return hint
+    const cd = res.headers.get('Content-Disposition') || ''
+    const star = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+    if (star) { try { return decodeURIComponent(star[1]) } catch { /* fall through */ } }
+    const plain = /filename="?([^";]+)"?/i.exec(cd)
+    if (plain) return plain[1]
+    try {
+      const q = new URL(url, window.location.origin)
+      const rel = q.searchParams.get('rel') || ''
+      const last = (rel || q.pathname).split('/').filter(Boolean).pop() || 'download'
+      return last
+    } catch { return 'download' }
+  }
+  async function apiNavigate(url, download, nameHint) {
+    // The tab for a view must be opened NOW, inside the click; the blob is put into it when it arrives.
+    const tab = download ? null : nativeOpen('', '_blank')
+    try {
+      const res = await window.fetch(url)
+      if (!res.ok) {
+        let msg = ''
+        try { msg = (await res.json()).message || '' } catch { /* not json */ }
+        if (tab) tab.close()
+        window.showToast(msg || window.t('intezo.open_failed'))
+        return
+      }
+      const blob = await res.blob()
+      const obj = URL.createObjectURL(blob)
+      if (download) {
+        const a = document.createElement('a')
+        a.href = obj
+        a.download = apiNavName(res, url, nameHint)
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      } else if (tab) {
+        tab.location.href = obj
+      } else {
+        window.location.href = obj
+      }
+      setTimeout(() => URL.revokeObjectURL(obj), 120000)
+    } catch {
+      if (tab) tab.close()
+      window.showToast(window.t('intezo.open_failed'))
+    }
+  }
+  window._apiNavigate = apiNavigate
+  window.open = function (url, target, features) {
+    // Only the explicit downloads: a view page (print/export) needs its own fix and keeps the native behaviour.
+    if (typeof url === 'string' && url.startsWith('/api/') && /[?&]download=1(&|$)/.test(url) && apiNavToken()) {
+      void apiNavigate(url, true, '')
+      return { closed: false, close() {} }
+    }
+    return nativeOpen(url, target, features)
+  }
+  document.addEventListener('click', (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return
+    const a = e.target && e.target.closest ? e.target.closest('a[href]') : null
+    if (!a) return
+    const href = a.getAttribute('href') || ''
+    if (!href.startsWith('/api/') || !apiNavToken()) return
+    const wantsDownload = a.hasAttribute('download') || /[?&]download=1(&|$)/.test(href)
+    if (!wantsDownload && a.getAttribute('target') !== '_blank') return
+    e.preventDefault()
+    void apiNavigate(href, wantsDownload, a.getAttribute('download') || '')
+  }, true)
+
   // On a 401, ask the public status probe whether a username+password login is
   // available on this instance. If so, show the login overlay; otherwise fall
   // back to the existing token flows (PWA paste field or the console-URL alert).
