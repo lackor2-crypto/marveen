@@ -383,17 +383,31 @@ function userTurnStamp(line: string): number | null {
   return null
 }
 
-async function readRange(absFile: string, from: number, to: number): Promise<string> {
+/**
+ * #963: the whole new tail of a session log used to be read into ONE Buffer, turned into ONE string and split into
+ * lines. One 321 MB transcript (found on this machine) made the Overview's first count blow the 2.5 GB heap and kill the
+ * dashboard process (fuzz of GET /api/overview, 2026-11-22). Now the file is read in bounded pieces, each cut at its
+ * last line break (the unfinished line is carried as bytes, so a multi-byte character is never split), with a yield
+ * between pieces so the main thread stays free.
+ */
+// Captured at load: a test's fake timers must not swallow the yield between chunks.
+const realSetImmediate = setImmediate
+export let TURN_READ_CHUNK = 4 * 1024 * 1024
+export function setTurnReadChunkForTest(n: number): void { TURN_READ_CHUNK = n }
+export const turnScanStats = { maxRead: 0 }
+
+async function readBytes(absFile: string, from: number, to: number): Promise<Buffer> {
   const fh = await open(absFile, 'r')
   try {
     const buf = Buffer.alloc(to - from)
+    if (buf.length > turnScanStats.maxRead) turnScanStats.maxRead = buf.length
     let off = 0
     while (off < buf.length) {
       const { bytesRead } = await fh.read(buf, off, buf.length - off, from + off)
       if (bytesRead === 0) break
       off += bytesRead
     }
-    return buf.subarray(0, off).toString('utf-8')
+    return buf.subarray(0, off)
   } finally { await fh.close() }
 }
 
@@ -403,16 +417,22 @@ async function userTurnStampsOf(absFile: string, fstat: { size: number; mtimeMs:
   if (prev && prev.ino === fstat.ino && prev.size === fstat.size && prev.mtimeMs === fstat.mtimeMs) return prev.stamps
   const append = prev && prev.ino === fstat.ino && fstat.size > prev.size
   const base = append ? prev!.size : 0
-  const chunk = (append ? prev!.tail : '') + await readRange(absFile, base, fstat.size)
-  const lines = chunk.split('\n')
-  // Az utolso, sortores nelkuli sor meg irodhat: kovetkezo korben ujra.
-  const tail = lines.pop() ?? ''
   const stamps = append ? prev!.stamps.slice() : []
-  for (const line of lines) {
-    const ts = userTurnStamp(line)
-    if (ts !== null) stamps.push(ts)
+  let carry: Buffer = append ? Buffer.from(prev!.tail, 'utf-8') : Buffer.alloc(0)
+  for (let pos = base; pos < fstat.size; pos += TURN_READ_CHUNK) {
+    const buf = Buffer.concat([carry, await readBytes(absFile, pos, Math.min(pos + TURN_READ_CHUNK, fstat.size))])
+    const nl = buf.lastIndexOf(10)
+    if (nl < 0) { carry = buf; continue }
+    const text = buf.subarray(0, nl).toString('utf-8')
+    carry = buf.subarray(nl + 1)
+    for (const line of text.split('\n')) {
+      const ts = userTurnStamp(line)
+      if (ts !== null) stamps.push(ts)
+    }
+    await new Promise<void>((r) => realSetImmediate(r))
   }
-  turnFileScans.set(absFile, { size: fstat.size, mtimeMs: fstat.mtimeMs, ino: fstat.ino, stamps, tail })
+  // Az utolso, sortores nelkuli sor meg irodhat: kovetkezo korben ujra.
+  turnFileScans.set(absFile, { size: fstat.size, mtimeMs: fstat.mtimeMs, ino: fstat.ino, stamps, tail: carry.toString('utf-8') })
   return stamps
 }
 
