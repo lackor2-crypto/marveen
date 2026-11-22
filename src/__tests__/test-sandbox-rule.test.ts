@@ -47,6 +47,15 @@ describe('test-sandbox rule', () => {
     expect(section).toContain('PROBA')
     expect(section).toContain('SOHA ne nyiss')
   })
+  it('the main-agent CLAUDE.md template also carries the unconditional no-new-project ban (#978, fresh clone)', () => {
+    const t = readFileSync(join(PROJECT_ROOT, 'templates', 'CLAUDE.md.template'), 'utf-8')
+    const i = t.indexOf('TESZTELÉS A PRÓBA-PROJEKTBEN')
+    expect(i).toBeGreaterThan(-1)
+    const section = t.slice(i, i + 1600)
+    expect(section).toContain('ÚJ PROJEKTET LÉTREHOZNI TILOS')
+    expect(section).toContain('kifejezetten')
+    expect(section).not.toContain('amíg van ilyen')
+  })
   it('appends once, idempotently; skips main agent and agents without CLAUDE.md', () => {
     const dir = agentDir(THROWAWAY)
     mkdirSync(dir, { recursive: true })
