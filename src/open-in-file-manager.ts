@@ -99,6 +99,8 @@ const OPENABLE = new Set([
   'ppt', 'pptx', 'odp', 'pdf',
   'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic',
   'mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov', 'm4v', 'mkv', 'avi', 'webm',
+  // #980 (owner: "nyissuk meg"): a Flash animation is media played by a player, not a program or script.
+  'swf',
 ])
 
 /** Can this file be handed to the machine's own program? By its extension, an allowlist. */

@@ -13,7 +13,7 @@ import { openableWithDefaultApp, openFileScript, openWithDefaultApp, unregisterT
 
 describe('what is handed to the machine\'s own program', () => {
   it('documents, tables, slides, pictures, sound and video are', () => {
-    for (const n of ['a.xlsx', 'B.XLSX', 'c.docx', 'd.doc', 'e.odt', 'f.pptx', 'g.pdf', 'h.csv', 'i.txt', 'j.jpg', 'k.png', 'l.mp4', 'm.mp3', 'Költség 2026.xlsm']) {
+    for (const n of ['a.xlsx', 'B.XLSX', 'c.docx', 'd.doc', 'e.odt', 'f.pptx', 'g.pdf', 'h.csv', 'i.txt', 'j.jpg', 'k.png', 'l.mp4', 'm.mp3', 'Költség 2026.xlsm', 'csiga nagy.swf']) {
       expect(openableWithDefaultApp(n), n).toBe(true)
     }
   })
