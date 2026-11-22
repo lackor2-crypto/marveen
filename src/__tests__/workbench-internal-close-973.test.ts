@@ -31,7 +31,8 @@ describe('internal paper closes with one click', () => {
     expect(js).toContain("if (method === 'internal') {")
     for (const l of ['hu', 'en']) {
       const s = read('web', 'lang', `${l}.js`)
-      for (const k of ['workbench.sent.method.internal', 'workbench.sent.via.internal', 'workbench.sent.internal_done']) expect(s).toContain(`"${k}"`)
+      expect(js).toContain("cur === 'internal'")
+      for (const k of ['workbench.sent.method.internal', 'workbench.sent.via.internal', 'workbench.sent.internal_done', 'workbench.send.tab.internal', 'workbench.send.internal_title', 'workbench.send.internal_hint']) expect(s).toContain(`"${k}"`)
     }
   })
 })
