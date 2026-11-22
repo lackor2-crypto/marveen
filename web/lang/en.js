@@ -1015,7 +1015,7 @@ window._i18n.en = {
   'intezo.physical_save': 'Save',
   'intezo.preview': 'Preview',
   'intezo.download': 'Download',
-  'intezo.open_failed': 'The file could not be opened or downloaded just now. Please try again.',
+  'intezo.file_open_failed': 'The file could not be opened or downloaded just now. Please try again.',
   'intezo.preview_loading': 'Loading…',
   'intezo.preview_failed': 'The preview could not be loaded.',
   'intezo.preview_truncated': '(the rest of the file is not shown here — download it to see the full content)',

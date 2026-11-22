@@ -20,7 +20,7 @@ describe('#979 download carries the token', () => {
   })
   it('has the failure message in both languages', () => {
     for (const f of ['hu', 'en']) {
-      expect(readFileSync(join(root, `web/lang/${f}.js`), 'utf8')).toContain("'intezo.open_failed'")
+      expect(readFileSync(join(root, `web/lang/${f}.js`), 'utf8')).toContain("'intezo.file_open_failed'")
     }
   })
 })

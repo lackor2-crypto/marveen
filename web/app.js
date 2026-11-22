@@ -752,7 +752,7 @@ const _netStatus = (() => {
         let msg = ''
         try { msg = (await res.json()).message || '' } catch { /* not json */ }
         if (tab) tab.close()
-        window.showToast(msg || window.t('intezo.open_failed'))
+        window.showToast(msg || window.t('intezo.file_open_failed'))
         return
       }
       const blob = await res.blob()
@@ -772,7 +772,7 @@ const _netStatus = (() => {
       setTimeout(() => URL.revokeObjectURL(obj), 120000)
     } catch {
       if (tab) tab.close()
-      window.showToast(window.t('intezo.open_failed'))
+      window.showToast(window.t('intezo.file_open_failed'))
     }
   }
   window._apiNavigate = apiNavigate
