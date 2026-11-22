@@ -17,6 +17,15 @@ describe('test-sandbox rule', () => {
     expect(b).not.toContain('Boss')
     expect(b).not.toContain('/home/')
   })
+  it('tells the agent to use the owner\'s existing PROBA project first and never open a second one (Boss TG 7456)', () => {
+    const b = buildTestSandboxBody()
+    expect(b).toContain('ELOSZOR')
+    expect(b).toContain('"PROBA"/"proba"')
+    expect(b).toContain('SOHA ne nyiss')
+    const sk = readFileSync(join(PROJECT_ROOT, 'seed-skills/test-in-sandbox-project/SKILL.md'), 'utf-8')
+    expect(sk).toContain('FIRST look for the owner')
+    expect(sk).toContain('Never open a second test project')
+  })
   it('appends once, idempotently; skips main agent and agents without CLAUDE.md', () => {
     const dir = agentDir(THROWAWAY)
     mkdirSync(dir, { recursive: true })

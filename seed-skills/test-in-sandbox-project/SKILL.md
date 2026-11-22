@@ -10,8 +10,8 @@ scope: global
 Any time a change or a fix needs a real try-out on documents or folders: creating, deleting, renaming or linking a document, an attachment, an import, a translation, a letter.
 
 ## Procedure
-1. Find the sandbox: `GET /api/projects` and take the project with slug `sandbox` (on installs that predate the slug: the project named like "PROBA"/"TEST").
-2. If none exists, create one with slug `sandbox`. Never try things in a real project.
+1. Find the sandbox: `GET /api/projects` and FIRST look for the owner's project named like "PROBA"/"TEST" (its slug is `sandbox`); use THAT one. Never open a second test project of your own while one exists.
+2. Only if no such project exists at all, create one with slug `sandbox`. Never try things in a real project.
 3. Create, delete, link whatever the test needs there. A few test documents may stay.
 4. Every project works the same way, so a pass in the sandbox is a valid pass.
 
