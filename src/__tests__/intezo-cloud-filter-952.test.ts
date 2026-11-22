@@ -149,7 +149,8 @@ describe('Intezo cloud filter (#952)', () => {
     const none2 = [{ path: 'Cegek', target: drive }]
     const list = [none, onlyEmptyDirs, hasFile, unknown, pending, noInfo, file('Csalad/x.txt')]
     expect(names(cf._cfFilter(list, 'down', none2))).toEqual(['Csalad/Iratok', 'Csalad/Ismeretlen', 'Csalad/Mer', 'Csalad/Nincsadat', 'Csalad/x.txt'])
-    expect(names(cf._cfFilter(list, 'up', [{ path: 'Csalad', target: drive }]))).toHaveLength(7)
+    // Boss TG 7452: "up" no longer lists a provably empty folder either (a covered but empty folder has nothing on the cloud).
+    expect(names(cf._cfFilter(list, 'up', [{ path: 'Csalad', target: drive }]))).toEqual(['Csalad/Iratok', 'Csalad/Ismeretlen', 'Csalad/Mer', 'Csalad/Nincsadat', 'Csalad/x.txt'])
     expect(cf._cfFilter(list, 'all', none2)).toBe(list)
     expect(cf._cfProvenNoFiles(file('a'))).toBe(false)
   })

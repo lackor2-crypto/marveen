@@ -45366,7 +45366,9 @@ function _cfFilter(entries, mode, rules, kidsOf) {
   if ((mode !== 'up' && mode !== 'down') || !Array.isArray(rules)) return entries
   return entries.filter((e) => {
     const s = _cfState(e, rules)
-    if (mode === 'up') return s.up
+    // Boss TG 7452: an empty folder (no file at any depth) is shown ONLY under "all"; "up" drops it as well, even when
+    // an assigned parent covers it (covered != has something on the cloud).
+    if (mode === 'up') return s.up && !_cfProvenNoFiles(e)
     return s.down && _cfDownHasFiles(e, rules, kidsOf, 0)
   })
 }
