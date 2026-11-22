@@ -366,9 +366,11 @@ export function resetTurnFileScansForTest(): void { turnFileScans.clear() }
 
 function userTurnStamp(line: string): number | null {
   if (!line) return null
-  // #966: most lines of a transcript are assistant/tool output; only a user line carries the bare JSON string "user"
-  // (inside text it is escaped as user\"), so this cheap test skips the JSON.parse of everything else.
-  if (!line.includes('"user"')) return null
+  // #966: most lines of a transcript are assistant/tool output; only a user line carries the structural pair
+  // "type":"user" (inside text it is escaped), so this cheap test skips the JSON.parse of everything else. The bare
+  // string "user" is not enough: an api-request-blob line holds "role":"user" and is the biggest line of a real log
+  // (739 lines, 495 MB in the 1.7 GB transcript that caused the 21 s stall). The spaced form is kept as a fallback.
+  if (!line.includes('"type":"user"') && !line.includes('"type": "user"')) return null
   let e: any
   try { e = JSON.parse(line) } catch { return null }
   if (e.type !== 'user' || e.isMeta) return null

@@ -25,4 +25,19 @@ describe('the user-turn scan does not JSON.parse non-user lines', () => {
     expect(await m.countUserTurnsCached(now - 60_000)).toBe(10)
     expect(spy.mock.calls.length).toBeLessThan(40)
   })
+
+  it('does not parse api-request-blob lines either (they carry "role":"user" and are the biggest lines of a real log)', async () => {
+    const m = await import('../web/routes/overview.js')
+    m.resetTurnCountCacheForTest(); m.resetTurnFileScansForTest()
+    const dir = path.join(home, '.claude', 'projects', 'p2')
+    mkdirSync(dir, { recursive: true })
+    const now = Date.now()
+    let text = ''
+    for (let i = 0; i < 10; i++) text += JSON.stringify({ parentUuid: 'x' + i, type: 'user', timestamp: new Date(now - 1000 + i).toISOString(), message: { role: 'user', content: 'kerdes ' + i } }) + '\n'
+    for (let i = 0; i < 200; i++) text += JSON.stringify({ type: 'api-request-blob', sessionId: 's', body: { messages: [{ role: 'user', content: 'big ' + i }] } }) + '\n'
+    writeFileSync(path.join(dir, 's.jsonl'), text)
+    const spy = vi.spyOn(JSON, 'parse')
+    expect(await m.countUserTurnsCached(now - 60_000)).toBe(10)
+    expect(spy.mock.calls.length).toBeLessThan(40)
+  })
 })
