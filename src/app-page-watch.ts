@@ -148,9 +148,10 @@ export function parseAppleLookup(body: string): number | null {
 }
 
 /** The sum of the ratings over every storefront. null when no storefront gave a usable answer (the caller falls back to the page's own number). */
-export async function readAppleAllStorefronts(id: string, fetcher: Fetcher): Promise<{ total: number; detail: string } | null> {
+export async function readAppleAllStorefronts(id: string, fetcher: Fetcher): Promise<{ total: number; detail: string; failed: number } | null> {
   const found: { c: string; n: number }[] = []
   let answered = 0
+  let failed = 0
   let next = 0
   const worker = async (): Promise<void> => {
     while (next < APPLE_STOREFRONTS.length) {
@@ -159,13 +160,13 @@ export async function readAppleAllStorefronts(id: string, fetcher: Fetcher): Pro
         const n = parseAppleLookup(await fetcher(`https://itunes.apple.com/lookup?id=${id}&country=${c}`))
         answered++
         if (n !== null && n > 0) found.push({ c, n })
-      } catch { /* this storefront did not answer now; the others did */ }
+      } catch { failed++ /* this storefront did not answer now; the others did */ }
     }
   }
   await Promise.all(Array.from({ length: 8 }, () => worker()))
   if (!answered) return null
   found.sort((a, b) => b.n - a.n || a.c.localeCompare(b.c))
-  return { total: found.reduce((a, b) => a + b.n, 0), detail: found.map((f) => `${f.c.toUpperCase()} ${f.n}`).join(', ') }
+  return { total: found.reduce((a, b) => a + b.n, 0), detail: found.map((f) => `${f.c.toUpperCase()} ${f.n}`).join(', '), failed }
 }
 
 export function parsePage(kind: WatchKind, html: string): Reading | null {
@@ -221,7 +222,14 @@ export async function checkOne(page: WatchPage, state: WatchState | undefined, f
     const appId = kind === 'apple' ? appleAppId(v.url) : null
     if (appId) {
       const all = await readAppleAllStorefronts(appId, fetcher)
-      if (all) { r = { kind: 'apple', band: '', value: all.total }; detail = all.detail }
+      if (all) {
+        // A storefront that did not answer makes the sum too low. A lower number than the last good one is then not
+        // trusted (a failed measurement never overwrites the last good value, and no false "went up" alert follows).
+        if (all.failed > 0 && prev.value !== null && all.total < prev.value) {
+          throw new Error(`${all.failed} Apple storefronts did not answer; the last number is kept.`)
+        }
+        r = { kind: 'apple', band: '', value: all.total }; detail = all.detail
+      }
     }
     if (!r) {
       const html = await fetcher(v.url)
