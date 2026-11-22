@@ -13405,7 +13405,9 @@
     }).join('') + '</div>'
     var body
     if (cur === 'email') body = emailHtml + sendMarkButton(it, 'email')
-    else if (cur === 'post') {
+    else if (cur === 'internal') {
+      body = '<div class="wb-send-pane"><h5>' + esc(t('workbench.send.internal_title')) + '</h5><p class="wb-hint">' + esc(t('workbench.send.internal_hint')) + '</p></div>' + sendMarkButton(it, 'internal')
+    } else if (cur === 'post') {
       body = '<div class="wb-send-pane"><h5>' + esc(t('workbench.send.post_title')) + '</h5>'
         + '<ol class="wb-send-steps"><li>' + esc(t('workbench.send.post_s1')) + '</li><li>' + esc(t('workbench.send.post_s2')) + '</li><li>' + esc(t('workbench.send.post_s3')) + '</li><li>' + esc(t('workbench.send.post_s4')) + '</li></ol></div>'
         + sendMarkButton(it, 'post')
