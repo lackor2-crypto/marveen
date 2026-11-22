@@ -32,7 +32,7 @@ import { ensureProjectDocTables } from './workbench-doc-links.js'
 import type { WorkItemRow } from './workbench.js'
 import { writeEmailProof } from './workbench-email-proof.js'
 
-export const SENT_METHODS = ['email', 'post', 'registered_post', 'in_person', 'portal', 'fax', 'other'] as const
+export const SENT_METHODS = ['email', 'post', 'registered_post', 'in_person', 'portal', 'fax', 'other', 'internal'] as const
 export type SentMethod = typeof SENT_METHODS[number]
 export const isSentMethod = (v: unknown): v is SentMethod => typeof v === 'string' && (SENT_METHODS as readonly string[]).includes(v)
 export const SENT_TEXT_MAX = 300
