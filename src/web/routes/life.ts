@@ -485,7 +485,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   // #529: open a document in the program THIS MACHINE opens it with (Excel, Word ...), the
   // way a double click does in the file manager. The same boundary as the file endpoint
-  // below (resolveLifePath), and only document/media types -- never something that runs.
+  // below (resolveLifePath), every file type (#982, owner lifted the allowlist).
   // Can it be offered at all: is there a desktop here, and is this a kind of file that is opened?
   if (path === '/api/life/open-file' && method === 'GET') {
     send(res, 200, { kind: fileManagerKind(), openable: openableWithDefaultApp(url.searchParams.get('name') || '') })
@@ -505,7 +505,6 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const msg: Record<string, [string, string]> = {
       not_found: ['Ez a fájl nem található a lemezen.', 'This file was not found on disk.'],
       not_a_file: ['Ez egy mappa, nem fájl.', 'This is a folder, not a file.'],
-      not_openable: ['Ezt a fájltípust biztonsági okból nem nyitom meg a gép programjával (csak iratot, képet, hangot és videót). Töltsd le, ha szükséged van rá.', 'For safety this kind of file is not opened with the machine\'s program (only documents, pictures, sound and video). Download it if you need it.'],
       no_file_manager: ['Ezen a gépen nincs grafikus felület, ezért itt nem tudom megnyitni. Töltsd le, és azon az eszközön nyisd meg, amin dolgozol.', 'This machine has no desktop, so it cannot be opened here. Download it and open it on the device you are working on.'],
       open_failed: ['Nem sikerült megnyitni a gép programjával. Töltsd le, és úgy nyisd meg.', 'It could not be opened with the machine\'s program. Download it and open it that way.'],
       open_unconfirmed: ['Elindítottam a megnyitást, de nem kaptam visszajelzést, hogy megnyílt-e. Nézd meg a tálcán; ha nincs ott, töltsd le.', 'I started opening it, but got no confirmation that it opened. Look on the taskbar; if it is not there, download it.'],

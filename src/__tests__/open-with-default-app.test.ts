@@ -18,9 +18,9 @@ describe('what is handed to the machine\'s own program', () => {
     }
   })
 
-  it('anything that would RUN is not -- nor a file without a known extension', () => {
-    for (const n of ['a.exe', 'b.bat', 'c.cmd', 'd.ps1', 'e.vbs', 'f.js', 'g.lnk', 'h.msi', 'i.scr', 'j.com', 'k.hta', 'l.jar', 'm.reg', 'n.url', 'o.html', 'p.svg', 'q.zip', 'szamla.pdf.exe', 'nev', '.xlsx.bat', '']) {
-      expect(openableWithDefaultApp(n), n).toBe(false)
+  it('every file type is -- the owner lifted the extension allowlist (#982)', () => {
+    for (const n of ['a.exe', 'b.bat', 'vén.fla', 'csiga nagy.swf', 'q.zip', 'o.html', 'nev', 'x.unknownext']) {
+      expect(openableWithDefaultApp(n), n).toBe(true)
     }
   })
 
@@ -41,12 +41,10 @@ describe('what is handed to the machine\'s own program', () => {
 
 describe('refusals happen before anything is started', () => {
   const dir = mkdtempSync(join(tmpdir(), 'open-default-'))
-  it('a missing file, a folder and a non-document are each said', async () => {
+  it('a missing file and a folder are each said', async () => {
     mkdirSync(join(dir, 'mappa'))
-    writeFileSync(join(dir, 'prog.bat'), 'echo')
     expect(await openWithDefaultApp(join(dir, 'nincs.xlsx'))).toEqual({ ok: false, code: 'not_found' })
     expect(await openWithDefaultApp(join(dir, 'mappa'))).toEqual({ ok: false, code: 'not_a_file' })
-    expect(await openWithDefaultApp(join(dir, 'prog.bat'))).toEqual({ ok: false, code: 'not_openable' })
     rmSync(dir, { recursive: true, force: true })
   })
 })
@@ -76,7 +74,7 @@ describe('the page', () => {
     const post = route.slice(route.indexOf("if (path === '/api/life/open-file' && method === 'POST')"), route.indexOf('// A FAJL TARTALMANAK kiszolgalasa'))
     expect(post.indexOf('resolveLifePath(rel)')).toBeGreaterThan(0)
     expect(post.indexOf('resolveLifePath(rel)')).toBeLessThan(post.indexOf('openWithDefaultApp(abs)'))
-    for (const code of ['not_found', 'not_a_file', 'not_openable', 'no_file_manager', 'open_failed', 'open_unconfirmed']) expect(post).toContain(`${code}: [`)
+    for (const code of ['not_found', 'not_a_file', 'no_file_manager', 'open_failed', 'open_unconfirmed']) expect(post).toContain(`${code}: [`)
   })
 })
 
