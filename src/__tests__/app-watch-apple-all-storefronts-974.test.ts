@@ -39,3 +39,12 @@ describe('Apple ratings sum over every storefront', () => {
   })
   it('the storefront list is not tiny', () => { expect(APPLE_STOREFRONTS.length).toBeGreaterThan(150); expect(APPLE_STOREFRONTS).toContain('us') })
 })
+
+describe('the language files still parse (an apostrophe in a single-quoted text broke en.js once)', () => {
+  it.each(['hu', 'en'])('web/lang/%s.js is valid JavaScript', async (l) => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL(`../../web/lang/${l}.js`, import.meta.url), 'utf8')
+    // eslint-disable-next-line no-new-func
+    expect(() => new Function('window', src)).not.toThrow()
+  })
+})
