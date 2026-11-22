@@ -31,8 +31,8 @@
 // no work (clean, landed, quiet) is removed by worktree-sweeper.ts (#453, the
 // owner's standing order); anything with work in it stays for the agent here.
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
-import { open, stat } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { open, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 export const MAX_LISTED = 8
@@ -288,6 +288,11 @@ export async function onBasePct(path: string, base: string, added: Map<string, s
   return 100
 }
 
+/** Async existence check: the sync one blocks the dashboard's main thread on a slow drive (#981). */
+export async function pathExists(p: string): Promise<boolean> {
+  try { await stat(p); return true } catch { return false }
+}
+
 /**
  * The state of one worktree against `base` (normally origin/main). Throws only
  * when git itself cannot answer the status question -- the caller turns that
@@ -295,7 +300,7 @@ export async function onBasePct(path: string, base: string, added: Map<string, s
  */
 export async function worktreeState(path: string, base: string, git: GitRun = defaultGit): Promise<WorktreeState> {
   // A worktree whose folder is gone ("prunable") holds no work to finish.
-  if (!existsSync(path)) return { kind: 'clean' }
+  if (!(await pathExists(path))) return { kind: 'clean' }
   const st = await git(path, ['status', '--porcelain', '--untracked-files=all'])
   if (!st.ok) throw new Error(`git status failed in ${path}`)
   // The node_modules symlink agent-worktree.sh makes is not work.
@@ -309,12 +314,14 @@ export async function worktreeState(path: string, base: string, git: GitRun = de
     const deleted: string[] = []
     for (const f of dirtyFiles) {
       const abs = join(path, f)
-      if (!existsSync(abs)) { deleted.push(f); continue }
-      try { lastChangeMs = Math.max(lastChangeMs, statSync(abs).mtimeMs) } catch { /* gone meanwhile */ }
+      // #981: one stat per dirty file, awaited (a sync stat per file froze the main thread on a slow drive).
+      let mtime: number
+      try { mtime = (await stat(abs)).mtimeMs } catch { deleted.push(f); continue }
+      lastChangeMs = Math.max(lastChangeMs, mtime)
       if (!added.has(f)) {
         // Untracked: every line is new.
         try {
-          added.set(f, readFileSync(abs, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean))
+          added.set(f, (await readFile(abs, 'utf8')).split('\n').map((l) => l.trim()).filter(Boolean))
         } catch { added.set(f, []) }
       }
     }
