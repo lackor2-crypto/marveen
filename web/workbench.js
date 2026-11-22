@@ -1773,7 +1773,7 @@
   }
   /** The big strip at the top of an item: green "Sent" with the date once it went out (the trigger document is answered);
    *  a finalized item that did not go out yet says so and offers the one click that records it (the owner's own mark). */
-  var SENT_VIA = ['email', 'post', 'portal', 'in_person']
+  var SENT_VIA = ['email', 'post', 'portal', 'in_person', 'internal']
   function sentViaButtons(itemId) {
     return SENT_VIA.map(function (k) {
       return '<button type="button" class="btn-secondary btn-compact" data-wb-act="item-sent-via" data-wb-method="' + k + '" data-wb-id="' + escA(itemId) + '">' + esc(t('workbench.sent.via.' + k)) + '</button>'
@@ -10184,6 +10184,17 @@
    */
   function sentViaDialog(item, method, done) {
     if (!item || !document.body) return
+    // Internal paper (a plan, a note to ourselves): it goes to nobody, so there is nothing to ask. One click closes it.
+    if (method === 'internal') {
+      api('POST', '/api/workbench/items/' + encodeURIComponent(item.id) + '/sent-mark', { sent: true, method: 'internal' }).then(function (r) {
+        if (!r.ok) { window.showToast(r.status === 403 ? t('workbench.sentask.login_needed') : (r.message || t('workbench.lifemove.failed'))); return }
+        window.showToast(t('workbench.sent.internal_done'))
+        refreshTree()
+        if (WB.open && WB.selectedId === item.id) loadDetail(item.id)
+        if (done) done()
+      })
+      return
+    }
     var old = document.getElementById('wbSentVia'); if (old && old.parentNode) old.parentNode.removeChild(old)
     var d = new Date()
     var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2)
