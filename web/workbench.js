@@ -12740,7 +12740,10 @@
     if (!id) return
     var hadFile = !!(WB.detail && WB.detail.item && WB.detail.item.source_path)
     if (!hadFile) loadDetail(id)
-    else loadPreview(id, null, true)
+    // Owner, 2026-11-22 (law): after EVERY answer the open work item is re-read from the server (item, outline, preview,
+    // versions, to-dos) -- never only the preview, because the agent may have changed the document (outline) by an API call,
+    // and the owner must never need F5 / Ctrl+Shift+R to see it.
+    else scheduleLiveRefresh()
   }
 
   function finishChatTurn(turn) {
@@ -14850,6 +14853,7 @@
       api('GET', '/api/workbench/items/' + encodeURIComponent(itemId)).then(function (r) {
         if (!r.ok || WB.selectedId !== itemId || !WB.detail) return
         WB.detail = r.data
+        render()
         loadPreview(itemId, WB.previewVersion, true)
         // Az agent a rajzon is dolgozhatott (canvas.edit): a munkapeldany, a
         // visszavonas es a "Mentve" jelzes is onnan jon.
