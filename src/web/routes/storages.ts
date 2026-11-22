@@ -9,6 +9,8 @@
 //   POST /api/storages/git-pull   -- a fiok repoinak lehuzasa
 //   GET  /api/storages/git-sync   -- mikor futott az automatikus szinkron
 //   POST /api/storages/git-sync   -- szinkron MOST
+//   POST /api/storages/mega/collect -- (#969) a MEGA fiokok tartalmanak lehuzasa (hatterben, add-only)
+//   GET  /api/storages/mega/collect -- fut-e, es az utolso eredmeny fiokonkent
 //   GET  /api/storages/git-commit-push -- hany tarolo var commit+push-ra
 //   POST /api/storages/git-commit-push -- a legokosabb elo agens keszre viszi
 //
@@ -28,6 +30,7 @@ import {
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
 import { megaAccountNames } from '../../mega.js'
+import { collectAllMega, isMegaCollectRunning, lastMegaCollect } from '../../mega-collect.js'
 import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos, deleteGitAccount } from '../../git-accounts.js'
 import { syncAllRepos, lastSyncState, scanReposNeedingCommitPush } from '../../git-sync.js'
 import { dispatchCommitPush, readLastDispatch } from '../commit-push-job.js'
@@ -191,6 +194,32 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
       out.push({ path: r.path, ok: true, files: m.files, bytes: m.bytes, truncated: m.csonkolt })
     }
     json(res, { kind, account, entries: out })
+    return true
+  }
+
+  // MEGA GYUJTES (#969, Boss TG 7378): a bekotott MEGA fiokok tartalmat lehuzza a Tarolok/MEGA/<fiok> mappaba.
+  // Hatterben fut (sok fajl, lassu meghajto), a valasz azonnal jon; az allapotot a GET adja.
+  if (path === '/api/storages/mega/collect' && method === 'GET') {
+    const names = megaAccountNames()
+    json(res, {
+      accounts: names.length,
+      running: names.filter((n) => isMegaCollectRunning(n)),
+      last: lastMegaCollect() ?? [],
+    })
+    return true
+  }
+  if (path === '/api/storages/mega/collect' && method === 'POST') {
+    const names = megaAccountNames()
+    if (!names.length) {
+      json(res, { ok: false, message: L(lang, 'Még nincs MEGA-fiók bekötve, ezért nincs mit lehúzni.', 'No MEGA account is connected yet, so there is nothing to download.') }, 200)
+      return true
+    }
+    if (names.some((n) => isMegaCollectRunning(n))) {
+      json(res, { ok: true, started: false, message: L(lang, 'A MEGA-gyűjtés már fut.', 'The MEGA collect is already running.') })
+      return true
+    }
+    void collectAllMega(names).catch((e) => logger.warn({ err: String(e) }, '[storages] a MEGA-gyujtes megallt'))
+    json(res, { ok: true, started: true, accounts: names.length, message: L(lang, `A MEGA-gyűjtés elindult (${names.length} fiók). Csak a hiányzó fájlokat hozza le, semmit nem ír felül és nem töröl.`, `The MEGA collect has started (${names.length} accounts). It only downloads missing files; it never overwrites or deletes anything.`) })
     return true
   }
 
