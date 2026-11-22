@@ -89,15 +89,12 @@ export function inspectDatabaseFileAsync(file: string): Promise<DbSnapshotInfo> 
 }
 
 /**
- * Snapshot `source` (an open handle -- the dashboard's own -- or a DB file path)
- * into `destFile`. The destination must not exist yet.
+ * The consistent copy itself: a read-only connection of its own runs the Online Backup API (VACUUM INTO when that
+ * throws). A read-only connection never disturbs the dashboard's writes, so it is the same whether the caller is the
+ * CLI under the systemd timer or (#965) a worker thread acting for the dashboard.
  */
-export async function snapshotDatabase(source: Database.Database | string, destFile: string): Promise<DbSnapshotInfo> {
-  const ownHandle = typeof source === 'string'
-  // A separate process (the CLI under the systemd timer) opens its own
-  // connection. Read-only is enough for the backup API and cannot disturb the
-  // dashboard's writes.
-  const db = ownHandle ? new Database(source, { readonly: true, fileMustExist: true }) : source
+export async function copyDatabaseFile(file: string, destFile: string): Promise<void> {
+  const db = new Database(file, { readonly: true, fileMustExist: true })
   try {
     try {
       await db.backup(destFile)
@@ -105,9 +102,32 @@ export async function snapshotDatabase(source: Database.Database | string, destF
       rmSync(destFile, { force: true })
       db.exec(`VACUUM INTO '${destFile.replace(/'/g, "''")}'`)
     }
-  } finally {
-    if (ownHandle) db.close()
-  }
+  } finally { db.close() }
+}
+
+/**
+ * #965: the same copy off the main thread. The stall sampler caught ONE backup step of the dashboard's own handle
+ * holding the whole event loop for 8.0 s (better-sqlite3 backup.js step, 179 MB database on the slow drive): the
+ * online backup's page copy is synchronous per step. The compiled build copies through a worker thread; a source run
+ * (vitest, tsx) has no compiled worker beside it and keeps the inline copy, which produces the very same file.
+ */
+export function copyDatabaseFileAsync(file: string, destFile: string): Promise<void> {
+  const here = fileURLToPath(import.meta.url)
+  if (!here.endsWith('.js')) return copyDatabaseFile(file, destFile)
+  return new Promise<void>((resolve, reject) => {
+    const w = new Worker(join(dirname(here), 'db-snapshot-worker.js'), { workerData: { file, destFile } })
+    w.once('message', (m: { ok: boolean; error?: string }) => (m.ok ? resolve() : reject(new Error(m.error || 'snapshot failed'))))
+    w.once('error', reject)
+    w.once('exit', (code) => { if (code !== 0) reject(new Error(`snapshot worker exited with ${code}`)) })
+  })
+}
+
+/**
+ * Snapshot `source` (the dashboard's open handle, or a DB file path) into `destFile`. The destination must not exist
+ * yet. Both forms copy through a read-only connection of their own (#965): a handle is only asked for its file name.
+ */
+export async function snapshotDatabase(source: Database.Database | string, destFile: string): Promise<DbSnapshotInfo> {
+  await copyDatabaseFileAsync(typeof source === 'string' ? source : source.name, destFile)
   // The copy inherits the WAL flag in its header; switch it to a plain rollback
   // journal so the file is complete on its own and opening it never needs a
   // -wal next to it (a stale -wal would replay old pages over a restored DB).
