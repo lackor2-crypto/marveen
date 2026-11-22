@@ -508,6 +508,8 @@ export function startWebServer(port = 3420): http.Server {
 
   server.listen(port, WEB_HOST, () => {
     logger.info({ port }, `Web dashboard: http://localhost:${port}`)
+    // #977: the vault's per-entry scrypt keys are derived on the thread pool right after start, so the first Accounts/Connectors visit never freezes the main thread.
+    void import('./web/vault.js').then((v) => v.prewarmVaultKeys()).catch(() => {})
     // Az AI-videogeneralas felbehagyott feladatai: ami az OpenRouternel fut, tovabb figyeljuk (a Marvin ujrainditasa nem veszit el egy kifizetett klipet).
     try { const r = resumeVideoGenerations(); if (r.orphaned || r.resumed) logger.info(r, 'video generation resume') } catch (err) { logger.warn({ err }, 'video generation resume failed') }
     // Az email-oldal listai hideg indulasnal masodpercekig tartanak (ures
