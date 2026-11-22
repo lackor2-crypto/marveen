@@ -26,6 +26,13 @@ describe('test-sandbox rule', () => {
     expect(sk).toContain('FIRST look for the owner')
     expect(sk).toContain('Never open a second test project')
   })
+  it('forbids creating a new project unless the owner asks (Boss TG 7468)', () => {
+    const b = buildTestSandboxBody()
+    expect(b).toContain('UJ PROJEKTET LETREHOZNI TILOS')
+    expect(b).not.toContain('nyiss egyet')
+    const sk = readFileSync(join(PROJECT_ROOT, 'seed-skills/test-in-sandbox-project/SKILL.md'), 'utf-8')
+    expect(sk).toContain('NEVER create a project yourself')
+  })
   it('appends once, idempotently; skips main agent and agents without CLAUDE.md', () => {
     const dir = agentDir(THROWAWAY)
     mkdirSync(dir, { recursive: true })

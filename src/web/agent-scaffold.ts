@@ -3553,7 +3553,8 @@ export function buildTestSandboxBody(): string {
     'ugyfel- vagy hivatali projektben. Ott barmit letrehozhatsz, torolhetsz, linkelhetsz; egy-ket',
     'proba-dokumentum bent is maradhat. A rendszer minden projektben ugyanugy mukodik, ezert a proba',
     'itt hiteles. KIVETEL: a bongeszos kattintas (Playwright) es a dashboard kezelese oda kattint,',
-    'ahova kell. Ha a proba-projekt nincs meg, nyiss egyet `sandbox` slugkent, ne valodi projektben probalj.',
+    'ahova kell. Ha a proba-projekt nincs meg, kerdezd meg a tulajdonost (ne nyiss magadtol projektet), ne valodi projektben probalj.',
+    'UJ PROJEKTET LETREHOZNI TILOS (sem probara, sem mashoz), kiveve ha a tulajdonos kifejezetten azt kerte.',
     'Reszletek: `test-in-sandbox-project` skill.',
   ].join('\n')
 }
