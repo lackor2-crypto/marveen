@@ -3359,7 +3359,7 @@ window._i18n.hu = {
   'irodaSettings.category.appwatch_desc': 'Nyilvános app-oldalak figyelése, értesítés ha nő a szám',
   'appwatch.title': 'Letöltés-figyelő',
   'appwatch.what': 'Naponta egyszer megnézi a megadott nyilvános app-oldalakat, és Telegramon szól, ha a letöltések (vagy az értékelések) száma nőtt. Csak olvassa az oldalakat, semmit nem ír és nem lép be sehová.',
-  'appwatch.limits': 'Amit lát: a Google Play a letöltést kerekített sávban mutatja (pl. 100+), mellette egy pontosabb szám is van az oldalon. Az Apple App Store letöltésszámot nem mutat, ott csak az értékelések számát lehet figyelni. A pontos letöltésszám a fejlesztői konzolban van, ahhoz itt nincs hozzáférés.',
+  'appwatch.limits': 'Amit lát: a Google Play a letöltést kerekített sávban mutatja (pl. 100+), mellette egy pontosabb szám is van az oldalon. Az Apple App Store letöltésszámot nem mutat, ott csak az értékelések számát lehet figyelni (az összes ország áruházának összege, a zárójelben az országonkénti bontás). A pontos letöltésszám a fejlesztői konzolban van, ahhoz itt nincs hozzáférés.',
   'appwatch.empty': 'Még nincs figyelt oldal. Add meg alul az első app oldalának címét.',
   'appwatch.add_title': 'Új oldal figyelése',
   'appwatch.add_how': '1. Nyisd meg az app oldalát a Google Play-en vagy az App Store-ban. 2. Másold ki a böngésző címsorából a teljes címet. 3. Illeszd be ide (például: https://play.google.com/store/apps/details?id=...). A név csak a saját emlékeztetődnek van, bármi lehet.',
