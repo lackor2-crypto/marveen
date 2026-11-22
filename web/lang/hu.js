@@ -1043,6 +1043,7 @@ window._i18n.hu = {
   'intezo.physical_save': 'Mentés',
   'intezo.preview': 'Előnézet',
   'intezo.download': 'Letöltés',
+  'intezo.file_open_failed': 'A fájlt most nem sikerült megnyitni vagy letölteni. Próbáld újra.',
   'intezo.preview_loading': 'Betöltés…',
   'intezo.preview_failed': 'Az előnézet nem tölthető be.',
   'intezo.preview_truncated': '(a fájl további része nem jelenik meg itt — töltsd le a teljes tartalomhoz)',
