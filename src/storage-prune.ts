@@ -6,23 +6,29 @@
 // a Git account makes its folder on purpose. Async fs only: the dashboard thread must not wait on a slow disk.
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
+import { logger } from './logger.js'
 import { DEPOT_DRIVE, DEPOT_MEGA, DEPOT_PHOTOS } from './depot.js'
 
 const JUNK = new Set(['desktop.ini', 'thumbs.db'])
 
-/** True when the folder tree holds no real file. Collects the junk files and folders (deepest first) to delete. */
+/**
+ * True when the folder tree holds no real file. Collects the junk files and folders (deepest first) to delete.
+ * It stops at the FIRST real file: a non-empty account (the normal case, maybe a million files) is never walked whole,
+ * because nothing is removed from it anyway. Files of a folder are checked before its sub-folders are entered.
+ */
 async function scan(dir: string, junk: string[], dirs: string[]): Promise<boolean> {
   let entries
   try { entries = await fsp.readdir(dir, { withFileTypes: true }) } catch { return false }
-  let empty = true
+  const subdirs: string[] = []
   for (const e of entries) {
     const p = join(dir, e.name)
-    if (e.isDirectory()) { if (!(await scan(p, junk, dirs))) empty = false }
+    if (e.isDirectory()) subdirs.push(p)
     else if (e.isFile() && JUNK.has(e.name.toLowerCase())) junk.push(p)
-    else empty = false
+    else return false
   }
-  if (empty) dirs.push(dir)
-  return empty
+  for (const p of subdirs) if (!(await scan(p, junk, dirs))) return false
+  dirs.push(dir)
+  return true
 }
 
 export async function pruneEmptyStorageDirs(root: string | null): Promise<{ removed: string[] }> {
@@ -47,3 +53,30 @@ export async function pruneEmptyStorageDirs(root: string | null): Promise<{ remo
   }
   return { removed }
 }
+
+// A prune is asked for by every view of the tree (Storages page, Life tree under System), so it is shared and spaced out:
+// one run at a time, and a new run only when the last one is older than the gap. A view waits for it only briefly.
+let lastAt = 0
+let inflight: Promise<void> | null = null
+
+export function pruneEmptyStorageDirsThrottled(root: string | null, gapMs = 15_000): Promise<void> {
+  if (!root) return Promise.resolve()
+  if (inflight) return inflight
+  if (Date.now() - lastAt < gapMs) return Promise.resolve()
+  lastAt = Date.now()
+  inflight = pruneEmptyStorageDirs(root)
+    .then(() => undefined, (e) => { logger.warn({ err: String(e) }, '[storages] empty account folder sweep failed') })
+    .finally(() => { inflight = null })
+  return inflight
+}
+
+/** Waits for `p` at most `ms`; never rejects. A slow disk therefore delays the listing by `ms` at the very most. */
+export async function settleWithin(p: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([p.catch(() => undefined), new Promise((r) => { timer = setTimeout(r, ms) })])
+  } finally { if (timer) clearTimeout(timer) }
+}
+
+/** Test hook: forget the spacing so the next call runs at once. */
+export function resetPruneThrottleForTests(): void { lastAt = 0 }

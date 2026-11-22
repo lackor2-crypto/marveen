@@ -40,6 +40,8 @@ import { lifeSendInfo, prepareLifeAttachments, SHARE_LIMIT } from '../../life-se
 import { json, readBody } from '../http-helpers.js'
 import { dupStatus, startDupIndex, stopDupIndex, duplicatesIn, matchCloudFiles } from '../../life-dup-index.js'
 import { logger } from '../../logger.js'
+import { pruneEmptyStorageDirsThrottled, settleWithin } from '../../storage-prune.js'
+import { DEPOT_SYSTEM_ROOT } from '../../depot.js'
 import { openWithDefaultApp, openableWithDefaultApp, fileManagerKind } from '../../open-in-file-manager.js'
 import { linkedUsesUnder } from '../../workbench-doc-links.js'
 import { isVersionsLifePath } from '../../workbench-assets.js'
@@ -398,6 +400,9 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // Frissites gomb: gyorsitotar nelkul.
     // A listazas KULON SZALON fut (life-list-offthread.ts): egy lassu meghajto
     // igy csak ezt a valaszt kesleltetheti, nem az egesz dashboardot.
+    // #970: the tree under System shows only account folders that hold something; an emptied one is swept first
+    // (async, shared and spaced out, waited for at most 1.5 s).
+    if (rel === DEPOT_SYSTEM_ROOT || rel.startsWith(DEPOT_SYSTEM_ROOT + '/')) await settleWithin(pruneEmptyStorageDirsThrottled(depotRoot()), 1500)
     try {
       const listing = url.searchParams.get('content') === '0'
         ? await listLifeOffThread(rel, { content: false, lang: uiLang(url) })
