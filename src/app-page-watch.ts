@@ -31,6 +31,8 @@ export interface WatchState {
   error: string
   /** Mikor valtozott utoljara a figyelt szam. */
   changedAt: string
+  /** Apple: orszagonkenti bontas ("US 15, DE 2"); ures, ha nincs ertekeles vagy nem Apple. */
+  detail?: string
 }
 export interface WatchFile { pages: WatchPage[]; state: Record<string, WatchState> }
 export interface Reading { kind: WatchKind; value: number | null; band: string }
@@ -54,6 +56,7 @@ export function readWatchFile(file = watchFilePath()): WatchFile {
         checkedAt: String(v?.checkedAt || ''),
         error: String(v?.error || ''),
         changedAt: String(v?.changedAt || ''),
+        detail: String(v?.detail || ''),
       }
     }
     return { pages, state }
@@ -121,6 +124,50 @@ export function parseApplePage(html: string): Reading | null {
   return { kind: 'apple', band: '', value: sum }
 }
 
+/**
+ * App Store ratings are counted per storefront country: a /de/ page shows only the German storefront's ratings (real case:
+ * the /de/ page said 0 while the US storefront had 15). So the total asks EVERY storefront through Apple's official public
+ * lookup endpoint.
+ */
+export const APPLE_STOREFRONTS = ('ae ag ai al am ao ar at au az bb be bf bg bh bj bm bn bo br bs bt bw by bz ca cg ch ci cl cm cn co cr cv cy cz de dk dm do dz ec ee eg es fi fj fm fr gb gd gh gm gr gt gw gy hk hn hr hu id ie il in is it jm jo jp ke kg kh kn kr kw ky kz la lb lc lk lr lt lu lv ma md mg mk ml mm mn mo mr ms mt mu mv mw mx my mz na ne ng ni nl no np nz om pa pe pg ph pk pl pt pw py qa ro rs ru rw sa sb sc se sg si sk sl sn sr st sv sz tc td th tj tm tn to tr tt tw tz ua ug us uy uz vc ve vg vn ye za zm zw').split(' ')
+
+/** The app id from an Apple page address (".../id6499212950"); null when there is none. */
+export function appleAppId(url: string): string | null {
+  const m = String(url || '').match(/\/id(\d{5,15})(?:[/?#]|$)/)
+  return m ? m[1] : null
+}
+
+/** The rating count of one lookup answer; null when the app is not in that storefront or the answer is unreadable. */
+export function parseAppleLookup(body: string): number | null {
+  try {
+    const r = (JSON.parse(body) as { results?: { userRatingCount?: unknown }[] }).results
+    if (!Array.isArray(r) || !r.length) return null
+    const n = Number(r[0]?.userRatingCount)
+    return Number.isFinite(n) && n >= 0 ? n : 0
+  } catch { return null }
+}
+
+/** The sum of the ratings over every storefront. null when no storefront gave a usable answer (the caller falls back to the page's own number). */
+export async function readAppleAllStorefronts(id: string, fetcher: Fetcher): Promise<{ total: number; detail: string } | null> {
+  const found: { c: string; n: number }[] = []
+  let answered = 0
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < APPLE_STOREFRONTS.length) {
+      const c = APPLE_STOREFRONTS[next++]
+      try {
+        const n = parseAppleLookup(await fetcher(`https://itunes.apple.com/lookup?id=${id}&country=${c}`))
+        answered++
+        if (n !== null && n > 0) found.push({ c, n })
+      } catch { /* this storefront did not answer now; the others did */ }
+    }
+  }
+  await Promise.all(Array.from({ length: 8 }, () => worker()))
+  if (!answered) return null
+  found.sort((a, b) => b.n - a.n || a.c.localeCompare(b.c))
+  return { total: found.reduce((a, b) => a + b.n, 0), detail: found.map((f) => `${f.c.toUpperCase()} ${f.n}`).join(', ') }
+}
+
 export function parsePage(kind: WatchKind, html: string): Reading | null {
   return kind === 'play' ? parsePlayPage(html) : parseApplePage(html)
 }
@@ -169,14 +216,23 @@ export async function checkOne(page: WatchPage, state: WatchState | undefined, f
   const base = { id: page.id, label: page.label, kind, previous: prev.value, band: prev.band }
   try {
     if (!v.ok) throw new Error(v.en)
-    const html = await fetcher(v.url)
-    const r = parsePage(kind, html)
+    let r: Reading | null = null
+    let detail = ''
+    const appId = kind === 'apple' ? appleAppId(v.url) : null
+    if (appId) {
+      const all = await readAppleAllStorefronts(appId, fetcher)
+      if (all) { r = { kind: 'apple', band: '', value: all.total }; detail = all.detail }
+    }
+    if (!r) {
+      const html = await fetcher(v.url)
+      r = parsePage(kind, html)
+    }
     if (!r) throw new Error('The page did not contain the expected data (its layout may have changed).')
     const increased = prev.value !== null && r.value !== null && r.value > prev.value
     const changed = prev.value === null || r.value !== prev.value
     const next: WatchState = {
       value: r.value, band: r.band, checkedAt: now.toISOString(), error: '',
-      changedAt: changed ? now.toISOString() : prev.changedAt,
+      changedAt: changed ? now.toISOString() : prev.changedAt, detail,
     }
     return { result: { ...base, ok: true, current: r.value, band: r.band, increased, error: '' }, state: next }
   } catch (err: any) {

@@ -35,7 +35,8 @@ function view(lang: 'hu' | 'en') {
       checkedAt: st?.checkedAt || '',
       changedAt: st?.changedAt || '',
       error: st?.error || '',
-      text: describeReading(kind, st?.value ?? null, st?.band || '', lang),
+      detail: st?.detail || '',
+      text: describeReading(kind, st?.value ?? null, st?.band || '', lang) + (st?.detail ? ` (${st.detail})` : ''),
     }
   })
 }

@@ -2490,7 +2490,7 @@ window._i18n.en = {
   'irodaSettings.category.appwatch_desc': 'Watch public app pages, get a message when the number goes up',
   'appwatch.title': 'Download watcher',
   'appwatch.what': 'Once a day it looks at the public app pages you list, and tells you on Telegram when the downloads (or the ratings) went up. It only reads the pages: it writes nothing and signs in nowhere.',
-  'appwatch.limits': 'What it can see: Google Play shows downloads in a rounded band (e.g. 100+) and carries a more exact number on the page. The Apple App Store shows no download count, so only the number of ratings can be watched there. The exact download count lives in the developer console, which this has no access to.',
+  'appwatch.limits': 'What it can see: Google Play shows downloads in a rounded band (e.g. 100+) and carries a more exact number on the page. The Apple App Store shows no download count, so only the number of ratings can be watched there (the sum over the stores of every country, with the split per country in brackets). The exact download count lives in the developer console, which this has no access to.',
   'appwatch.empty': 'No watched page yet. Enter the address of the first app page below.',
   'appwatch.add_title': 'Watch a new page',
   'appwatch.add_how': '1. Open the app page on Google Play or the App Store. 2. Copy the full address from the browser address bar. 3. Paste it here (for example: https://play.google.com/store/apps/details?id=...). The name is only a reminder for you, anything goes.',
