@@ -23,7 +23,7 @@ import { join } from 'path'
 import { json, readBody, reqLang, L } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { depotRoot } from '../../depot.js'
-import { pruneEmptyStorageDirs } from '../../storage-prune.js'
+import { pruneEmptyStorageDirsThrottled, settleWithin } from '../../storage-prune.js'
 import {
   listStorages, ensureStorageFolders, readStorageRegistry, writeStorageRegistry, addGitAccount,
   renameStorage, forgetHiddenStorages, setStorageActive, setStorageHidden, storageKindRoot, STORAGE_KINDS,
@@ -85,8 +85,6 @@ function accountSources(): { drive: string[]; photos: string[]; mega: string[] }
 }
 
 /** A lista + a kiosztott azonositok lemezre irasa, ha uj sor keletkezett. */
-let lastPruneAt = 0
-
 function currentRows() { return currentRowsAll().rows }
 
 function currentRowsAll() {
@@ -137,11 +135,8 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/storages' && method === 'GET') {
     const root = depotRoot()
-    // #970: a kiurult fiokmappa tunjon el (async, legfeljebb percenkent, a valaszt nem varja meg).
-    if (root && Date.now() - lastPruneAt > 60_000) {
-      lastPruneAt = Date.now()
-      void pruneEmptyStorageDirs(root).catch((e) => logger.warn({ err: String(e) }, '[storages] ures fiokmappa takaritas nem sikerult'))
-    }
+    // #970: a kiurult fiokmappa tunjon el. Aszinkron, megosztott es ritkitott (storage-prune.ts); a lista legfeljebb 1,5 mp-ig var ra.
+    await settleWithin(pruneEmptyStorageDirsThrottled(root), 1500)
     json(res, {
       root,
       // Depo nelkul is valaszolunk, csak ures listaval + magyarazattal: a
