@@ -366,6 +366,9 @@ export function resetTurnFileScansForTest(): void { turnFileScans.clear() }
 
 function userTurnStamp(line: string): number | null {
   if (!line) return null
+  // #966: most lines of a transcript are assistant/tool output; only a user line carries the bare JSON string "user"
+  // (inside text it is escaped as user\"), so this cheap test skips the JSON.parse of everything else.
+  if (!line.includes('"user"')) return null
   let e: any
   try { e = JSON.parse(line) } catch { return null }
   if (e.type !== 'user' || e.isMeta) return null
