@@ -431,8 +431,9 @@ export const FULL_SWEEP_MS = 3_600_000
 export const RECENT_ITEM_MS = 15 * 60_000
 let lastFullSweep = 0
 export function isFullSweepDue(last: number, now = Date.now()): boolean { return last === 0 || now - last >= FULL_SWEEP_MS }
+/** `updatedAt` is the work_items column: unix SECONDS. `now` is milliseconds (Date.now()). */
 export function itemNeedsLightPass(updatedAt: number, hasRow: boolean, now = Date.now(), nameChanged = false): boolean {
-  return !hasRow || nameChanged || now - updatedAt <= RECENT_ITEM_MS
+  return !hasRow || nameChanged || now - updatedAt * 1000 <= RECENT_ITEM_MS
 }
 /** Every item of every open project. Yields between items: the depot can sit on a slow mount. */
 export async function sweepItemContexts(opts: { full?: boolean } = {}): Promise<{ items: number; created: number; renamed: number; json: number }> {
