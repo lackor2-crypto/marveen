@@ -13,7 +13,6 @@ import { execFile, spawn } from 'node:child_process'
 import { existsSync, rmSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
-import { extname } from 'node:path'
 import { PLATFORM, tryResolveFromPath } from './platform.js'
 import { isWsl } from './web/scheduled-tasks-io.js'
 import { runScriptViaTaskScheduler } from './windows-settings.js'
@@ -90,22 +89,13 @@ export async function openInFileManager(abs: string): Promise<OpenOutcome> {
 // the machine's own program (Excel, Word, the PDF reader), the way a double click does in
 // the file manager.
 //
-// ONLY documents and media. "Open with the default program" RUNS a program or a script
-// when the file is one (.exe, .bat, .lnk, .js ...): those are never opened this way, by
-// an allowlist of extensions -- not by a list of the dangerous ones, which is never complete.
-const OPENABLE = new Set([
-  'doc', 'docx', 'odt', 'rtf', 'txt', 'md',
-  'xls', 'xlsx', 'xlsm', 'ods', 'csv', 'tsv',
-  'ppt', 'pptx', 'odp', 'pdf',
-  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic',
-  'mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov', 'm4v', 'mkv', 'avi', 'webm',
-  // #980 (owner: "nyissuk meg"): a Flash animation is media played by a player, not a program or script.
-  'swf',
-])
+// #982 (owner, 2026-11-23: "vegyel mar le minden zarat! az osszes kiterjeszesre vedd le a
+// tiltast. engedj mindent."): every file type may be handed to the machine's own program, the
+// way a double click does in the file manager. There is no extension allowlist any more.
 
-/** Can this file be handed to the machine's own program? By its extension, an allowlist. */
-export function openableWithDefaultApp(name: string): boolean {
-  return OPENABLE.has(extname(String(name || '')).slice(1).toLowerCase())
+/** Can this file be handed to the machine's own program? Every file can. */
+export function openableWithDefaultApp(_name: string): boolean {
+  return true
 }
 
 /**
@@ -171,7 +161,7 @@ function sweepLegacyOpenFile(): Promise<void> {
   return legacySwept
 }
 
-export type OpenFileOutcome = OpenOutcome | { ok: false; code: 'not_a_file' | 'not_openable' | 'open_unconfirmed' }
+export type OpenFileOutcome = OpenOutcome | { ok: false; code: 'not_a_file' | 'open_unconfirmed' }
 
 /** How long the scheduled task gets to report back before the answer is "not confirmed". */
 const OPEN_CONFIRM_MS = 10_000
@@ -195,7 +185,6 @@ export async function openWithDefaultApp(abs: string): Promise<OpenFileOutcome> 
     if (!existsSync(abs)) return { ok: false, code: 'not_found' }
     if (!statSync(abs).isFile()) return { ok: false, code: 'not_a_file' }
   } catch { return { ok: false, code: 'not_found' } }
-  if (!openableWithDefaultApp(abs)) return { ok: false, code: 'not_openable' }
   const kind = fileManagerKind()
   if (kind === 'none') return { ok: false, code: 'no_file_manager' }
   if (kind === 'windows') {
