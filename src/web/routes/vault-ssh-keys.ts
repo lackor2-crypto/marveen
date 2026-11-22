@@ -76,7 +76,7 @@ export async function tryHandleVaultSshKeys(ctx: RouteContext): Promise<boolean>
   if (path === '/api/vault/ssh-keys' && method === 'POST') {
     try {
       const body = await readBody(req)
-      const data = JSON.parse(body.toString())
+      const data = JSON.parse(body.toString()) ?? {}
 
       const label    = typeof data.label    === 'string' ? data.label.trim()    : ''
       const username = typeof data.username === 'string' ? data.username.trim() : ''
@@ -107,7 +107,7 @@ export async function tryHandleVaultSshKeys(ctx: RouteContext): Promise<boolean>
   if (path === '/api/vault/ssh-keys/import' && method === 'POST') {
     try {
       const body = await readBody(req)
-      const data = JSON.parse(body.toString())
+      const data = JSON.parse(body.toString()) ?? {}
 
       const label        = typeof data.label      === 'string' ? data.label.trim()      : ''
       const username     = typeof data.username   === 'string' ? data.username.trim()   : ''

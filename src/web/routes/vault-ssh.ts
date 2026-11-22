@@ -116,7 +116,7 @@ export async function tryHandleVaultSsh(ctx: RouteContext): Promise<boolean> {
       if (!existing) { json(res, { error: `Server "${id}" not found` }, 404); return true }
 
       const body = await readBody(req)
-      const data = JSON.parse(body.toString())
+      const data = JSON.parse(body.toString()) ?? {}
 
       const patch: Parameters<typeof updateVaultSshServer>[1] = {}
       if (typeof data.name === 'string')     patch.name        = data.name.trim()
