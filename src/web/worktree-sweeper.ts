@@ -34,11 +34,10 @@
 // sweep then does nothing and says why. Nothing is pre-seeded, no path, owner
 // or agent id is baked in: the roots come from the caller (PROJECT_ROOT,
 // MARVEEN_WORKTREE_ROOT). Off switch: MARVEEN_WORKTREE_SWEEP=0.
-import { appendFileSync, existsSync } from 'node:fs'
-import { readdir, readFile, readlink, stat } from 'node:fs/promises'
+import { appendFile, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
-  addedLinesByFile, defaultGit, LANDED_PCT, onBasePct, parseWorktreeList, worktreeState,
+  addedLinesByFile, defaultGit, LANDED_PCT, onBasePct, parseWorktreeList, pathExists, worktreeState,
   type GitRun, type WorktreeRef, type WorktreeState,
 } from './abandoned-worktrees.js'
 
@@ -66,6 +65,8 @@ export interface SweepDeps {
   /** One line per removal, with the tip sha: `git branch <name> <sha>` brings
    *  it back (the commits stay in the object store until git's own gc). */
   record: (line: string) => void
+  /** Resolves when every recorded line is on disk (tests; the live loop never waits). */
+  flushLog?: () => Promise<void>
 }
 
 export interface SweepResult {
@@ -164,7 +165,7 @@ export async function sweepWorktrees(deps: SweepDeps): Promise<SweepResult> {
       if (wt.branch) stillCheckedOut.add(wt.branch)
     }
     if (resolve(dirname(wt.path)) !== wtRoot) { keep('nem a worktree-gyoker kozvetlen almappaja'); continue }
-    if (!existsSync(wt.path)) continue // prune took it
+    if (!(await pathExists(wt.path))) continue // prune took it
     const idle = now - (await deps.lastActivityMs(wt))
     if (idle < SWEEP_QUIET_MS) { keep(`friss (${Math.round(idle / 60_000)} perce volt benne valtozas)`); continue }
     if (cwds.some((c) => inside(c, wt.path))) { keep('egy futo folyamat ebben a mappaban all'); continue }
@@ -234,8 +235,14 @@ export const SWEEP_BASE = 'refs/remotes/origin/main'
 export function liveSweepDeps(
   projectRoot: string, worktreeRoot: string | null, busyWorkspaces: () => string[], logFile: string | null, base = SWEEP_BASE,
 ): SweepDeps {
+  let logChain: Promise<void> = Promise.resolve()
   return {
-    record: (line) => { if (logFile) { try { appendFileSync(logFile, line + '\n') } catch { /* a log that cannot be written must not stop the sweep */ } } },
+    // Async, but chained so the lines land in the order they were recorded (#981).
+    record: (line) => {
+      if (!logFile) return
+      logChain = logChain.then(() => appendFile(logFile, line + '\n')).catch(() => { /* a log that cannot be written must not stop the sweep */ })
+    },
+    flushLog: () => logChain,
     projectRoot,
     worktreeRoot: worktreeRoot ?? join(projectRoot, '.worktrees'),
     base,
