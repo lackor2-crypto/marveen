@@ -34,7 +34,8 @@
 // sweep then does nothing and says why. Nothing is pre-seeded, no path, owner
 // or agent id is baked in: the roots come from the caller (PROJECT_ROOT,
 // MARVEEN_WORKTREE_ROOT). Off switch: MARVEEN_WORKTREE_SWEEP=0.
-import { appendFileSync, existsSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
+import { readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
   addedLinesByFile, defaultGit, LANDED_PCT, onBasePct, parseWorktreeList, worktreeState,
@@ -57,9 +58,9 @@ export interface SweepDeps {
   state: (path: string) => Promise<WorktreeState>
   now: () => number
   /** Newest activity of a worktree folder (ms). */
-  lastActivityMs: (wt: WorktreeRef) => number
+  lastActivityMs: (wt: WorktreeRef) => number | Promise<number>
   /** Working directories of the local processes (empty where unknowable). */
-  processCwds: () => string[]
+  processCwds: () => string[] | Promise<string[]>
   /** workspace_path of every queued/running code-bridge task. */
   busyWorkspaces: () => string[]
   /** One line per removal, with the tip sha: `git branch <name> <sha>` brings
@@ -151,7 +152,7 @@ export async function sweepWorktrees(deps: SweepDeps): Promise<SweepResult> {
   await git(root, ['worktree', 'prune'])
   const wts = parseWorktreeList(list.out, root)
   const now = deps.now()
-  const cwds = deps.processCwds()
+  const cwds = await deps.processCwds()
   const busy = deps.busyWorkspaces()
   const wtRoot = resolve(deps.worktreeRoot)
   const stillCheckedOut = new Set<string>()
@@ -164,7 +165,7 @@ export async function sweepWorktrees(deps: SweepDeps): Promise<SweepResult> {
     }
     if (resolve(dirname(wt.path)) !== wtRoot) { keep('nem a worktree-gyoker kozvetlen almappaja'); continue }
     if (!existsSync(wt.path)) continue // prune took it
-    const idle = now - deps.lastActivityMs(wt)
+    const idle = now - (await deps.lastActivityMs(wt))
     if (idle < SWEEP_QUIET_MS) { keep(`friss (${Math.round(idle / 60_000)} perce volt benne valtozas)`); continue }
     if (cwds.some((c) => inside(c, wt.path))) { keep('egy futo folyamat ebben a mappaban all'); continue }
     if (busy.some((p) => pathNamesWorktree(p, name))) { keep('egy varakozo/futo kodhid-feladat ezt a mappat hasznalja'); continue }
@@ -201,25 +202,27 @@ export async function sweepWorktrees(deps: SweepDeps): Promise<SweepResult> {
 /** Newest of: the folder itself, its git admin dir (HEAD/reflog move on every
  *  checkout and commit). A clean tree's file edits make it dirty, so they need
  *  no mtime of their own here. */
-export function worktreeActivityMs(wt: WorktreeRef): number {
+export async function worktreeActivityMs(wt: WorktreeRef): Promise<number> {
   const cands = [wt.path]
   try {
-    const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(join(wt.path, '.git'), 'utf8'))
+    const m = /^gitdir:\s*(.+)$/m.exec(await readFile(join(wt.path, '.git'), 'utf8'))
     if (m) { const g = m[1].trim(); cands.push(g, join(g, 'HEAD'), join(g, 'logs', 'HEAD')) }
   } catch { /* no .git file: the folder mtime alone */ }
   let best = 0
-  for (const p of cands) { try { best = Math.max(best, statSync(p).mtimeMs) } catch { /* missing */ } }
+  for (const p of cands) { try { best = Math.max(best, (await stat(p)).mtimeMs) } catch { /* missing */ } }
   // Unreadable -> "just now": an unknown age must keep, never sweep.
   return best || Date.now()
 }
 
 /** Every local process's cwd (Linux /proc). Elsewhere empty -- the quiet
- *  window is then the guard. */
-export function localProcessCwds(): string[] {
+ *  window is then the guard. Async (#981): hundreds of synchronous readlink calls
+ *  on one tick froze the dashboard's main thread; here every call is awaited
+ *  and the loop yields to the event loop. */
+export async function localProcessCwds(): Promise<string[]> {
   const out: string[] = []
   let pids: string[] = []
-  try { pids = readdirSync('/proc').filter((p) => /^\d+$/.test(p)) } catch { return out }
-  for (const p of pids) { try { out.push(readlinkSync(`/proc/${p}/cwd`)) } catch { /* gone or foreign */ } }
+  try { pids = (await readdir('/proc')).filter((p) => /^\d+$/.test(p)) } catch { return out }
+  for (const p of pids) { try { out.push(await readlink(`/proc/${p}/cwd`)) } catch { /* gone or foreign */ } }
   return out
 }
 
