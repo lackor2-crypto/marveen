@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
-import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'node:crypto'
+import { randomBytes, createCipheriv, createDecipheriv, scryptSync, scrypt } from 'node:crypto'
 import { PROJECT_ROOT } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { isKeychainAvailable, keychainStore, keychainRetrieveStatus } from './keychain.js'
@@ -218,13 +218,55 @@ const derivedKeyCache = new Map<string, Buffer>()
 const DERIVED_KEY_CACHE_MAX = 1024
 
 function deriveKey(master: Buffer, salt: Buffer): Buffer {
-  const k = master.toString('base64') + ':' + salt.toString('base64')
+  const k = derivedKeyCacheKey(master, salt)
   const hit = derivedKeyCache.get(k)
   if (hit) return hit
   const key = scryptSync(master, salt, KEY_LENGTH)
   if (derivedKeyCache.size >= DERIVED_KEY_CACHE_MAX) derivedKeyCache.clear()
   derivedKeyCache.set(k, key)
   return key
+}
+
+const derivedKeyCacheKey = (master: Buffer, salt: Buffer): string => master.toString('base64') + ':' + salt.toString('base64')
+
+/**
+ * #977: the FIRST decrypt after every restart computed one scryptSync per vault entry on the main thread (8 entries ~
+ * 2.7-3.4 s frozen in /api/perf/stalls, measured 2026-11-22 11:27, stack getSecret > decrypt > deriveKey > scryptSync).
+ * This fills the same cache through the libuv thread pool (crypto.scrypt), so the main thread never waits for it.
+ * Returns how many keys were derived.
+ */
+export async function prewarmDerivedKeys(master: Buffer, packedBlobs: string[]): Promise<number> {
+  let n = 0
+  for (const packed of packedBlobs) {
+    const salt = Buffer.from(packed, 'base64').subarray(0, SALT_LENGTH)
+    if (salt.length < SALT_LENGTH) continue
+    const k = derivedKeyCacheKey(master, salt)
+    if (derivedKeyCache.has(k)) continue
+    const key = await new Promise<Buffer>((resolve, reject) => scrypt(master, salt, KEY_LENGTH, (err, out) => (err ? reject(err) : resolve(out))))
+    if (derivedKeyCache.size >= DERIVED_KEY_CACHE_MAX) derivedKeyCache.clear()
+    derivedKeyCache.set(k, key)
+    n++
+  }
+  return n
+}
+
+export function isDerivedKeyCached(master: Buffer, packed: string): boolean {
+  return derivedKeyCache.has(derivedKeyCacheKey(master, Buffer.from(packed, 'base64').subarray(0, SALT_LENGTH)))
+}
+
+/** Warm the cache for every stored secret in the background (called once after start-up). */
+export async function prewarmVaultKeys(): Promise<number> {
+  try {
+    const blobs: string[] = []
+    for (const e of readVault().entries) {
+      for (const b of [e.encrypted, e.encryptedFields, e.encryptedHistory]) if (b) blobs.push(b)
+    }
+    if (!blobs.length) return 0
+    return await prewarmDerivedKeys(getMasterKey(), blobs)
+  } catch (err) {
+    logger.warn({ err: String(err) }, 'vault key prewarm skipped')
+    return 0
+  }
 }
 
 function encrypt(plaintext: string): string {
