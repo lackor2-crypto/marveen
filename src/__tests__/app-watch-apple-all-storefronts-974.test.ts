@@ -37,6 +37,32 @@ describe('Apple ratings sum over every storefront', () => {
     expect(state.value).toBe(0)
     expect(state.detail).toBe('')
   })
+  it('a storefront that did not answer must not lower the number (no false "went up" alert the next day)', async () => {
+    const page = { id: 'a', label: 'p', url: 'https://apps.apple.com/de/app/x/id6499212927' }
+    const good = async (url: string): Promise<string> => lookup(url.endsWith('country=us') ? 15 : 0)
+    const first = await checkOne(page, undefined, good)
+    expect(first.state.value).toBe(15)
+    // next day the US storefront times out: the rest answer, the sum would be 0
+    const usDown = async (url: string): Promise<string> => { if (url.endsWith('country=us')) throw new Error('timeout'); return lookup(0) }
+    const second = await checkOne(page, first.state, usDown)
+    expect(second.result.ok).toBe(false)
+    expect(second.state.value).toBe(15)
+    expect(second.result.increased).toBe(false)
+    expect(second.result.error).toMatch(/did not answer/)
+    // the day after, everything answers again: still 15, so no "went up" either
+    const third = await checkOne(page, second.state, good)
+    expect(third.result.ok).toBe(true)
+    expect(third.result.increased).toBe(false)
+  })
+  it('a partial answer that is not lower than the last number is accepted', async () => {
+    const page = { id: 'a', label: 'p', url: 'https://apps.apple.com/de/app/x/id6499212927' }
+    const prev = { value: 10, band: '', checkedAt: '', error: '', changedAt: '' }
+    const f = async (url: string): Promise<string> => { if (url.endsWith('country=de')) throw new Error('timeout'); return lookup(url.endsWith('country=us') ? 12 : 0) }
+    const { result, state } = await checkOne(page, prev, f)
+    expect(result.ok).toBe(true)
+    expect(state.value).toBe(12)
+    expect(result.increased).toBe(true)
+  })
   it('the storefront list is not tiny', () => { expect(APPLE_STOREFRONTS.length).toBeGreaterThan(150); expect(APPLE_STOREFRONTS).toContain('us') })
 })
 
