@@ -2580,3 +2580,7 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
 @media (max-width: 900px) {
   .wb-fr-panel:has(.wb-pin .wb-pop) { flex-basis: auto; height: auto; min-height: calc(60vh + 160px); }
 }
+
+/* #984: the Internal switch and badge */
+.wb-intake-internal { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0; font-size: 13px; cursor: pointer; }
+.wb-internal-badge { display: inline-block; font-size: 10px; line-height: 1; padding: 2px 5px; margin-right: 4px; border-radius: 8px; border: 1px solid currentColor; opacity: .75; vertical-align: middle; }

@@ -95,6 +95,8 @@ export interface WorkItemRow {
   chat_key?: string
   /** #794: 1 when the owner marked "no trigger document (own initiative)". */
   no_trigger?: number | null
+  /** #984: 1 = marked "internal" (for us, goes out to nobody). A MARK on any kind, not a kind of its own. */
+  internal?: number | null
 }
 
 export interface WorkItemVersionRow {
@@ -185,6 +187,9 @@ export function ensureWorkbenchTables(): void {
   if (!iCols.has('container_folder')) db.exec('ALTER TABLE work_items ADD COLUMN container_folder TEXT')
   // #794: 1 = the owner marked "no trigger document (own initiative)": the work may go on without one.
   if (!iCols.has('no_trigger')) db.exec('ALTER TABLE work_items ADD COLUMN no_trigger INTEGER')
+  // #984: "internal" is a mark on any work item. The old kind `internal` keeps its type (and its text editor) and gets the mark.
+  if (!iCols.has('internal')) db.exec('ALTER TABLE work_items ADD COLUMN internal INTEGER')
+  db.exec("UPDATE work_items SET internal = 1 WHERE type = 'internal' AND internal IS NULL")
   const unnumbered = db.prepare('SELECT id FROM work_items WHERE seq IS NULL ORDER BY created_at, rowid').all() as { id: string }[]
   if (unnumbered.length) {
     db.transaction(() => {
@@ -203,8 +208,8 @@ export function ensureWorkbenchTables(): void {
 /** #973 part 2 (Boss TG 7407/7416): an internal work (a plan, a development note) is for us, not for anyone else: it needs
  *  no review tick, no accept tick and no delivery step to be closed. One rule, read by the finalize gate, the page
  *  state and the project-close check. */
-export function isInternalWork(item: { type?: unknown } | null | undefined): boolean {
-  return !!item && item.type === 'internal'
+export function isInternalWork(item: { type?: unknown; internal?: unknown } | null | undefined): boolean {
+  return !!item && (item.internal === 1 || item.type === 'internal')
 }
 
 /** A note or an internal work: the kinds that are written as text (md/txt) and take the text profile of the document page. */
@@ -245,6 +250,8 @@ export interface CreateWorkItemInput {
   prompt?: unknown
   /** #454: project folder (project-relative, already validated by the caller) to make the item's folder in; empty = default. */
   container_folder?: string | null
+  /** #984: start the item marked internal (any kind). */
+  internal?: unknown
 }
 
 export type CreateWorkItemResult =
@@ -293,9 +300,9 @@ export function createWorkItem(input: CreateWorkItemInput): CreateWorkItemResult
 
   db.transaction(() => {
     db.prepare(`INSERT INTO work_items
-      (id, project_id, type, title, status, source_path, editor_type, current_version_id, created_at, updated_at, created_by, container_folder, seq)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM work_items))`)
-      .run(id, input.project_id, type, title, status, sourcePath, EDITOR_BY_TYPE[type], versionId, ts, ts, createdBy, container || null)
+      (id, project_id, type, title, status, source_path, editor_type, current_version_id, created_at, updated_at, created_by, container_folder, internal, seq)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM work_items))`)
+      .run(id, input.project_id, type, title, status, sourcePath, EDITOR_BY_TYPE[type], versionId, ts, ts, createdBy, container || null, input.internal === true || type === 'internal' ? 1 : null)
     db.prepare(`INSERT INTO work_item_versions
       (id, work_item_id, version_no, parent_version_id, manifest_path, preview_path, source_path, prompt, created_by, created_at, metadata_json)
       VALUES (?, ?, 1, NULL, NULL, NULL, ?, ?, ?, ?, NULL)`)
@@ -422,6 +429,14 @@ export function purgeWorkItem(id: string): { ok: true; projectId: string } | { o
  * tetejere ugrana. Ismetelt kituzes nem modositja az eredeti idopontot, igy a
  * kituzottek sorrendje stabil marad.
  */
+/** #984: set or clear the "internal" mark. A legacy `internal`-typed item stays internal by its type (the mark cannot be cleared there). */
+export function setWorkItemInternal(id: string, internal: boolean): WorkItemRow | undefined {
+  const item = getWorkItem(id)
+  if (!item) return undefined
+  getDb().prepare('UPDATE work_items SET internal = ? WHERE id = ?').run(internal || item.type === 'internal' ? 1 : null, item.id)
+  return getWorkItem(item.id)
+}
+
 export function setWorkItemNoTrigger(id: string, noTrigger: boolean): WorkItemRow | undefined {
   const item = getWorkItem(id)
   if (!item) return undefined
