@@ -1,6 +1,7 @@
 // What a dispatched approval task actually SAYS, and who it can be sent to.
 import { REGRESSION_TEST_DISPATCH_HU } from './regression-test-rule.js'
 import { NO_FREEZE_DISPATCH_HU } from './no-freeze-rule.js'
+import { NO_DELETE_ON_MOVE_DISPATCH_HU } from './no-delete-on-move-rule.js'
 //
 // Two things live here that used to be inline in the route handler:
 //
@@ -229,6 +230,8 @@ export function buildVerificationPrompt(input: VerificationPromptInput): string 
       REGRESSION_TEST_DISPATCH_HU,
       ``,
       NO_FREEZE_DISPATCH_HU,
+      ``,
+      NO_DELETE_ON_MOVE_DISPATCH_HU,
       ``,
       `A VEGEN KOTELEZO a TELJES teszt-suite (npx vitest run) es a tipusellenorzes (npx tsc --noEmit).`,
       `Ha barmelyik nem zold, az NEM kesz munka: akkor "fail"-t jelents, es ird meg, mi bukik.`,

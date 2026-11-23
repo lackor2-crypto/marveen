@@ -478,3 +478,10 @@ tartotta a főszálat; máshol `scryptSync` (~1 s) blokkolt.
 háttérfolyamat, korlátos hívásszám; fejlesztés közben lassú lemezen is mérd (`/api/perf/stalls`, `/api/perf/slow-fs`).
 Mindenkire áll (szakértő, segédmunkás, kód-híd session, chat-asszisztens). Kód: `buildNoFreezeBody()`,
 `NO_FREEZE_DISPATCH_HU/EN`; skill: `no-freeze-development`.
+
+### R43 -- Áthelyezéskor soha nem törlöd a forrást; ütközésnél megállsz (tulajdonos, 2026-11-23, törvény)
+**Hiba:** két frissen letöltött PDF-et (bejelentés, lemondás) „áthelyeztem" a Letöltésekből másolás + bájt-egyezés ellenőrzés
+után a forrás törlésével. A tulajdonos számára ez törlés volt: „ne hülyéskedjél, nem törölhetsz semmit, tilos".
+**Szabály:** áthelyezéskor csak másolsz (`cp --update=none`, sosem írsz felül), a forrást és a célnál levő fájlt sem törlöd;
+azonos név vagy tartalom esetén ÁLLJ MEG és szólj. A forrás törlése külön kérdés. Az egyező bájtszám nem engedély.
+Mindenkire áll. Kód: `buildNoDeleteOnMoveBody()`, `NO_DELETE_ON_MOVE_DISPATCH_HU/EN`.

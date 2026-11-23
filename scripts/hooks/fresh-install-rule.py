@@ -36,6 +36,7 @@ REGRESSZIOS TESZT: hibajavitashoz teszt kell ugyanabban a commitban (javitas nel
 ha gepi teszttel tenyleg nem foghato meg, a kartyara ird le, miert nincs (R40).
 NE FAGYASZD LE A GEPET: lassu gepen is mukodjon; a fo szalon tilos a szinkron lemez-/CPU-munka (statSync/readFileSync ciklus, scryptSync),
 sok fajlnal gyorsitotar/aszinkron; merd lassu lemezen (/api/perf/stalls) (R42).
+ATHELYEZESKOR SOHA NEM TOROLSZ: csak masolsz, a forrast es a celnal levo fajlt sem torlod; azonos nev/tartalom eseten ALLJ MEG es szolj (R43).
 MUNKADARAB MAPPA: csak a Kontextus es a Teendo fajl lehet benne, sajat segedfajl (Jogi kontextus stb.) TILOS (R24).
 A zaro 5+1 pontos onellenorzest ird is le a valaszodban (`fresh-install-usable` skill).""")
 

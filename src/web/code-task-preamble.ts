@@ -35,6 +35,7 @@ import { toLocalWorkspacePath } from './code-bridge-workspace.js'
 import type { CodeTaskOrigin } from './code-bridge-store.js'
 import { REGRESSION_TEST_DISPATCH_EN, REGRESSION_TEST_DISPATCH_HU } from '../regression-test-rule.js'
 import { NO_FREEZE_DISPATCH_EN, NO_FREEZE_DISPATCH_HU } from '../no-freeze-rule.js'
+import { NO_DELETE_ON_MOVE_DISPATCH_EN, NO_DELETE_ON_MOVE_DISPATCH_HU } from '../no-delete-on-move-rule.js'
 
 /** What kind of host MARVEEN runs on. The caller measures it (detectHostKind);
  *  this module never guesses, because a wrong guess prints a path that cannot
@@ -280,6 +281,8 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
   out.push(`8. ${hu ? REGRESSION_TEST_DISPATCH_HU : REGRESSION_TEST_DISPATCH_EN}`)
   // 9. The machine must never freeze (kanban #950): the same, for every task and fresh installs.
   out.push(`9. ${hu ? NO_FREEZE_DISPATCH_HU : NO_FREEZE_DISPATCH_EN}`)
+  // 10. Moving never deletes (2026-11-23): the same, for every task and fresh installs.
+  out.push(`10. ${hu ? NO_DELETE_ON_MOVE_DISPATCH_HU : NO_DELETE_ON_MOVE_DISPATCH_EN}`)
 
   return out.join('\n')
 }
