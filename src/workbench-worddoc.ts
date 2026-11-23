@@ -19,15 +19,16 @@
  * silently dropped: it is listed as a warning the page shows, and the original file stays in the version history.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import { APP_LANG } from './config.js'
 import { getDb } from './db.js'
-import { resolveLifePath } from './life-explorer.js'
+import { moveLife, resolveLifePath } from './life-explorer.js'
 import { lifeName } from './life-tree.js'
 import { writeBlockReason } from './git-guard.js'
 import { safeFileName } from './project-files.js'
 import { getProject } from './projects.js'
+import { ensureItemUploadsFolder } from './workbench-assets.js'
 import { docEditExt, docToEditableHtml } from './workbench-docedit.js'
 import { fileStem, renderDocx } from './workbench-docfinal.js'
 import { seedMirrorRow, scheduleOutlineMirror } from './workbench-docmirror.js'
@@ -419,18 +420,93 @@ function chunk(text: string): string[] {
 const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex')
 
 /**
- * #781: Marveen's own place for a Word item's support files (its pictures, the states its file had before the page wrote
- * it), relative to the tree root: under the System branch, one folder per item. Inside the tree, so the page and the PDF
- * read the pictures the same way as any other, and a disk copy carries them; not in the owner's folder.
+ * #781 / #972: Marveen's own place for a Word item's support files (its pictures, the states its file had before the page
+ * wrote it): the "Feltöltések" / "Uploads" subfolder of the work item's OWN folder in its project (Boss TG 7394/7401) --
+ * not a System branch. Inside the tree, so the page and the PDF read the pictures like any other file, and a disk copy
+ * carries them. Null = the folder could not be made.
  */
-export function wordStoreDir(itemId: string): string {
-  return `${lifeName('system')}/${APP_LANG === 'en' ? 'Workbench' : 'Munkapad'}/${itemId}`
+export function wordStoreDir(itemId: string): string | null {
+  const item = getWorkItem(itemId)
+  if (!item) return null
+  const project = getProject(item.project_id)
+  const r = ensureItemUploadsFolder(item, APP_LANG)
+  // `folder` is relative to the project's folder; the store paths are tree paths.
+  return r.ok && project?.folder_path ? `${project.folder_path}/${r.folder}` : null
 }
 
-/** Is this tree path in Marveen's own Word store (not one of the owner's files)? */
+/** The folder names a Word item's support files stand in (its item folder's uploads folder). */
+const STORE_LEAF = ['Feltöltések', 'Uploads']
+
+/**
+ * Is this tree path one of Marveen's own Word support files (not one of the owner's files)? Today: a file directly inside an
+ * uploads folder. The old place (System/Munkapad/<id>, #781) is still recognised, so an item not migrated yet keeps working.
+ */
 export function isWordStorePath(rel: unknown): boolean {
   const r = String(rel ?? '').replace(/\\/g, '/').replace(/^\/+/, '')
-  return r.startsWith(`${lifeName('system', 'hu')}/Munkapad/`) || r.startsWith(`${lifeName('system', 'en')}/Workbench/`)
+  if (r.startsWith(`${lifeName('system', 'hu')}/Munkapad/`) || r.startsWith(`${lifeName('system', 'en')}/Workbench/`)) return true
+  const parts = r.split('/')
+  return parts.length >= 3 && STORE_LEAF.includes(parts[parts.length - 2] as string)
+}
+
+/** The old support-file folders (#781: System/Munkapad/<item id>) in the languages the tree can have been made in. */
+function legacyStoreRoots(): string[] {
+  return [`${lifeName('system', 'hu')}/Munkapad`, `${lifeName('system', 'en')}/Workbench`]
+}
+
+export type WordStoreMigration = { moved: string[]; orphans: string[]; failed: string[] }
+
+/**
+ * #972: moves ONE old support-file folder (System/Munkapad/<id>) of an existing work item into the item's own
+ * "Feltöltések" folder, through moveLife, so the versions, parts and assets that name a file follow it; picture blocks
+ * on the page are rewritten to the new place. The old folder is removed when it is empty. Files already there under the
+ * same name are never overwritten (moveLife renames). Nothing is moved for an id with no work item (the caller reports it).
+ */
+export function migrateWordStoreOf(itemId: string): { moved: string[]; failed: string[] } {
+  const moved: string[] = []
+  const failed: string[] = []
+  const item = getWorkItem(itemId)
+  if (!item) return { moved, failed }
+  for (const root of legacyStoreRoots()) {
+    const oldDirRel = `${root}/${itemId}`
+    const oldAbs = resolveLifePath(oldDirRel)
+    if (!oldAbs || !existsSync(oldAbs)) continue
+    const destRel = wordStoreDir(itemId)
+    if (!destRel) { failed.push(oldDirRel); continue }
+    let names: string[] = []
+    try { names = readdirSync(oldAbs) } catch { failed.push(oldDirRel); continue }
+    for (const n of names) {
+      const r = moveLife(`${oldDirRel}/${n}`, destRel)
+      if (!r.ok) { failed.push(`${oldDirRel}/${n} (${r.code})`); continue }
+      moved.push(r.rel)
+      try {
+        getDb().prepare('UPDATE wb_doc_blocks SET text = ? || substr(text, ?) WHERE work_item_id = ? AND substr(text, 1, ?) = ?')
+          .run(r.rel, `${oldDirRel}/${n}`.length + 1, itemId, `${oldDirRel}/${n}`.length, `${oldDirRel}/${n}`)
+      } catch { /* the page has no blocks table yet: nothing names the file */ }
+    }
+    try { if (readdirSync(oldAbs).length === 0) rmdirSync(oldAbs) } catch { /* not empty or gone: left as it is */ }
+  }
+  return { moved, failed }
+}
+
+/**
+ * #972: the whole old store: every id folder whose work item exists is moved (migrateWordStoreOf); an id folder with no
+ * work item is reported as an orphan and left untouched (where it belongs is the owner's call). The empty root folders go.
+ */
+export function migrateWordStores(): WordStoreMigration {
+  const out: WordStoreMigration = { moved: [], orphans: [], failed: [] }
+  for (const root of legacyStoreRoots()) {
+    const abs = resolveLifePath(root)
+    if (!abs || !existsSync(abs)) continue
+    let ids: string[] = []
+    try { ids = readdirSync(abs) } catch { continue }
+    for (const id of ids) {
+      if (!getWorkItem(id)) { out.orphans.push(`${root}/${id}`); continue }
+      const r = migrateWordStoreOf(id)
+      out.moved.push(...r.moved); out.failed.push(...r.failed)
+    }
+    try { if (readdirSync(abs).length === 0) rmdirSync(abs) } catch { /* not empty: left */ }
+  }
+  return out
 }
 
 /**
@@ -439,6 +515,7 @@ export function isWordStorePath(rel: unknown): boolean {
  */
 function writeStoreFile(itemId: string, name: string, data: Buffer): string | null {
   const dirRel = wordStoreDir(itemId)
+  if (!dirRel) return null
   if (writeBlockReason(`${dirRel}/x`)) return null
   const dirAbs = resolveLifePath(dirRel)
   if (!dirAbs) return null

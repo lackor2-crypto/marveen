@@ -50,6 +50,7 @@ import { recentStalls, recentStallSamples, startEventLoopWatch, trackRequest } f
 import { slowFsReport, startSlowFsWatch } from './web/slow-fs-watch.js'
 import { bumpDepotEpoch, listingCacheStats, requestMayChangeDepot, startDepotWriteEpoch } from './web/work-folders-cache.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { migrateWordStores } from './workbench-worddoc.js'
 import { startTelegramReplyMetaPatcher } from './telegram-reply-meta-patch.js'
 import { startAvailabilityWatch } from './web/agent-availability-watch.js'
 import { startLiveUsageSampler } from './web/live-usage-sampler.js'
@@ -804,6 +805,15 @@ export function startWebServer(port = 3420): http.Server {
     } catch (err) { logger.warn({ err }, '[depot] the start-up sweep of empty storage folders failed') }
   }, 20_000)
   pruneTimer.unref()
+
+  // #972: the Word support files that stood under System/Munkapad/<id> (#781) move into their work item's own
+  // "Feltöltések" folder; an id folder with no work item is left and logged. Few files, run once, after the start-up work.
+  setTimeout(() => {
+    try {
+      const m = migrateWordStores()
+      if (m.moved.length || m.orphans.length || m.failed.length) logger.info({ moved: m.moved.length, orphans: m.orphans, failed: m.failed }, '[munkapad] old support-file folders migrated at start')
+    } catch (err: any) { logger.warn({ err: err?.message }, '[munkapad] migrating the old support-file folders failed') }
+  }, 30_000).unref()
 
   // "De menet kozben is ha egy olyan altalanos skill jon letre azt is mind be
   // kell egetni!" (Boss, 2026-08-30) -- a letrehozas pillanataban valo beegetes

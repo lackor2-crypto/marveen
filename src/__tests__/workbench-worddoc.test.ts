@@ -117,7 +117,7 @@ describe('#720 import of a real Word file (LibreOffice)', () => {
     const titles = listSections(it0.id).map((s) => s.title)
     expect(titles).toEqual(expect.arrayContaining(['Sachverhalt', 'Antrag']))
     // #781 (decision 2B): the owner's folder holds ONLY the owner's file -- no "(2).docx" copy, no picture files beside it.
-    expect(readdirSync(join(depot, dirRel))).toEqual(['Antwort.docx'])
+    expect(readdirSync(join(depot, dirRel), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)).toEqual(['Antwort.docx'])
     // The item keeps its own file; the page's render is written into it.
     const fresh = getWorkItem(it0.id)!
     expect(fresh.source_path).toBe(rel)
@@ -127,11 +127,11 @@ describe('#720 import of a real Word file (LibreOffice)', () => {
     const versions = getDb().prepare('SELECT source_path, version_no FROM work_item_versions WHERE work_item_id = ? ORDER BY version_no').all(it0.id) as { source_path: string; version_no: number }[]
     expect(versions).toHaveLength(2)
     expect(isWordStorePath(versions[0].source_path)).toBe(true)
-    expect(versions[0].source_path.startsWith(wordStoreDir(it0.id) + '/')).toBe(true)
+    expect(versions[0].source_path.startsWith(wordStoreDir(it0.id)! + '/')).toBe(true)
     expect(readFileSync(join(depot, versions[0].source_path)).equals(original)).toBe(true)
     expect(versions[1].source_path).toBe(rel)
     // The signature picture is in the same store folder, and the page points at it.
-    const store = readdirSync(join(depot, wordStoreDir(it0.id)))
+    const store = readdirSync(join(depot, wordStoreDir(it0.id)!))
     expect(store.some((n) => /\.png$/i.test(n))).toBe(true)
     const pics = listSections(it0.id).flatMap((s) => getDb().prepare("SELECT text FROM wb_doc_blocks WHERE section_id = ? AND kind = 'image'").all(s.id) as { text: string }[])
     expect(pics.length).toBe(1)
@@ -158,7 +158,7 @@ describe('#720 import of a real Word file (LibreOffice)', () => {
     writeFileSync(join(depot, rel), conv.data)
     const again = await reimportWordFromFile(getWorkItem(it0.id)!, 'owner')
     expect(again.ok && again.imported).toBe(true)
-    expect(readdirSync(join(depot, dirRel))).toEqual(['Levél.docx'])
+    expect(readdirSync(join(depot, dirRel), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)).toEqual(['Levél.docx'])
     const fresh = getWorkItem(it0.id)!
     expect(fresh.source_path).toBe(rel)
     const versions = getDb().prepare('SELECT source_path FROM work_item_versions WHERE work_item_id = ? ORDER BY version_no').all(it0.id) as { source_path: string }[]
@@ -191,7 +191,7 @@ describe('#720 import of a real Word file (LibreOffice)', () => {
     expect(fresh.source_path).toBe(rel)
     expect(readFileSync(join(depot, rel)).equals(original)).toBe(true)
     expect(pageText()).toContain('Eredeti mondat.')
-    expect(readdirSync(join(depot, dirRel))).toEqual(['Kérelem.docx'])
+    expect(readdirSync(join(depot, dirRel), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)).toEqual(['Kérelem.docx'])
     const after = vers()
     expect(after).toHaveLength(3)
     expect(after[2].source_path).toBe(rel)
@@ -208,7 +208,7 @@ describe('#720 import of a real Word file (LibreOffice)', () => {
     expect(fresh.current_version_id).toBe(after[1].id)
     expect(vers().find((v) => v.id === after[1].id)!.source_path).toBe(rel)
     expect(readFileSync(join(depot, rel)).equals(Buffer.concat([original, Buffer.from('x')]))).toBe(true)
-    expect(readdirSync(join(depot, dirRel))).toEqual(['Kérelem.docx'])
+    expect(readdirSync(join(depot, dirRel), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)).toEqual(['Kérelem.docx'])
     expect(del.body.page_reloaded).toBe(true)
 
     // "upload the edited file": it goes INTO the own file (no "Kérelem (2).docx"), and the page is read from it
@@ -220,7 +220,7 @@ describe('#720 import of a real Word file (LibreOffice)', () => {
     const u = await callWorkbench(`/api/workbench/items/${it0.id}/document?name=${encodeURIComponent('Kérelem (szerkesztett).docx')}`, 'POST', up.data)
     expect(u.status).toBe(201)
     expect(u.body.page_reloaded).toBe(true)
-    expect(readdirSync(join(depot, dirRel))).toEqual(['Kérelem.docx'])
+    expect(readdirSync(join(depot, dirRel), { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)).toEqual(['Kérelem.docx'])
     expect(getWorkItem(it0.id)!.source_path).toBe(rel)
     expect(readFileSync(join(depot, rel)).equals(up.data)).toBe(true)
     expect(pageText()).toContain('Feltöltött mondat.')
