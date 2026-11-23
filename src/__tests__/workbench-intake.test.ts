@@ -299,7 +299,7 @@ describe('névjegykártya (Boss, 2026-10-02): saját kérés-típus, kétoldalas
 describe('intake: table button', () => {
   const src = readFileSync(join(__dirname, '..', '..', 'web', 'workbench.js'), 'utf-8')
   it('is offered next to the server kinds and routed to new-table', () => {
-    expect(src).toContain("var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table', 'internal'])")
+    expect(src).toContain("var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table'])")
     expect(src).toContain("if (kind === 'table') { intakeCreateTable(text, name); return }")
     expect(src).toContain("'/api/workbench/items/new-table'")
   })

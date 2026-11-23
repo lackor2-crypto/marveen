@@ -609,6 +609,21 @@
     })
   }
 
+  /** #984: switch the "internal" mark of one work item (any kind) on or off; the list and the open page take the answer. */
+  function toggleInternal(id, on) {
+    if (archived() || !id) return
+    var pid = WB.projectId
+    return api('POST', '/api/workbench/items/' + encodeURIComponent(id) + '/internal', { internal: !!on }).then(function (r) {
+      if (WB.projectId !== pid) return
+      if (!r.ok) { window.showToast(r.message); render(); return }
+      if (r.data && Array.isArray(r.data.items)) WB.items = r.data.items
+      if (WB.detail && WB.detail.item && WB.detail.item.id === id && r.data && r.data.item) WB.detail.item = r.data.item
+      WB.ctx = null
+      window.showToast(t(on ? 'workbench.internal.marked' : 'workbench.internal.unmarked'))
+      render()
+    })
+  }
+
   // ---- lomtar (#443) ----------------------------------------------------------
   //
   // A Torles lomtarba tesz, ahonnan egy kattintassal visszahozhato, a verziok
@@ -1836,7 +1851,7 @@
       + ' aria-label="' + escA(pinLabel) + '" title="' + escA(pinLabel) + '"' + (archived() || WB.pinBusy ? ' disabled' : '') + '>'
       + (pinned ? '★' : '☆') + '</button>'
       + '<button type="button" class="wb-item' + (on ? ' wb-item-active' : '') + '" data-wb-item="' + escA(it.id) + '"' + (on ? ' aria-current="true"' : '') + ' title="' + escA((it.source_path ? baseOf(it.source_path) : it.title) + (archived() ? '' : ' \u2014 ' + t('workbench.ctx.hint'))) + '"' + '>'
-      + '<span class="wb-item-title">' + sentMarkHtml(it) + workSeqHtml(it) + '<span class="wb-item-mark" title="' + escA(t('workbench.item.mark_title')) + '">\u25c6</span> ' + esc(it.source_path ? baseOf(it.source_path) : it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
+      + '<span class="wb-item-title">' + sentMarkHtml(it) + workSeqHtml(it) + '<span class="wb-item-mark" title="' + escA(t('workbench.item.mark_title')) + '">\u25c6</span> ' + (isInternalItem(it) ? '<span class="wb-internal-badge" title="' + escA(t('workbench.internal.badge_title')) + '">' + esc(t('workbench.internal.badge')) + '</span> ' : '') + esc(it.source_path ? baseOf(it.source_path) : it.title) + (itemSensitive(it.id) ? ' <span class="wb-lock" title="' + escA(t('workbench.privacy.badge_title')) + '">🔒</span>' : '') + '</span>'
       + '<span class="wb-item-meta">' + (markOf(it.id).sent ? answeredChipHtml() + ' \u00b7 ' : '') + esc(typeLabel(it.type)) + ' · ' + esc(statusLabel(it.status)) + (markOf(it.id).due ? ' · ' + dueBadgeHtml(markOf(it.id).due) : '') + (it.source_path ? ' · <span class="wb-own-file" title="' + escA(t('workbench.item.own_file_hint')) + '">' + esc(t('workbench.item.own_file')) + '</span>' : '') + '</span>'
       + '</button>'
       // Phones have no right-click, and iOS Safari fires no contextmenu on a long press: a small "..." button
@@ -1857,13 +1872,15 @@
   function itemMenuHtml(it) {
     var c = WB.ctx
     if (!c || c.id !== it.id || archived()) return ''
-    var w = 210, h = 150
+    var w = 210, h = 190
     var left = Math.max(4, Math.min(c.x, (window.innerWidth || 1280) - w - 4))
     var top = Math.max(4, Math.min(c.y, (window.innerHeight || 800) - h - 4))
     return '<div class="wb-ctx-menu" role="menu" style="left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px">'
       + '<button type="button" role="menuitem" data-wb-act="item-rename-row" data-wb-id="' + escA(it.id) + '">' + esc(t('workbench.rename.row_label')) + '</button>'
       + '<button type="button" role="menuitem" class="wb-ctx-danger" data-wb-act="item-trash" data-wb-id="' + escA(it.id) + '"'
       + (WB.trashBusy ? ' disabled' : '') + ' title="' + escA(t('workbench.trash.delete_hint')) + '">' + esc(t('workbench.trash.delete')) + '</button>'
+      + (it.type === 'internal' ? '' : '<button type="button" role="menuitem" data-wb-act="item-internal" data-wb-id="' + escA(it.id) + '" data-wb-on="' + (isInternalItem(it) ? '0' : '1') + '">'
+        + esc(t(isInternalItem(it) ? 'workbench.internal.menu_off' : 'workbench.internal.menu_on')) + '</button>')
       + moveSelectHtml(it)
       + '</div>'
   }
@@ -3441,7 +3458,7 @@
 
   var INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video', 'presentation', 'business_card']
   // The start screens also offer a table (the plan's six buttons); the server's own guess never returns it.
-  var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table', 'internal'])
+  var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table'])
 
   // The social post asks for its platform at creation: the empty canvas gets that size (#493).
   // Sizes match the server's platform list (src/workbench-canvas-platforms.ts); the id is only a UI key.
@@ -3468,6 +3485,19 @@
       + '<p class="wb-hint">' + esc(t(hintKey || 'workbench.intake.platform_hint')) + '</p></div>'
   }
 
+  /** #984: "Internal" is a switch beside the kind buttons, not a kind of its own: tick it, then pick any kind. */
+  function intakeInternalOn() {
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbIntakeInternal') : null
+    if (el && typeof el.checked === 'boolean') WB.intakeInternal = el.checked
+    return !!WB.intakeInternal
+  }
+
+  function intakeInternalHtml() {
+    return '<label class="wb-intake-internal" title="' + escA(t('workbench.internal.switch_hint')) + '">'
+      + '<input type="checkbox" id="wbIntakeInternal" data-wb-act="intake-internal"' + (WB.intakeInternal ? ' checked' : '') + '> '
+      + esc(t('workbench.internal.switch')) + '</label>'
+  }
+
   function intakeHtml() {
     var ask = WB.intakeAsk
     var kinds = ask ? ask.options : INTAKE_UI_KINDS
@@ -3479,6 +3509,7 @@
       + '<textarea class="wb-input wb-intake-text" id="wbIntakeText" rows="3" maxlength="4000" placeholder="'
       + escA(t('workbench.intake.placeholder')) + '">' + esc(WB.intakeDraft || '') + '</textarea>'
       + (ask ? '<div class="info-box wb-intake-ask" role="status">' + esc(ask.message) + '</div>' : '')
+      + intakeInternalHtml()
       + '<div class="wb-intake-kinds">' + kinds.map(function (k) {
         return '<button type="button" class="btn-secondary wb-intake-kind" data-wb-act="intake-kind" data-wb-kind="' + escA(k) + '"'
           + (busy ? ' disabled' : '') + '>' + esc(t('workbench.intake.kind.' + k)) + '</button>'
@@ -3509,8 +3540,8 @@
     var name = String(WB.intakeName || '').trim()
     if (!kind && !text) { window.showToast(t('workbench.intake.empty')); return }
     if (kind === 'table') { intakeCreateTable(text, name); return }
-    if (kind === 'internal') { intakeCreateInternal(text, name); return }
     var payload = { project_id: WB.projectId, text: text }
+    if (intakeInternalOn()) payload.internal = true
     if (kind) payload.kind = kind
     if (name) payload.title = name
     var pick = shownPick()
@@ -3544,29 +3575,11 @@
     })
   }
 
-  /** The "Internal work" start button (#973): a plan or a development note for us; the same item the manual form makes
-   *  (type `internal`). The sentence, if any, goes to the agent, like for the other kinds. */
-  function intakeCreateInternal(text, name) {
-    var payload = { project_id: WB.projectId, type: 'internal', title: name || t('workbench.internal.default_title') }
-    var pick = shownPick()
-    if (pick) payload.folder = pick
-    WB.intakeBusy = true
-    render()
-    api('POST', '/api/workbench/items', payload).then(function (r) {
-      WB.intakeBusy = false
-      if (!r.ok) { render(); window.showToast(r.message); return }
-      WB.intakeAsk = null; WB.intakeDraft = ''; WB.intakeName = ''; WB.formOpen = false
-      window.showToast(t('workbench.new.created', { title: r.data.item.title }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
-      selectItem(r.data.item.id)
-      load(WB.projectId)
-      if (text) handOffToAgent(text)
-    })
-  }
-
   /** The "Table" start button: an empty spreadsheet work item (xlsx next to the project files); the
    *  sentence, if any, goes to the agent to fill it, like for the other kinds. */
   function intakeCreateTable(text, name) {
     var payload = { project_id: WB.projectId, title: name || t('workbench.table.default_title') }
+    if (intakeInternalOn()) payload.internal = true
     var pick = shownPick()
     if (pick) payload.folder = pick
     WB.intakeBusy = true
@@ -3624,7 +3637,7 @@
   }
 
   function newFormHtml() {
-    var types = ['document', 'image', 'graphic', 'video', 'presentation', 'note', 'internal']
+    var types = ['document', 'image', 'graphic', 'video', 'presentation', 'note']
     // #540: the target folder is VISIBLE on the form (preselected from WB.pickFolder, e.g. the group just made with the
     // strip's button), so the owner sees where the new work goes. Not when the Simple view's intake already shows the
     // one picker (one `wbNewFolder` on screen: shownPick() reads that one).
@@ -5188,6 +5201,7 @@
     // #454: the "Which folder?" field of the same form holds here too.
     var folderEl = document.getElementById('wbNewFolder')
     var payload = { project_id: WB.projectId, title: title }
+    if (intakeInternalOn()) payload.internal = true
     if (folderEl && folderEl.value) payload.folder = folderEl.value
     var newFolderEl = document.getElementById('wbNewFolderName')
     if (newFolderEl && String(newFolderEl.value || '').trim()) payload.new_folder = String(newFolderEl.value).trim()
@@ -10039,8 +10053,14 @@
     }, function () { WB.authLoading = false; WB.authMethod = null })
   }
 
+  /** #984: internal = the mark, or the old `internal` kind (its rows carry the mark too after the migration). */
+  function isInternalItem(it) { return !!it && (it.internal === 1 || it.type === 'internal') }
+
   function outlinePdfHtml(o, ro) {
-    var internalWork = !!(WB.detail && WB.detail.item && WB.detail.item.type === 'internal')
+    var internalWork = isInternalItem(WB.detail && WB.detail.item)
+    var internalSwitch = (WB.detail && WB.detail.item && WB.detail.item.type !== 'internal' && !archived())
+      ? '<p class="wb-hint"><label><input type="checkbox" data-wb-act="item-internal" data-wb-id="' + escA(WB.detail.item.id) + '"' + (internalWork ? ' checked' : '') + '> '
+        + esc(t('workbench.internal.switch')) + '</label></p>' : ''
     var base = '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/outline'
     var q = '?lang=' + encodeURIComponent(window._lang || 'hu')
     var f = o.final
@@ -10127,7 +10147,7 @@
     var finalCurrent = !!(f && !f.stale)
     // #723: while the Word item's own mail panel is open, the same box is not drawn twice (one form, one set of fields).
     var mailBox = internalWork ? '' : WB.docxMailFor && WB.docxMailFor === WB.selectedId ? '' : finalCurrent ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
-    return '<div class="wb-outline-pdf">' + tools + finalLine + (courtOnly() ? courtBoxHtml(ro) : '') + fin + mailBox + (internalWork ? '' : sentBoxHtml(o, f, ro)) + '</div>'
+    return '<div class="wb-outline-pdf">' + internalSwitch + tools + finalLine + (courtOnly() ? courtBoxHtml(ro) : '') + fin + mailBox + (internalWork ? '' : sentBoxHtml(o, f, ro)) + '</div>'
   }
 
   /**
@@ -10214,7 +10234,9 @@
     if (!item || !document.body) return
     // Internal paper (a plan, a note to ourselves): it goes to nobody, so there is nothing to ask. One click closes it.
     if (method === 'internal') {
-      api('POST', '/api/workbench/items/' + encodeURIComponent(item.id) + '/sent-mark', { sent: true, method: 'internal' }).then(function (r) {
+      api('POST', '/api/workbench/items/' + encodeURIComponent(item.id) + '/internal', { internal: true }).then(function () {
+        return api('POST', '/api/workbench/items/' + encodeURIComponent(item.id) + '/sent-mark', { sent: true, method: 'internal' })
+      }).then(function (r) {
         if (!r.ok) { window.showToast(r.status === 403 ? t('workbench.sentask.login_needed') : (r.message || t('workbench.lifemove.failed'))); return }
         window.showToast(t('workbench.sent.internal_done'))
         refreshTree()
@@ -15059,6 +15081,7 @@
       + '<textarea class="wb-input wb-intake-text" id="wbIntakeText" rows="3" maxlength="4000" placeholder="'
       + escA(t('workbench.sh.placeholder')) + '" aria-label="' + escA(t('workbench.sh.ask')) + '">' + esc(WB.intakeDraft || '') + '</textarea>'
       + (ask ? '<div class="info-box wb-intake-ask" role="status">' + esc(ask.message) + '</div>' : '')
+      + intakeInternalHtml()
       + '<div class="wb-intake-kinds">' + kinds.map(function (k) {
         return '<button type="button" class="btn-secondary wb-intake-kind" data-wb-act="intake-kind" data-wb-kind="' + escA(k) + '"'
           + (busy ? ' disabled' : '') + '>' + esc(t('workbench.intake.kind.' + k)) + '</button>'
@@ -21462,6 +21485,7 @@
     var type = typeEl.value
     var folderEl = document.getElementById('wbNewFolder')
     var payload = { project_id: WB.projectId, title: title, type: type }
+    if (intakeInternalOn()) payload.internal = true
     if (folderEl && folderEl.value) payload.folder = folderEl.value
     var newFolderEl = document.getElementById('wbNewFolderName')
     if (newFolderEl && String(newFolderEl.value || '').trim()) payload.new_folder = String(newFolderEl.value).trim()
@@ -21979,6 +22003,8 @@
     else if (a === 'back') closeWorkbench()
     else if (a === 'item-pin') togglePin(act.getAttribute('data-wb-pin'))
     else if (a === 'item-no-trigger') toggleNoTrigger(act.getAttribute('data-wb-id'), !!act.checked)
+    else if (a === 'item-internal') toggleInternal(act.getAttribute('data-wb-id'), act.getAttribute('data-wb-on') === '1' || act.checked === true)
+    else if (a === 'intake-internal') { WB.intakeInternal = !!act.checked }
     else if (a === 'item-trash') askTrashItem(act.getAttribute('data-wb-id'))
     else if (a === 'ov-fold') { WB.ovOpen = !WB.ovOpen; saveOvOpen(WB.ovOpen); render() }
     else if (a === 'ov-kanban') openProjectKanban()

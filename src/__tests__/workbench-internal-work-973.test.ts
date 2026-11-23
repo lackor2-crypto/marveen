@@ -34,8 +34,7 @@ describe('internal work type (#973 part 2)', () => {
   it('the finalize gate, the page and both languages know the type', () => {
     expect(read('src', 'workbench-docfinal.ts')).toContain('isInternalWork(item)')
     const js = read('web', 'workbench.js')
-    expect(js).toContain("'note', 'internal']")
-    expect(js).toContain("type === 'internal'")
+    expect(js).toContain("it.internal === 1 || it.type === 'internal'")
     for (const l of ['hu', 'en']) {
       const s = read('web', 'lang', `${l}.js`)
       expect(s).toContain('"workbench.type.internal"')

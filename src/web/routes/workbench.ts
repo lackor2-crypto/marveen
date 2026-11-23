@@ -56,7 +56,7 @@ import { sharedListing } from '../work-folders-cache.js'
 import { requestShare, revokeShare, listProjectShares, settleShareApprovals, getShare } from '../../workbench-share.js'
 import { getProject, registerSentItemsSource } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, listDeletedWorkItems, setWorkItemDeleted, setWorkItemTypePresentation, purgeWorkItem,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, getWorkItemVersion, listWorkItems, setWorkItemPinned, setWorkItemInternal, listDeletedWorkItems, setWorkItemDeleted, setWorkItemTypePresentation, purgeWorkItem,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
   createWorkItemVersion, setWorkItemVersionMeta, restoreWorkItemVersion, deleteWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
@@ -3908,6 +3908,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const r = createWorkItem({
       project_id: project.id, type: kind === 'note' ? 'note' : INTAKE_TYPE[kind], title,
       prompt: text || undefined, container_folder: intakeFolder, source_path: noteFile ? noteFile.rel : undefined, created_by: actor(ctx),
+      internal: body['internal'] === true,
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
     // TG 2752: the folder made above IS the item's own folder; without this the first file written later made a
@@ -4040,6 +4041,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       prompt: body.prompt,
       container_folder: containerFolder,
       created_by: actor(ctx),
+      internal: body.internal === true,
     })
     if (!r.ok) return fail(res, 400, r.code, lang)
     if (presentation) {
@@ -4112,7 +4114,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       const code = MESSAGES['upload_' + out.code] ? 'upload_' + out.code : out.code
       return failDetail(res, out.code === 'write_failed' ? 500 : 400, code, lang, 'message' in out ? (out.message || null) : null)
     }
-    const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, container_folder: containerFolder, created_by: actor(ctx) })
+    const r = createWorkItem({ project_id: project.id, type: 'document', title, source_path: out.rel, container_folder: containerFolder, created_by: actor(ctx), internal: body['internal'] === true })
     if (!r.ok) return fail(res, 400, r.code, lang)
     // Without this the first thing written for the table later made a second folder of the same name inside it (as TG 2752).
     if (tableOwn && folder && folder !== PROJECT_ROOT_PLACE) { assignWorkItemFolder(r.item.id, folder); r.item = getWorkItem(r.item.id) ?? r.item }
@@ -5195,6 +5197,19 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
     if (typeof body['pinned'] !== 'boolean') return fail(res, 400, 'pin_bad_value', lang)
     const updated = setWorkItemPinned(item.id, body['pinned'])
+    if (!updated) return fail(res, 404, 'not_found', lang)
+    json(res, { item: updated, items: listWorkItems(item.project_id) })
+    return true
+  }
+
+  // #984 (Boss TG 7690): "internal" is a mark on any work item (goes out to nobody), switched on and off here.
+  if (segs.length === 2 && segs[1] === 'internal' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    let body: Record<string, unknown> = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { return fail(res, 400, 'bad_json', lang) }
+    if (typeof body['internal'] !== 'boolean') return fail(res, 400, 'pin_bad_value', lang)
+    const updated = setWorkItemInternal(item.id, body['internal'])
     if (!updated) return fail(res, 404, 'not_found', lang)
     json(res, { item: updated, items: listWorkItems(item.project_id) })
     return true
