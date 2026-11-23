@@ -1015,6 +1015,13 @@ aszinkron hívás vagy háttérfolyamat kell, és az ismétlődő lekérés hív
 lassú lemezen is mérd (`/api/perf/stalls`, `/api/perf/slow-fs`). Skill: `no-freeze-development`, `marveen-learned-rules`
 R42; minden ágens megkapja (`ensureNoFreezeSection`, `ensureGlobalNoFreezeRule`).
 
+## ⛔ ÁTHELYEZÉSKOR SOHA NEM TÖRLÖD A FORRÁST -- ÁLLJ MEG, HA ÜTKÖZIK ({{OWNER_NAME}}, 2026-11-23, törvény)
+
+Ha fájl vagy mappa ÁTHELYEZÉSÉT kérik (letöltésből az életfába), tilos bármit törölni: a forrást sem, a célnál levő
+fájlt sem, és nem írsz felül semmit. Másolj, ellenőrizd, jelentsd, hogy a forrás érintetlen. Azonos név vagy tartalom
+esetén ÁLLJ MEG és szólj: a tulajdonos dönt. A forrás törlése külön kérdés, kifejezett engedéllyel. Skill:
+`marveen-learned-rules` R43; minden ágens megkapja (`ensureNoDeleteOnMoveSection`, `ensureGlobalNoDeleteOnMoveRule`).
+
 ## ⛔ MUNKADARAB MAPPÁJÁBAN CSAK A KONTEXTUS ÉS A TEENDŐ FÁJL LEHET (Boss, TG 4287, törvény)
 
 Munkadarab mappájába (Munkapad) tilos saját segédfájlt írni: se „Jogi kontextus", se összefoglaló,

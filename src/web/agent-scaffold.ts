@@ -4043,3 +4043,79 @@ export function ensureStatusLine(name: string): boolean {
   atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2))
   return true
 }
+
+const NODELMOVE_BEGIN = '<!-- BEGIN GENERATED: no-delete-on-move-rule (auto-generated, do not edit by hand) -->'
+const NODELMOVE_END = '<!-- END GENERATED: no-delete-on-move-rule -->'
+const NODELMOVE_BLOCK_RE = new RegExp(
+  `${NODELMOVE_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${NODELMOVE_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+export function buildNoDeleteOnMoveBody(): string {
+  return [
+    '## ATHELYEZESKOR SOHA NEM TOROLSZ -- ALLJ MEG, HA UTKOZIK -- A TULAJDONOS TORVENYE',
+    '',
+    'Ha a tulajdonos fajl vagy mappa ATHELYEZESET kri (letoltesbol az eletfaba, mappabol mappaba), TILOS',
+    'barmit torolni: a forrast sem, a celnal levo fajlt sem, es nem irsz felul semmit. Masolj (`cp --update=none`),',
+    'ellenorizd, jelentsd, hogy a forras erintetlen. Ha a celban azonos nev vagy azonos tartalom van, ALLJ MEG es',
+    'szolj: a tulajdonos dont. A forras torlese kulon kerdes, csak kifejezett engedellyel; az egyezo bajtszam vagy',
+    'a sikeres masolat nem engedely. Egy frissen generalt irat (letoltes, bejelentes) uj dokumentum, akkor is, ha',
+    'egyezik egy regivel. Valos eset: ket frissen letoltott PDF eltunt a Letoltesekbol (2026-11-23).',
+    'Mindenkire all: szakerto, segedmunkas, kod-hid session, projekt chat-asszisztens.',
+    'Reszletek: `marveen-learned-rules` R43.',
+  ].join('\n')
+}
+
+/** Beviszi a szabalyt: athelyezeskor nincs torles (2026-11-23) egy agens sajat CLAUDE.md-jebe. */
+export function ensureNoDeleteOnMoveSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${NODELMOVE_BEGIN}\n${agentRuleBody('no-delete-on-move', buildNoDeleteOnMoveBody())}\n${NODELMOVE_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = NODELMOVE_BLOCK_RE.test(existing)
+    ? existing.replace(NODELMOVE_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a fo agens es a worktree-ben futo agens is ezt olvassa. */
+export function ensureGlobalNoDeleteOnMoveRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${NODELMOVE_BEGIN}\n${ruleBody('no-delete-on-move', buildNoDeleteOnMoveBody())}\n${NODELMOVE_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = NODELMOVE_BLOCK_RE.test(existing)
+    ? existing.replace(NODELMOVE_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
