@@ -8480,6 +8480,8 @@ window._i18n.hu = {
   "workbench.table.title_required": "Előbb írd be fent az új táblázat nevét.",
   "workbench.intake.kind.table": "Táblázat",
   "workbench.table.default_title": "Új táblázat",
+  "workbench.intake.kind.internal": "Belső munka",
+  "workbench.internal.default_title": "Új belső munka",
   "workbench.table.created": "Kész az új táblázat: {name}",
   "workbench.upload.drop_new": "Húzd ide a fájlokat (kép, dokumentum, videó) -- a projekt További anyagok mappájába kerülnek, munkadarabot nem hoznak létre.",
   "workbench.upload.pick": "Fájlok kiválasztása…",

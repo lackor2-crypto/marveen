@@ -8406,6 +8406,8 @@ window._i18n.en = {
   "workbench.table.title_required": "First type the name of the new table above.",
   "workbench.intake.kind.table": "Table",
   "workbench.table.default_title": "New table",
+  "workbench.intake.kind.internal": "Internal work",
+  "workbench.internal.default_title": "New internal work",
   "workbench.table.created": "The new table is ready: {name}",
   "workbench.upload.drop_new": "Drop files here (image, document, video) -- they go into the project's More material folder and do not create a work item.",
   "workbench.upload.pick": "Choose files…",
