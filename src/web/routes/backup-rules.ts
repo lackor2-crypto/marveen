@@ -25,6 +25,7 @@ import {
   type LocalFile,
 } from '../../mega-backup.js'
 import { logger } from '../../logger.js'
+import { folderSize } from '../../backup-folder-size.js'
 import { loadSyncConfig } from './drive-sync.js'
 import { resolveLifePath, toLifeRel } from '../../life-explorer.js'
 import { loadMigrated } from '../../drive-migrated.js'
@@ -342,6 +343,18 @@ export async function tryHandleBackupRules(ctx: RouteContext): Promise<boolean> 
   const { req, res, path, method } = ctx
   if (path !== '/api/backup-rules' && !path.startsWith('/api/backup-rules/')) return false
   const lang = reqLang(req, ctx.url)
+
+  // #951: the size of each rule's folder (background measurement, cached; the page polls until nothing is "measuring").
+  if (path === '/api/backup-rules/sizes' && method === 'GET') {
+    const { rules } = loadBackupRules()
+    const sizes: Record<string, ReturnType<typeof folderSize>> = {}
+    for (const r of rules) {
+      const abs = resolveLifePath(r.path)
+      sizes[r.path] = folderSize(r.path, abs)
+    }
+    json(res, { sizes })
+    return true
+  }
 
   if (path === '/api/backup-rules' && method === 'GET') {
     const { rules, broken } = loadBackupRules()
