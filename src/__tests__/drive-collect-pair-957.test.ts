@@ -14,7 +14,7 @@ function fakeDrive(tree: Record<string, RestoreEntry[]>) {
   return {
     downloaded,
     list: async (id: string) => tree[id] || [],
-    download: async (f: RestoreEntry, dest: string) => { downloaded.push(f.name); writeFileSync(dest, 'x'); return 1 },
+    download: async (f: RestoreEntry, dest: string) => { downloaded.push(f.name); writeFileSync(dest, 'x'.repeat(Number(f.size || 1))); return 1 },
   }
 }
 

@@ -3855,7 +3855,7 @@ window._i18n.en = {
   'dsync.unlink_confirm':			'Unlink this old copy? The files on your computer and on the Drive are not touched.',
   'dsync.unlink_failed':			'Could not unlink it.',
   'dcollect.title':			'Collect into the Storages',
-  'dcollect.what_html':			'Whatever reached the account\'s Drive <strong>from outside</strong> (the phone, someone else\'s upload) comes down here, into <strong>System / Storages / Drive / account</strong>. It only goes down: it uploads nothing, deletes nothing anywhere, overwrites nothing, and skips what the Life tree already holds. Marvin\'s own backup files are not pulled down either. You then sort it into the Life tree; once started, the nightly run also brings down anything new by itself.',
+  'dcollect.what_html':			'Whatever reached the account\'s Drive <strong>from outside</strong> (the phone, someone else\'s upload) comes down here, into <strong>System / Storages / Drive / account</strong>. It only goes down: it uploads nothing, deletes nothing anywhere, overwrites nothing, and skips what the Life tree already holds. Marvin\'s own backup files are not pulled down either. If the phone later overwrites an already collected file on the Drive, the new state comes down as a separate file with the date in its name (the old one stays). You then sort it into the Life tree; once started, the nightly run also brings down anything new by itself.',
   'dcollect.step1':			'Which account\'s Drive should I collect?',
   'dcollect.run_btn':			'Start collecting',
   'dcollect.run_confirm':			'Bring the new files on the {account} Drive down into Storages / Drive / {account}? It only goes down; nothing is uploaded or deleted.',
