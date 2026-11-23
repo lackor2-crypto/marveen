@@ -11,7 +11,7 @@
 
 import { getDb } from './db.js'
 import { getProject, listProjects } from './projects.js'
-import { ensureWorkbenchTables, getWorkItem } from './workbench.js'
+import { ensureWorkbenchTables, getWorkItem, isInternalWork } from './workbench.js'
 import { finalState } from './workbench-docfinal.js'
 import { noteFinalPdf } from './workbench-notefinal.js'
 import { docxFinalState } from './workbench-docxfinal.js'
@@ -32,7 +32,8 @@ export function projectCloseCheck(projectId: string): { items: CloseItem[]; read
   const db = getDb()
   const items: CloseItem[] = []
   const rows = db.prepare('SELECT id, status FROM work_items WHERE project_id = ? AND deleted_at IS NULL').all(projectId) as { id: string; status: string }[]
-  const docs = rows.filter((r) => hasDocModel(r.id))
+  // #973 part 2: an internal work has no final submission and no delivery; only its own status (open_items) counts.
+  const docs = rows.filter((r) => hasDocModel(r.id) && !isInternalWork(getWorkItem(r.id)))
   let finals = 0
   let stale = 0
   let unsent = 0

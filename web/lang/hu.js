@@ -6422,6 +6422,8 @@ window._i18n.hu = {
   "workbench.status.done": "Kész",
   "workbench.editor.none": "Válassz egy munkadarabot a lenti listából, vagy hozz létre egy újat.",
   "workbench.type.composite": "Vegyes (kép + szöveg)",
+  "workbench.type.internal": "Belső munka",
+  "workbench.internal.no_ticks": "Belső munka: nincs átnézés- és elfogadás-pipa, és nincs kézbesítés. Egy gombbal elkészül a végleges PDF.",
   "workbench.versions.restore": "Visszaállítás",
   "workbench.versions.delete": "Törlés",
   "workbench.versions.delete_title": "Ezt a verziót végleg törli, vissza nem hozható. A többi verzió megmarad.",

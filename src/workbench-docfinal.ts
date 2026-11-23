@@ -30,7 +30,7 @@ import { fitLevelFor, tightenOutline } from './workbench-docfit.js'
 import { imageSize, outlineHash, renderOutlineDocx, renderOutlinePdf, toRenderOutline, type DocLang, type DocxResult, type RenderImage, type RenderResult } from './workbench-docrender.js'
 import { variantOf } from './workbench-doclang.js'
 import { ensureFitFor } from './workbench-docpages.js'
-import { createWorkItemVersion, getWorkItem, listWorkItemVersions, type WorkItemRow } from './workbench.js'
+import { createWorkItemVersion, getWorkItem, isInternalWork, listWorkItemVersions, type WorkItemRow } from './workbench.js'
 import { attachAsset, deleteAssetFile, listWorkItemAssets, syncFolderAssets } from './workbench-assets.js'
 import { annexListTitle, docSettings, listAnnexes, type FileResolver } from './workbench-docannex.js'
 import { annexPdfs, mergePdfs, type PackageError } from './workbench-docpackage.js'
@@ -258,7 +258,7 @@ export function finalState(item: WorkItemRow, hash = contentHash(item)): (FinalV
 /** A vazlat melle a felulet szamara: ujjlenyomat, atnezes, vegleges allapot. */
 export function finalizationState(item: WorkItemRow): { content_hash: string; reviewed: boolean; final: ReturnType<typeof finalState> } {
   const hash = contentHash(item)
-  return { content_hash: hash, reviewed: !!reviewOf(item.id, hash), final: finalState(item, hash) }
+  return { content_hash: hash, reviewed: isInternalWork(item) || !!reviewOf(item.id, hash), final: finalState(item, hash) }
 }
 
 /**
@@ -400,9 +400,11 @@ export async function finalizeDocument(item: WorkItemRow, input: { accept: unkno
   if (typeof input.hash === 'string' && input.hash && input.hash !== hash) return { ok: false, code: 'outline_changed', detail: null }
   const resolve = resolverFor(item)
   const check = documentCheck(item.id, resolve)
-  const review = reviewOf(item.id, hash)
+  // #973 part 2: an internal work needs neither the review tick nor the accept tick.
+  const internal = isInternalWork(item)
+  const review = reviewOf(item.id, hash) ?? (internal ? { reviewed_at: now(), reviewed_by: input.by } : null)
   if (!review) return { ok: false, code: 'outline_not_reviewed', detail: null }
-  if (input.accept !== true) return { ok: false, code: 'outline_accept_required', detail: null }
+  if (input.accept !== true && !internal) return { ok: false, code: 'outline_accept_required', detail: null }
   // #751 (Boss, TG 4201): "ne akasszuk meg a veglegesitest semmivel. csak szoljunk!" -- the content points are to-dos,
   // not a gate. A missing signature or an annex that is not in order only asks for the owner's "finalize anyway" tick.
   const override = input.override === true

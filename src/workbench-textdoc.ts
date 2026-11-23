@@ -24,7 +24,7 @@ import { outlineMarkdown, seedMirrorRow } from './workbench-docmirror.js'
 import { saveTextSourceAsNewVersion } from './workbench-edit.js'
 import { isTextSourcePath } from './workbench-notefinal.js'
 import { getDb } from './db.js'
-import { getWorkItem, type WorkItemRow } from './workbench.js'
+import { getWorkItem, isTextKind, type WorkItemRow } from './workbench.js'
 import { isWordImported, isWordProfileCandidate } from './workbench-worddoc.js'
 
 export type TextDocCode = 'textdoc_not_text' | 'textdoc_unreadable' | 'textdoc_project_gone' | 'textdoc_save_failed' | 'textdoc_import_failed'
@@ -107,7 +107,7 @@ export function parseTextToPage(rawText: string, title: string): PageSectionIn[]
 
 /** Is this the note-with-a-file kind that takes the text profile of the document page. */
 export function isTextProfileCandidate(item: Pick<WorkItemRow, 'type' | 'source_path' | 'deleted_at'>): boolean {
-  return item.type === 'note' && !item.deleted_at && isTextSourcePath(item.source_path)
+  return isTextKind(item.type) && !item.deleted_at && isTextSourcePath(item.source_path)
 }
 
 /** The text profile is ON for an item that has the page's outline: a note read into it, or a language version of such a note. */

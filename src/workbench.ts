@@ -38,7 +38,7 @@ import { isTodoFileName } from './workbench-item-todos.js'
  *  (komment 1222/1223) szerint a fajta CSAK CIMKE, nem korlat: RESZEKET
  *  (`work_item_parts`) barmelyik fajta alá lehet tenni -- a `composite` csak
  *  azt mondja, hogy eleve vegyes tartalomnak indult. */
-export const WORK_ITEM_TYPES = ['document', 'image', 'graphic', 'video', 'presentation', 'note', 'composite'] as const
+export const WORK_ITEM_TYPES = ['document', 'image', 'graphic', 'video', 'presentation', 'note', 'composite', 'internal'] as const
 export type WorkItemType = typeof WORK_ITEM_TYPES[number]
 
 /** Munkadarab-allapotok. Szandekosan keves: a kanban-statuszoktol fuggetlen,
@@ -56,6 +56,7 @@ export const EDITOR_BY_TYPE: Record<WorkItemType, string> = {
   presentation: 'presentation',
   note: 'text',
   composite: 'composite',
+  internal: 'text',
 }
 
 export interface WorkItemRow {
@@ -197,6 +198,18 @@ export function ensureWorkbenchTables(): void {
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_item_versions_no ON work_item_versions(work_item_id, version_no)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_parts_item ON work_item_parts(work_item_id, position)')
   tablesDb = db
+}
+
+/** #973 part 2 (Boss TG 7407/7416): an internal work (a plan, a development note) is for us, not for anyone else: it needs
+ *  no review tick, no accept tick and no delivery step to be closed. One rule, read by the finalize gate, the page
+ *  state and the project-close check. */
+export function isInternalWork(item: { type?: unknown } | null | undefined): boolean {
+  return !!item && item.type === 'internal'
+}
+
+/** A note or an internal work: the kinds that are written as text (md/txt) and take the text profile of the document page. */
+export function isTextKind(type: unknown): boolean {
+  return type === 'note' || type === 'internal'
 }
 
 export function isWorkItemType(v: unknown): v is WorkItemType {

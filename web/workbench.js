@@ -3604,7 +3604,7 @@
   }
 
   function newFormHtml() {
-    var types = ['document', 'image', 'graphic', 'video', 'presentation', 'note']
+    var types = ['document', 'image', 'graphic', 'video', 'presentation', 'note', 'internal']
     // #540: the target folder is VISIBLE on the form (preselected from WB.pickFolder, e.g. the group just made with the
     // strip's button), so the owner sees where the new work goes. Not when the Simple view's intake already shows the
     // one picker (one `wbNewFolder` on screen: shownPick() reads that one).
@@ -10020,6 +10020,7 @@
   }
 
   function outlinePdfHtml(o, ro) {
+    var internalWork = !!(WB.detail && WB.detail.item && WB.detail.item.type === 'internal')
     var base = '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/outline'
     var q = '?lang=' + encodeURIComponent(window._lang || 'hu')
     var f = o.final
@@ -10082,6 +10083,13 @@
           }).join('') + '</ul></div>'
       }
       if (tgt) langPick = '<p class="wb-hint"><strong>' + esc(t('workbench.final.lang_title')) + '</strong> ' + esc(t('workbench.final.target_lang', { lang: tgt.label })) + '</p>'
+      // #973 part 2: an internal work has no review tick and no accept tick: one button makes the final.
+      if (internalWork) {
+        fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>' + langPick
+          + '<p class="wb-hint">' + esc(t('workbench.internal.no_ticks')) + '</p>'
+          + '<p><button type="button" class="wb-btn" data-wb-act="outline-finalize"' + (WB.docFinalizing ? ' disabled' : '') + '>'
+          + esc(t(WB.docFinalizing ? 'workbench.outline.finalizing' : 'workbench.outline.finalize')) + '</button></p></div>'
+      } else
       fin = '<div class="wb-outline-final"><h4>' + esc(t('workbench.outline.finalize_title')) + '</h4>' + langPick
         + '<p class="wb-hint">' + esc(t('workbench.outline.finalize_steps')) + '</p>'
         + '<p class="wb-outline-next" role="status"><strong>' + esc(t('workbench.outline.next_label')) + '</strong> ' + esc(t(nextKey)) + '</p>'
@@ -10098,8 +10106,8 @@
     // The order of the work: the final PDF first, then the e-mail draft that carries it, then the record of the sending.
     var finalCurrent = !!(f && !f.stale)
     // #723: while the Word item's own mail panel is open, the same box is not drawn twice (one form, one set of fields).
-    var mailBox = WB.docxMailFor && WB.docxMailFor === WB.selectedId ? '' : finalCurrent ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
-    return '<div class="wb-outline-pdf">' + tools + finalLine + (courtOnly() ? courtBoxHtml(ro) : '') + fin + mailBox + sentBoxHtml(o, f, ro) + '</div>'
+    var mailBox = internalWork ? '' : WB.docxMailFor && WB.docxMailFor === WB.selectedId ? '' : finalCurrent ? mailDraftBoxHtml(o, ro, finalCurrent) : (ro ? '' : '<div class="wb-sent-box wb-mail-box"><h4>✉ ' + esc(t('workbench.mail.title')) + '</h4><p class="wb-hint">' + esc(t('workbench.mail.after_final')) + '</p></div>')
+    return '<div class="wb-outline-pdf">' + tools + finalLine + (courtOnly() ? courtBoxHtml(ro) : '') + fin + mailBox + (internalWork ? '' : sentBoxHtml(o, f, ro)) + '</div>'
   }
 
   /**

@@ -1,10 +1,18 @@
 // #530 (the owner's specification, chapter 50): the places of the Life tree a project belongs to.
 import { describe, it, expect, beforeEach } from 'vitest'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { addProjectPlace, listProjectPlaces, moveProjectPlacesPrefix, removeProjectPlace, PROJECT_PLACES_MAX } from '../project-places.js'
 
 describe('project places', () => {
   beforeEach(() => { initDatabase(':memory:') })
+
+  it('places added in the same second keep their insertion order (not alphabetical)', () => {
+    expect(listProjectPlaces('pz')).toEqual([])
+    const db = getDb()
+    const ins = db.prepare('INSERT INTO project_places (project_id, rel, created_at, created_by) VALUES (?, ?, 1000, ?)')
+    ins.run('pz', 'Z-elso', 'o'); ins.run('pz', 'A-masodik', 'o')
+    expect(listProjectPlaces('pz')).toEqual(['Z-elso', 'A-masodik'])
+  })
 
   it('a project remembers folders; once each; removal removes the pointer only', () => {
     expect(listProjectPlaces('p1')).toEqual([])
@@ -13,7 +21,8 @@ describe('project places', () => {
     const dup = addProjectPlace('p1', 'Család/Anna/Hatóságok/Jobcenter/', 'o')
     expect(dup.ok === false && dup.code).toBe('duplicate')
     for (const bad of ['', '../..', 'a/../b']) { const r = addProjectPlace('p1', bad, 'o'); expect(r.ok === false && r.code).toBe('bad_input') }
-    expect(listProjectPlaces('p1')).toEqual(['Család/Anna/Hatóságok/Jobcenter', 'Család/Anna/Hatóságok/Bíróság'].sort((a, b) => a.localeCompare(b)).reverse().sort())
+    // Insertion order, even when both were added in the same second (the old tie-break by name made this depend on the clock).
+    expect(listProjectPlaces('p1')).toEqual(['Család/Anna/Hatóságok/Jobcenter', 'Család/Anna/Hatóságok/Bíróság'])
     // Another project has its own list.
     expect(listProjectPlaces('p2')).toEqual([])
     expect(removeProjectPlace('p2', 'Család/Anna/Hatóságok/Jobcenter').ok).toBe(false)
