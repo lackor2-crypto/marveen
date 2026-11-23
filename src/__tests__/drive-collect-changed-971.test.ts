@@ -78,3 +78,28 @@ describe('planVerifiedTrash (#971)', () => {
     expect(p.kept.map((k) => k.path).sort()).toEqual(['missing.xml', 'short.xml'])
   })
 })
+
+// Regression (#971 fix): the Drive copy must still be EXACTLY the state that was brought down. If the phone
+// overwrote the file after the last collect, that newer version has no Life-tree copy yet: it must NOT go to the Trash.
+import { driveStillMatchesState } from '../web/routes/drive-sync.js'
+describe('driveStillMatchesState (#971 fix: no trash of an un-collected newer version)', () => {
+  const row = { path: 'sms.xml', modifiedTime: '2026-11-19T10:00:00.000Z', size: 5, localMtimeMs: 0 }
+  it('same size and modified time = still the collected state', () => {
+    expect(driveStillMatchesState(row, { size: '5', modifiedTime: '2026-11-19T10:00:00.000Z' })).toBe(true)
+  })
+  it('newer modified time or other size = changed since the collect -> not allowed to leave the Drive', () => {
+    expect(driveStillMatchesState(row, { size: '5', modifiedTime: '2026-11-20T10:00:00.000Z' })).toBe(false)
+    expect(driveStillMatchesState(row, { size: '9', modifiedTime: '2026-11-19T10:00:00.000Z' })).toBe(false)
+  })
+  it('missing live data or an already trashed file = not verified -> kept (nothing guessed)', () => {
+    expect(driveStillMatchesState(row, null)).toBe(false)
+    expect(driveStillMatchesState(row, { size: '5', modifiedTime: '2026-11-19T10:00:00.000Z', trashed: true })).toBe(false)
+    expect(driveStillMatchesState(row, {})).toBe(false)
+  })
+  it('the trash route asks the Drive for the live state BEFORE every trash call', () => {
+    const src = readFileSync(join(__dirname, '..', 'web', 'routes', 'drive-sync.ts'), 'utf8')
+    const route = src.slice(src.indexOf("path === '/api/drive/sync/collect/trash'"))
+    expect(route.indexOf('driveStillMatchesState(')).toBeGreaterThan(-1)
+    expect(route.indexOf('driveStillMatchesState(')).toBeLessThan(route.indexOf('await trashDriveFile('))
+  })
+})

@@ -2099,6 +2099,20 @@ export function planVerifiedTrash(
   return { ok, kept }
 }
 
+/**
+ * #971 fix: a Drive file may go to the Trash only while the Drive STILL holds exactly the state this pair brought down.
+ * If the phone overwrote it after the last collect, the newer version has no Life-tree copy yet. `live` is the Drive's
+ * own answer (size, modifiedTime, trashed); missing data = not verified = false (nothing guessed).
+ */
+export function driveStillMatchesState(
+  row: SyncFileState,
+  live: { size?: string | number; modifiedTime?: string; trashed?: boolean } | null,
+): boolean {
+  if (!live || live.trashed) return false
+  if (live.size === undefined || live.size === '' || !live.modifiedTime) return false
+  return Number(live.size) === Number(row.size) && (!row.modifiedTime || live.modifiedTime === row.modifiedTime)
+}
+
 async function runCollect(pair: SyncPair, dryRun: boolean): Promise<void> {
   const hely = pairLocalDir(pair)
   if (!hely) throw new Error('nincs raktár beállítva')
@@ -2682,6 +2696,12 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     const failed: Array<{ path: string; reason: string }> = []
     for (const f of plan.ok) {
       try {
+        // The Drive's live state must still be the collected one (the phone may have overwritten it since).
+        const live = await driveJson(`${DRIVE_FILES_URL}/${encodeURIComponent(f.driveId)}?fields=id,size,modifiedTime,trashed`, token)
+        if (!driveStillMatchesState(state[f.driveId]!, live)) {
+          plan.kept.push({ path: f.path, reason: 'a Drive-on közben megváltozott vagy nem ellenőrizhető, előbb le kell húzni az újat' })
+          continue
+        }
         await trashDriveFile(f.driveId, token)
         delete state[f.driveId]
         trashed++
