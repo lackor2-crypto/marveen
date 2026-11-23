@@ -1991,25 +1991,48 @@ export function projectRelative(project: ProjectRow, depotRel: string): string {
  * held the loop for seconds (measured in /api/perf/stalls: listWorkItemAssets > resolveLifePath > realpathSync). The pass is
  * a stepping generator that gives the loop back between rows; the sync wrapper drains it at once (same answer as before).
  */
+/** #985: what one asset row looks like in the list (the per-row part of listWorkItemAssetsSteps). */
+function assetViewOfRow(r: WorkItemAssetRow, project: ProjectRow | undefined, sharedPrefix: string | null): WorkItemAssetView {
+  const abs = resolveLifePath(r.path)
+  let present = false
+  // One stat answers both "is there anything" and "is it a file".
+  try { present = !!abs && statSync(abs).isFile() } catch { present = false }
+  const shared = !!sharedPrefix && r.path.startsWith(sharedPrefix) && !r.path.slice(sharedPrefix.length).includes('/')
+  // A tamogatasi allapot a fajl nevebol jon: egy regebben felvett sor is a mai tudast mutatta.
+  return { ...r, support: assetSupport(r.name), project_path: project ? projectRelative(project, r.path) : '', present, shared }
+}
+
+function sharedPrefixOf(project: ProjectRow | undefined): string | null {
+  const sf = project ? projectSharedFolder(project) : null
+  return sf && sf.ok ? sf.dirRel + '/' : null
+}
+
 export function* listWorkItemAssetsSteps(itemId: string): Steps<WorkItemAssetView[]> {
   ensureAssetTables()
   const rows = getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL ORDER BY created_at, rowid').all(itemId) as WorkItemAssetRow[]
   const item = getWorkItem(itemId)
   const project = item ? getProject(item.project_id) : undefined
-  const sf = project && rows.length ? projectSharedFolder(project) : null
-  const sharedPrefix = sf && sf.ok ? sf.dirRel + '/' : null
+  const sharedPrefix = rows.length ? sharedPrefixOf(project) : null
   const out: WorkItemAssetView[] = []
   for (const r of rows) {
-    const abs = resolveLifePath(r.path)
-    let present = false
-    // One stat answers both "is there anything" and "is it a file".
-    try { present = !!abs && statSync(abs).isFile() } catch { present = false }
-    const shared = !!sharedPrefix && r.path.startsWith(sharedPrefix) && !r.path.slice(sharedPrefix.length).includes('/')
-    // A tamogatasi allapot a fajl nevebol jon: egy regebben felvett sor is a mai tudast mutatja.
-    out.push({ ...r, support: assetSupport(r.name), project_path: project ? projectRelative(project, r.path) : '', present, shared })
+    out.push(assetViewOfRow(r, project, sharedPrefix))
     yield
   }
   return out
+}
+
+/**
+ * #985: ONE live asset of an item, without measuring all the others. registerAsset / the link functions only need the row
+ * they just wrote; listing the whole item for that cost a few 9p calls per existing row, per attached file (O(n) each,
+ * O(n^2) while a folder is synced), all synchronous on the dashboard loop.
+ */
+export function workItemAssetView(itemId: string, assetId: string): WorkItemAssetView | undefined {
+  ensureAssetTables()
+  const r = getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? AND id = ? AND removed_at IS NULL').get(itemId, assetId) as WorkItemAssetRow | undefined
+  if (!r) return undefined
+  const item = getWorkItem(itemId)
+  const project = item ? getProject(item.project_id) : undefined
+  return assetViewOfRow(r, project, sharedPrefixOf(project))
 }
 
 export function listWorkItemAssets(itemId: string): WorkItemAssetView[] {
@@ -2138,7 +2161,7 @@ export function registerAsset(itemId: string, depotRel: string, name: string, sh
   if (gone) {
     getDb().prepare('UPDATE work_item_assets SET name = ?, support = ?, sha256 = ?, bytes = ?, created_at = ?, created_by = ?, removed_at = NULL WHERE id = ?')
       .run(name, assetSupport(name), sha, bytes, Math.floor(Date.now() / 1000), createdBy, gone.id)
-    const back = listWorkItemAssets(itemId).find((a) => a.id === gone.id)
+    const back = workItemAssetView(itemId, gone.id)
     if (!back) throw new Error('asset was restored but could not be read back')
     return back
   }
@@ -2146,7 +2169,7 @@ export function registerAsset(itemId: string, depotRel: string, name: string, sh
   getDb().prepare(`INSERT INTO work_item_assets (id, work_item_id, path, name, support, sha256, bytes, created_at, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, itemId, depotRel, name, assetSupport(name), sha, bytes, Math.floor(Date.now() / 1000), createdBy)
-  const view = listWorkItemAssets(itemId).find((a) => a.id === id)
+  const view = workItemAssetView(itemId, id)
   if (!view) throw new Error('asset was registered but could not be read back')
   return view
 }
@@ -2942,7 +2965,7 @@ export function linkSharedAsset(item: WorkItemRow, rawPath: unknown, createdBy: 
   try { if (!statSync(abs).isFile()) return { ok: false, code: 'not_found' } } catch { return { ok: false, code: 'not_found' } }
   const has = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ? AND removed_at IS NULL').get(item.id, path) as { id: string } | undefined
   if (has) {
-    const view = listWorkItemAssets(item.id).find((a) => a.id === has.id)
+    const view = workItemAssetView(item.id, has.id)
     if (view) return { ok: true, asset: view, already: true }
   }
   const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').get(item.id) as { n: number }).n
@@ -3384,7 +3407,7 @@ export function linkLifeFileAsUpload(item: WorkItemRow, lifeRel: string, created
   if (assetSupport(name) === 'unsupported') return { ok: false, code: 'asset_unsupported' }
   const has = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ? AND removed_at IS NULL').get(item.id, rel) as { id: string } | undefined
   if (has) {
-    const view = listWorkItemAssets(item.id).find((a) => a.id === has.id)
+    const view = workItemAssetView(item.id, has.id)
     if (view) return { ok: true, asset: view, already: true }
   }
   const count = (getDb().prepare('SELECT COUNT(*) AS n FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL').get(item.id) as { n: number }).n
