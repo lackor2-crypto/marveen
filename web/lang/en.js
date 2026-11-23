@@ -6348,6 +6348,8 @@ window._i18n.en = {
   "workbench.status.done": "Done",
   "workbench.editor.none": "Pick a work item from the list below, or create a new one.",
   "workbench.type.composite": "Mixed (image + text)",
+  "workbench.type.internal": "Internal work",
+  "workbench.internal.no_ticks": "Internal work: no review or accept tick and no delivery step. One button makes the final PDF.",
   "workbench.versions.restore": "Restore",
   "workbench.versions.delete": "Delete",
   "workbench.versions.delete_title": "Deletes this version permanently; it cannot be brought back. Other versions are kept.",

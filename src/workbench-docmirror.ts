@@ -15,7 +15,7 @@ import { getDb } from './db.js'
 import { getProject, type ProjectRow } from './projects.js'
 import { projectFileTarget } from './project-files.js'
 import { writeBlockReason } from './git-guard.js'
-import { getWorkItem, type WorkItemRow } from './workbench.js'
+import { getWorkItem, isTextKind, type WorkItemRow } from './workbench.js'
 import { ensureWorkItemFolder } from './workbench-assets.js'
 import { documentOutline, imageBlockParts, isBlankLine, tableBlockParts } from './workbench-docmodel.js'
 import { resolveLifePath } from './life-explorer.js'
@@ -88,7 +88,7 @@ export function outlineMarkdown(item: WorkItemRow, dir?: string): string {
  * #720: a Word file read onto the page mirrors into its own .docx the same way (`word`: the page is written as Word).
  */
 function textMirrorTarget(item: WorkItemRow): { dirAbs: string; dirRel: string; name: string; word: boolean } | null {
-  const text = item.type === 'note' && isTextSourcePath(item.source_path)
+  const text = isTextKind(item.type) && isTextSourcePath(item.source_path)
   const word = !text && item.type === 'document' && /\.docx$/i.test(String(item.source_path ?? '')) && isWordImported(item.id)
   if (!text && !word) return null
   const abs = resolveLifePath(item.source_path as string)

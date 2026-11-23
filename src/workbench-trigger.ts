@@ -55,11 +55,12 @@ export function setFolderNoTrigger(item: Pick<WorkItemRow, 'id' | 'project_id' |
   return n
 }
 
-export function triggerStateOf(project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'container_folder' | 'no_trigger'>): TriggerState {
+export function triggerStateOf(project: ProjectRow, item: Pick<WorkItemRow, 'folder' | 'container_folder' | 'no_trigger'> & { type?: string }): TriggerState {
   // An own-file item has no folder of its own: its container folder is the item folder.
   const cf = String(item.container_folder ?? '').trim()
   const base = String(item.folder ?? '').trim() || (cf && cf !== '@project' ? cf : '')
-  const noTrigger = item.no_trigger === 1 || siblingNoTrigger(project.id, base)
+  // #973 part 2: an internal work is our own initiative by nature: no trigger document is asked for.
+  const noTrigger = item.no_trigger === 1 || item.type === 'internal' || siblingNoTrigger(project.id, base)
   if (!base) return { folder: null, files: [], noTrigger }
   for (const n of [TRIGGER_FOLDER_NAMES.hu, TRIGGER_FOLDER_NAMES.en]) {
     const sub = `${base}/${n}`
