@@ -3441,7 +3441,7 @@
 
   var INTAKE_KINDS = ['social_post', 'document', 'court_filing', 'video', 'presentation', 'business_card']
   // The start screens also offer a table (the plan's six buttons); the server's own guess never returns it.
-  var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table'])
+  var INTAKE_UI_KINDS = INTAKE_KINDS.concat(['table', 'internal'])
 
   // The social post asks for its platform at creation: the empty canvas gets that size (#493).
   // Sizes match the server's platform list (src/workbench-canvas-platforms.ts); the id is only a UI key.
@@ -3509,6 +3509,7 @@
     var name = String(WB.intakeName || '').trim()
     if (!kind && !text) { window.showToast(t('workbench.intake.empty')); return }
     if (kind === 'table') { intakeCreateTable(text, name); return }
+    if (kind === 'internal') { intakeCreateInternal(text, name); return }
     var payload = { project_id: WB.projectId, text: text }
     if (kind) payload.kind = kind
     if (name) payload.title = name
@@ -3540,6 +3541,25 @@
         // A mondat az Agenthez: o kezdi el a munkat az uj munkadarabon.
         if (text) handOffToAgent(text)
       })
+    })
+  }
+
+  /** The "Internal work" start button (#973): a plan or a development note for us; the same item the manual form makes
+   *  (type `internal`). The sentence, if any, goes to the agent, like for the other kinds. */
+  function intakeCreateInternal(text, name) {
+    var payload = { project_id: WB.projectId, type: 'internal', title: name || t('workbench.internal.default_title') }
+    var pick = shownPick()
+    if (pick) payload.folder = pick
+    WB.intakeBusy = true
+    render()
+    api('POST', '/api/workbench/items', payload).then(function (r) {
+      WB.intakeBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      WB.intakeAsk = null; WB.intakeDraft = ''; WB.intakeName = ''; WB.formOpen = false
+      window.showToast(t('workbench.new.created', { title: r.data.item.title }) + (r.data.folder_existed ? ' ' + t('workbench.new.folder_existed') : ''))
+      selectItem(r.data.item.id)
+      load(WB.projectId)
+      if (text) handOffToAgent(text)
     })
   }
 
