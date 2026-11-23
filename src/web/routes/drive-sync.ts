@@ -34,7 +34,7 @@
 //   3. Ha a torlendok aranya atlepi a vészfék-küszöböt, EGY sem megy fel.
 // Fék nélkül a kerest funkcio a sajat mentesedet torolne le az elso hibanal.
 import { excludeRules, isExcludedDir, isExcludedFile, normalizeExcludes, type ExcludeRules } from '../../backup-exclude.js'
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -57,6 +57,7 @@ import {
 import type { RouteContext } from './types.js'
 import { getQueueItem, loadDeleteQueue, removePairFromQueue, removeQueueItem, syncQueueForPair } from '../../drive-delete-queue.js'
 import { brakeAlertText, planRemoteDeletions } from '../../drive-remote-delete.js'
+import { getApproval } from '../../db.js'
 import { sendMarveenAlert } from '../telegram.js'
 import { notifyLang } from '../code-bridge-notify.js'
 import { resolveLifePath, toLifeRel, trashLife } from '../../life-explorer.js'
@@ -1838,6 +1839,25 @@ export interface RestoreResult {
   partial: string[]
   /** Drive id -> state row for every file this restore wrote. */
   state: Record<string, SyncFileState>
+  /** #971: files whose Drive copy changed after the first download; each came down as a NEW file with the date in its name. */
+  versions: number
+}
+
+/**
+ * #971: the name a changed Drive file gets when it comes down again: the date of its Drive change in the name, the
+ * original never touched ("sms.xml" -> "sms (2026-11-20).xml"; a second change the same day adds the time).
+ * `exists` says which names are taken; null = both candidate names are taken (that version is already here).
+ */
+export function datedVersionName(name: string, modifiedTime: string | undefined, exists: (n: string) => boolean): string | null {
+  const iso = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(String(modifiedTime || ''))
+  const day = iso ? iso[1] : new Date().toISOString().slice(0, 10)
+  const dot = name.lastIndexOf('.')
+  const stem = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+  const a = `${stem} (${day})${ext}`
+  if (!exists(a)) return a
+  const b = iso ? `${stem} (${day} ${iso[2]}-${iso[3]})${ext}` : null
+  return b && !exists(b) ? b : null
 }
 
 /** Can this Drive name be ONE path component on this machine, unchanged? */
@@ -1859,12 +1879,14 @@ export async function restoreWalk(a: {
   download: (f: RestoreEntry, dest: string) => Promise<number>
   /** #957: a reason string skips this entry and names why; '' = do not skip. */
   skip?: (f: RestoreEntry, rel: string, isFolder: boolean) => string
+  /** #971: true = this file is already here, but its Drive copy changed since (the phone overwrote it): bring the new one down as a dated copy. */
+  changed?: (f: RestoreEntry, rel: string) => boolean
   dryRun: boolean
   maxFolders?: number
   maxFiles?: number
   onProgress?: (r: RestoreResult, current: string) => void
 }): Promise<RestoreResult> {
-  const r: RestoreResult = { downloaded: 0, present: 0, bytes: 0, skipped: [], failed: [], partial: [], state: {} }
+  const r: RestoreResult = { downloaded: 0, present: 0, bytes: 0, skipped: [], failed: [], partial: [], state: {}, versions: 0 }
   const maxFolders = a.maxFolders ?? MAX_FOLDERS
   const maxFiles = a.maxFiles ?? MAX_FILES
   const baseAbs = resolve(a.base)
@@ -1904,17 +1926,29 @@ export async function restoreWalk(a: {
         r.skipped.push({ path: rel, reason: 'Google-dokumentum, nem a mentés része – a Drive-on nyisd meg' })
         continue
       }
-      const dest = resolve(baseAbs, rel)
+      let dest = resolve(baseAbs, rel)
+      let outRel = rel
       // Belt and braces: the name check already rules out `..`, this rules
       // out anything else that would land outside the branch.
       if (dest !== baseAbs && !dest.startsWith(baseAbs + sep)) {
         r.skipped.push({ path: rel, reason: 'kivezetne a mappából' })
         continue
       }
-      if (existsSync(dest)) { r.present++; continue }
+      let isVersion = false
+      if (existsSync(dest)) {
+        if (!(a.changed && a.changed(f, rel))) { r.present++; continue }
+        // #971: the phone overwrote its backup on the Drive: keep the old file, bring the new state down under a dated name.
+        const dir = dirname(dest)
+        const dated = datedVersionName(f.name, f.modifiedTime, (n) => existsSync(join(dir, n)))
+        if (!dated) { r.present++; continue }
+        dest = join(dir, dated)
+        outRel = dirname(rel) === '.' ? dated : `${dirname(rel)}/${dated}`
+        isVersion = true
+      }
       const size = Number(f.size || 0)
       if (a.dryRun) {
         r.downloaded++
+        if (isVersion) r.versions++
         r.bytes += size
         a.onProgress?.(r, rel)
         continue
@@ -1935,8 +1969,15 @@ export async function restoreWalk(a: {
         const mt = f.modifiedTime ? new Date(f.modifiedTime) : null
         if (mt && !Number.isNaN(mt.getTime())) { try { utimesSync(dest, mt, mt) } catch { /* the date is a nicety */ } }
         const st = statSync(dest)
-        r.state[f.id] = { path: rel, modifiedTime: f.modifiedTime || '', size: st.size, localMtimeMs: st.mtimeMs }
+        // #971: a copy whose size differs from the Drive's is not a copy: it is removed again and reported, never kept as "verified".
+        if (f.size !== undefined && f.size !== '' && Number(f.size) !== st.size) {
+          try { unlinkSync(dest) } catch { /* nothing more to do */ }
+          r.failed.push({ path: rel, reason: `a letöltött méret (${st.size}) nem egyezik a Drive-on lévővel (${Number(f.size)}), a másolat törölve` })
+          continue
+        }
+        r.state[f.id] = { path: outRel, modifiedTime: f.modifiedTime || '', size: st.size, localMtimeMs: st.mtimeMs }
         r.downloaded++
+        if (isVersion) r.versions++
         r.bytes += got
       } catch (err: any) {
         r.failed.push({ path: rel, reason: String(err?.message || err).slice(0, 200) })
@@ -1951,6 +1992,7 @@ export function restoreSummary(r: RestoreResult, dryRun: boolean): string {
   const parts = [dryRun
     ? `helyreállítás előnézete: ${r.downloaded} fájl jönne le, ${r.present} már megvan`
     : `helyreállítva: ${r.downloaded} fájl lejött, ${r.present} már megvolt`]
+  if (r.versions) parts.push(`${r.versions} megváltozott fájl új, dátumozott változatként`)
   if (r.skipped.length) parts.push(`${r.skipped.length} kimaradt`)
   if (r.failed.length) parts.push(`${r.failed.length} nem sikerült`)
   if (r.partial.length) parts.push(`részleges: ${r.partial.join('; ')}`)
@@ -2023,6 +2065,40 @@ export function collectSkip(ownRel: string, matchOf: (f: RestoreEntry) => CloudM
   }
 }
 
+/**
+ * #971 (Boss TG 7392/7401, answer B): the phone stays in overwrite mode, so a changed backup keeps its Drive name. The
+ * change is seen from the Drive's own modified time and size against what this pair recorded when it last brought that
+ * file down. A file the pair never recorded (it was already on disk before this) counts as unchanged: nothing is guessed.
+ */
+export function collectChanged(state: Record<string, SyncFileState>): (f: RestoreEntry) => boolean {
+  return (f) => {
+    const seen = state[f.id]
+    if (!seen) return false
+    if (f.size !== undefined && f.size !== '' && Number(f.size) !== Number(seen.size)) return true
+    return !!f.modifiedTime && !!seen.modifiedTime && f.modifiedTime !== seen.modifiedTime
+  }
+}
+
+/**
+ * #971: which collected Drive files may leave the Drive. ONLY a file whose Life-tree copy is on disk with exactly the
+ * size the Drive reported (the state row) counts; a missing or differently sized copy stays up and is named.
+ */
+export function planVerifiedTrash(
+  state: Record<string, SyncFileState>,
+  localSize: (rel: string) => number | null,
+): { ok: Array<{ driveId: string; path: string }>; kept: Array<{ path: string; reason: string }> } {
+  const ok: Array<{ driveId: string; path: string }> = []
+  const kept: Array<{ path: string; reason: string }> = []
+  for (const [driveId, row] of Object.entries(state)) {
+    if (!row || typeof row.path !== 'string' || !row.path) continue
+    const got = localSize(row.path)
+    if (got === null) kept.push({ path: row.path, reason: 'nincs meg a gépen' })
+    else if (got !== Number(row.size)) kept.push({ path: row.path, reason: `a gépen lévő méret (${got}) nem egyezik (${Number(row.size)})` })
+    else ok.push({ driveId, path: row.path })
+  }
+  return { ok, kept }
+}
+
 async function runCollect(pair: SyncPair, dryRun: boolean): Promise<void> {
   const hely = pairLocalDir(pair)
   if (!hely) throw new Error('nincs raktár beállítva')
@@ -2038,6 +2114,7 @@ async function runCollect(pair: SyncPair, dryRun: boolean): Promise<void> {
     list: (id) => listFolder(id, token),
     download: (f, dest) => downloadTo(`${DRIVE_FILES_URL}/${encodeURIComponent(f.id)}?alt=media`, token, dest),
     skip: collectSkip(ownRel, (f) => matchCloudFiles([{ name: f.name, size: Number(f.size), md5: f.md5Checksum }])[0]),
+    changed: collectChanged(loadSyncConfig().state[pair.id] || {}),
     onProgress: (x, current) => {
       if (!job) return
       job.downloaded = x.downloaded
@@ -2573,6 +2650,48 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
         if (job) { job.running = false; job.current = ''; job.finishedAt = new Date().toISOString() }
       })
     json(res, { ok: true, job, pair: p })
+    return true
+  }
+
+  // #971: after a verified download, the Drive copies of an account's collected files go to the Drive's Trash.
+  // Needs an APPROVED gdrive_modify approval (level 2); only size-verified Life-tree copies qualify.
+  if (path === '/api/drive/sync/collect/trash' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const account = String(data.account || '').trim()
+    const dryRun = data.dryRun === true
+    if (!account) { json(res, { error: L(lang, 'Válassz fiókot.', 'Pick an account.'), code: 'account_required' }, 400); return true }
+    const cfg = loadSyncConfig()
+    if (cfg.corrupt) { json(res, { error: L(lang, 'A szinkron-beállítás olvashatatlan.', 'The sync settings are unreadable.'), code: 'config_unreadable' }, 409); return true }
+    const pair = cfg.pairs.find((p) => p.collect && p.account === account)
+    const hely = pair ? pairLocalDir(pair) : null
+    if (!pair || !hely) { json(res, { error: L(lang, 'Ehhez a fiókhoz még nincs gyűjtés.', 'This account has no collection yet.'), code: 'no_collect_pair' }, 404); return true }
+    if (!dryRun) {
+      const ap = getApproval(String(data.approval_id || ''))
+      if (!ap || ap.status !== 'approved' || ap.category !== 'gdrive_modify') {
+        json(res, { error: L(lang, 'A Drive-ról törléshez jóváhagyott „gdrive_modify” jóváhagyás kell.', 'Removing from the Drive needs an approved "gdrive_modify" approval.'), code: 'approval_required' }, 403)
+        return true
+      }
+    }
+    const state = cfg.state[pair.id] || {}
+    const plan = planVerifiedTrash(state, (rel) => {
+      try { const st = statSync(resolve(hely.base, rel)); return st.isFile() ? st.size : null } catch { return null }
+    })
+    if (dryRun) { json(res, { ok: true, dryRun: true, wouldTrash: plan.ok.length, kept: plan.kept }); return true }
+    const token = tokenSzolgaltato(account)
+    let trashed = 0
+    const failed: Array<{ path: string; reason: string }> = []
+    for (const f of plan.ok) {
+      try {
+        await trashDriveFile(f.driveId, token)
+        delete state[f.driveId]
+        trashed++
+      } catch (err: any) {
+        failed.push({ path: f.path, reason: String(err?.message || err).slice(0, 160) })
+      }
+    }
+    cfg.state[pair.id] = state
+    mentsdAParost(pair, cfg)
+    json(res, { ok: true, trashed, kept: plan.kept, failed })
     return true
   }
 
