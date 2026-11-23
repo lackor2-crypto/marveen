@@ -103,7 +103,10 @@ describe('a szinkron-motor magatol nem torol', () => {
 
   it('trashDriveFile CSAK a jovahagyas utjan hivodik', () => {
     const hivasok = route.split('await trashDriveFile(').length - 1
-    expect(hivasok).toBe(1)
+    // #971: the second caller is the collect-trash route, which refuses without an approved gdrive_modify approval.
+    expect(hivasok).toBe(2)
+    const j = route.lastIndexOf('await trashDriveFile(')
+    expect(route.lastIndexOf("code: 'approval_required'", j)).toBeGreaterThan(route.lastIndexOf("path === '/api/drive/sync/collect/trash'", j))
     const i = route.indexOf('await trashDriveFile(')
     expect(route.lastIndexOf('export async function decideDeletion', i)).toBeGreaterThan(-1)
     expect(route.lastIndexOf('async function uploadPhase', i)).toBeLessThan(route.lastIndexOf('export async function decideDeletion', i))
