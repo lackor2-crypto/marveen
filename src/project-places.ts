@@ -37,7 +37,7 @@ export type PlaceResult = { ok: true } | { ok: false; code: 'bad_input' | 'dupli
 /** The project's places, in the order they were added. */
 export function listProjectPlaces(projectId: string): string[] {
   ensureProjectPlaceTables()
-  return (getDb().prepare('SELECT rel FROM project_places WHERE project_id = ? ORDER BY created_at, rel').all(projectId) as { rel: string }[]).map((r) => r.rel)
+  return (getDb().prepare('SELECT rel FROM project_places WHERE project_id = ? ORDER BY created_at, rowid').all(projectId) as { rel: string }[]).map((r) => r.rel)
 }
 
 /** Remember a folder of the Life tree as a place of the project. The caller has checked that it is a folder of the tree. */
