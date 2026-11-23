@@ -3,8 +3,10 @@
 // Owner, 2026-10-10: "marveen intezo miert nem tud megnyitni excelt? csinald meg hogy tudja
 // megnyitni az excelt. mint a windows intezo" and "innen is nyiljon meg! excel, docx, minden."
 //
-// "Open with the default program" RUNS the file when it is a program or a script. So the
-// first thing pinned here is what is NEVER opened this way.
+// #982 (owner, 2026-11-23: "engedj mindent"): the extension allowlist is gone -- every file
+// type, a program or a script included, is handed to the machine's own program, exactly as a
+// double click does in the file manager. Pinned here: that, the Windows script, and the
+// refusals that still happen (a missing file, a folder).
 import { describe, it, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
