@@ -1015,6 +1015,8 @@ window._i18n.en = {
   'intezo.physical_save': 'Save',
   'intezo.preview': 'Preview',
   'intezo.download': 'Download',
+  'intezo.fla_viewer_btn': 'View in FLA Viewer',
+  'intezo.fla_viewer_hint': 'FLA Viewer opened in a new tab and {name} is downloading. Drag the downloaded file into the Viewer window. The Viewer runs on your machine and uploads nothing.',
   'intezo.file_open_failed': 'The file could not be opened or downloaded just now. Please try again.',
   'intezo.preview_loading': 'Loading…',
   'intezo.preview_failed': 'The preview could not be loaded.',
