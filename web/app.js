@@ -45551,6 +45551,34 @@ function _bkBadge(e) {
     + escapeHtml(txt) + '</span>'
 }
 
+/**
+ * #951: the folder-size column. The server measures in the background and caches; this asks again every
+ * 2 s while any folder is still "measuring", and stops when the map is closed.
+ */
+async function _bkLoadSizes(tbl) {
+  if (!tbl.isConnected) return
+  let d = null
+  try { d = await _intezoGet('/api/backup-rules/sizes?lang=' + (window._lang || 'hu')) } catch (e) { d = null }
+  if (!tbl.isConnected) return
+  let pending = false
+  const sizes = (d && d.sizes) || {}
+  tbl.querySelectorAll('td[data-bk-size]').forEach((td) => {
+    const z = sizes[td.getAttribute('data-bk-size') || '']
+    if (!z) { td.textContent = '?'; return }
+    if (z.state === 'failed') { td.textContent = t('backup.size_failed'); return }
+    if (z.state === 'measuring') pending = true
+    const txt = typeof z.bytes === 'number' ? _bkSizeText(z.bytes) : ''
+    td.textContent = z.state === 'measuring' ? (txt ? txt + ' …' : t('backup.size_measuring')) : txt
+    td.title = z.state === 'done' && z.at ? t('backup.size_at', { at: String(z.at).slice(0, 16).replace('T', ' '), n: String(z.files == null ? '' : z.files) }) : ''
+  })
+  if (pending) setTimeout(() => { _bkLoadSizes(tbl) }, 2000)
+}
+function _bkSizeText(bytes) {
+  if (bytes >= 1e9) return (bytes / 1e9).toFixed(1).replace('.', ',') + ' GB'
+  if (bytes >= 1e6) return Math.round(bytes / 1e6) + ' MB'
+  if (bytes > 0) return Math.max(1, Math.round(bytes / 1e3)) + ' KB'
+  return '0 B'
+}
 function _bkGb(bytes) { return (bytes / 1e9).toFixed(1) }
 
 function _bkPanel(titleText, widthPx) {
@@ -45739,6 +45767,7 @@ async function _bkOpenMap() {
     tbl.style.cssText = 'width:100%;font-size:13px;border-collapse:collapse'
     tbl.innerHTML = '<thead><tr><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_folder'))
       + '</th><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_target'))
+      + '</th><th style="text-align:right;padding:3px 6px;white-space:nowrap" title="' + escapeHtml(t('backup.map_col_size_tip')) + '">' + escapeHtml(t('backup.map_col_size'))
       + '</th><th style="text-align:right;padding:3px 6px;white-space:nowrap" title="' + escapeHtml(t('backup.map_col_used_tip')) + '">' + escapeHtml(t('backup.map_col_used'))
       + '</th><th></th></tr></thead><tbody>'
       + rules.map((r, i) => {
@@ -45748,13 +45777,14 @@ async function _bkOpenMap() {
         // Boss TG 7189: a thick line where the cloud KIND changes (Drive | Photos | MEGA), so the blocks read apart.
         const kindChanged = i > 0 && (r.target ? r.target.kind : '') !== (rules[i - 1].target ? rules[i - 1].target.kind : '')
         const head = gk !== pk
-          ? '<tr class="bk-map-group' + (kindChanged ? ' bk-map-kind-break' : '') + '"><td colspan="4" style="padding:' + (kindChanged ? '14px' : '8px') + ' 6px 2px;font-weight:600;border-bottom:1px solid var(--border)' + (kindChanged ? ';border-top:5px solid var(--text-muted,#6b7280)' : '') + '">'
+          ? '<tr class="bk-map-group' + (kindChanged ? ' bk-map-kind-break' : '') + '"><td colspan="5" style="padding:' + (kindChanged ? '14px' : '8px') + ' 6px 2px;font-weight:600;border-bottom:1px solid var(--border)' + (kindChanged ? ';border-top:5px solid var(--text-muted,#6b7280)' : '') + '">'
             + escapeHtml(r.target ? _bkTargetText(r.target) : t('backup.none')) + '</td></tr>' : ''
         const acc = r.target ? _bkAccounts.find((x) => x.kind === r.target.kind && x.account === r.target.account) : null
         const used = _bkUsedText(acc)
         return head + '<tr><td style="padding:3px 6px;word-break:break-word">' + escapeHtml(_bkFromText(r.path))
         + '</td><td style="padding:3px 6px;white-space:nowrap">' + escapeHtml(r.target ? '☁ ' + _bkTargetText(r.target) : '⊘ ' + t('backup.none'))
         + (_bkSplitText(r) ? '<div style="font-size:11px;opacity:.75;white-space:normal">' + escapeHtml(_bkSplitText(r)) + '</div>' : '')
+        + '</td><td class="bk-map-size" data-bk-size="' + escapeHtml(r.path) + '" style="padding:3px 6px;text-align:right;white-space:nowrap">…'
         + '</td><td class="bk-map-used" style="padding:3px 6px;text-align:right;white-space:nowrap">'
         + escapeHtml(r.target ? (used || t('backup.free_unknown')) : '')
         + '</td><td style="padding:3px 6px;text-align:right;white-space:nowrap">'
@@ -45763,6 +45793,7 @@ async function _bkOpenMap() {
         + '<a href="#" data-bk-go="' + escapeHtml(r.path) + '">'
         + escapeHtml(t('backup.map_open')) + '</a></td></tr>' }).join('') + '</tbody>'
     box.appendChild(tbl)
+    _bkLoadSizes(tbl)
     tbl.querySelectorAll('a[data-bk-split]').forEach((a) => a.addEventListener('click', (ev) => {
       ev.preventDefault()
       const rule = rules.find((x) => x.path === (a.getAttribute('data-bk-split') || ''))
