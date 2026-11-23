@@ -1043,6 +1043,8 @@ window._i18n.hu = {
   'intezo.physical_save': 'Mentés',
   'intezo.preview': 'Előnézet',
   'intezo.download': 'Letöltés',
+  'intezo.fla_viewer_btn': 'Megnézés a FLA Viewerben',
+  'intezo.fla_viewer_hint': 'A FLA Viewer új lapon megnyílt, és a(z) {name} letöltődik. Húzd be a letöltött fájlt a Viewer ablakába. A Viewer a gépeden fut, nem tölt fel semmit.',
   'intezo.file_open_failed': 'A fájlt most nem sikerült megnyitni vagy letölteni. Próbáld újra.',
   'intezo.preview_loading': 'Betöltés…',
   'intezo.preview_failed': 'Az előnézet nem tölthető be.',

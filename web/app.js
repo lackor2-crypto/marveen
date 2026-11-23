@@ -44989,6 +44989,25 @@ async function _intezoOpenPreviewWindow(info) {
       run()
     }
     wrap.appendChild(dl)
+    // #983 (Boss: .fla is opened by no program on this machine; the free FLA Viewer is the way):
+    // a .fla gets a button that opens the viewer (it runs in the browser, uploads nothing, and
+    // takes no URL parameter) and downloads the file to drop into it.
+    if (/\.fla$/i.test(String(info.name || info.rel || ''))) {
+      const fv = document.createElement('button')
+      fv.type = 'button'
+      fv.className = 'btn-secondary'
+      fv.textContent = t('intezo.fla_viewer_btn')
+      fv.addEventListener('click', () => {
+        window.open('https://lifeart.github.io/fla-viewer/', '_blank', 'noopener')
+        const a = document.createElement('a')
+        a.href = _intezoFileUrl(info.rel, true)
+        a.download = info.name || ''
+        document.body.appendChild(a); a.click(); a.remove()
+        msg.textContent = t('intezo.fla_viewer_hint', { name: info.name || '' })
+      })
+      wrap.appendChild(document.createTextNode(' '))
+      wrap.appendChild(fv)
+    }
     body.appendChild(wrap)
   }
   // Pozicionalas. Mobilon a CSS teljes-kepernyos, ott nem allitunk inline
