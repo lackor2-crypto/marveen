@@ -13,10 +13,9 @@ import { agentDir, listAgentNames, readAgentChannelProvider } from './agent-conf
 import {
   agentHasChannel,
   agentSessionName,
-  capturePane,
   capturePaneAsync,
   captureParkedInputView,
-  observedParkedInputView,
+  observedParkedInputViewAsync,
   invalidateObservedPanes,
   clearInputBuffer,
   runTmuxAsync,
@@ -35,6 +34,8 @@ import {
   FLEET_OAUTH_TOKEN_PATH,
   answerFirstRunGates,
   shSingleQuote,
+  captureParkedInputViewAsync,
+  capturePaneStrippedAsync,
 } from './agent-process.js'
 import { reapChannelOrphans, reapDetachedChannelClaudes, collectPollerEvidence } from './channel-poller-reap.js'
 import { probeTelegramConflict } from './channel-conflict-probe.js'
@@ -342,10 +343,10 @@ export async function recoverStuckInputForSession(
   // Detection reads the watcher sweep's picture (#390, up to OBSERVE_TTL_MS
   // old). Anything that then types into the pane is decided again on a FRESH
   // capture, so a clear/re-inject/Enter never acts on an older picture.
-  const seen = observedParkedInputView(session)
+  const seen = await observedParkedInputViewAsync(session)
   let decision = decideStuckInputRecovery(seen != null ? stuckInputSignature(seen) : null, prev, Date.now(), thresholds)
   if (!decision.recover) return decision.next
-  const pane = captureParkedInputView(session)
+  const pane = await captureParkedInputViewAsync(session)
   const sig = pane != null ? stuckInputSignature(pane) : null
   decision = decideStuckInputRecovery(sig, prev, Date.now(), thresholds)
   if (decision.recover && pane != null) {
@@ -443,7 +444,7 @@ async function performStuckInputAction(
     // submitLanded() handles a null capture internally (-> not landed). prevSig
     // is non-null here in practice (recover only fires on a parked signature),
     // but guard the type narrowing explicitly.
-    const landed = prevSig != null ? submitLanded(prevSig, captureParkedInputView(session)) : false
+    const landed = prevSig != null ? submitLanded(prevSig, await captureParkedInputViewAsync(session)) : false
     logger.warn(
       { session, action, attempt, landed },
       landed
@@ -541,8 +542,8 @@ function getMainAgentProvider(): ChannelProviderType {
   return CHANNEL_PROVIDER
 }
 
-function softReconnectMarveen(): boolean {
-  return attemptChannelMcpReconnect(MAIN_AGENT_ID).ok
+async function softReconnectMarveen(): Promise<boolean> {
+  return (await attemptChannelMcpReconnect(MAIN_AGENT_ID)).ok
 }
 
 async function triggerMarveenMemorySave(): Promise<void> {
@@ -1184,7 +1185,7 @@ export function hardRestartMarveenChannels(): { ok: boolean; error?: string } {
 // restart (respawn-pane). Driven by the pure decideStuckInputRestart; this
 // wrapper owns the I/O + counters. Called once per monitor tick right after the
 // main stuck-input recovery.
-function maybeRestartWedgedMainChannel(state: StuckInputState): void {
+async function maybeRestartWedgedMainChannel(state: StuckInputState): Promise<void> {
   const parked = state.parkedSig !== null
   // A cleared input box ends the spell -> reset the escalation counter so the
   // next genuine wedge starts fresh (and a successful restart is not penalised).
@@ -1194,11 +1195,11 @@ function maybeRestartWedgedMainChannel(state: StuckInputState): void {
   // applyStuckRestartBusyGuard. detectPaneState reads 'unknown' for an
   // unreadable pane and the guard fails-open on that, so a broken capture never
   // blocks a genuine recovery.
-  const paneContent = capturePane(MAIN_CHANNELS_SESSION)
+  const paneContent = await capturePaneStrippedAsync(MAIN_CHANNELS_SESSION)
   const paneState = paneContent != null ? detectPaneState(paneContent) : null
   // Deadlock carve-out facts: read from the ghost-stripped parked view (same
   // view the soft recovery uses) so a dim autocomplete hint never counts.
-  const parkedView = paneState === 'typing' ? captureParkedInputView(MAIN_CHANNELS_SESSION) : null
+  const parkedView = paneState === 'typing' ? await captureParkedInputViewAsync(MAIN_CHANNELS_SESSION) : null
   const machineOrigin = parkedView != null && parkedMachineOriginInput(parkedView)
   const softRemedy = parkedView != null && parkedMainInputHasRemedy(parkedView)
   const action = applyStuckRestartBusyGuard(paneState, decideStuckInputRestart(
@@ -1330,7 +1331,7 @@ function refreshKeepaliveFromInbound(): void {
   }
 }
 
-function checkMainKeepaliveStaleness(pluginKnownAlive = false): void {
+async function checkMainKeepaliveStaleness(pluginKnownAlive = false): Promise<void> {
   // SAFETY NET first: let any fresh inbound traffic warm the file before we
   // judge staleness, so a busy-but-alive session is never seen as stale-deaf.
   refreshKeepaliveFromInbound()
@@ -1382,7 +1383,7 @@ function checkMainKeepaliveStaleness(pluginKnownAlive = false): void {
   // capturePane returns null if the pane can't be read; detectPaneState
   // returns 'unknown' for null input — shouldDeferKeepaliveRespawn is
   // fail-open on unknown, so a broken capture never blocks recovery.
-  const paneContent = capturePane(MAIN_CHANNELS_SESSION)
+  const paneContent = await capturePaneStrippedAsync(MAIN_CHANNELS_SESSION)
   const paneState = paneContent != null ? detectPaneState(paneContent) : null
   if (shouldDeferKeepaliveRespawn(paneState)) {
     logger.info({ paneState }, 'Keepalive stale but pane is busy -- deferring respawn')
@@ -1455,11 +1456,11 @@ async function handleMarveenDown(): Promise<void> {
           })
       }
     }
-    if (softReconnectMarveen()) marveenDownState.softAttempts += 1
+    if (await softReconnectMarveen()) marveenDownState.softAttempts += 1
     return
   }
   if (marveenDownState.stage === 'soft') {
-    if (marveenDownState.softAttempts < 3 && softReconnectMarveen()) {
+    if (marveenDownState.softAttempts < 3 && await softReconnectMarveen()) {
       marveenDownState.softAttempts += 1
       marveenDownState.lastAlertAt = now
       return
@@ -1702,7 +1703,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
           // and 514 silent Sonnet turns on this install). Probe for the dialog
           // first and answer it safely (option 1, keep the configured model);
           // only a genuine menu gets the blind Escape.
-          const paneNow = capturePane(t.session)
+          const paneNow = await capturePaneStrippedAsync(t.session)
           // #543 (owner, 2026-10-10): an agent that is PROVEN unavailable (spent quota, stopped) is not "stuck in a
           // menu" -- its panel shows the limit screen. No alert and no keystroke until it is back; a login in
           // progress is the one thing still reported, because the owner is doing that by hand. When availability
@@ -1792,7 +1793,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
     // Reliable backstop: if the soft recovery is exhausted and the input is
     // STILL parked, the TUI is hard-wedged -- escalate to a respawn-pane (the
     // automated form of the manual `systemctl restart channels`). Rate-limited.
-    maybeRestartWedgedMainChannel(mainStuckInput)
+    await maybeRestartWedgedMainChannel(mainStuckInput)
     // Same recovery for every running sub-agent session: a parked channel
     // message wedges a sub-agent ("nem válaszol") exactly as it would the main
     // session. Per-session state lives in agentStuckInput; drop it once the
@@ -1846,7 +1847,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
           handleMarveenUp()
           // Process-alive does NOT prove the inbound MCP pipe is healthy (the
           // deafness blind spot). Cross-check the keep-alive freshness.
-          checkMainKeepaliveStaleness(true)
+          await checkMainKeepaliveStaleness(true)
         } else {
           if (agentDownSince.has(t.session)) {
             logger.info({ session: t.session, provider: t.provider }, 'Agent channel plugin recovered')
@@ -1899,7 +1900,7 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
         // Busy-guard input: a pane that is generating must not be hard-restarted
         // out from under its own work. An unreadable pane reads 'unknown', which
         // is NOT busy -- we only defer on positive evidence of work in flight.
-        const agentPane = capturePane(t.session)
+        const agentPane = await capturePaneStrippedAsync(t.session)
         const agentPaneState = agentPane != null ? detectPaneState(agentPane) : null
         const agentBusy = shouldDeferKeepaliveRespawn(agentPaneState)
         const action = decideDownAgentAction({

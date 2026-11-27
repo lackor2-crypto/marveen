@@ -1,5 +1,5 @@
 import { logger } from '../logger.js'
-import { capturePane } from './agent-process.js'
+import { capturePaneStrippedAsync } from './agent-process.js'
 import { workerContexts, isWorkerSessionAlive } from './agent-worker.js'
 
 // Worker-session liveness instrument (WORKERBOOT1).
@@ -184,10 +184,12 @@ export const LIVENESS_POLL_MS = 60_000
  */
 export function startWorkerLivenessMonitor(): NodeJS.Timeout {
   const states = new Map<string, WorkerLivenessState>()
+  // #991: the screens are read off the main thread before each sweep; the sweep itself only looks them up.
+  const panes = new Map<string, string | null>()
   const deps: WorkerLivenessDeps = {
     sessions: () => workerContexts().map((c) => ({ session: c.session })),
     isAlive: (session) => isWorkerSessionAlive(session),
-    capture: (session) => capturePane(session),
+    capture: (session) => panes.get(session) ?? null,
     now: () => Date.now(),
     onDeath: ({ session, lifetimeMs, lastPane, lifetimeTruncated }) => {
       logger.warn(
@@ -208,8 +210,9 @@ export function startWorkerLivenessMonitor(): NodeJS.Timeout {
     },
   }
   let first = true
-  const tick = (): void => {
+  const tick = async (): Promise<void> => {
     try {
+      for (const c of workerContexts()) panes.set(c.session, await capturePaneStrippedAsync(c.session))
       sweepWorkerLiveness(deps, states, first)
     } catch (err) {
       logger.warn({ err }, 'worker-liveness: sweep failed (continuing)')
@@ -217,5 +220,5 @@ export function startWorkerLivenessMonitor(): NodeJS.Timeout {
       first = false
     }
   }
-  return setInterval(tick, LIVENESS_POLL_MS)
+  return setInterval(() => { void tick() }, LIVENESS_POLL_MS)
 }

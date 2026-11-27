@@ -95,8 +95,10 @@ vi.mock('../web/agent-process.js', () => ({
   sendPromptToSession: (...a: unknown[]) => mockSendPrompt(...(a as [])),
   startAgentProcess: (...a: unknown[]) => mockStartAgent(...(a as [])),
   sessionExistsOnHost: () => mockSessionExists(),
+  sessionExistsOnHostAsync: async () => mockSessionExists(),
   // null capture => the post-send resubmit loop sees nothing parked and stops.
   capturePane: () => null,
+  capturePaneStrippedAsync: async () => null,
   sendEnterToSession: vi.fn(),
   clearStaleParkedInput: vi.fn(() => false),
   resolveAgentProvider: () => 'telegram',

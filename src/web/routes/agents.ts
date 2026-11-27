@@ -112,7 +112,9 @@ import {
   agentSessionName,
   sendPromptToSession,
   capturePane,
-  capturePaneAsync, answerLoginMethodMenu, paneShowsLoginMethodMenu } from '../agent-process.js'
+  capturePaneAsync, answerLoginMethodMenu, paneShowsLoginMethodMenu,
+  capturePaneStrippedAsync,
+} from '../agent-process.js'
 import { addDesiredAgent, getDesiredAgents, removeDesiredAgent } from '../agent-desired-state.js'
 import { RemoteStatusCache, BackgroundCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
@@ -353,7 +355,7 @@ itt írhatod meg.
 // blocking ssh call per remote agent per request. Only remote agents are cached;
 // local agents fetch fresh (sub-ms tmux). See remote-status-cache.ts.
 const remoteRunStateCache = new RemoteStatusCache<AgentRunState>(5000)
-const remotePaneCache = new RemoteStatusCache<string | null>(3000)
+const remotePaneCache = new BackgroundCache<string | null>(3000)
 
 // Local panes are cheap per call but not free, and /api/agents/activity captures
 // one per RUNNING agent every 3 seconds. Measured on this install with a single
@@ -365,7 +367,7 @@ const localPaneCache = new BackgroundCache<string | null>(2500)
 
 function summaryPane(name: string, host: string | null): string | null {
   return host
-    ? remotePaneCache.getOrRefresh(name, Date.now(), () => capturePane(agentSessionName(name), host), null)
+    ? remotePaneCache.get(name, Date.now(), () => capturePaneStrippedAsync(agentSessionName(name), host), () => null)
     // Stale-while-revalidate: only the very first read of an agent forks synchronously. The old fixed-age read forked a tmux
     // capture on the event loop for every agent whose cached pane was 5 s old (hidden tab, slow poll): up to a 1.2 s freeze.
     : localPaneCache.get(name, Date.now(), () => capturePaneAsync(agentSessionName(name)), () => capturePane(agentSessionName(name)))
@@ -1014,7 +1016,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       let pane: string | null = null
       if (running) {
         pane = host
-          ? remotePaneCache.getOrRefresh(name, Date.now(), () => capturePane(agentSessionName(name), host), null)
+          ? remotePaneCache.get(name, Date.now(), () => capturePaneStrippedAsync(agentSessionName(name), host), () => null)
           : localPaneCache.get(
               name,
               Date.now(),
@@ -1475,7 +1477,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     if (name !== MAIN_AGENT_ID && !isAgentRunning(name)) {
       json(res, { error: 'Agent is not running' }, 400); return true
     }
-    const result = attemptChannelMcpReconnect(name)
+    const result = await attemptChannelMcpReconnect(name)
     json(res, result)
     return true
   }
@@ -2461,7 +2463,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       // kattintott, mert lassunak tunt.) Ilyenkor a menut valaszoljuk meg, es
       // nem kuldunk uj parancsot.
       let answeredMenu = false
-      const prePane = capturePane(session, host)
+      const prePane = await capturePaneStrippedAsync(session, host)
       if (prePane && paneShowsLoginMethodMenu(prePane)) {
         answeredMenu = await answerLoginMethodMenu(session, host)
       } else {
@@ -2477,7 +2479,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       let sawPane = false
       for (let i = 0; i < 12; i++) {
         await new Promise<void>(r => setTimeout(r, 1000))
-        const pane = capturePane(session, host)
+        const pane = await capturePaneStrippedAsync(session, host)
         if (!pane) continue
         sawPane = true
         // A `/login` eloszor a bejelentkezesi mod menujet nyitja; az URL a
@@ -2577,7 +2579,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       // hanem hogy NEM LATUNK ODA. Ilyenkor tilos sikert allitani -- de kudarcot
       // is. A kulonbseget a panel donti el: ha meg mindig a kodra var, a kod
       // tenyleg nem ment at.
-      const pane = capturePane(session, host)
+      const pane = await capturePaneStrippedAsync(session, host)
       const stillWaiting = pane != null && detectsLoginInProgress(pane)
       if (stillWaiting) {
         json(res, {

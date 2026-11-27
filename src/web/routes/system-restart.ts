@@ -22,7 +22,7 @@ import {
   type AgentSnapshot,
 } from '../../restart-all.js'
 import { listAgentNames, readAgentDisplayName, readAgentRemoteHost } from '../agent-config.js'
-import { restartAgentProcess, isAgentRunning, agentSessionName, capturePane } from '../agent-process.js'
+import { restartAgentProcess, isAgentRunning, agentSessionName, capturePaneStrippedAsync } from '../agent-process.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { detectPaneState } from '../../pane-state.js'
@@ -50,29 +50,29 @@ const PROCESS_STARTED_AT = Date.now()
  * A felulet ezt MEG megtoldja azzal, amit a sajat 3 masodperces merese lat --
  * ott a tagabb ertelmezes a jo (Boss: "ha barmit is csinal... akor is dolgozik").
  */
-function paneLooksBusy(session: string, host: string | null): boolean {
+async function paneLooksBusy(session: string, host: string | null): Promise<boolean> {
   // Tavoli agensnel a pane-olvasas ssh-n menne. Egy megerosito ablak nem erhet
   // annyit, hogy egy nem valaszolo geptol masodpercekre megalljon a keres --
   // ilyenkor inkabb nem allitunk semmit.
   if (host) return false
-  const pane = capturePane(session)
+  const pane = await capturePaneStrippedAsync(session)
   if (pane === null) return false
   return detectPaneState(pane) === 'busy'
 }
 
 /** A jelenlegi allapot osszeszedese a tervhez. */
-function snapshot(): { agents: AgentSnapshot[]; main: AgentSnapshot } {
-  const agents: AgentSnapshot[] = listAgentNames().map(name => {
+async function snapshot(): Promise<{ agents: AgentSnapshot[]; main: AgentSnapshot }> {
+  const agents: AgentSnapshot[] = await Promise.all(listAgentNames().map(async name => {
     const host = readAgentRemoteHost(name)
     const running = isAgentRunning(name)
     return {
       name,
       displayName: readAgentDisplayName(name) || name,
       running,
-      busy: running ? paneLooksBusy(agentSessionName(name), host) : false,
+      busy: running ? await paneLooksBusy(agentSessionName(name), host) : false,
     }
-  })
-  const mainPane = capturePane(MAIN_CHANNELS_SESSION)
+  }))
+  const mainPane = await capturePaneStrippedAsync(MAIN_CHANNELS_SESSION)
   const main: AgentSnapshot = {
     name: MAIN_AGENT_ID,
     displayName: currentBotName(),
@@ -112,14 +112,14 @@ export async function tryHandleSystemRestart(ctx: RouteContext): Promise<boolean
   // megmondani a megerosito kerdesben, hogy KI dolgozik eppen, es mi az, ami
   // szandekosan kimarad. Lasd a hosszu indoklast: src/restart-all.ts.
   if (path === '/api/system/restart-all' && method === 'GET') {
-    const { agents, main } = snapshot()
+    const { agents, main } = await snapshot()
     const plan = buildRestartAllPlan({ agents, main, dashboard: restartAvailability() })
     json(res, { ...plan, startedAt: PROCESS_STARTED_AT })
     return true
   }
 
   if (path === '/api/system/restart-all' && method === 'POST') {
-    const { agents, main } = snapshot()
+    const { agents, main } = await snapshot()
     const plan = buildRestartAllPlan({ agents, main, dashboard: restartAvailability() })
     // A sub-agensek es a foagens MOST indulnak ujra -- ez masodpercek alatt
     // lefut, es a valaszban minden lepes sajat sort kap, a hibasak is.

@@ -28,6 +28,8 @@ import {
   sendPromptToSession,
   sessionExistsOnHost,
   capturePane,
+  sessionExistsOnHostAsync,
+  capturePaneStrippedAsync,
 } from './agent-process.js'
 import { detectPaneState, type PaneState } from '../pane-state.js'
 import { setLastInboundModality } from './voice-modality.js'
@@ -502,7 +504,7 @@ export async function runMessageRouterTick(): Promise<void> {
     for (const agent of receiversInTick) {
       const host = readAgentRemoteHost(agent)
       const session = agentSessionName(agent)
-      const exists = sessionExistsOnHost(host, session)
+      const exists = await sessionExistsOnHostAsync(host, session)
       agentSessionCache.set(agent, { host, session, exists })
       if (isFreeOpenRouterModel(readAgentModel(agent))) freeTierReceivers.add(agent)
       if (exists) {
@@ -588,7 +590,7 @@ export async function runMessageRouterTick(): Promise<void> {
       const cached = agentSessionCache.get(msg.to_agent)
       const session = cached?.session ?? agentSessionName(msg.to_agent)
       const host = isMainAgent ? null : cached?.host ?? readAgentRemoteHost(msg.to_agent)
-      const sessionExists = cached?.exists ?? sessionExistsOnHost(host, session)
+      const sessionExists = cached?.exists ?? await sessionExistsOnHostAsync(host, session)
 
       if (shouldAbandon(sessionExists, ageMs, MESSAGE_ABANDON_WINDOW_MS)) {
         logger.warn({ id: msg.id, from: msg.from_agent, to: msg.to_agent, ageMs }, 'Agent message abandoned: target session absent for full retry window')
@@ -624,7 +626,7 @@ export async function runMessageRouterTick(): Promise<void> {
           // Capturing here (rather than every tick) keeps the healthy path at
           // zero extra tmux calls.
           const stuckMs = now - stuckStart
-          const pane = capturePane(session, host)
+          const pane = await capturePaneStrippedAsync(session, host)
           const paneState = pane != null ? detectPaneState(pane) : null
           if (shouldEscalateStuckSession(paneState, stuckMs)) {
             // Session has been continuously stuck past the escalation threshold.

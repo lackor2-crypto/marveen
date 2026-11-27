@@ -27,7 +27,7 @@ describe('worker not-ready alert (#778)', () => {
 
   it('a self-heal restart opens a fresh boot window', () => {
     const b = body('async function ensureWorkerReady')
-    expect(b).toMatch(/selfHealWorkerOnce\(ctx\) === 'restarted'\) deadline = Date\.now\(\) \+ WORKER_BOOT_TIMEOUT_MS/)
+    expect(b).toMatch(/\(await selfHealWorkerOnce\(ctx\)\) === 'restarted'\) deadline = Date\.now\(\) \+ WORKER_BOOT_TIMEOUT_MS/)
   })
 
   it('the owner is paged only after the restart + retry also failed', () => {

@@ -16,6 +16,7 @@ import {
   isSessionReadyForPrompt,
   noteSaturationBannerUntrusted,
   clearSaturationBannerOverride,
+  capturePaneStrippedAsync,
 } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { detectPaneState, paneShowsContextSaturation, paneShowsContextSaturationHardError } from '../pane-state.js'
@@ -411,7 +412,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         // inter-agent queue -- the channel supervisors actually read.
         let snapshotPath: string | null = null
         try {
-          const finalPane = pane ?? capturePane(session)
+          const finalPane = pane ?? await capturePaneStrippedAsync(session)
           if (finalPane) {
             snapshotPath = join(PROJECT_ROOT, 'store', `context-guard-last-pane-${name}.txt`)
             writeFileSync(snapshotPath, finalPane)

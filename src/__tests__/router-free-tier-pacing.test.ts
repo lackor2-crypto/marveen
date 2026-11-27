@@ -59,6 +59,7 @@ vi.mock('../web/agent-process.js', () => ({
   clearStaleParkedInput: vi.fn(async () => false),
   sendPromptToSession: (...a: unknown[]) => mockSendPromptToSession(...a),
   sessionExistsOnHost: () => true,
+  sessionExistsOnHostAsync: async () => true,
 }))
 
 vi.mock('../web/voice-modality.js', () => ({ setLastInboundModality: vi.fn() }))

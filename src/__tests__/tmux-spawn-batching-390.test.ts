@@ -116,8 +116,9 @@ const ap = vi.hoisted(() => ({
 }))
 vi.mock('../web/agent-process.js', async (orig) => ({
   ...(await orig<typeof import('../web/agent-process.js')>()),
-  observedParkedInputView: () => ap.observed,
+  observedParkedInputViewAsync: async () => ap.observed,
   captureParkedInputView: () => ap.fresh,
+  captureParkedInputViewAsync: async () => ap.fresh,
   clearInputBuffer: ap.clear,
   sendPromptToSession: ap.send,
   dismissModelConsentDialogIfPresent: ap.dismiss,
@@ -168,7 +169,7 @@ describe('wiring', () => {
   it('the watcher sweep prefetches, and the parked-paste Enter is re-checked fresh', () => {
     const w = src('src/web/stuck-input-watcher.ts')
     expect(w).toContain('await prefetchParkedInputViews(local)')
-    expect(w).toMatch(/const seen = observedParkedInputView\(session, host\)[\s\S]*if \(recover\) \{\s*const fresh = captureParkedInputView\(session, host\)/)
+    expect(w).toMatch(/const seen = await observedParkedInputViewAsync\(session, host\)[\s\S]*if \(recover\) \{\s*const fresh = await captureParkedInputViewAsync\(session, host\)/)
   })
   it('anything typed into a pane drops the observed pictures', () => {
     expect(src('src/web/agent-process.ts')).toMatch(/function runTmux\([^)]*\): void \{\s*\/\/[^\n]*\n\s*if \(!host\) invalidateObservedPanes\(\)/)

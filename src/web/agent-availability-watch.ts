@@ -17,6 +17,7 @@ import { mainAgentEffectiveConfigDir } from './agent-config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { createAgentMessage, getPendingMessages } from '../db.js'
 import { listBrokerCandidateNames, readAgentPane, readAgentPaneAsync, readBrokerCandidate } from './context-broker-store.js'
+import { BackgroundCache } from './remote-status-cache.js'
 import { paneShowsLimitBlock } from '../pane-state.js'
 import { detectReauthNeeded } from './reauth-detect.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
@@ -181,12 +182,18 @@ function readPendingSummary(agent: string): PendingSummary {
   return { cards: pending.cards, memories: pending.memories, waitingMessages, unreadable }
 }
 
+// #991: a stale view is rebuilt from screens refreshed off the main thread; only the first read of an agent forks synchronously.
+const servedPanes = new BackgroundCache<string | null>(10_000)
+
 /** The served view: the watcher's state when fresh, otherwise a live measurement. */
 export function currentAvailability(now: number = Date.now()): AgentAvailability[] {
   const state = readAvailabilityState()
   const stored = Object.values(state.agents)
   const fresh = stored.length > 0 && stored.every((a) => now - a.measuredAt < 3 * AVAILABILITY_INTERVAL_MS)
-  return fresh ? stored : measureFleet(state.agents, now)
+  if (fresh) return stored
+  const panes = Object.fromEntries(listBrokerCandidateNames().map((agent) =>
+    [agent, servedPanes.get(agent, Date.now(), () => readAgentPaneAsync(agent), () => readAgentPane(agent))]))
+  return measureFleet(state.agents, now, panes)
 }
 
 /** Failed sends in a row per agent. In memory on purpose: a dashboard restart

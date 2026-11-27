@@ -461,16 +461,15 @@ function killSession(): void {
   } catch { /* not running: nothing to kill */ }
 }
 
-function capturePane(): string {
-  try {
-    // -e keeps the escape sequences, which is where the OSC-8 hyperlink (and
-    // therefore the clean URL) lives; -J joins the wrapped lines.
-    return execFileSync(TMUX(), ['capture-pane', '-p', '-e', '-J', '-t', exactTmuxTarget(LOGIN_SESSION)], {
+function capturePane(): Promise<string> {
+  // -e keeps the escape sequences, which is where the OSC-8 hyperlink (and
+  // therefore the clean URL) lives; -J joins the wrapped lines. Off the main
+  // thread: the login page polls this every two seconds (#991).
+  return new Promise((resolve) => {
+    execFile(TMUX(), ['capture-pane', '-p', '-e', '-J', '-t', exactTmuxTarget(LOGIN_SESSION)], {
       timeout: 5_000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024,
-    })
-  } catch {
-    return ''
-  }
+    }, (err, stdout) => resolve(err ? '' : String(stdout)))
+  })
 }
 
 /** Append the finished login to the registry, so an agent can be pointed at it.
@@ -848,7 +847,7 @@ function isDefaultLoggedIn(accounts: AccountRow[]): boolean {
 
 /** Where the flow stands. Cheap enough to poll: two tmux calls plus one status
  *  probe per known account, and it must never throw. */
-export function loginStatus(): LoginStatus {
+export async function loginStatus(): Promise<LoginStatus> {
   if (!current) return idle(listAccounts())
 
   // Completion is tested BEFORE the age limit, deliberately: a login that
@@ -976,7 +975,11 @@ export function loginStatus(): LoginStatus {
     return idle(listAccounts(), 'failed', 'A bejelentkezési ablak bezárult, mielőtt befejeződött volna.')
   }
 
-  const pane = readLoginPane(capturePane(), current.codeSubmitted)
+  const polled = current
+  const screen = await capturePane()
+  // Another poll or a cancel may have ended this login while the screen was read.
+  if (current !== polled) return idle(listAccounts())
+  const pane = readLoginPane(screen, current.codeSubmitted)
   const accounts = listAccounts()
   return {
     active: true, phase: pane.phase, url: pane.url,

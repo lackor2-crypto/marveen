@@ -71,7 +71,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     // #390: aszinkron -- a fiokonkenti CLI-proba nem allithatja meg a szervert.
     const audit = await identityAuditAsync()
     json(res, {
-      ...loginStatus(),
+      ...(await loginStatus()),
       dependents: defaultLoginDependents().length,
       unaffected: unaffectedByDefaultLogin().length,
       identityCollisions: audit.collisions,
