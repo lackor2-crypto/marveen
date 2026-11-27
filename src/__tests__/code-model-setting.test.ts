@@ -64,7 +64,8 @@ describe('a beallitas vegig megy: sema -> API -> worker -> CLI', () => {
   })
 
   it('a POST restartRequired FALSE, ha csak a CODE_MODEL valtozott', () => {
-    expect(ROUTES).toMatch(/restartRequired = saved\.some\(\(k\) => k !== 'CODE_MODEL'\)/)
+    // #993: only a key whose value changed counts, and neither the model nor the on/off switch needs a restart.
+    expect(ROUTES).toMatch(/restartRequired = changed\.some\(\(k\) => k !== 'CODE_MODEL' && k !== 'CODE_BRIDGE_ENABLED'\)/)
   })
 
   it('a worker atadja a CLI-nek, ha van ertek', () => {

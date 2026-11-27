@@ -8,7 +8,7 @@
 // simply never hear back.
 
 import { logger } from '../logger.js'
-import { CODE_BRIDGE_ENABLED } from '../config.js'
+import { codeBridgeEnabled } from './code-bridge-switch.js'
 import { reapExpiredCodeLeases, extendRunningCodeLeases, failOrphanedCodeTasks } from './code-bridge-store.js'
 import { notifyCodeTaskFinished } from './code-bridge-notify.js'
 
@@ -55,7 +55,7 @@ export function codeBridgeTick(now = Date.now()): void {
 }
 
 export function startCodeBridgeRunner(): boolean {
-  if (!CODE_BRIDGE_ENABLED || timer) return false
+  if (!codeBridgeEnabled() || timer) return false
   timer = setInterval(codeBridgeTick, TICK_MS)
   timer.unref?.()
   return true

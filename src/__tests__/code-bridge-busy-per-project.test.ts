@@ -91,7 +91,7 @@ describe('#397: a vegpontok es a felulet a projektenkenti szamot hasznaljak', ()
   })
 
   it('az /api/agents/activity kod-hid sora projektenkenti allapotot is visz', () => {
-    expect(agentsRoute).toMatch(/projects: codeBridgeProjectDisplayStates\(act, CODE_BRIDGE_ENABLED\)/)
+    expect(agentsRoute).toMatch(/projects: codeBridgeProjectDisplayStates\(act, bridgeOn\)/)
   })
 
   it('a kartya jelvenye nem a hid-szintu szambol rajzolodik', () => {

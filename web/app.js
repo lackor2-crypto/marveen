@@ -48009,12 +48009,12 @@ async function _intezoCfgSave() {
   async function cbSetService(on) {
     try {
       await cbPostJson('/api/code/config', { CODE_BRIDGE_ENABLED: on ? '1' : '0' })
-      // A mentes onmagaban NEM lep eletbe: a config.ts indulaskor olvassa be.
-      // Ezt a `cbLoadConfig` mondja ki azzal, hogy kirakja az ujrainditas-gombot
-      // -- ide, ugyanarra a fulre, ahol a kapcsolot megnyomtad.
+      // #993: the switch takes effect at once -- redraw this window AND the Team page cards behind it.
       showToast(t('cb.service.saved'))
       await cbLoadConfig()
       await cbRefresh()
+      await loadCodeBridgeCards()
+      if (typeof loadAgents === 'function') loadAgents()
     } catch (err) {
       showToast(t('cb.service.failed', { msg: err.message }), { type: 'error' })
     }
@@ -48441,7 +48441,7 @@ async function _intezoCfgSave() {
       try {
         await cbPostJson('/api/code/config', body)
         if (token) token.value = ''
-        if (status) status.textContent = 'Elmentve — a vezérlőpult újraindítása után lép életbe.'
+        if (status) status.textContent = t('cb.ops.saved_restart')
         cbLoadConfig()
       } catch (err) { if (status) status.textContent = 'Nem sikerült: ' + err.message }
       return
@@ -48465,8 +48465,12 @@ async function _intezoCfgSave() {
         })
         if (status) status.textContent = (resp && resp.restartRequired)
           ? t('cb.ops.saved_restart')
-          : t('cb.ops.saved_model_live')
-        cbLoadConfig()
+          : t('cb.ops.saved_live')
+        await cbLoadConfig()
+        // The on/off switch of this form takes effect at once too (#993): redraw the window and the Team cards.
+        await cbRefresh()
+        await loadCodeBridgeCards()
+        if (typeof loadAgents === 'function') loadAgents()
       } catch (err) { if (status) status.textContent = t('cb.ops.save_failed', { err: err.message }) }
       return
     }

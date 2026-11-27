@@ -26,7 +26,7 @@ import {
 } from '../../approval-verification-dispatch.js'
 import { NO_RESPONSE_NOT_WAITING } from '../../approval-verification-sweep.js'
 import { enqueueCodeTask, getCodeSession, listCodeTasks, cancelCodeTask, requestStopCodeTask } from '../code-bridge-store.js'
-import { CODE_BRIDGE_ENABLED } from '../../config.js'
+import { codeBridgeEnabled } from '../code-bridge-switch.js'
 import type { RouteContext } from './types.js'
 import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
 import { applyVerificationFinding, AUTO_TESTING_MARKER } from '../approval-finding.js'
@@ -1019,7 +1019,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       // executor.
       const codeProject = codeBridgeProjectOf(agent)
       if (codeProject !== null) {
-        if (!CODE_BRIDGE_ENABLED) {
+        if (!codeBridgeEnabled()) {
           failed.push({ agent, error: 'The code bridge is turned off (CODE_BRIDGE_ENABLED=0) -- turn it on on the Code bridge card, then start this again' })
           continue
         }

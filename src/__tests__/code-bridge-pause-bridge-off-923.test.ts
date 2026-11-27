@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { Readable } from 'node:stream'
 import type http from 'node:http'
 
-vi.mock('../config.js', async (importOriginal) => ({ ...(await importOriginal<typeof import('../config.js')>()), CODE_BRIDGE_ENABLED: false }))
+vi.mock('../web/code-bridge-switch.js', () => ({ codeBridgeEnabled: () => false }))
 
 import { initDatabase } from '../db.js'
 import { resetCodeBridgeTablesForTests, upsertCodeSession, getCodeSession } from '../web/code-bridge-store.js'

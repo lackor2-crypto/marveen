@@ -5062,7 +5062,7 @@ window._i18n.en = {
   'cb.ops.model_default': 'Default (whatever VS Code uses)',
   'cb.ops.model_help': 'Dispatched work runs on this model (the hidden sessions of the Marvin VS Code external programmer). Since you cannot see those in VS Code, this is the <strong>only</strong> place to set their model &mdash; and saving takes effect <strong>immediately</strong> on the next dispatched task, no restart needed. Leave it empty to force nothing: Claude Code uses its own default.<br>This is <strong>not</strong> the model shown on the card: that one is a measurement &mdash; it says what the conversation last answered with &mdash; and can be read, not set.',
   'cb.ops.saved_restart': 'Saved — takes effect after the dashboard restarts.',
-  'cb.ops.saved_model_live': 'Saved. The new model applies immediately to the next dispatched task.',
+  'cb.ops.saved_live': 'Saved. It applies immediately, no restart is needed.',
   'cb.ops.save_failed': 'Failed: {err}',
   'cb.card.tabs_title': 'Live chats',
   'cb.card.tabs_none': 'No conversation is running in this folder right now.',

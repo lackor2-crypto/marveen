@@ -878,11 +878,10 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     key: 'CODE_BRIDGE_ENABLED',
     type: 'boolean',
     default: '1',
-    description: 'A kod-hid fokapcsoloja. Kikapcsolva minden /api/code/* vegpont 503-at ad, a sor nem mozdul, es a Windows-oldali worker nem kap munkat. A mar felvett feladatok nem vesznek el, csak varnak.',
+    description: 'A kod-hid fokapcsoloja. Kikapcsolva minden /api/code/* vegpont 503-at ad, a sor nem mozdul, es a Windows-oldali worker nem kap munkat. A mar felvett feladatok nem vesznek el, csak varnak. A valtas azonnal ervenyes, ujrainditas nem kell.',
     module: 'kodhid',
     secret: false,
-    requiresRestart: true,
-    restartTarget: 'dashboard',
+    requiresRestart: false,
   },
   {
     key: 'CODE_PERMISSION_MODE',

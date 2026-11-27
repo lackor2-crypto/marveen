@@ -5136,7 +5136,7 @@ window._i18n.hu = {
   'cb.ops.model_default': 'Alapértelmezett (amit a VS Code használ)',
   'cb.ops.model_help': 'Ezzel a modellel fut le a <strong>kiadott munka</strong> (a Marvin VS Code külső programozó rejtett session-jei). Mivel azokat a VS Code-ban nem látod, a modelljüket <strong>csak itt</strong> tudod beállítani &mdash; és a mentés <strong>azonnal</strong> érvényes a következő kiadott munkánál, nem kell újraindítás. Üresen hagyva nincs kényszerítés: a Claude Code saját alapértelmezését használja.<br>Ez <strong>nem</strong> ugyanaz, mint a kártyán látszó modell: az mérés &mdash; azt mondja meg, mivel válaszolt a beszélgetés utoljára &mdash;, és leolvasni lehet, beállítani nem.',
   'cb.ops.saved_restart': 'Elmentve — a vezérlőpult újraindítása után lép életbe.',
-  'cb.ops.saved_model_live': 'Elmentve. Az új modell azonnal érvényes a következő kiadott munkánál.',
+  'cb.ops.saved_live': 'Elmentve. Azonnal érvényes, nem kell újraindítás.',
   'cb.ops.save_failed': 'Nem sikerült: {err}',
   'cb.card.tabs_title': 'Élő chatek',
   'cb.card.tabs_none': 'Most egy beszélgetés sem fut ebben a mappában.',
