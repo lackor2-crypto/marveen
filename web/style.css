@@ -7873,6 +7873,12 @@ a.link-waiting {
   .schedule-view-toggle { flex-wrap: wrap; }
   .schedule-row { padding: 12px 14px; gap: 10px; }
   .schedule-actions { opacity: 1; }
+  /* #994: the buttons squeezed the name into a one-word column and broke the cron text letter by letter. */
+  .schedule-row { flex-wrap: wrap; }
+  .schedule-row > .schedule-info { flex: 1 1 calc(100% - 60px); }
+  .schedule-row > .schedule-actions { margin-left: auto; }
+  .schedule-title, .schedule-meta { flex-wrap: wrap; }
+  .schedule-cron { white-space: nowrap; }
   .timeline-agent { width: 70px; }
   .timeline-hours { margin-left: 70px; }
   .timeline-marker { width: 24px; height: 24px; top: 10px; }

@@ -24,6 +24,7 @@ import {
   markScheduledTaskKanbanWaiting,
 } from '../db.js'
 import { toPendingRetryView, classifyTelegramSendError, type PendingRetryView } from '../pending-retries.js'
+import { ol, ownerLang, type OwnerLang } from '../owner-lang.js'
 import {
   SCHEDULED_TASK_PREAMBLE,
   wrapScheduledTask,
@@ -369,6 +370,59 @@ export function skipIfBusyMayDrop(
   const next = cronNextOccurrence(task.schedule, now)
   if (next == null) return true
   return next - now <= maxGapMs
+}
+
+/** Pure: the operator-facing text of a stuck retry, in the install language.
+ *  Says what is waiting, why, and whether there is anything to do. */
+export function pendingRetryAlertText(
+  view: Pick<PendingRetryView, 'taskName' | 'agentName' | 'ageMs' | 'firstAttempt' | 'lastReason'>,
+  botName: string,
+  lang: OwnerLang = ownerLang(),
+): string {
+  const t = (hu: string, en: string) => ol(hu, en, lang)
+  const { taskName: task, agentName: agent } = view
+  const min = Math.floor(view.ageMs / 60000)
+  const since = new Date(view.firstAttempt).toLocaleString(lang === 'en' ? 'en-GB' : 'hu-HU')
+  const reason = view.lastReason ?? ''
+  // A retry stuck on a dead required MCP names the server(s): the operator's
+  // fix is restarting an MCP, not freeing up a busy session.
+  if (reason.startsWith('mcp-missing')) {
+    const servers = reason.slice('mcp-missing:'.length) || t('ismeretlen', 'unknown')
+    return [
+      t(`[${botName} ütemező] A(z) "${task}" időzített feladat (ágens: ${agent}) NEM tud elindulni, mert nem fut egy hozzá szükséges kiegészítő (MCP szerver): ${servers}.`,
+        `[${botName} scheduler] The scheduled task "${task}" (agent: ${agent}) CANNOT start because an add-on it needs (MCP server) is not running: ${servers}.`),
+      t(`Először ekkor próbáltam: ${since} (${min} perce).`, `First attempt: ${since} (${min} minutes ago).`),
+      t(`Teendő: indítsd újra a(z) ${agent} ágenst. Amint a kiegészítő fut, a feladat magától elindul. Ha már nem kell, az Ütemezések oldalon visszavonhatod.`,
+        `To do: restart the agent ${agent}. Once the add-on runs, the task starts by itself. If you no longer need it, cancel it on the Schedules page.`),
+    ].join('\n')
+  }
+  // A first-run-gated session (fresh install: folder trust dialog / login
+  // picker) needs the ACTUAL blocker named: a one-time consent or login.
+  if (reason === 'first-run') {
+    return [
+      t(`[${botName} ütemező] A(z) "${task}" időzített feladat (ágens: ${agent}) NEM tud elindulni, mert az ágens az első indítás képernyőjén áll (mappa jóváhagyása vagy bejelentkezés kell).`,
+        `[${botName} scheduler] The scheduled task "${task}" (agent: ${agent}) CANNOT start because the agent is on its first-run screen (folder approval or sign-in needed).`),
+      t(`Először ekkor próbáltam: ${since} (${min} perce).`, `First attempt: ${since} (${min} minutes ago).`),
+      t(`Teendő: ha bejelentkezés kell, jelentkeztesd be a(z) ${agent} ágenst az Ügynökök oldalon (vagy terminálban: tmux attach -t agent-${agent}). A jóváhagyó kérdéseken a rendszer magától továbblép; utána a feladat magától elindul.`,
+        `To do: if sign-in is needed, sign the agent ${agent} in on the Agents page (or in a terminal: tmux attach -t agent-${agent}). Approval questions are answered automatically; the task then starts by itself.`),
+    ].join('\n')
+  }
+  const why = reason === 'quota-blocked' || reason === 'agent-quota'
+    ? t('az ágensnek elfogyott a használati kerete', 'the agent has used up its usage limit')
+    : reason === 'starting'
+    ? t('az ágens még indul', 'the agent is still starting')
+    : reason === 'missing'
+    ? t('az ágens nem fut', 'the agent is not running')
+    : reason === 'busy' || reason === 'did-not-start'
+    ? t('az ágens mással dolgozik, vagy nem vette át a feladatot', 'the agent is working on something else, or did not pick the task up')
+    : t('az indítás nem sikerült', 'starting it failed')
+  return [
+    t(`[${botName} ütemező] A(z) "${task}" időzített feladat (ágens: ${agent}) ${min} perce várakozik, mert ${why}.`,
+      `[${botName} scheduler] The scheduled task "${task}" (agent: ${agent}) has been waiting for ${min} minutes because ${why}.`),
+    t(`Először ekkor próbáltam: ${since}.`, `First attempt: ${since}.`),
+    t('Nincs sürgős teendőd: a rendszer tovább próbálja, és magától elindítja, amint lehet. Ha már nem kell, az Ütemezések oldalon visszavonhatod.',
+      'Nothing urgent to do: the system keeps trying and starts it as soon as it can. If you no longer need it, cancel it on the Schedules page.'),
+  ].join('\n')
 }
 
 /** Pure: where the first post-start scan window begins. */
@@ -856,7 +910,7 @@ export function taskInjectionRank(t: Pick<ScheduledTask, 'forceSend' | 'type'>):
 //             agent's own channel).
 // An empty/missing agent is treated as 'any' -- the default is no longer "pin
 // to the main agent", which is exactly what silently bound every task to Marvin.
-export function resolveScheduledTargets(agent: string | undefined): string[] {
+export function resolveScheduledTargets(agent: string | undefined, keepPin = false): string[] {
   if (agent === 'all') {
     return [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a) && !isAgentUnableToWork(a))]
   }
@@ -866,7 +920,9 @@ export function resolveScheduledTargets(agent: string | undefined): string[] {
   }
   // Pinned to one agent: a quota-blocked one cannot run it (#702), so hand it to
   // whoever can; with nobody working keep the pin (the retry queue holds it).
-  if (isAgentUnableToWork(agent)) {
+  // `keepPin` (#994): a short-cadence skipIfBusy check looks at its own agent's
+  // state, so on another agent it does somebody else's turn for nothing.
+  if (!keepPin && isAgentUnableToWork(agent)) {
     const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentUnableToWork)
     if (working) return [working]
   }
@@ -964,17 +1020,17 @@ function sendCatchUpSummary(
     logger.warn('catch-up summary suppressed: no owner chat (ALLOWED_CHAT_ID unset/placeholder and no paired channel)')
     return
   }
-  const mins = (ms: number) => `${Math.round(ms / 60000)} perc`
-  const lines = [`[${BOT_NAME} scheduler] Kimaradt ütemezés (${mins(gapMs)} kiesés).`]
+  const mins = (ms: number) => `${Math.round(ms / 60000)} ${ol('perc', 'min')}`
+  const lines = [`[${BOT_NAME} ${ol('ütemező', 'scheduler')}] ${ol('Kimaradt ütemezés', 'Missed schedules')} (${ol('kiesés', 'outage')}: ${mins(gapMs)}).`]
   if (caughtUp.length) {
     // "elindítva", not "lefutott": a catch-up injection can still land in the
     // pending-retry queue if the target session is busy. It will run; it may
     // not have run yet at the moment this line is sent.
-    lines.push(`Pótlás elindítva: ${caughtUp.map(e => `${e.task} (${mins(e.ageMs)} késés)`).join(', ')}`)
+    lines.push(`${ol('Pótlás elindítva', 'Catching up')}: ${caughtUp.map(e => `${e.task} (${mins(e.ageMs)} ${ol('késés', 'late')})`).join(', ')}`)
   }
   if (stale.length) {
-    lines.push(`Nem pótolva, mert elavult: ${stale.map(e => `${e.task} (${mins(e.ageMs)})`).join(', ')}`)
-    lines.push('Ezek a dashboard /Ütemezések oldalán kézzel indíthatók.')
+    lines.push(`${ol('Nem pótolva, mert elavult', 'Not run, too old')}: ${stale.map(e => `${e.task} (${mins(e.ageMs)})`).join(', ')}`)
+    lines.push(ol('Ezek az Ütemezések oldalon kézzel indíthatók.', 'You can start these by hand on the Schedules page.'))
   }
   const text = lines.join('\n')
   ;(async () => {
@@ -1015,34 +1071,7 @@ function sendPendingRetryAlert(view: PendingRetryView, nowMs: number): void {
   }
 
   const ageMinutes = Math.floor(view.ageMs / 60000)
-  const firstAttempt = new Date(view.firstAttempt).toLocaleString('hu-HU')
-  // A retry stuck on a dead required MCP names the server(s): the operator's
-  // fix is restarting an MCP, not freeing up a busy session.
-  const mcpMissing = view.lastReason?.startsWith('mcp-missing')
-    ? view.lastReason.slice('mcp-missing:'.length) || 'ismeretlen'
-    : null
-  // A first-run-gated session (fresh install: mappa-trust dialog / belépés-
-  // választó) needs the operator to know the ACTUAL blocker: the fix is a
-  // one-time login/consent on the agent session, not waiting for a busy
-  // session to free up.
-  const firstRunStuck = view.lastReason === 'first-run'
-  const text = (mcpMissing
-    ? [
-        `[${BOT_NAME} scheduler] A(z) "${view.taskName}" (${view.agentName}) feladat NEM tud lefutni: a szükséges MCP szerver(ek) nem futnak a cél-sessionben: ${mcpMissing}.`,
-        `Első próbálkozás: ${firstAttempt} (${ageMinutes} perce).`,
-        'Amint az MCP szerver újra elérhető, a feladat magától lefut; a dashboard /Ütemezések oldalán visszavonható.',
-      ]
-    : firstRunStuck
-    ? [
-        `[${BOT_NAME} scheduler] A(z) "${view.taskName}" (${view.agentName}) feladat NEM tud lefutni: az agent session a Claude Code első-indítási képernyőjén áll (mappa-jóváhagyás vagy belépés szükséges).`,
-        `Első próbálkozás: ${firstAttempt} (${ageMinutes} perce).`,
-        `A rendszer a jóváhagyás-dialogokat magától továbblépteti; ha belépés kell: tmux attach -t agent-${view.agentName}, majd válaszd ki a belépési módot. Utána a feladat magától lefut.`,
-      ]
-    : [
-        `[${BOT_NAME} scheduler] A(z) "${view.taskName}" (${view.agentName}) ütemezett feladat ${ageMinutes} perce várakozik.`,
-        `Első próbálkozás: ${firstAttempt}.`,
-        'A rendszer tovább próbálkozik; a dashboard /Ütemezések oldalán visszavonható.',
-      ]).join('\n')
+  const text = pendingRetryAlertText(view, BOT_NAME)
   ;(async () => {
     try {
       await sendTelegramMessage(token, ownerChat, text)
@@ -1092,10 +1121,16 @@ function sendTaskTimeoutAlert(entry: TaskInflightEntry, elapsedMs: number): void
     // finished": nothing finished here, a task may be hanging.
     ensureApprovalForWaitingCard(
       movedCardId, 'scheduler',
-      `Beakadhatott ütemezett feladat: "${entry.taskName}" (${entry.agentName}) `
-      + `${Math.floor(elapsedMs / 60000)} perce fut, ezért a kártyája várakozóba került. `
-      + 'Ez NEM elkészült munka: azt kell eldönteni, hagyjuk-e tovább futni, '
-      + 'vagy leállítjuk. A dashboard Ütemezések oldalán visszavonható.',
+      ol(
+        `Beakadhatott ütemezett feladat: "${entry.taskName}" (${entry.agentName}) `
+        + `${Math.floor(elapsedMs / 60000)} perce fut, ezért a kártyája várakozóba került. `
+        + 'Ez NEM elkészült munka: azt kell eldönteni, hagyjuk-e tovább futni, '
+        + 'vagy leállítjuk. A dashboard Ütemezések oldalán visszavonható.',
+        `A scheduled task may be stuck: "${entry.taskName}" (${entry.agentName}) `
+        + `has been running for ${Math.floor(elapsedMs / 60000)} minutes, so its card was moved to Waiting. `
+        + 'This is NOT finished work: decide whether to let it run or to stop it. '
+        + 'You can cancel it on the Schedules page.',
+      ),
     )
   }
 
@@ -1104,9 +1139,12 @@ function sendTaskTimeoutAlert(entry: TaskInflightEntry, elapsedMs: number): void
   // then one config line away, instead of a recurring 3am mystery.
   const thresholdMinutes = Math.round(entry.timeoutMs / 60000)
   const text = [
-    `[${BOT_NAME} scheduler] A(z) "${entry.taskName}" (${entry.agentName}) ütemezett feladat ${ageMinutes} perce fut -- lehetséges beakadás.`,
-    `A riasztási küszöb ennél a feladatnál ${thresholdMinutes} perc; ha ez a feladat jogosan fut ennél tovább, a dashboard Ütemezések oldalán nyisd meg a feladatot, és a Haladó beállításoknál emeld meg a "Riasztás, ha ennyi percnél tovább fut" értéket.`,
-    'Az ágensben megtekintheted; a dashboard /Ütemezések oldalán visszavonható ha kell.',
+    ol(`[${BOT_NAME} ütemező] A(z) "${entry.taskName}" időzített feladat (ágens: ${entry.agentName}) ${ageMinutes} perce fut -- lehet, hogy elakadt.`,
+      `[${BOT_NAME} scheduler] The scheduled task "${entry.taskName}" (agent: ${entry.agentName}) has been running for ${ageMinutes} minutes -- it may be stuck.`),
+    ol(`Ennél a feladatnál ${thresholdMinutes} perc után szólok. Ha jogosan fut ennél tovább, az Ütemezések oldalon nyisd meg a feladatot, és a Haladó beállításoknál emeld meg a "Riasztás, ha ennyi percnél tovább fut" értéket.`,
+      `For this task the warning comes after ${thresholdMinutes} minutes. If it is meant to run longer, open it on the Schedules page and raise "Alert if it runs longer than this many minutes" in the advanced settings.`),
+    ol('Az ágens oldalán megnézheted, mit csinál; az Ütemezések oldalon szükség esetén visszavonhatod.',
+      "You can watch what it is doing on the agent's page; cancel it on the Schedules page if needed."),
   ].join('\n')
   ;(async () => {
     try {
@@ -1220,6 +1258,18 @@ export function startScheduleRunner(): NodeJS.Timeout {
     // to see if the target session is still busy. If so past TASK_FIRE_TIMEOUT_MS,
     // send a one-shot alert. Clear entries when the session goes idle (task done)
     // or the maximum tracking age is reached.
+    // #994: a short-cadence skipIfBusy tick that did not run is dropped, never
+    // queued: the next tick is minutes away, a queued one only waits, moves to
+    // another agent and alerts about nothing.
+    const requeueUnrun = (entry: TaskInflightEntry, reason: string): boolean => {
+      const def = tasks.find(t => t.name === entry.taskName)
+      if (def && skipIfBusyMayDrop(def, now)) {
+        appendTaskRun(entry.taskName, entry.agentName, 'skipped')
+        return false
+      }
+      insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, reason)
+      return true
+    }
     for (const [key, entry] of taskInflightMap) {
       const pane = await capturePaneStrippedAsync(entry.session, entry.host)
       const state = pane != null ? detectPaneState(pane) : null
@@ -1238,10 +1288,12 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // that finished between sweeps is never double-run.
       const blockedNow = isAgentUnableToWork(entry.agentName, now)
       if (decideVerifyStarted({ injectedAt: entry.injectedAt, sawBusy: entry.sawBusy, blockedNow }, now) === 'refire') {
-        insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, 'did-not-start')
+        const queued = requeueUnrun(entry, 'did-not-start')
         logger.warn(
-          { task: entry.taskName, agent: entry.agentName, session: entry.session },
-          'Scheduled task fired into a quota-blocked session and never started -- re-queued for delivery to a working agent',
+          { task: entry.taskName, agent: entry.agentName, session: entry.session, queued },
+          queued
+            ? 'Scheduled task fired into a quota-blocked session and never started -- re-queued for delivery to a working agent'
+            : 'Short-cadence skipIfBusy tick never started -- dropped, the next tick is on its way',
         )
         taskInflightMap.delete(key)
         continue
@@ -1257,8 +1309,8 @@ export function startScheduleRunner(): NodeJS.Timeout {
       })
       if (signedOutAction === 'keep') continue
       if (signedOutAction === 'reclaim') {
-        insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, 'agent-quota')
-        logger.warn({ task: entry.taskName, agent: entry.agentName }, 'Agent signed out while running a scheduled task -- work reclaimed to the retry queue, no alert')
+        const queued = requeueUnrun(entry, 'agent-quota')
+        logger.warn({ task: entry.taskName, agent: entry.agentName, queued }, 'Agent signed out while running a scheduled task -- work reclaimed, no alert')
         taskInflightMap.delete(key)
         continue
       }
@@ -1268,8 +1320,8 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // finish there; hand it back to the retry queue (reason 'agent-quota' =
       // reassign at once) so a working agent picks it up.
       if (blockedNow && entry.sawBusy && state !== 'busy' && pane != null && paneShowsLimitBlock(pane)) {
-        insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, 'agent-quota')
-        logger.warn({ task: entry.taskName, agent: entry.agentName }, 'Agent hit its usage wall mid-task -- work reclaimed to the retry queue')
+        const queued = requeueUnrun(entry, 'agent-quota')
+        logger.warn({ task: entry.taskName, agent: entry.agentName, queued }, 'Agent hit its usage wall mid-task -- work reclaimed')
         taskInflightMap.delete(key)
         continue
       }
@@ -1367,7 +1419,10 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // An 'all' task already runs on every working agent on its own rows, so
       // moving a dead agent's row onto one of them would run it twice there --
       // that row is only held until the wall comes down.
+      // #994: a short-cadence skipIfBusy check belongs to its own agent (it looks
+      // at that agent's own state), so it is never moved to another one.
       if (!migrated && !taskDef.targetSession && taskDef.agent !== 'all' && isAgentUnableToWork(fireAgent, now)
+        && !(!wantAny && skipIfBusyMayDrop(taskDef, now))
         && shouldReassignFromDeadAgent(row.attempt_count, row.last_reason)) {
         const working = firstWorkingAgent([MAIN_AGENT_ID, ...listAgentNames()], isAgentRunning, isAgentUnableToWork)
         if (working && working !== fireAgent) {
@@ -1465,7 +1520,7 @@ export function startScheduleRunner(): NodeJS.Timeout {
         continue
       }
 
-      const targetAgents = resolveScheduledTargets(task.agent)
+      const targetAgents = resolveScheduledTargets(task.agent, skipIfBusyMayDrop(task, now))
 
       // Run pre-check once per task (not per agent) since it queries shared
       // state (DB, filesystem) that does not vary by target agent.

@@ -10953,6 +10953,19 @@ function formatPendingAge(ms) {
   return remMins ? t('common.time.hours_mins', { h: hours, m: remMins }) : t('common.time.hours', { h: hours })
 }
 
+// #994: why a scheduled task waits, in words -- the stored value is an internal code ("quota-blocked").
+function pendingReasonText(reason) {
+  if (reason.startsWith('mcp-missing')) {
+    const servers = reason.slice('mcp-missing:'.length)
+    return t('tasks.retries.reason.mcp', { servers: servers || '?' })
+  }
+  const key = {
+    'quota-blocked': 'quota', 'agent-quota': 'quota', starting: 'starting', missing: 'missing',
+    busy: 'busy', 'did-not-start': 'busy', 'first-run': 'first_run',
+  }[reason]
+  return t('tasks.retries.reason.' + (key || 'failed'))
+}
+
 function renderPendingRetries(container, rows) {
   if (!rows.length) {
     container.hidden = true
@@ -10974,7 +10987,7 @@ function renderPendingRetries(container, rows) {
         </div>
         <div class="pending-retry-meta">
           <span>${t('tasks.retries.meta', { age: formatPendingAge(r.ageMs), n: r.attemptCount })}</span>
-          ${r.lastReason ? `<span>ok: ${escapeHtml(r.lastReason)}</span>` : ''}
+          ${r.lastReason ? `<span>${escapeHtml(pendingReasonText(r.lastReason))}</span>` : ''}
         </div>
       </div>
       <button class="btn-icon btn-icon-danger" data-action="cancel-pending" title="${t('common.btn.remove')}">
