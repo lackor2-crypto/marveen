@@ -120,7 +120,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'workItem.listAssets',
-    description: 'List the materials (attached files) of a work item: photos, logos, PDFs, notes the owner uploaded to it, and the folder of the work item. Each entry says whether you can read its content (support: readable), can use it without reading (usable: image, video, PDF, office file), needs a processor that is not available yet (needs_processor: audio), or is not supported. Read a readable one with file.read using its path. Never claim to know the content of a file you could not read.',
+    description: 'List the materials (attached files) of a work item: photos, logos, PDFs, notes the owner uploaded to it, and the folder of the work item. Each entry says whether you can read its content (support: readable), can use it without reading (usable: image, video, PDF, office file), needs a processor this machine does not have (needs_processor: audio without the speech recogniser), or is not supported. Audio and video are transcribed automatically: the transcript field says waiting / running / done / failed / no_recogniser, and a done transcript is in the context file of the item (the machine-read content block; read that file with file.read for the rest when your prompt shows only its start). Read a readable one with file.read using its path. Never claim to know the content of a file you could not read.',
     input: 'id: the work item id (optional, defaults to the open one)',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },

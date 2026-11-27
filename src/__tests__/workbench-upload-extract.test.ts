@@ -39,7 +39,7 @@ describe('#794 uploads are read out into the context', () => {
   it('which files count: our own finished outputs and non-text kinds do not', () => {
     expect(isReadableKind('a.PNG')).toBe(true)
     expect(isReadableKind('a.docx')).toBe(true)
-    expect(isReadableKind('a.mp4')).toBe(false)
+    expect(isReadableKind('a.zip')).toBe(false)
     expect(isOwnOutputPath('Elkészített anyagok/x.pdf')).toBe(true)
     expect(isOwnOutputPath('Finished materials/x.pdf')).toBe(true)
     expect(isOwnOutputPath('Mellékletek/x.pdf')).toBe(false)

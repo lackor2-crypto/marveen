@@ -297,7 +297,9 @@ def _whisper(path, words=False, lang="hu"):
 
     from faster_whisper import WhisperModel
     model = _pick_model(path)
-    m = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=8)
+    # A background transcript (the dashboard's recordings) asks for fewer threads so the machine stays usable.
+    threads = os.environ.get("MARVEEN_STT_THREADS", "")
+    m = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=int(threads) if threads.isdigit() and int(threads) > 0 else 8)
     # temperature=0 pins greedy decoding (no fallback sampling), which is what the
     # literature recommends when accuracy matters more than "always produce
     # something": sampling is where hallucinated text on silence comes from.

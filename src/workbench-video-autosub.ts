@@ -7,7 +7,7 @@
  */
 import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { availableParallelism, setPriority, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isVoiceInstalled, VENV_PY, VTOOLS_PY } from './web/routes/voice.js'
 import { PROJECT_ROOT } from './config.js'
@@ -67,9 +67,11 @@ export function wordsToSubtitles(words: SubWord[]): SubLine[] {
   return out
 }
 
-export type Transcriber = (wavPath: string, lang: AutoSubLang, timeoutMs: number) => Promise<{ ok: true; words: SubWord[] } | AutoSubFail>
+export type Transcriber = (wavPath: string, lang: AutoSubLang | 'auto', timeoutMs: number, opts?: { background?: boolean }) => Promise<{ ok: true; words: SubWord[] } | AutoSubFail>
 
-const defaultTranscriber: Transcriber = (wav, lang, timeoutMs) => new Promise((resolve) => {
+export function backgroundThreads(cores: number = availableParallelism()): number { return Math.max(1, Math.floor(cores / 2)) }
+
+const defaultTranscriber: Transcriber = (wav, lang, timeoutMs, opts) => new Promise((resolve) => {
   if (!isVoiceInstalled()) { resolve({ ok: false, code: 'autosub_not_installed', detail: null }); return }
   // The script of this very checkout when there is one (always the newest, and it reads this checkout's
   // settings); the deployed copy in the voice folder otherwise (it is only as new as the last voice install).
@@ -79,7 +81,11 @@ const defaultTranscriber: Transcriber = (wav, lang, timeoutMs) => new Promise((r
   let err = ''
   let done = false
   const finish = (r: Awaited<ReturnType<Transcriber>>): void => { if (!done) { done = true; resolve(r) } }
-  const child = spawn(VENV_PY, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  // #986: in the background it takes half of the processor threads, so the machine stays usable meanwhile.
+  const env = opts?.background ? { ...process.env, MARVEEN_STT_THREADS: String(backgroundThreads()) } : process.env
+  const child = spawn(VENV_PY, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env })
+  // #986: a transcript nobody waits for in front of the screen must not slow the machine down.
+  if (opts?.background && child.pid) { try { setPriority(child.pid, 15) } catch { /* the system does not allow it: runs at normal priority */ } }
   const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch { /* already gone */ } finish({ ok: false, code: 'autosub_timeout', detail: null }) }, timeoutMs)
   child.stdout.on('data', (b: Buffer) => { out += b.toString('utf-8') })
   child.stderr.on('data', (b: Buffer) => { err = (err + b.toString('utf-8')).slice(-3000) })
@@ -106,7 +112,7 @@ let transcriber: Transcriber = defaultTranscriber
 export function _setAutoSubDeps(d: { transcribe?: Transcriber } = {}): void { transcriber = d.transcribe || defaultTranscriber }
 
 /** The local recogniser on one prepared wav (16 kHz mono); the same one the automatic subtitles use. */
-export function transcribeWav(wav: string, lang: AutoSubLang, timeoutMs: number = AUTOSUB_TIMEOUT_MS): ReturnType<Transcriber> { return transcriber(wav, lang, timeoutMs) }
+export function transcribeWav(wav: string, lang: AutoSubLang | 'auto', timeoutMs: number = AUTOSUB_TIMEOUT_MS, opts?: { background?: boolean }): ReturnType<Transcriber> { return transcriber(wav, lang, timeoutMs, opts) }
 
 export type AutoSubResult =
   | { ok: true; lines: SubLine[]; skipped: string[] }

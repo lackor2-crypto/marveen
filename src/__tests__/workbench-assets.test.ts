@@ -23,6 +23,7 @@ import { executeTool } from '../workbench-agent/execute.js'
 import { getTool } from '../workbench-agent/tools.js'
 import { buildContext } from '../workbench-agent/context.js'
 import { buildCodeBridgePrompt } from '../workbench-agent/code-bridge-turn.js'
+import { _setSpeechDeps } from '../workbench-media-transcript.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 import { workbenchHarness, itemsBody, untranslatedHungarian } from './helpers/workbench-harness.js'
 
@@ -59,6 +60,8 @@ describe('anyagok egy MEGLEVO munkadarabhoz', () => {
   const projDir = () => join(depot, 'Projektek', 'Iroda')
 
   beforeEach(() => {
+    // #986: the same answer on every machine, with or without the voice toolkit.
+    _setSpeechDeps({ installed: () => false })
     initDatabase(':memory:')
     depot = mkdtempSync(join(tmpdir(), 'marveen-wb-assets-'))
     mkdirSync(projDir(), { recursive: true })

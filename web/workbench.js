@@ -1713,6 +1713,7 @@
       if (!r.ok || WB.selectedId !== id || !WB.detail || !r.data) return
       WB.detail.assets = r.data.assets
       render()
+      scheduleDocPoll(id)
     })
   }
 
@@ -11206,6 +11207,7 @@
           + '<span class="wb-asset-name" title="' + escA(a.project_path || a.path) + '">' + esc(a.name) + '</span> '
           + supportPillHtml(a.support)
           + docStateHtml(a)
+          + transcriptHtml(a)
           + (a.shared ? ' <span class="wb-pill wb-asset-shared" title="' + escA(t('workbench.shared.pill_title')) + '">' + esc(t('workbench.shared.pill')) + '</span>' : '')
           + (a.present ? '' : ' <span class="wb-muted">' + esc(t('workbench.assets.missing')) + '</span>')
           + '</div>'
@@ -11343,9 +11345,23 @@
     })
   }
 
+  /** #986: hang / video -- hol tart a beszed atirata (a kesz atirat a Kontextus fajlban van). */
+  function transcriptHtml(a) {
+    var tr = a && a.transcript
+    if (!tr || !a.present) return ''
+    var state = tr.state
+    var cls = state === 'failed' || state === 'no_recogniser' ? 'wb-doc-low' : 'wb-muted wb-doc-state'
+    var tip = t('workbench.transcript.' + state + '_title') + (tr.reason ? ' (' + tr.reason + ')' : '')
+    return ' <span class="' + cls + ' wb-transcript" title="' + escA(tip) + '">' + esc(t('workbench.transcript.' + state)) + '</span>'
+  }
+
   /** Iratolvasas (1/A): amig egy irat olvasasa tart, par masodpercenkent
    *  frissitjuk az anyagok listajat, hogy a "3/30 oldal" elorehaladjon. */
+  function transcriptBusy(a) {
+    return !!(a && a.present && a.transcript && (a.transcript.state === 'waiting' || a.transcript.state === 'running'))
+  }
   function docBusy(a) {
+    if (transcriptBusy(a)) return true
     return !!(a && a.doc && a.present && (a.doc.status === 'pending' || a.doc.status === 'running' || a.doc.status === 'stale' || a.doc.status === 'none'))
   }
   function scheduleDocPoll(id, round) {
@@ -11368,7 +11384,8 @@
         if (!WB.detail.assets.some(docBusy)) refreshDeadlines(id)
         scheduleDocPoll(id, round + 1)
       })
-    }, 3000)
+    // A transcript takes minutes: asking every 10 seconds is enough when nothing else is being read.
+    }, assets.some(function (a) { return docBusy(a) && !transcriptBusy(a) }) ? 3000 : 10000)
   }
 
   /** Az irat olvasasi allapota a fajl mellett (K-1.1 ... K-1.3). */
@@ -18607,6 +18624,8 @@
         + '<span class="wb-fr-tile-pic"><span class="wb-fr-tile-icon" aria-hidden="true">' + frFileIcon(name) + '</span>'
         + (media ? '<img alt="" loading="lazy" draggable="false" src="' + escA('/api/life/thumb?rel=' + encodeURIComponent(a.path) + '&lang=' + lang) + '">' : '<span class="wb-fr-tile-ext">' + esc(ext) + '</span>')
         + '</span><span class="wb-fr-tile-name">' + esc(name) + '</span></a>'
+        // #986: a recording says under its tile where its transcript stands.
+        + transcriptHtml(a)
         // #716: a file that was moved into the Life tree stays here as a link; say where it really is.
         + (itemFolder && !a.shared && String(a.project_path || '').indexOf(itemFolder + '/') !== 0
           ? '<span class="wb-fr-tile-link wb-muted" title="' + escA(a.path) + '">' + esc(t('workbench.lifemove.linked_at', { path: String(a.path).split('/').slice(0, -1).join(' › ') })) + '</span>' : '')

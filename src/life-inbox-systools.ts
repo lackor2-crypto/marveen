@@ -96,6 +96,11 @@ export function pdfTextViaPoppler(absPath: string, pages = PDF_TEXT_PAGES): stri
   return out === null ? null : out
 }
 
+/** The same text layer without holding the event loop (#986: linked materials are read out too, in the background). */
+export async function pdfTextViaPopplerAsync(absPath: string, pages = PDF_TEXT_PAGES): Promise<string | null> {
+  return runAsync('pdftotext', ['-q', '-enc', 'UTF-8', '-f', '1', '-l', String(pages), absPath, '-'])
+}
+
 export interface PdfInfo {
   title: string
   author: string
