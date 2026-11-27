@@ -1333,6 +1333,19 @@ export function mainChannelsRunState(): AgentRunState {
   }
 }
 
+/**
+ * Non-blocking twin of sessionExistsOnHost() (#991): a remote host is asked over ssh off the main thread. The local
+ * answer comes from the cached listing, which refreshes itself in the background.
+ */
+export async function sessionExistsOnHostAsync(host: string | null, session: string): Promise<boolean> {
+  if (!host) return sessionExistsOnHost(null, session)
+  try {
+    return sessionInList(await captureTmuxAsyncArgs(host, ['list-sessions', '-F', '#{session_name}']), session)
+  } catch {
+    return false
+  }
+}
+
 // Host-aware "does this tmux session exist" check, shared by the message router
 // and schedule runner. For a remote agent the list-sessions query runs on the
 // laptop over ssh; an ssh failure returns false (the loop retries next tick),
@@ -2646,16 +2659,12 @@ export async function prefetchParkedInputViews(sessions: string[]): Promise<void
   })
 }
 
-/**
- * The ghost-stripped view for DETECTION: the sweep's picture when younger than
- * OBSERVE_TTL_MS, else a capture now. Remote sessions always capture now.
- * Never act on this -- act on a fresh captureParkedInputView().
- */
-export function observedParkedInputView(session: string, host: string | null = null): string | null {
-  if (host) return captureParkedInputView(session, host)
+/** observedParkedInputView() whose fallback capture (no fresh picture, or a remote pane) runs off the main thread (#991). */
+export async function observedParkedInputViewAsync(session: string, host: string | null = null): Promise<string | null> {
+  if (host) return captureParkedInputViewAsync(session, host)
   const hit = observedParked.get(session)
   if (hit && Date.now() - hit.at < OBSERVE_TTL_MS) return hit.pane
-  const pane = captureParkedInputView(session)
+  const pane = await captureParkedInputViewAsync(session)
   observedParked.set(session, { pane, at: Date.now() })
   return pane
 }
@@ -2713,6 +2722,15 @@ export async function capturePaneStrippedAsync(session: string, host: string | n
 export function captureParkedInputView(session: string, host: string | null = null): string | null {
   try {
     return stripGhostSuggestion(captureTmux(host, ['capture-pane', '-t', session, '-e', '-p']))
+  } catch {
+    return null
+  }
+}
+
+/** Non-blocking twin of captureParkedInputView() (#991). */
+export async function captureParkedInputViewAsync(session: string, host: string | null = null): Promise<string | null> {
+  try {
+    return stripGhostSuggestion(await captureTmuxAsyncArgs(host, ['capture-pane', '-t', session, '-e', '-p']))
   } catch {
     return null
   }
@@ -2796,19 +2814,20 @@ export async function isSessionReadyForPrompt(session: string, host: string | nu
   // the plain view says 'typing' do we pay for the second (-e, dim-stripped)
   // capture to decide whether anything REAL is parked (see
   // idleConsideringDimGhost / captureParkedInputView).
-  const idleOrGhost = (plain: string): boolean =>
-    idleConsideringDimGhost(plain, detectPaneState(plain) === 'typing' ? captureParkedInputView(session, host) : null)
-  const first = capturePane(session, host)
+  const idleOrGhost = async (plain: string): Promise<boolean> =>
+    idleConsideringDimGhost(plain, detectPaneState(plain) === 'typing' ? await captureParkedInputViewAsync(session, host) : null)
+  // #991: both samples are read off the main thread -- this runs from timers, and a busy machine takes seconds to fork.
+  const first = await capturePaneStrippedAsync(session, host)
   if (first == null) return false
   if (saturationRefusesDispatch(first, session)) {
     logger.warn({ session }, 'dispatch: refusing prompt — session shows context saturation (100% context)')
     return false
   }
-  if (!idleOrGhost(first)) return false
+  if (!(await idleOrGhost(first))) return false
 
   await delay(PANE_READY_CONFIRM_DELAY_MS)
 
-  const second = capturePane(session, host)
+  const second = await capturePaneStrippedAsync(session, host)
   if (second == null) return false
   if (saturationRefusesDispatch(second, session)) {
     logger.warn({ session }, 'dispatch: refusing prompt — session shows context saturation (100% context)')
@@ -2865,7 +2884,7 @@ export async function clearStaleParkedInput(session: string, host: string | null
   // as a wedge (no clear, no escalate). Only a REAL typed line (normal intensity)
   // survives the strip. Falls back to the plain capture only if the -e capture
   // fails (rare), preserving prior behaviour in that edge case.
-  const parked = parkedInputText(captureParkedInputView(session, host) ?? a)
+  const parked = parkedInputText((await captureParkedInputViewAsync(session, host)) ?? a)
   if (!parked) return false
 
   // Cooldown guard FIRST, before any blocking sleep: if the same parked text was
@@ -2883,7 +2902,7 @@ export async function clearStaleParkedInput(session: string, host: string | null
   // Changed (someone is typing) or already cleared -> leave it alone, and do not
   // record an attempt (this was never a stuck box). Compare on the SAME dim-
   // stripped view as the initial extraction so a dim ghost can't flip the result.
-  if (b == null || detectPaneState(b) !== 'typing' || parkedInputText(captureParkedInputView(session, host) ?? b) !== parked) return false
+  if (b == null || detectPaneState(b) !== 'typing' || parkedInputText((await captureParkedInputViewAsync(session, host)) ?? b) !== parked) return false
 
   // The main agent's input box is NEVER auto-cleared (a parked line could be a
   // real reply -- the 2026-06-30 "Balogh" near-miss). The operator escalation is

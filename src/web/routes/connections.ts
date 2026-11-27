@@ -204,7 +204,7 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
   }
 
   if (path === '/api/connections/mcp/login' && method === 'GET') {
-    json(res, mcpLoginStatus())
+    json(res, await mcpLoginStatus())
     return true
   }
 

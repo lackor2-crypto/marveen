@@ -49,6 +49,8 @@ import {
   sendEnterToSession,
   clearStaleParkedInput,
   saturationRefusesDispatch,
+  sessionExistsOnHostAsync,
+  capturePaneStrippedAsync,
 } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import {
@@ -555,7 +557,7 @@ async function attemptFireTask(
   // targetSession override and the main channels agent stay local (host=null).
   const host = (task.targetSession || isMainAgent) ? null : readAgentRemoteHost(agentName)
 
-  if (!sessionExistsOnHost(host, session)) {
+  if (!(await sessionExistsOnHostAsync(host, session))) {
     // Auto-start the agent, then deliver on a later tick. A daily batch agent
     // (e.g. a `0 2 * * *` digest) has no 24/7 session, so a cron fire used to
     // just skip here -- the task never ran. Launch the session now and return
@@ -590,7 +592,7 @@ async function attemptFireTask(
     // "varakozik" -- and 'first-run' is exempt from skipIfBusy in the caller,
     // because a gated session never frees up on its own the way a busy one
     // does (recovery is the channel-monitor's dialog answering).
-    const notReadyPane = capturePane(session, host)
+    const notReadyPane = await capturePaneStrippedAsync(session, host)
     const gate = notReadyPane != null ? detectsFirstRunGate(notReadyPane) : null
     if (gate) {
       logger.warn({ task: task.name, agent: agentName, session, gate }, 'Schedule target session parked on a Claude Code first-run dialog, deferring to retry queue')
@@ -612,7 +614,7 @@ async function attemptFireTask(
     // maps 'busy' to a retry row, exempt from skipIfBusy for forceSend); the
     // retry lands on the first tick after the session has been rescued. All
     // other busy states keep the bypass.
-    const pane = capturePane(session, host)
+    const pane = await capturePaneStrippedAsync(session, host)
     if (pane != null && saturationRefusesDispatch(pane, session)) {
       logger.warn({ task: task.name, agent: agentName, session }, 'forceSend target session is context-saturated (100%) -- deferring to retry queue instead of injecting into a wedged session')
       return 'busy'
@@ -778,7 +780,7 @@ async function attemptFireTask(
       try {
         // Host-aware so a remote agent's post-send stuck-check + recovery Enter
         // hit the laptop session, not a (nonexistent) local one.
-        const pane = capturePane(session, host)
+        const pane = await capturePaneStrippedAsync(session, host)
         const stuck = isScheduledPromptStuck(pane, marker)
         const action = decideScheduledResubmitAction(attempt, stuck)
         if (action === 'none') return
@@ -1219,7 +1221,7 @@ export function startScheduleRunner(): NodeJS.Timeout {
     // send a one-shot alert. Clear entries when the session goes idle (task done)
     // or the maximum tracking age is reached.
     for (const [key, entry] of taskInflightMap) {
-      const pane = capturePane(entry.session, entry.host)
+      const pane = await capturePaneStrippedAsync(entry.session, entry.host)
       const state = pane != null ? detectPaneState(pane) : null
       // Latch "the injected prompt actually started running" the first time the
       // pane goes busy. Once true it stays true, so a task that ran and finished

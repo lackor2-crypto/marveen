@@ -24,7 +24,7 @@ import {
 } from '../approval-verification-sweep.js'
 import { kanbanCardIdFromApproval, verificationSender, VERIFY_BASE_URL, VERIFY_TOKEN_PATH } from './routes/approvals.js'
 import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from './main-agent.js'
-import { agentSessionName, capturePane, isSessionReadyForPrompt, sessionExistsOnHost } from './agent-process.js'
+import { agentSessionName, capturePane, isSessionReadyForPrompt, sessionExistsOnHost, sessionExistsOnHostAsync, capturePaneStrippedAsync } from './agent-process.js'
 import { buildVerificationReminder, codeBridgeProjectOf } from '../approval-verification-dispatch.js'
 import { getCodeSession, listCodeTasks } from './code-bridge-store.js'
 import { NO_RESPONSE_TASK_ENDED, NO_RESPONSE_WORKER_ERROR } from '../approval-verification-sweep.js'
@@ -87,8 +87,8 @@ export async function probeAgentActivity(agent: string): Promise<AgentActivity> 
   // csak epp nincs elinditva. Ez nem tetlenseg es nem is munka -- nem latunk
   // oda. Az emlekezteto ilyenkor is bekerulhet a postaladajaba a lassu utem
   // szerint, es a router kikezbesiti, amikor elindul.
-  if (!sessionExistsOnHost(host, session)) return 'unknown'
-  if (capturePane(session, host) == null) return 'unknown'
+  if (!(await sessionExistsOnHostAsync(host, session))) return 'unknown'
+  if ((await capturePaneStrippedAsync(session, host)) == null) return 'unknown'
 
   return (await isSessionReadyForPrompt(session, host)) ? 'idle' : 'busy'
 }

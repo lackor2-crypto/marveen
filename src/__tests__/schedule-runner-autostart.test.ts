@@ -27,7 +27,7 @@ describe('schedule-runner auto-starts a stopped agent for its scheduled task', (
 
   it('the missing-session branch auto-starts the agent instead of skipping', () => {
     // Locate the (host-aware) missing-session guard and assert it now launches the agent.
-    const guardIdx = SRC.indexOf('if (!sessionExistsOnHost(')
+    const guardIdx = SRC.indexOf('if (!(await sessionExistsOnHostAsync(')
     expect(guardIdx).toBeGreaterThan(0)
     // Window covering the missing-session block (comment + code, before the
     // real busy-check). Must launch the agent and return the 'starting' state.
@@ -59,7 +59,7 @@ describe('schedule-runner auto-starts a stopped agent for its scheduled task', (
   })
 
   it('documents WHY (daily batch agent), not just what', () => {
-    const guardIdx = SRC.indexOf('if (!sessionExistsOnHost(')
+    const guardIdx = SRC.indexOf('if (!(await sessionExistsOnHostAsync(')
     // Widened from 900 for the same reason as above.
     const rationale = SRC.slice(guardIdx, guardIdx + 1900)
     expect(rationale).toMatch(/auto-start|batch agent|digest/i)

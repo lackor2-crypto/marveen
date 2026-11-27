@@ -175,11 +175,11 @@ describe('isSessionReadyForPrompt wiring (dim-ghost tolerant idle)', () => {
     // typing-vs-idle-box is decided through the dim-ghost-tolerant path, which
     // scrapes the GHOST-STRIPPED captureParkedInputView (so the dim
     // example-suggestion never reads as parked):
-    expect(fn).toContain('captureParkedInputView(session, host)')
-    expect(fn).toMatch(/idleOrGhost\((?:first|second)\)/)
+    expect(fn).toContain('await captureParkedInputViewAsync(session, host)')
+    expect(fn).toMatch(/await idleOrGhost\(first\)/)
     // context-saturation is scanned on the PLAIN capture (a dim banner cannot be
     // masked -> the refusal stays robust):
-    expect(fn).toContain('capturePane(session, host)')
+    expect(fn).toContain('await capturePaneStrippedAsync(session, host)')
     // Both samples go through the one predicate that also holds the
     // banner-vs-measurement override (#413, rebuilt from upstream d964aab4);
     // the raw scan ignores both the override and the hard-error arm.

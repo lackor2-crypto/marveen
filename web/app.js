@@ -28567,6 +28567,9 @@ document.addEventListener('DOMContentLoaded', () => {
 // The in-flight build of the Settings page. switchPage('settings') starts it without waiting; a caller that wants to
 // draw INTO the page (openWizardItem) has to wait for it, or the build replaces the panel it just drew.
 let _settingsLoadPromise = Promise.resolve()
+// Only the newest build may draw. An older one that answered late used to wipe the panels a second time, destroying
+// the login card the first one had already moved into the Security panel (the card was gone until a page reload).
+let _settingsLoadRun = 0
 function loadSettings() {
   _settingsLoadPromise = loadSettingsInner()
   return _settingsLoadPromise
@@ -28576,6 +28579,7 @@ async function loadSettingsInner() {
   const tabNav = document.getElementById('settingsTabNav')
   const tabPanels = document.getElementById('settingsTabPanels')
   if (!tabNav || !tabPanels) return
+  const run = ++_settingsLoadRun
 
   // Park the auth card back outside the panels before wiping them: a previous
   // loadSettings run moved it INTO the Security panel, and clearing
@@ -28597,6 +28601,8 @@ async function loadSettingsInner() {
     const res = await fetch('/api/settings')
     if (!res.ok) throw new Error('fetch failed')
     const { settings } = await res.json()
+    // A newer build started meanwhile: the page is its, and whoever waits for this one waits for that one.
+    if (run !== _settingsLoadRun) return _settingsLoadPromise
 
     const byModule = new Map()
     for (const s of settings) {
@@ -28814,6 +28820,7 @@ async function loadSettingsInner() {
       if (mod === activeTab) renderSetupWizardPanel(body)
     }
   } catch (err) {
+    if (run !== _settingsLoadRun) return _settingsLoadPromise
     tabPanels.innerHTML = `<p style="padding:24px;color:var(--danger)">${t('settings.error')}</p>`
   }
   // A lap most epult fel -- innentol elo tarthatja magat, amig nyitva van.

@@ -2,18 +2,19 @@ import { execFile, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, appendFileSync, readdirSync, lstatSync, symlinkSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir, userInfo } from 'node:os'
+import { promisify } from 'node:util'
 import { createHash } from 'node:crypto'
 import { resolveFromPath, tryResolveFromPath, makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import { tmuxStderr } from './tmux-stderr.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT, DEFAULT_AGENT_MODEL, STORE_DIR } from '../config.js'
 import {
-  capturePane,
   isSessionReadyForPrompt,
   sendPromptToSession,
   sessionExistsOnHost,
   hasFleetOauthToken,
   FLEET_OAUTH_TOKEN_PATH,
+  capturePaneStrippedAsync,
 } from './agent-process.js'
 import { readClaudeCodeOauthJson } from './claude-credentials.js'
 import { detectPaneState } from '../pane-state.js'
@@ -21,6 +22,8 @@ import { notifyChannel } from '../notify.js'
 import { exactTmuxTarget } from './tmux-target.js'
 import { ol } from '../owner-lang.js'
 import { rotateLogFile } from './log-rotation.js'
+
+const execFileAsync = promisify(execFile)
 
 // =============================================================================
 // Interactive-tmux agent worker (jun.15 subscription migration).
@@ -218,8 +221,8 @@ function seedWorkerCredentials(ctx: WorkerCtx): boolean {
 }
 
 /** Scan the worker pane tail for Claude Code's auth-failure chrome. */
-function workerPaneHasAuthFailure(ctx: WorkerCtx): boolean {
-  const pane = capturePane(ctx.session)
+async function workerPaneHasAuthFailure(ctx: WorkerCtx): Promise<boolean> {
+  const pane = await capturePaneStrippedAsync(ctx.session)
   if (!pane) return false
   const tail = pane.split('\n').slice(-30).join('\n')
   return WORKER_AUTH_FAILURE_RX.test(tail)
@@ -652,14 +655,14 @@ const WORKER_STUCK_ALERT_COOLDOWN_MS = 60 * 60 * 1000
  * the pane still is not healthy. Never touches a busy/idle/auth pane.
  * Returns true if it acted.
  */
-function selfHealWorkerOnce(ctx: WorkerCtx): 'none' | 'escaped' | 'restarted' {
-  const cls = classifyWorkerPane(capturePane(ctx.session))
+async function selfHealWorkerOnce(ctx: WorkerCtx): Promise<'none' | 'escaped' | 'restarted'> {
+  const cls = classifyWorkerPane(await capturePaneStrippedAsync(ctx.session))
   if (!shouldSelfHeal(cls)) return 'none'
   logger.warn({ cls, session: ctx.session }, 'agent-worker: pane parked on unexpected chrome -- bounded Escape self-heal')
   for (let i = 0; i < WORKER_SELF_HEAL_MAX_ESCAPES; i++) {
-    try { execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Escape'], { timeout: 5000 }) } catch { break }
-    try { execFileSync('/bin/sleep', ['0.5'], { timeout: 2000 }) } catch { /* best effort */ }
-    const now = classifyWorkerPane(capturePane(ctx.session))
+    try { await execFileAsync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Escape'], { timeout: 5000 }) } catch { break }
+    await sleepMs(500)
+    const now = classifyWorkerPane(await capturePaneStrippedAsync(ctx.session))
     if (now === 'idle' || now === 'busy') {
       logger.info({ escapes: i + 1, session: ctx.session }, 'agent-worker: self-heal cleared the parked chrome via Escape')
       return 'escaped'
@@ -743,12 +746,12 @@ async function ensureWorkerReady(ctx: WorkerCtx): Promise<boolean> {
       try {
         // A restarted session boots from zero: it gets a full boot window, not
         // the ~65s left of the original one (#778).
-        if (selfHealWorkerOnce(ctx) === 'restarted') deadline = Date.now() + WORKER_BOOT_TIMEOUT_MS
+        if ((await selfHealWorkerOnce(ctx)) === 'restarted') deadline = Date.now() + WORKER_BOOT_TIMEOUT_MS
       } catch (err) { logger.warn({ err }, 'agent-worker: self-heal pass failed') }
     }
     await sleepMs(2000)
   }
-  const pane = capturePane(ctx.session)
+  const pane = await capturePaneStrippedAsync(ctx.session)
   recordWorkerNotReady(ctx, classifyWorkerPane(pane), (pane ?? '').split('\n').slice(-12).join('\n'))
   return false
 }
@@ -768,12 +771,12 @@ function restartWorkerSession(ctx: WorkerCtx): void {
 }
 
 // Reset context between requests so unrelated one-shots never share/grow context.
-function clearWorkerContext(ctx: WorkerCtx): void {
+async function clearWorkerContext(ctx: WorkerCtx): Promise<void> {
   try {
-    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), '-l', '/clear'], { timeout: 5000 })
-    execFileSync('/bin/sleep', ['0.2'], { timeout: 2000 })
-    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Enter'], { timeout: 5000 })
-    execFileSync('/bin/sleep', ['0.5'], { timeout: 2000 })
+    await execFileAsync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), '-l', '/clear'], { timeout: 5000 })
+    await sleepMs(200)
+    await execFileAsync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Enter'], { timeout: 5000 })
+    await sleepMs(500)
   } catch (err) {
     logger.warn({ err }, 'agent-worker: /clear failed (continuing)')
   }
@@ -797,7 +800,7 @@ async function runWorkerAttempt(ctx: WorkerCtx, message: string, timeoutMs: numb
   if (!ready) {
     // A non-ready worker can be a dead auth (the session boots, prints the
     // login/401 chrome, never reaches an idle prompt) -- distinguish it.
-    if (workerPaneHasAuthFailure(ctx)) return { kind: 'auth' }
+    if (await workerPaneHasAuthFailure(ctx)) return { kind: 'auth' }
     logger.warn({ session: ctx.session }, 'agent-worker: worker not ready, failing request (text=null)')
     return { kind: 'fail', error: 'worker session not ready' }
   }
@@ -807,7 +810,7 @@ async function runWorkerAttempt(ctx: WorkerCtx, message: string, timeoutMs: numb
   const donePath = join(ctx.scratchDir, `${reqId}.done`)
   for (const p of [outPath, donePath]) { try { rmSync(p, { force: true }) } catch { /* none */ } }
 
-  clearWorkerContext(ctx)
+  await clearWorkerContext(ctx)
   await sendPromptToSession(ctx.session, buildWorkerPrompt(message, outPath, donePath))
 
   const start = Date.now()
@@ -826,7 +829,7 @@ async function runWorkerAttempt(ctx: WorkerCtx, message: string, timeoutMs: numb
       }
       // Not done yet: catch a mid-flight auth failure (the access token can
       // expire while the session is up) BEFORE burning the full timeout.
-      if (workerPaneHasAuthFailure(ctx)) {
+      if (await workerPaneHasAuthFailure(ctx)) {
         logger.warn({ reqId, session: ctx.session }, 'agent-worker: auth failure detected mid-request')
         return { kind: 'auth' }
       }

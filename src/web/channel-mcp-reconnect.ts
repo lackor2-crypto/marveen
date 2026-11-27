@@ -1,9 +1,10 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { setTimeout as delay } from 'node:timers/promises'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, CHANNEL_PROVIDER } from '../config.js'
 import { readAgentChannelProvider } from './agent-config.js'
-import { agentSessionName, capturePane } from './agent-process.js'
+import { agentSessionName, capturePaneStrippedAsync } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { getProvider, type ChannelProviderType } from '../channel-provider.js'
 import { tryAcquireSessionSendLane } from './session-send-lock.js'
@@ -33,24 +34,31 @@ const MAX_UP_ATTEMPTS = 8
  * causing state. paneLooksIdle returns only when the input box is live and empty.
  * Extra Escapes at the normal prompt are harmless no-ops, so over-pressing is safe.
  */
-function dismissMcpMenu(session: string): void {
+async function dismissMcpMenu(session: string): Promise<void> {
   for (let i = 0; i < 4; i++) {
     try {
-      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
-      execFileSync('/bin/sleep', ['0.4'], { timeout: 1000 })
+      await tmux(['send-keys', '-t', exactTmuxTarget(session), 'Escape'], 3000)
+      await delay(400)
     } catch {
       return
     }
-    const pane = capturePane(session) ?? ''
+    const pane = (await capturePaneStrippedAsync(session)) ?? ''
     if (pane && paneLooksIdle(pane)) return
   }
   // Budget exhausted without confirming idle: the modal may still be open (the
   // exact deaf-but-alive condition). Log loudly so the separate blocking-menu
   // safety net / operator can intervene instead of failing silently.
-  const pane = capturePane(session) ?? ''
+  const pane = (await capturePaneStrippedAsync(session)) ?? ''
   if (!pane || !paneLooksIdle(pane)) {
     logger.warn({ session }, 'channel-mcp-reconnect: pane NOT confirmed idle after dismissMcpMenu escapes -- possible stuck /mcp modal')
   }
+}
+
+/** One tmux command, off the main thread: the /mcp walk takes seconds and used to freeze the server (#991). */
+function tmux(args: string[], timeout: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(TMUX(), args, { timeout }, (err) => (err ? reject(err) : resolve()))
+  })
 }
 
 export interface ReconnectResult {
@@ -182,7 +190,7 @@ export function chooseSubmenuTarget(pane: string): RegExp | null {
  * read the menu and only press Enter once the cursor is confirmed on a safe
  * target.
  */
-export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
+export async function attemptChannelMcpReconnect(agentName: string): Promise<ReconnectResult> {
   const session = resolveAgentSession(agentName)
   const providerType = resolveAgentProviderType(agentName)
   const pluginPattern = getPluginPattern(providerType)
@@ -195,7 +203,7 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
   // and let the caller retry on a later tick when the pane is back at the idle
   // prompt. (detectPaneState reads the live footer / busy indicators; scrollback
   // mentions of "esc to interrupt" are footer-scoped so they don't false-trip.)
-  const preflight = capturePane(session) ?? ''
+  const preflight = (await capturePaneStrippedAsync(session)) ?? ''
   if (detectPaneState(preflight) === 'busy') {
     logger.info({ agentName, session }, 'channel-mcp-reconnect: pane busy -- deferring reconnect to avoid interrupting active work')
     return { ok: false, message: 'Pane busy -- reconnect deferred to avoid interrupting active work' }
@@ -214,16 +222,16 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
   }
 
   try {
-    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
-    execFileSync('/bin/sleep', ['1'], { timeout: 2000 })
+    await tmux(['send-keys', '-t', exactTmuxTarget(session), 'Escape'], 3000)
+    await delay(1000)
 
-    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), '/mcp', 'Enter'], { timeout: 3000 })
-    execFileSync('/bin/sleep', ['1'], { timeout: 3000 })
+    await tmux(['send-keys', '-t', exactTmuxTarget(session), '/mcp', 'Enter'], 3000)
+    await delay(1000)
 
-    const pane1 = capturePane(session)
+    const pane1 = (await capturePaneStrippedAsync(session))
     if (!pane1) {
       logger.warn({ agentName, session }, 'channel-mcp-reconnect: capture failed after /mcp')
-      dismissMcpMenu(session)
+      await dismissMcpMenu(session)
       return { ok: false, message: 'Failed to capture pane after /mcp' }
     }
 
@@ -231,19 +239,19 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
     // Kept for the failure diagnostics below: the last thing the TUI showed.
     let lastPane: string | null = pane1
     for (let upCount = 1; upCount <= MAX_UP_ATTEMPTS; upCount++) {
-      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Up'], { timeout: 3000 })
-      execFileSync('/bin/sleep', ['0.2'], { timeout: 1000 })
-      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 3000 })
-      execFileSync('/bin/sleep', ['1'], { timeout: 3000 })
+      await tmux(['send-keys', '-t', exactTmuxTarget(session), 'Up'], 3000)
+      await delay(200)
+      await tmux(['send-keys', '-t', exactTmuxTarget(session), 'Enter'], 3000)
+      await delay(1000)
 
-      const pane = capturePane(session)
+      const pane = (await capturePaneStrippedAsync(session))
       lastPane = pane ?? lastPane
       if (pane && pluginPattern.test(pane)) {
         matchedAt = upCount
         break
       }
-      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
-      execFileSync('/bin/sleep', ['0.5'], { timeout: 1000 })
+      await tmux(['send-keys', '-t', exactTmuxTarget(session), 'Escape'], 3000)
+      await delay(500)
     }
 
     if (matchedAt < 0) {
@@ -258,24 +266,24 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
         },
         'channel-mcp-reconnect: plugin submenu not found',
       )
-      dismissMcpMenu(session)
+      await dismissMcpMenu(session)
       return { ok: false, message: `Plugin not found within ${MAX_UP_ATTEMPTS} Up attempts` }
     }
 
     // Inside the plugin submenu now. Drive the cursor onto a safe action
     // ("Reconnect", or "Enable" when disabled) and only press Enter once it
     // is confirmed there -- never blindly, which previously hit "Disable".
-    let submenu = capturePane(session)
+    let submenu = (await capturePaneStrippedAsync(session))
     if (!submenu) {
       logger.warn({ agentName, session }, 'channel-mcp-reconnect: capture failed in submenu')
-      dismissMcpMenu(session)
+      await dismissMcpMenu(session)
       return { ok: false, message: 'Failed to capture submenu pane' }
     }
 
     const target = chooseSubmenuTarget(submenu)
     if (!target) {
       logger.warn({ agentName, session }, 'channel-mcp-reconnect: no Reconnect/Enable option in submenu')
-      dismissMcpMenu(session)
+      await dismissMcpMenu(session)
       return { ok: false, message: 'No Reconnect/Enable option in submenu' }
     }
 
@@ -286,9 +294,9 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
         onTarget = true
         break
       }
-      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Down'], { timeout: 3000 })
-      execFileSync('/bin/sleep', ['0.3'], { timeout: 1000 })
-      submenu = capturePane(session) ?? ''
+      await tmux(['send-keys', '-t', exactTmuxTarget(session), 'Down'], 3000)
+      await delay(300)
+      submenu = (await capturePaneStrippedAsync(session)) ?? ''
     }
 
     if (!onTarget) {
@@ -302,20 +310,20 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
         },
         'channel-mcp-reconnect: could not place cursor on target option',
       )
-      dismissMcpMenu(session)
+      await dismissMcpMenu(session)
       return { ok: false, message: `Could not select ${target.source} within ${SUBMENU_MAX_STEPS} steps` }
     }
 
-    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 3000 })
-    execFileSync('/bin/sleep', ['2'], { timeout: 4000 })
-    dismissMcpMenu(session)
+    await tmux(['send-keys', '-t', exactTmuxTarget(session), 'Enter'], 3000)
+    await delay(2000)
+    await dismissMcpMenu(session)
 
     const action = target === RECONNECT_RX ? 'Reconnect' : 'Enable'
     logger.info({ agentName, session, matchedAt, action, provider: providerType }, 'channel-mcp-reconnect: completed')
     return { ok: true, message: `Activated ${action} via /mcp (Up x${matchedAt})` }
   } catch (err) {
     logger.warn({ err, agentName, session }, 'channel-mcp-reconnect failed')
-    try { dismissMcpMenu(session) } catch { /* best effort */ }
+    try { await dismissMcpMenu(session) } catch { /* best effort */ }
     return { ok: false, message: err instanceof Error ? err.message : String(err) }
   } finally {
     releaseLane()

@@ -107,7 +107,7 @@ describe('channel-plugin-unlock helper contract', () => {
     const sendStart = helper.indexOf('function sendUnlockKeystrokes')
     const sendBody = helper.slice(sendStart, helper.indexOf('\n}\n', sendStart))
     const secondEscapeLog = sendBody.indexOf('sent /mcp+Up+Enter+Enter+Esc+Esc unlock sequence')
-    const captureIdx = sendBody.indexOf('paneAfterClose = execFileSync(')
+    const captureIdx = sendBody.indexOf('paneAfterClose = await tmux(')
     expect(secondEscapeLog, 'unlock-sequence log not found').toBeGreaterThan(0)
     expect(captureIdx, 'post-close capture not found').toBeGreaterThan(secondEscapeLog)
     const between = sendBody.slice(secondEscapeLog, captureIdx)

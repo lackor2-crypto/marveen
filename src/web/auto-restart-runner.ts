@@ -7,7 +7,7 @@ import {
   agentRunState,
   agentSessionName,
   restartAgentProcess,
-  capturePane,
+  capturePaneStrippedAsync,
 } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { respawnMainSessionFresh } from './channel-monitor.js'
@@ -59,8 +59,8 @@ function sessionFor(name: string): string {
   return name === MAIN_AGENT_ID ? MAIN_CHANNELS_SESSION : agentSessionName(name)
 }
 
-function paneIsIdle(session: string, host: string | null): boolean {
-  const pane = capturePane(session, host)
+async function paneIsIdle(session: string, host: string | null): Promise<boolean> {
+  const pane = await capturePaneStrippedAsync(session, host)
   if (pane == null) return false
   return paneLooksIdle(pane)
 }
@@ -104,7 +104,7 @@ function performRestart(name: string, cfg: AutoRestartConfig): void {
   }
 }
 
-function checkAgent(name: string, nowMs: number): void {
+async function checkAgent(name: string, nowMs: number): Promise<void> {
   const cfg = readAutoRestartConfig(name)
   if (!cfg.enabled) {
     lastRestart.delete(name) // re-seed cleanly if re-enabled later
@@ -156,7 +156,7 @@ function checkAgent(name: string, nowMs: number): void {
 
   const session = sessionFor(name)
   const host = name === MAIN_AGENT_ID ? null : readAgentRemoteHost(name)
-  if (!paneIsIdle(session, host)) {
+  if (!(await paneIsIdle(session, host))) {
     logger.info({ name, session }, 'auto-restart: due but pane is busy, deferring to next tick')
     return
   }
@@ -171,13 +171,21 @@ function checkAgent(name: string, nowMs: number): void {
 }
 
 export function startAutoRestartRunner(): NodeJS.Timeout {
-  function sweep() {
-    const now = Date.now()
-    try { checkAgent(MAIN_AGENT_ID, now) } catch (err) { logger.debug({ err }, 'auto-restart: main check error') }
-    for (const name of listAgentNames()) {
-      try { checkAgent(name, now) } catch (err) { logger.debug({ err, agent: name }, 'auto-restart: agent check error') }
+  // The checks await tmux, so a tick that lands while the previous one runs is skipped (never two restarts at once).
+  let running = false
+  async function sweep() {
+    if (running) return
+    running = true
+    try {
+      const now = Date.now()
+      try { await checkAgent(MAIN_AGENT_ID, now) } catch (err) { logger.debug({ err }, 'auto-restart: main check error') }
+      for (const name of listAgentNames()) {
+        try { await checkAgent(name, now) } catch (err) { logger.debug({ err, agent: name }, 'auto-restart: agent check error') }
+      }
+    } finally {
+      running = false
     }
   }
-  setTimeout(sweep, INITIAL_DELAY_MS)
-  return setInterval(sweep, INTERVAL_MS)
+  setTimeout(() => { void sweep() }, INITIAL_DELAY_MS)
+  return setInterval(() => { void sweep() }, INTERVAL_MS)
 }

@@ -5,7 +5,7 @@ import { logger } from '../logger.js'
 import { tmuxStderr } from './tmux-stderr.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { listAgentNames } from './agent-config.js'
-import { agentSessionName, capturePane } from './agent-process.js'
+import { agentSessionName, capturePaneStrippedAsync } from './agent-process.js'
 import { detectPaneState } from '../pane-state.js'
 import { detectsUsageLimit, usageLimitResetText } from '../model-fallback.js'
 import { readContextReadingFromProjectDir } from './active-model.js'
@@ -145,8 +145,8 @@ function agentIdForLedger(name: string): string {
 
 // ---- Pane helpers -----------------------------------------------------------
 
-function capturePaneOrNull(session: string): string | null {
-  try { return capturePane(session) } catch { return null }
+function capturePaneOrNull(session: string): Promise<string | null> {
+  return capturePaneStrippedAsync(session)
 }
 
 // ---- Child-process detection ------------------------------------------------
@@ -448,7 +448,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   const workingDir = workingDirFor(name)
 
   // Gather inputs (all deterministic, no AI inference).
-  const paneRaw = capturePaneOrNull(session)
+  const paneRaw = await capturePaneOrNull(session)
   const paneState = paneRaw !== null ? detectPaneState(paneRaw) : null
   const paneUsageLimited = paneRaw !== null ? detectsUsageLimit(paneRaw) : false
   // Lifted verbatim from the banner so the block reason can say WHEN the wall

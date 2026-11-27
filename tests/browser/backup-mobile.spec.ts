@@ -59,7 +59,7 @@ for (const lang of ['hu', 'en'] as const) {
   test(`backup tab on a phone (${lang})`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     const errors: string[] = []
-    page.on('pageerror', (e) => errors.push(e.message))
+    page.on('pageerror', (e) => errors.push(e.stack || e.message))
     const ok = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
     await page.route('**/api/**', (r) => r.fulfill(ok({})))
     // One real-shaped setting: with an EMPTY list loadSettings builds no tabs at
@@ -137,7 +137,7 @@ async function noOverflow(page: import('@playwright/test').Page, rootSel: string
 test('restore preview + held banner on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const errors: string[] = []
-  page.on('pageerror', (e) => errors.push(e.message))
+  page.on('pageerror', (e) => errors.push(e.stack || e.message))
   const ok = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   await page.route('**/api/**', (r) => r.fulfill(ok({})))
   await page.route('**/api/settings', (r) => r.fulfill(ok({ settings: [{ key: 'SCHEDULER_TZ', module: 'system', type: 'string', value: 'x', default: 'x', description: 'tz', requiresRestart: false }] })))
@@ -162,7 +162,7 @@ test('restore preview + held banner on a phone', async ({ page }) => {
 test('fresh-install question on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const errors: string[] = []
-  page.on('pageerror', (e) => errors.push(e.message))
+  page.on('pageerror', (e) => errors.push(e.stack || e.message))
   const ok = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   await page.route('**/api/**', (r) => r.fulfill(ok({})))
   await page.route('**/api/auth/status', (r) => r.fulfill(ok({ method: 'token', authenticated: true })))

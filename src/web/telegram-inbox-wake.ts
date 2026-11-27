@@ -10,6 +10,7 @@ import {
   isSessionReadyForPrompt,
   sendPromptToSession,
   sessionExistsOnHost,
+  sessionExistsOnHostAsync,
 } from './agent-process.js'
 
 // --- sub-agent Telegram inbox wake-nudge --------------------------------------
@@ -317,7 +318,7 @@ export async function maybeWakeSubAgentsForTelegram(now: number): Promise<void> 
 
       const host = readAgentRemoteHost(name)
       const session = agentSessionName(name)
-      const sessionExists = sessionExistsOnHost(host, session)
+      const sessionExists = await sessionExistsOnHostAsync(host, session)
       // isSessionReadyForPrompt already reports a widget-over-idle ('unknown')
       // pane as NOT ready, so a TodoWrite-widget session is conservatively left
       // alone rather than nudged mid-widget -- the safe default for injection.

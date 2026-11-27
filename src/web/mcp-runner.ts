@@ -218,6 +218,14 @@ function tmuxSafe(args: string[], timeout = 5_000): string {
   }
 }
 
+/** The polled screen is read off the main thread (#991). */
+function tmuxSafeAsync(args: string[], timeout = 5_000): Promise<string> {
+  return new Promise((resolve) => {
+    execFile(tmuxBin(), args, { timeout, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout) => resolve(err ? '' : String(stdout)))
+  })
+}
+
 function loginSessionExists(): boolean {
   try {
     execFileSync(tmuxBin(), ['has-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
@@ -301,7 +309,7 @@ export interface McpLoginStatus extends McpLoginPaneState {
   restartAgents: string[]
 }
 
-export function mcpLoginStatus(): McpLoginStatus {
+export async function mcpLoginStatus(): Promise<McpLoginStatus> {
   if (!loginFlow) {
     return { active: false, phase: 'starting', url: null, error: null, restartRequired: false, accountId: null, server: null, restartAgents: [] }
   }
@@ -318,10 +326,11 @@ export function mcpLoginStatus(): McpLoginStatus {
     return { active: false, phase: 'failed', url: null, error: 'A bejelentkeztető ablak bezárult.', restartRequired: false, accountId, server, restartAgents }
   }
 
-  const pane = readMcpLoginPane(
-    tmuxSafe(['capture-pane', '-p', '-J', '-t', exactTmuxTarget(LOGIN_SESSION)]),
-    loginFlow.pasteSubmitted,
-  )
+  const polled = loginFlow
+  const screen = await tmuxSafeAsync(['capture-pane', '-p', '-J', '-t', exactTmuxTarget(LOGIN_SESSION)])
+  // Another poll or a cancel may have ended this flow while the screen was read.
+  if (loginFlow !== polled) return mcpLoginStatus()
+  const pane = readMcpLoginPane(screen, polled.pasteSubmitted)
   // The status stays cached until the operator refreshes: the CLI itself says
   // the connector only becomes available on the next Claude Code start, so
   // re-probing the instant the URL appears would just re-report the old answer.
