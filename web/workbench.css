@@ -1561,16 +1561,20 @@
 /* #562 (Boss TG 8922): the sheet has no line background of any kind -- not under the pointer, not on the current line. */
 /* #841: the "new line" rows beside a picture / table take NO room until you click one, so the page in edit mode is laid out exactly
    as the read-only page and the PDF (before, each cost 1.6em and pushed everything below it down). A thin click strip stays at
-   the row's top edge; once the cursor is in it (.is-cur, set by the selectionchange handler: the page is ONE editing host, so :focus-within never matches a row) the row opens to a normal line and the next Enter / typing makes it a real block. */
+   the row's top edge; once the cursor is in it (.is-cur, set by the selectionchange handler: the page is ONE editing host, so :focus-within never matches a row) a full-height caret shows, and the first Enter / typing opens the row and makes it a real block. */
 .wb-dp-tailrow { height: 0; min-height: 0; margin-top: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; overflow: visible; }
 .wb-dp-tailrow > .wb-dp-tail { position: absolute; left: 48px; right: 0; top: 0; height: 12px; min-height: 0; margin: 0; overflow: hidden; z-index: 3; }
-.wb-dp-tailrow.is-cur { height: auto; }
-.wb-dp-tailrow.is-cur > .wb-dp-tail { position: static; height: auto; min-height: calc(var(--wb-lh, 1.6) * 1em); margin: 0 -4px; overflow: visible; }
+/* #992 (Boss TG 7794): a click alone moves nothing. The empty cursor line lies OVER the page (the caret shows, the clicks go
+   through to what is under it); only once something is typed does it take a line of its own. */
+.wb-dp-tailrow.is-cur > .wb-dp-tail { height: auto; min-height: calc(var(--wb-lh, 1.6) * 1em); overflow: visible; pointer-events: none; }
+.wb-dp-tailrow.is-cur:has(> .wb-dp-tail:not(:empty)) { height: auto; }
+.wb-dp-tailrow.is-cur:has(> .wb-dp-tail:not(:empty)) > .wb-dp-tail { position: static; margin: 0 -4px; pointer-events: auto; }
 @media (max-width: 600px) { .wb-dp-tailrow > .wb-dp-tail { left: 44px; } }
 .wb-dp-row-float .wb-dp-img { margin: 3px 0 4px; }
 .wb-dp-row-float .wb-dp-img-box { display: block; }
-/* The row keeps a 48px gutter on its left; a picture on the right has none of it, so the size the owner set is the size shown. */
-.wb-dp-row-float-r:has(> .wb-dp-img) { padding-left: 0; }
+/* The row keeps a 48px gutter on its left; a picture or a table on the right has none of it, so the size the owner set is
+   the size shown (#992: a table kept it, and on a narrow sheet "align right" squeezed the table to 0 px). */
+.wb-dp-row-float-r:has(> .wb-dp-img), .wb-dp-row-float-r:has(> .wb-dp-tbl) { padding-left: 0; }
 .wb-dp-edit { outline: none; min-height: calc(var(--wb-lh, 1.6) * 1em); white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 3px; padding: 1px 4px; margin: 0 -4px; cursor: text; }
 .wb-dp-page:focus { outline: none; }
 .wb-dp-edit:empty::before { content: attr(data-placeholder); color: #8b8b95; pointer-events: none; }
@@ -1954,7 +1958,9 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 .wb-dp-row-over { --wb-gut: 48px; height: 0; }
 .wb-dp-row-over > .wb-dp-img, .wb-dp-row-over > .wb-dp-tbl { position: absolute; left: var(--wb-gut); top: 0; z-index: 4; margin: calc((100% - var(--wb-gut)) * var(--wb-oy) / 100) 0 0 calc((100% - var(--wb-gut)) * var(--wb-ox) / 100); width: calc((100% - var(--wb-gut)) * var(--wb-ow) / 100); }
 /* the toolbar sits ABOVE a small picture, so it never covers the picture the owner has to grab */
-.wb-dp-img-over .wb-dp-img-tools, .wb-dp-tbl-over .wb-dp-img-tools { top: -34px; }
+.wb-dp-img-over .wb-dp-img-tools { top: -34px; }
+/* #992: outside the picture it lies over text, so unseen it must take no click either */
+@media (hover: hover) { .wb-dp-img-over:not(:hover):not(:focus-within) .wb-dp-img-tools { visibility: hidden; } }
 .wb-dp-row-over img[data-wb-over-img] { cursor: grab; touch-action: none; -webkit-user-drag: none; user-select: none; }
 @media (max-width: 600px) { .wb-dp-row-over { --wb-gut: 44px; } }
 .wb-dp-imgctx { position: fixed; z-index: 10000; min-width: 220px; background: var(--card-bg, #fff); color: var(--text, #111); border: 1px solid var(--border, #d0d5dd); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px; display: flex; flex-direction: column; }
@@ -1989,8 +1995,22 @@ h2.wb-root-title { font-size: 1.35rem; font-weight: 800; }
 /* A right-aligned picture / table is pinned to the page's right edge, so its free corner is the bottom-left one:
    the resize handle sits there and follows the pointer (the drag handler counts a leftward drag as growing). */
 .wb-dp-img-r .wb-dp-img-size, .wb-dp-tbl-r .wb-dp-img-size { right: auto; left: -6px; cursor: nesw-resize; }
-.wb-dp-tbl .wb-dp-img-tools { top: -14px; }
-.wb-dp-tbl:hover .wb-dp-img-size, .wb-dp-tbl:hover .wb-dp-img-tools, .wb-dp-tbl:hover .wb-dp-tbl-move, .wb-dp-tbl:focus-within .wb-dp-img-size, .wb-dp-tbl:focus-within .wb-dp-img-tools, .wb-dp-tbl:focus-within .wb-dp-tbl-move { opacity: 1; }
+/* #992: the cells are written in place, so the bar sits ABOVE the table and never covers a cell. It is shown only after
+   a press on its own button (beside the table, outside it): never by itself over the line above. */
+.wb-dp-tbl .wb-dp-img-tools { top: auto; bottom: 100%; width: max-content; max-width: max(100%, 240px); flex-wrap: wrap; justify-content: center; visibility: hidden; }
+/* a narrow table at a side: the bar grows inwards, never off the sheet */
+.wb-dp-tbl-l .wb-dp-img-tools { left: 0; transform: none; }
+.wb-dp-tbl-r .wb-dp-img-tools { left: auto; right: 0; transform: none; }
+.wb-dp-tbl.is-menu { z-index: 5; }
+.wb-dp-tbl.is-menu > .wb-dp-img-tools { visibility: visible; opacity: 1; }
+.wb-dp-tbl-menu { position: absolute; right: 100%; top: 14px; width: 18px; height: 18px; padding: 0; line-height: 16px; text-align: center; border: 0; border-radius: 3px; background: var(--accent, #2563eb); color: #fff; font-size: 12px; cursor: pointer; opacity: 0; }
+.wb-dp-tbl-r > .wb-dp-tbl-menu { right: auto; left: 100%; }
+.wb-dp-tbl:hover > .wb-dp-tbl-menu, .wb-dp-tbl:focus-within > .wb-dp-tbl-menu, .wb-dp-tbl.is-menu > .wb-dp-tbl-menu, .wb-dp-tbl-menu:focus-visible { opacity: 1; }
+@media (hover: none) { .wb-dp-tbl-menu { opacity: 1; width: 26px; height: 26px; line-height: 24px; } }
+.wb-dp-tbl .wb-dp-img-tools .wb-dp-tbl-word { width: auto; padding: 0 6px; white-space: nowrap; font-size: 12px; }
+.wb-dp-tbl [data-wb-cell] { cursor: text; }
+.wb-dp-tbl [data-wb-cell]:focus { outline: 2px solid var(--accent, #6d4aff); outline-offset: -2px; }
+.wb-dp-tbl:hover .wb-dp-img-size, .wb-dp-tbl:hover .wb-dp-tbl-move, .wb-dp-tbl:focus-within .wb-dp-img-size, .wb-dp-tbl:focus-within .wb-dp-tbl-move { opacity: 1; }
 @media (hover: none) { .wb-dp-tbl-move { opacity: 1; } }
 .wb-dp-row-float { float: left; margin-right: 12px; z-index: 2; }
 .wb-dp-row-float-r { float: right; margin-right: 0; margin-left: 12px; }
@@ -2515,8 +2535,10 @@ html:has(#projectsRoot .wb-root), html:has(#projectsRoot .wb-root) body { overfl
 .wb-dp-page { font-family: "Liberation Serif", "Times New Roman", Times, serif; }
 .wb-dp-page .wb-dp-tbl table { font-size: .9167em; table-layout: fixed; } /* PDF: 11 pt cells (body 12 pt), equal column widths */
 .wb-dp-page .wb-dp-tbl th, .wb-dp-page .wb-dp-tbl td { padding: .125em .19em; line-height: 1.12; overflow-wrap: anywhere; }
-/* The paper margins of the PDF (1.5 / 2 / 1.5 / 2.5 cm) at 794 px = 21 cm; workbench.js sets them as a share of the sheet's width. */
-.wb-dp-page, .wb-tw-page { --pg-pt: 57px; --pg-pr: 76px; --pg-pb: 57px; --pg-pl: 95px; }
+/* The paper margins of the PDF (1.5 / 2 / 1.5 / 2.5 cm) at 794 px = 21 cm, the same share of a narrower sheet. With the page
+   lines on workbench.js writes them in px; #992: with the lines off they stayed 95 + 76 px even on a 240 px sheet, leaving
+   about a quarter of it for the text and the tables. */
+.wb-dp-page, .wb-tw-page { --pg-pt: min(57px, 7.14%); --pg-pr: min(76px, 9.52%); --pg-pb: min(57px, 7.14%); --pg-pl: min(95px, 11.9%); }
 .wb-tw-page { font-family: "Liberation Serif", "Times New Roman", Times, serif; }
 .wb-tw-page .wb-tw-tbl { font-size: .9167em; table-layout: fixed; }
 .wb-tw-page .wb-tw-tbl th, .wb-tw-page .wb-tw-tbl td { padding: .125em .19em; line-height: 1.12; overflow-wrap: anywhere; }

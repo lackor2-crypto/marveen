@@ -15,8 +15,11 @@ describe('picture delete button', () => {
     expect(JS).toContain("else if (a === 'dp-del') dpDeleteBlock(bid)")
   })
   it('a table has one too', () => {
-    const i = JS.indexOf('data-wb-tbl-block="')
-    expect(JS.slice(i, i + 4000)).toContain('wb-dp-img-del')
+    // the table's own renderer, not a window after the first mention of its attribute (selectors mention it too)
+    const i = JS.indexOf('function dpTableHtml')
+    const body = JS.slice(i, JS.indexOf('\n  }\n', i))
+    expect(body).toContain('wb-dp-img-del')
+    expect(body).toContain('data-wb-act="dp-del"')
   })
   it('the toolbar sits above the free-move handle, so the delete button on a narrow table stays clickable', () => {
     const line = CSS.split('\n').find((l) => l.startsWith('.wb-dp-img-tools {')) || ''

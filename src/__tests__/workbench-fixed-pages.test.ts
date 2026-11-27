@@ -42,6 +42,6 @@ describe('fixed A4 pages in the page editor', () => {
   it('types the sheet like the PDF (serif, 11 pt equal-width table cells, the PDF margins)', () => {
     expect(CSS).toMatch(/\.wb-dp-page \{ font-family: "Liberation Serif"/)
     expect(CSS).toMatch(/table-layout: fixed/)
-    expect(CSS).toMatch(/--pg-pl: 95px/)
+    expect(CSS).toMatch(/--pg-pl: min\(95px, 11\.9%\)/)
   })
 })

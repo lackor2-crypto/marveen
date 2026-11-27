@@ -15342,12 +15342,167 @@
     return (p.x == null && p.width && p.width < 100 && p.align !== 'c') ? ' style="width:' + p.width + '%"' : ''
   }
 
+  // #992 (Boss TG 7794): a click in a table cell writes THERE. The grid used to be swapped for the raw "a | b" lines,
+  // a sentence and a second grid on every click: the cell ran away from under the pointer and the whole sheet jumped.
+  // Now every cell is its own editing field inside the table island, so a click changes nothing on the page. The stored
+  // form stays the "a | b" lines; the island carries them (data-wb-tbl-text) until the page save has sent them.
+
+  /** The rows of the grid. A cell of an editable table is a field of its own. */
+  function dpTblRowsHtml(text, bid, ro) {
+    return String(text == null ? '' : text).split('\n').map(function (ln, r) {
+      return '<tr>' + ln.split('|').map(function (c, i) {
+        var tag = r === 0 ? 'th' : 'td'
+        var attrs = ro ? '' : ' contenteditable="true" id="wbDpC_' + escA(bid) + '_' + r + '_' + i + '" data-wb-cell="' + r + ':' + i + '"'
+        return '<' + tag + attrs + '>' + esc(c.trim()) + '</' + tag + '>'
+      }).join('') + '</tr>'
+    }).join('')
+  }
+
+  /** One cell of the lines changed: only that cell of that line is rewritten, the rest stays byte for byte. */
+  function dpTblSetCell(body, r, c, value) {
+    var lines = String(body).split('\n')
+    if (r < 0 || r >= lines.length) return body
+    var parts = lines[r].split('|')
+    if (c < 0 || c >= parts.length) return body
+    // "|" separates the cells in the stored form: a typed one is kept as the look-alike sign, so the cell stays one cell.
+    var v = String(value == null ? '' : value).replace(/[\r\n\t]+/g, ' ').replace(/ /g, ' ').replace(/​/g, '').replace(/\|/g, '∣').trim()
+    parts[c] = (c > 0 ? ' ' : '') + v + (c < parts.length - 1 ? ' ' : '')
+    // A one-column row with nothing in it would be an empty line, which the printed table leaves out: keep the row.
+    lines[r] = parts.length === 1 && !v ? DP_BLANK : parts.join('|')
+    return lines.join('\n')
+  }
+
+  /** A row / column added after (r, c), or the one at (r, c) taken out. null: it was the last one. */
+  function dpTblReshape(body, op, r, c) {
+    var rows = String(body).split('\n').map(function (ln) { return ln.split('|').map(function (x) { return x.trim() }) })
+    var cols = rows.reduce(function (n, row) { return Math.max(n, row.length) }, 1)
+    if (op === 'row-add') { var fresh = []; for (var i = 0; i < cols; i++) fresh.push(''); rows.splice(r + 1, 0, fresh) }
+    else if (op === 'row-del') { if (rows.length < 2) return null; rows.splice(r, 1) }
+    else if (op === 'col-add') rows.forEach(function (row) { while (row.length <= c) row.push(''); row.splice(c + 1, 0, '') })
+    else if (op === 'col-del') { if (cols < 2) return null; rows.forEach(function (row) { if (row.length > c) row.splice(c, 1); if (!row.length) row.push('') }) }
+    return rows.map(function (row) { return row.length === 1 && !row[0] ? DP_BLANK : row.join(' | ') }).join('\n')
+  }
+
+  /** The lines the table on the page holds right now (typed, maybe not saved yet). */
+  function dpTblBody(island, b) {
+    var typed = island.getAttribute('data-wb-tbl-text')
+    return typed === null ? dpTableParts(b.text).text : typed
+  }
+
+  function dpTblCellSync(cell) {
+    var island = cell.closest('[data-wb-tbl-block]')
+    var b = island && findBlock(island.getAttribute('data-wb-tbl-block'))
+    if (!b) return
+    var at = cell.getAttribute('data-wb-cell').split(':')
+    island.setAttribute('data-wb-tbl-text', dpTblSetCell(dpTblBody(island, b), Number(at[0]), Number(at[1]), cell.textContent))
+  }
+
+  /** Put the cursor at the end of the cell (r, c) of a table, without moving the page. */
+  function dpTblCellFocus(bid, r, c) {
+    var el = document.getElementById('wbDpC_' + bid + '_' + r + '_' + c)
+    if (!el) return
+    el.focus({ preventScroll: true })
+    dpPlaceCaret(el, null)
+  }
+
+  /** Row / column buttons and the keyboard: only this table's grid is redrawn, the page stays where it is. */
+  function dpTblOp(bid, op, at) {
+    var island = document.querySelector('.wb-dp-page [data-wb-tbl-block="' + bid + '"]')
+    var b = findBlock(bid)
+    var table = island && island.querySelector('table')
+    if (!b || !table || archived()) return
+    var body = dpTblBody(island, b)
+    var lines = body.split('\n')
+    var cur = at || (WB.dpCell && WB.dpCell.bid === bid ? WB.dpCell : null)
+    var r = cur ? Math.min(cur.r, lines.length - 1) : lines.length - 1
+    var c = cur ? cur.c : lines[r].split('|').length - 1
+    var next = dpTblReshape(body, op, r, c)
+    if (next === null) { window.showToast(t(op === 'row-del' ? 'workbench.dp.tbl_last_row' : 'workbench.dp.tbl_last_col')); return }
+    island.setAttribute('data-wb-tbl-text', next)
+    table.innerHTML = dpTblRowsHtml(next, bid, false)
+    var rows = next.split('\n')
+    var nr = Math.max(0, Math.min(rows.length - 1, op === 'row-add' ? r + 1 : r))
+    var nc = Math.max(0, Math.min(rows[nr].split('|').length - 1, op === 'col-add' ? c + 1 : c))
+    dpTblCellFocus(bid, nr, at && at.toCol !== undefined ? at.toCol : nc)
+    dpMarkDirty()
+  }
+
+  function dpTblCellSelect(cell) {
+    var sel = window.getSelection()
+    var range = document.createRange()
+    range.selectNodeContents(cell)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+
+  // The same for "Select all" in the cell's right-click (or the browser's Edit) menu, which no key event announces: when the
+  // selection leaves the cell the menu was opened in and takes the whole page, it is brought back to the cell.
+  document.addEventListener('contextmenu', function (e) {
+    WB.dpCellMenu = e.target && typeof e.target.closest === 'function' ? e.target.closest('.wb-dp-page [data-wb-cell]') : null
+  }, true)
+  document.addEventListener('mousedown', function (e) { if (e.button === 0) WB.dpCellMenu = null }, true)
+  document.addEventListener('keydown', function () { WB.dpCellMenu = null }, true)
+  document.addEventListener('selectionchange', function () {
+    var cell = WB.dpCellMenu
+    if (!cell || !cell.isConnected) return
+    var sel = window.getSelection()
+    var host = cell.closest('.wb-dp-page')
+    if (!sel || !sel.rangeCount || sel.isCollapsed || !host) return
+    if (cell.contains(sel.anchorNode) || !sel.containsNode(cell, false)) return
+    cell.focus({ preventScroll: true })
+    dpTblCellSelect(cell)
+  })
+
+  /** Enter: the cell below; Tab: the next cell (Shift+Tab: the one before). Past the last row a new row is made. */
+  function dpTblCellKey(e, cell) {
+    if (e.key === 'Escape') { WB.docMenu = null; cell.blur(); return }
+    // Ctrl+A means "all of this cell": the browser's own would take the whole document, and the next key would replace it.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 'a') { e.preventDefault(); dpTblCellSelect(cell); return }
+    if (e.key !== 'Enter' && e.key !== 'Tab') return
+    var island = cell.closest('[data-wb-tbl-block]')
+    if (!island) return
+    var bid = island.getAttribute('data-wb-tbl-block')
+    var at = cell.getAttribute('data-wb-cell').split(':')
+    var r = Number(at[0]), c = Number(at[1])
+    var cells = Array.prototype.slice.call(island.querySelectorAll('[data-wb-cell]'))
+    if (e.key === 'Tab') {
+      var to = cells[cells.indexOf(cell) + (e.shiftKey ? -1 : 1)]
+      if (to) { e.preventDefault(); to.focus({ preventScroll: false }); dpPlaceCaret(to, null) }
+      else if (!e.shiftKey) { e.preventDefault(); dpTblOp(bid, 'row-add', { r: r, c: c, toCol: 0 }) }
+      return
+    }
+    e.preventDefault()
+    var below = island.querySelectorAll('[data-wb-cell^="' + (r + 1) + ':"]')
+    if (below.length) { var b2 = below[Math.min(c, below.length - 1)]; b2.focus({ preventScroll: false }); dpPlaceCaret(b2, null) }
+    else dpTblOp(bid, 'row-add', { r: r, c: c })
+  }
+
+  document.addEventListener('focusin', function (e) {
+    var cell = e.target && typeof e.target.closest === 'function' ? e.target.closest('.wb-dp-page [data-wb-cell]') : null
+    if (!cell) return
+    var island = cell.closest('[data-wb-tbl-block]')
+    if (!island) return
+    var at = cell.getAttribute('data-wb-cell').split(':')
+    WB.dpCell = { bid: island.getAttribute('data-wb-tbl-block'), r: Number(at[0]), c: Number(at[1]) }
+    // The formatting bar works on paragraphs: it must not reach back to the one the cursor was in before.
+    WB.dpRange = null
+    WB.dpFmtLast = null
+  })
+
+  // The row / column buttons act on the cell the cursor is in: pressing them must not take the cursor away.
+  document.addEventListener('mousedown', function (e) {
+    if (e.target && typeof e.target.closest === 'function' && e.target.closest('[data-wb-tbl-op]')) e.preventDefault()
+  }, true)
+
+  // A cell is one line of plain text: no new line, no formatting from the browser's own shortcuts.
+  document.addEventListener('beforeinput', function (e) {
+    if (!e.target || typeof e.target.closest !== 'function' || !e.target.closest('.wb-dp-page [data-wb-cell]')) return
+    if (/^(format|insertParagraph|insertLineBreak)/.test(e.inputType || '')) e.preventDefault()
+  })
+
   function dpTableHtml(b, sid, ro) {
     var pic = dpTableParts(b.text)
-    var lines = pic.text.split('\n')
-    var body = lines.map(function (ln, r) {
-      return '<tr>' + ln.split('|').map(function (c) { var tag = r === 0 ? 'th' : 'td'; return '<' + tag + '>' + esc(c.trim()) + '</' + tag + '>' }).join('') + '</tr>'
-    }).join('')
+    var body = dpTblRowsHtml(pic.text, b.id, ro)
     var overT = !!pic.over
     var freeT = pic.x != null && !overT
     var floated = !freeT && !overT && pic.width && pic.width < 100 && pic.align !== 'c'
@@ -15356,16 +15511,43 @@
       // #521: a free place -- a left indent and an empty space above, in percent of the text width (CSS margins in percent are of the width too).
       + (overT ? '' : freeT ? ' style="width:' + (pic.width || 100) + '%;margin-left:' + pic.x + '%;margin-top:' + pic.y + '%"'
         : !floated && pic.width && pic.width < 100 ? ' style="width:' + pic.width + '%"' : '')
-      + (ro ? '' : ' role="button" tabindex="0" data-wb-act="dp-tbl-edit" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_edit')) + '"')
       + '><table>' + body + '</table>'
       + (ro ? '' : '<span class="wb-dp-tbl-move" draggable="true" data-wb-img-drag="1" data-wb-block="' + escA(b.id) + '" data-wb-sec="' + escA(sid) + '" title="' + escA(t('workbench.dp.tbl_move')) + '" aria-label="' + escA(t('workbench.dp.tbl_move')) + '">&#10021;</span>'
         + '<span class="wb-dp-img-size" data-wb-tbl-resize="' + escA(b.id) + '" role="slider" tabindex="0" aria-valuemin="10" aria-valuemax="100" aria-valuenow="' + (pic.width || 100) + '" title="' + escA(t('workbench.dp.tbl_resize')) + '" aria-label="' + escA(t('workbench.dp.tbl_resize')) + '"></span>'
         + dpFreeHandleHtml(b.id, 'tbl')
+        // #992: the bar opens only from its own button beside the table. Shown by itself it lay over the line above, and
+        // a click meant for that line aligned the table (the whole document moved).
+        + '<button type="button" class="wb-dp-tbl-menu" data-wb-act="dp-tbl-menu" data-wb-block="' + escA(b.id) + '" aria-expanded="false" title="' + escA(t('workbench.dp.tbl_menu')) + '" aria-label="' + escA(t('workbench.dp.tbl_menu')) + '">&#8943;</button>'
         // #590: the same two modes as a picture -- "the text runs round it" / "free, over the text".
         + '<span class="wb-dp-img-tools">' + (overT ? '' : al('l', 'workbench.dp.tbl_left') + al('c', 'workbench.dp.tbl_center') + al('r', 'workbench.dp.tbl_right'))
           + dpImgModeBtn(b.id, 'wrap', !overT) + dpImgModeBtn(b.id, 'over', overT)
+          + dpTblOpBtn(b.id, 'row-add', 'workbench.dp.tbl_row_add') + dpTblOpBtn(b.id, 'row-del', 'workbench.dp.tbl_row_del')
+          + dpTblOpBtn(b.id, 'col-add', 'workbench.dp.tbl_col_add') + dpTblOpBtn(b.id, 'col-del', 'workbench.dp.tbl_col_del')
+          + '<button type="button" class="wb-dp-img-al wb-dp-tbl-word" data-wb-act="dp-tbl-edit" data-wb-block="' + escA(b.id) + '" title="' + escA(t('workbench.dp.tbl_edit')) + '">' + esc(t('workbench.dp.tbl_as_text')) + '</button>'
           + '<button type="button" class="wb-dp-img-al wb-dp-img-del" data-wb-act="dp-del" data-wb-block="' + escA(b.id) + '" title="' + escA(t('workbench.dp.del')) + '" aria-label="' + escA(t('workbench.dp.del')) + '">&#10005;</button></span>')
       + '</div>'
+  }
+
+  /** #992: open / close the bar of one table (all others close). `bid` null: close every bar. */
+  function dpTblMenu(bid) {
+    var all = document.querySelectorAll('.wb-dp-page [data-wb-tbl-block]')
+    for (var i = 0; i < all.length; i++) {
+      var open = all[i].getAttribute('data-wb-tbl-block') === bid && !all[i].classList.contains('is-menu')
+      all[i].classList.toggle('is-menu', open)
+      var btn = all[i].querySelector('.wb-dp-tbl-menu')
+      if (btn) btn.setAttribute('aria-expanded', String(open))
+    }
+  }
+
+  // A press anywhere but on the open bar or its button closes it; so does Escape.
+  document.addEventListener('mousedown', function (e) {
+    if (e.target && typeof e.target.closest === 'function' && e.target.closest('.wb-dp-tbl.is-menu > .wb-dp-img-tools, .wb-dp-tbl-menu')) return
+    dpTblMenu(null)
+  }, true)
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dpTblMenu(null) }, true)
+
+  function dpTblOpBtn(bid, op, key) {
+    return '<button type="button" class="wb-dp-img-al wb-dp-tbl-word" data-wb-act="dp-tbl-op" data-wb-tbl-op="' + op + '" data-wb-block="' + escA(bid) + '">' + esc(t(key)) + '</button>'
   }
 
   /** Left/right with a full-width table would change nothing, so the first align click also narrows it to a half. */
@@ -15377,6 +15559,8 @@
   }
 
   function dpTableSave(bid, width, align) {
+    // #992: what was just typed in a cell goes out first, else this change would put the older lines back.
+    if (WB.dpDirty || WB.dpSaving) { dpFlush().then(function () { if (!WB.dpDirty) dpTableSave(bid, width, align) }); return }
     var b = dpImageBlock(bid)
     if (!b) return
     var cur = dpTableParts(b.text)
@@ -15389,6 +15573,7 @@
 
   /** #521: put a picture / table at a free place of the page (x, y in percent of the text width). */
   function dpFreeSave(bid, x, y) {
+    if (WB.dpDirty || WB.dpSaving) { dpFlush().then(function () { if (!WB.dpDirty) dpFreeSave(bid, x, y) }); return }
     var b = dpImageBlock(bid)
     if (!b) return
     var text
@@ -15418,6 +15603,7 @@
   }
 
   function dpTblEdit(bid) {
+    if (WB.dpDirty || WB.dpSaving) { dpFlush().then(function () { if (!WB.dpDirty) dpTblEdit(bid) }); return }
     WB.dpTblEdit = bid
     WB.dpTblEditAt = Date.now()
     render()
@@ -17704,7 +17890,17 @@
       if (!cur) begin(n.getAttribute('data-wb-sec'), '', null)
       if (k !== 'block' && k !== 'new') {
         var iid = n.getAttribute('data-wb-img-block') || n.getAttribute('data-wb-tbl-block')
-        if (iid) { cur.blocks.push({ id: iid }); els.push({ el: n, si: secs.length - 1, bi: cur.blocks.length - 1, island: true }) }
+        if (iid) {
+          var ient = { id: iid }
+          // #992: a table whose cells were typed in sends its new lines (its size and place stay as stored).
+          var typed = n.getAttribute('data-wb-tbl-text')
+          var itb = typed === null ? null : findBlock(iid)
+          if (itb) {
+            var itp = dpTableParts(itb.text)
+            if (typed !== itp.text) ient.text = dpTableText(typed.trim() ? typed : DP_BLANK, itp.width, itp.align, itp.x, itp.y, itp.over)
+          }
+          cur.blocks.push(ient); els.push({ el: n, si: secs.length - 1, bi: cur.blocks.length - 1, island: true })
+        }
         continue
       }
       var bid = n.getAttribute('data-wb-block') || ''
@@ -17905,6 +18101,8 @@
 
   /** A render() hivja a kirajzolas elott / utan: a gepeles kozbeni ujrarajzolas ne vegye el a fokuszt. */
   function dpFocusSnapshot() {
+    var f = document.activeElement
+    if (f && f.id && typeof f.getAttribute === 'function' && f.getAttribute('data-wb-cell')) return { id: f.id, off: dpCaret(f), cell: true }
     var a = dpCurrent()
     if (a && a.id) return { id: a.id, off: dpCaret(a) }
     return null
@@ -17915,7 +18113,8 @@
     if (!want) return
     var el = document.getElementById(want.id)
     if (!el) return
-    dpFocusRoot()
+    if (want.cell) el.focus({ preventScroll: true })
+    else dpFocusRoot()
     if (want.select) {
       try { var sel = window.getSelection(); var r = document.createRange(); r.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(r) } catch (_e) { /* nem baj */ }
     } else dpPlaceCaret(el, want.end ? null : want.off)
@@ -23634,6 +23833,8 @@
     if (a === 'dp-add') dpMenuOpen('add', bid, sid)
     else if (a === 'dp-handle') dpMenuOpen('handle', bid, sid)
     else if (a === 'dp-tbl-edit') dpTblEdit(bid)
+    else if (a === 'dp-tbl-op') dpTblOp(bid, act.getAttribute('data-wb-tbl-op'))
+    else if (a === 'dp-tbl-menu') dpTblMenu(bid)
     else if (a === 'dp-img-align') dpImageSave(bid, null, act.getAttribute('data-wb-align'))
     else if (a === 'dp-img-mode') dpImageMode(bid, act.getAttribute('data-wb-mode'))
     else if (a === 'dp-tbl-align') dpTableAlign(bid, act.getAttribute('data-wb-align'))
@@ -23679,6 +23880,8 @@
 
   document.addEventListener('input', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function') return
+    var cell = e.target.closest('.wb-dp-page [data-wb-cell]')
+    if (cell) dpTblCellSync(cell)
     if (e.target.closest('.wb-dp-page[contenteditable="true"]')) dpMarkDirty()
     // #649: the grid under an open table's lines follows what is typed.
     var tf = dpCurrent()
@@ -23771,6 +23974,8 @@
     if (!WB.open || e.isComposing) return
     var host = e.target && typeof e.target.closest === 'function' ? e.target.closest('.wb-dp-page[contenteditable="true"]') : null
     if (!host) return
+    var cell = e.target.closest('[data-wb-cell]')
+    if (cell) { dpTblCellKey(e, cell); return }
     var el = dpCurrent()
     if (e.key === 'Escape') {
       WB.docMenu = null
@@ -24367,6 +24572,13 @@
   // Beillesztes: mindig sima szoveg (a masolt formazas nem kerul a vazlatba); tobb sor = tobb bekezdes.
   document.addEventListener('paste', function (e) {
     if (!WB.open) return
+    var cell = e.target && typeof e.target.closest === 'function' ? e.target.closest('.wb-dp-page [data-wb-cell]') : null
+    if (cell && e.clipboardData && e.clipboardData.getData('text/plain')) {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      document.execCommand('insertText', false, e.clipboardData.getData('text/plain').replace(/[\r\n\t]+/g, ' ').trim())
+      return
+    }
     var el = dpField(e)
     if (!el || !e.clipboardData) return
     var txt = e.clipboardData.getData('text/plain')
@@ -24530,6 +24742,7 @@
 
   /** #566: switch a picture between the two modes; it stays where it stands on the page. */
   function dpImageMode(bid, mode) {
+    if (WB.dpDirty || WB.dpSaving) { dpFlush().then(function () { if (!WB.dpDirty) dpImageMode(bid, mode) }); return }
     var b = dpImageBlock(bid)
     if (!dpPlaceIs(b)) return
     var cur = dpPlaceParts(b)
@@ -24602,6 +24815,8 @@
   function dpImgCtxClose() { var m = document.getElementById('wbDpImgCtx'); if (m) m.remove() }
   document.addEventListener('contextmenu', function (e) {
     if (!WB.open || !e.target || typeof e.target.closest !== 'function' || archived()) return
+    // #992: in a table cell the browser's own menu (copy, paste, spelling) comes up.
+    if (e.target.closest('[data-wb-cell]')) return
     var fig = e.target.closest('[data-wb-img-block], [data-wb-tbl-block]')
     if (!fig) return
     var bid = fig.getAttribute('data-wb-img-block') || fig.getAttribute('data-wb-tbl-block')
