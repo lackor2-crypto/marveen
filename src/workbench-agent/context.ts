@@ -112,7 +112,7 @@ function assetsLine(itemId: string): string {
     : d.status === 'done' ? `, document: ${d.pages_total} page(s)${d.low_pages.length ? `, hard to read: p. ${d.low_pages.join(', ')}` : ''} (document.pages / document.read)`
     : d.status === 'failed' ? ', document: reading failed (document.pages says why)'
     : ', document: being read now'
-  const shown = assets.slice(0, MAX_ASSETS_IN_CONTEXT).map((a) => `${a.project_path || a.path} [${a.support}${docNote(a.doc)}${a.shared ? ', shared (linked from the project shared materials)' : ''}${a.present ? '' : ', MISSING from disk'}]`)
+  const shown = assets.slice(0, MAX_ASSETS_IN_CONTEXT).map((a) => `${a.project_path || a.path} [${a.support}${a.transcript ? `, transcript: ${a.transcript.state}` : ''}${docNote(a.doc)}${a.shared ? ', shared (linked from the project shared materials)' : ''}${a.present ? '' : ', MISSING from disk'}]`)
   const more = assets.length > shown.length ? ` ... and ${assets.length - shown.length} more (workItem.listAssets)` : ''
   return `materials (${assets.length}): ${shown.join('; ')}${more}`
 }
@@ -231,7 +231,7 @@ export async function buildContext(
       ? `Context file of this work item (${cf.rel})${split.rest.length > 4000 ? ', first 4000 characters' : ''}:\n${split.rest.slice(0, 4000)}`
       : 'Context file of this work item: there is none yet. Make it with context.append as soon as you learn something about the task.')
     if (split && split.extraction) {
-      add('item_uploads', `Read-out content of the files uploaded to this work item (automatic OCR / text read; trust it as what the files say, and USE it: if a file contradicts what the owner said, point it out). A file marked as not readable you must read yourself and then write what it says into the context file with context.append.${split.extraction.length > 14000 ? ' (first 14000 characters)' : ''}\n${split.extraction.slice(0, 14000)}`)
+      add('item_uploads', `Read-out content of the files uploaded to this work item (automatic OCR / text read; trust it as what the files say, and USE it: if a file contradicts what the owner said, point it out). A file marked as not readable you must read yourself and then write what it says into the context file with context.append.${split.extraction.length > 14000 ? ' (first 14000 characters; read the rest from the context file with file.read, offset)' : ''}\n${split.extraction.slice(0, 14000)}`)
     }
   }
 

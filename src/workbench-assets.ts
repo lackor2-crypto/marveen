@@ -27,6 +27,7 @@
  * A regi fajl SOSE VESZ EL: a Marveen tovabbra sem ir felul semmit
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
+import { isOwnOutputPath, isSpeechKind, recogniserInstalled, transcriptInfo, type TranscriptInfo } from './workbench-media-state.js'
 import { drainSteps, drainStepsYielding, type Steps } from './yielding.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -112,7 +113,8 @@ export function ensureAssetTables(): void {
  *  - `usable`           a tartalmat nem olvassa, de felhasznalhato (kep a vasznon,
  *                       video a lejatszoban, PDF/office az elonezetben)
  *  - `needs_processor`  feltoltheto, de a tartalom ertelmezesehez kulon
- *                       feldolgozo kell, ami meg nincs (hang, beszedfelismeres)
+ *                       feldolgozo kell, ami ezen a gepen nincs (hang: #986 ota a
+ *                       helyi beszedfelismero irja at, ha telepitve van)
  *  - `unsupported`      nem toltjuk fel (futtathato fajl)
  */
 export type AssetSupport = 'readable' | 'usable' | 'needs_processor' | 'unsupported'
@@ -1967,6 +1969,8 @@ export interface WorkItemAssetView extends WorkItemAssetRow {
   present: boolean
   /** A projekt kozos taraban all (K-0.19): hivatkozas, nem a munkadarab sajat fajlja. */
   shared: boolean
+  /** #986: hang / video: hol tart a beszed atirata (nincs mezo, ha meg nem neztuk). */
+  transcript?: TranscriptInfo
 }
 
 /** Egy iratkent olvashato anyag (PDF, irodai fajl, fotozott irat, e-mail) olvasasi allapota (1/A). */
@@ -1999,7 +2003,12 @@ function assetViewOfRow(r: WorkItemAssetRow, project: ProjectRow | undefined, sh
   try { present = !!abs && statSync(abs).isFile() } catch { present = false }
   const shared = !!sharedPrefix && r.path.startsWith(sharedPrefix) && !r.path.slice(sharedPrefix.length).includes('/')
   // A tamogatasi allapot a fajl nevebol jon: egy regebben felvett sor is a mai tudast mutatta.
-  return { ...r, support: assetSupport(r.name), project_path: project ? projectRelative(project, r.path) : '', present, shared }
+  // #986: where the transcript of a recording stands; with the recogniser installed a sound file needs nothing more.
+  // Nothing is read out of our own finished outputs, nor in an archived / closed project: no transcript state there.
+  const transcribed = present && !!abs && isSpeechKind(r.name) && !isOwnOutputPath(r.path) && !!project && project.archived_at === null && project.status !== 'closed'
+  const transcript = transcribed ? transcriptInfo(r.work_item_id, abs as string) : null
+  const support = isSpeechKind(r.name) && recogniserInstalled() ? 'usable' : assetSupport(r.name)
+  return { ...r, support, ...(transcript ? { transcript } : {}), project_path: project ? projectRelative(project, r.path) : '', present, shared }
 }
 
 function sharedPrefixOf(project: ProjectRow | undefined): string | null {

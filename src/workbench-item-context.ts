@@ -34,6 +34,7 @@ import { CONTEXT_PREFIX_HU, CONTEXT_PREFIX_EN, isContextFileName } from './workb
 import { listItemTodos } from './workbench-todos.js'
 import { isDebateReportTitle } from './debate-report-title.js'
 import { extractionBlockLines, readNewMaterials, type MaterialFile } from './workbench-upload-extract.js'
+import { speechInstalled } from './workbench-media-transcript.js'
 import { drainSteps, drainStepsYielding, type Steps } from './yielding.js'
 import { gatedInterval, gatedTimeout } from './background-gate.js'
 import { applySendPatch, emptySendDetails, ensureSendBlockText, keepSendBlock, parseSendDetails, renderSendDetails, type SendDetails, type SendPatch } from './workbench-send-block.js'
@@ -174,6 +175,26 @@ function* inventoryLinesSteps(project: ProjectRow, dirAbs: string, ownName: stri
   return lines
 }
 
+/**
+ * #986: the materials that were ADDED to the item from somewhere else (linked from the Life tree or the shared folder) are
+ * not in the item's own folder, so the walk above does not meet them; their content is read out all the same.
+ */
+function* linkedMaterialSteps(itemId: string, dirRel: string, files: MaterialFile[], lines: string[]): Steps<void> {
+  let rows: { path: string }[] = []
+  try { rows = getDb().prepare('SELECT path FROM work_item_assets WHERE work_item_id = ? AND removed_at IS NULL ORDER BY path').all(itemId) as { path: string }[] } catch { return }
+  const walked = new Set(files.map((f) => `${dirRel}/${f.rel}`))
+  const seen = new Set(files.map((f) => f.abs))
+  for (const r of rows) {
+    if (walked.has(r.path)) continue
+    const abs = resolveLifePath(r.path)
+    yield
+    if (!abs || seen.has(abs) || isContextFileName(basename(abs)) || isTodoFileName(basename(abs)) || !existsSync(abs)) continue
+    seen.add(abs)
+    files.push({ rel: r.path, abs })
+    lines.push(`- ${ol('Hozzáadott anyag', 'Added material')}: ${r.path}`)
+  }
+}
+
 function blockText(lines: string[], extra: string[] = []): string {
   const head = `## ${ol('Anyagok (automatikus lista, ne szerkeszd)', 'Materials (automatic list, do not edit)')}`
   return [BLOCK_BEGIN, head, ...(lines.length ? lines : [ol('(még nincs fájl)', '(no file yet)')]), ...(extra.length ? ['', ...extra] : []), BLOCK_END].join('\n')
@@ -272,6 +293,7 @@ function* refreshInventorySteps(item: WorkItemRow, project: ProjectRow, rel: str
   const ownFolder = !!String(item.folder ?? '').trim()
   const files: MaterialFile[] = []
   const lines = yield* inventoryLinesSteps(project, dir.abs, basename(abs), ownFolder, files)
+  yield* linkedMaterialSteps(item.id, dir.rel, files, lines)
   // #794 (Boss TG 10480): the content of every material, read out, sits in the same machine block.
   const next = ensureSendBlockText(withBlock(text, blockText(lines, extractionBlockLines(item.id, files))), ol)
   if (next === text) return
@@ -372,9 +394,17 @@ export async function readItemMaterials(item: WorkItemRow, project: ProjectRow, 
   const abs = row && row.rel ? resolveLifePath(row.rel) : null
   if (!row || !row.rel || !abs || !dir || !existsSync(abs)) return 0
   const files: MaterialFile[] = []
-  await drainStepsYielding(inventoryLinesSteps(project, dir.abs, basename(abs), !!String(item.folder ?? '').trim(), files), 4)
-  const n = await readNewMaterials(item.id, files, limit)
-  if (n) await drainStepsYielding(refreshInventorySteps(item, project, row.rel), 4)
+  const lines = await drainStepsYielding(inventoryLinesSteps(project, dir.abs, basename(abs), !!String(item.folder ?? '').trim(), files), 4)
+  await drainStepsYielding(linkedMaterialSteps(item.id, dir.rel, files, lines), 4)
+  const rel = row.rel
+  const refresh = async (): Promise<void> => {
+    const now = getWorkItem(item.id)
+    const pr = getProject(project.id)
+    const file = readRow(item.id)?.rel || rel
+    if (now && pr) await drainStepsYielding(refreshInventorySteps(now, pr, file), 4)
+  }
+  const n = await readNewMaterials(item.id, files, limit, refresh)
+  if (n) await refresh()
   return n
 }
 
@@ -435,14 +465,29 @@ export function isFullSweepDue(last: number, now = Date.now()): boolean { return
 export function itemNeedsLightPass(updatedAt: number, hasRow: boolean, now = Date.now(), nameChanged = false): boolean {
   return !hasRow || nameChanged || now - updatedAt * 1000 <= RECENT_ITEM_MS
 }
+/** #986: items that got a material lately -- adding one does not touch the item row, and its content must not wait an hour. */
+function recentlyGivenMaterials(now = Date.now()): Set<string> {
+  try {
+    const rows = getDb().prepare('SELECT DISTINCT work_item_id AS id FROM work_item_assets WHERE removed_at IS NULL AND created_at >= ?')
+      .all(Math.floor((now - RECENT_ITEM_MS) / 1000)) as { id: string }[]
+    return new Set(rows.map((r) => r.id))
+  } catch { return new Set() }
+}
+
+let recogniserWas: boolean | null = null
 /** Every item of every open project. Yields between items: the depot can sit on a slow mount. */
 export async function sweepItemContexts(opts: { full?: boolean } = {}): Promise<{ items: number; created: number; renamed: number; json: number }> {
   const out = { items: 0, created: 0, renamed: 0, json: 0 }
   if (running) return out
   running = true
   let reads = 0
-  const full = opts.full === true || isFullSweepDue(lastFullSweep)
   ensureTable()
+  // #986: the recogniser was installed since the last pass: the waiting recordings must not wait for the hourly one.
+  const recogniser = speechInstalled()
+  const justInstalled = recogniser && recogniserWas === false
+  recogniserWas = recogniser
+  const full = opts.full === true || justInstalled || isFullSweepDue(lastFullSweep)
+  const justAdded = full ? new Set<string>() : recentlyGivenMaterials()
   try {
     for (const p of listProjects({ includeArchived: false })) {
       if (p.status === 'closed') continue
@@ -451,7 +496,7 @@ export async function sweepItemContexts(opts: { full?: boolean } = {}): Promise<
       for (const item of listWorkItems(project.id)) {
         if (!full) {
           const row = readRow(item.id) // database only, no disk
-          if (!itemNeedsLightPass(item.updated_at, !!row, Date.now(), !!row && row.stem !== itemStem(item.title))) continue
+          if (!itemNeedsLightPass(item.updated_at, !!row, Date.now(), !!row && row.stem !== itemStem(item.title)) && !justAdded.has(item.id)) continue
         }
         try {
           const r = await drainStepsYielding(reconcileItemContextSteps(item, project), 4)
@@ -459,7 +504,8 @@ export async function sweepItemContexts(opts: { full?: boolean } = {}): Promise<
           if (r.created) out.created++
           if (r.renamed) out.renamed++
           out.json += r.json
-          if (reads < SWEEP_READS_MAX) reads += await readItemMaterials(item, project, Math.min(3, SWEEP_READS_MAX - reads))
+          // With the budget used up the recordings still go in line (they are read in the background).
+          reads += await readItemMaterials(item, project, Math.max(0, Math.min(3, SWEEP_READS_MAX - reads)))
         } catch (err: any) {
           logger.warn({ item: item.id, err: String(err?.message || err) }, '[item-context] item skipped')
         }
