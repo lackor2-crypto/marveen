@@ -144,14 +144,31 @@ export function pdfInfo(absPath: string): PdfInfo | null {
 const WANTED_OCR_LANGS = ['hun', 'deu', 'eng']
 let ocrLangCache: string | null = null
 
+function pickOcrLanguages(listing: string | null): string {
+  if (listing === null) return ''
+  const have = new Set(listing.split(/\r?\n/).map((l) => l.trim()).filter(Boolean))
+  const langs = WANTED_OCR_LANGS.filter((l) => have.has(l))
+  return langs.length ? langs.join('+') : (have.has('eng') ? 'eng' : '')
+}
+
+/** Fills the language cache without blocking, so the boot never waits on `tesseract --list-langs` (#988). */
+export function primeOcrLanguages(): Promise<void> {
+  return new Promise((resolve) => {
+    const exe = ocrLangCache === null ? which('tesseract') : null
+    if (!exe) return resolve()
+    try {
+      execFile(exe, ['--list-langs'], { timeout: TOOL_TIMEOUT_MS, encoding: 'utf8', env: toolEnv('tesseract') }, (err, stdout) => {
+        ocrLangCache ??= pickOcrLanguages(err ? null : stdout)
+        resolve()
+      })
+    } catch { resolve() }
+  })
+}
+
 /** The `-l` argument for tesseract (`hun+eng`...), or '' if none is usable. */
 export function ocrLanguages(): string {
   if (ocrLangCache !== null) return ocrLangCache
-  const out = run('tesseract', ['--list-langs'])
-  if (out === null) { ocrLangCache = ''; return '' }
-  const have = new Set(out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean))
-  const langs = WANTED_OCR_LANGS.filter((l) => have.has(l))
-  ocrLangCache = langs.length ? langs.join('+') : (have.has('eng') ? 'eng' : '')
+  ocrLangCache = pickOcrLanguages(run('tesseract', ['--list-langs']))
   return ocrLangCache
 }
 

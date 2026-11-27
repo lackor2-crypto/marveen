@@ -331,8 +331,8 @@ describe('az onellenorzes eszreveszi, ha a meres elromlik', () => {
     // A hivas letet nezzuk, nem a sor tordeleset: a lista azota tobb
     // elemure nott (git-lehuzas, gepi kartyak, MCP), es egy formazasi
     // valtozas nem buktathat meg egy tartalmi allitast.
-    const fn = health.slice(health.indexOf('export function systemHealth('))
-    expect(fn.slice(0, fn.indexOf('return rows'))).toContain('...upstreamRows(now)')
+    const fn = health.slice(health.indexOf('function healthSteps('))
+    expect(fn.slice(0, fn.indexOf('function finishHealth('))).toContain('() => upstreamRows(now)')
     const ids = systemHealth().map(r => r.id)
     expect(ids.some(i => i.startsWith('upstream_')), 'a systemHealth nem ad upstream sort').toBe(true)
   })

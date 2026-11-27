@@ -40,7 +40,7 @@ import {
 import { suggestAccountId } from '../google-accounts.js'
 import { runGoogleLiveCheckOnce, markGoogleLiveOk, recordGoogleLiveProbe } from '../google-live-check.js'
 import { credentialExpiries, worstExpiryStatus } from '../credential-expiry.js'
-import { systemHealth, worstHealthStatus } from '../system-health.js'
+import { systemHealthAsync, worstHealthStatus } from '../system-health.js'
 import {
   mcpStatus,
   refreshMcpStatus,
@@ -254,7 +254,7 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
     // 2026-08-19: "barmi ami elromolhat arra tegyunk ellenorzest." Measured the
     // same hour: the automatic backup had been running successfully for weeks
     // while carrying none of the credentials a restore needs.
-    const health = systemHealth()
+    const health = await systemHealthAsync()
     const healthWorst = worstHealthStatus(health)
     json(res, {
       google: {

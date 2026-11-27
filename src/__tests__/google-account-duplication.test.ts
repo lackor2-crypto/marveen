@@ -293,7 +293,7 @@ describe('ha a duplikatum megis eloall, az Attekintes SZOL', () => {
   it('a sor be van kotve az Attekintes onellenorzesebe, mindket nyelven', () => {
     const health = readFileSync(join(PROJECT_ROOT, 'src', 'web', 'system-health.ts'), 'utf8')
     expect(health, 'a fuggveny letezese onmagaban semmit nem er, ha senki nem hivja')
-      .toContain('...googleDuplicateRows(),')
+      .toContain('() => googleDuplicateRows(),')
     for (const f of ['hu.js', 'en.js']) {
       const lang = readFileSync(join(PROJECT_ROOT, 'web', 'lang', f), 'utf8')
       expect(lang, f).toContain("'health.google_dup':")
