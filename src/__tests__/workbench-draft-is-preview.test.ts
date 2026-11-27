@@ -11,7 +11,9 @@ describe('#841 the draft page takes the same room as the preview page', () => {
   it('the new-line rows beside pictures and tables take no layout height until focused', () => {
     expect(css).toMatch(/\.wb-dp-tailrow\s*\{[^}]*height:\s*0/)
     expect(css).toMatch(/\.wb-dp-tailrow\s*>\s*\.wb-dp-tail\s*\{[^}]*position:\s*absolute/)
-    expect(css).toMatch(/\.wb-dp-tailrow\.is-cur\s*>\s*\.wb-dp-tail\s*\{[^}]*position:\s*static/)
+    // #992: the row takes room only once it holds something -- a click alone opens nothing
+    expect(css).toMatch(/\.wb-dp-tailrow\.is-cur:has\(> \.wb-dp-tail:not\(:empty\)\)\s*>\s*\.wb-dp-tail\s*\{[^}]*position:\s*static/)
+    expect(css).not.toMatch(/\.wb-dp-tailrow\.is-cur\s*\{/)
     // the old rule that gave every tail row a line of its own is gone
     expect(css).not.toMatch(/\.wb-dp-tail\s*\{\s*min-height:\s*1\.6em;\s*\}/)
   })
@@ -22,7 +24,7 @@ describe('#841 the draft page takes the same room as the preview page', () => {
   // opens on THAT.
   it('the strip opens on the cursor row marker (.is-cur), not on :focus-within (the page is one editing host)', () => {
     expect(css).not.toMatch(/\.wb-dp-tailrow:focus-within/)
-    expect(css).toMatch(/\.wb-dp-tailrow\.is-cur\s*\{[^}]*height:\s*auto/)
+    expect(css).toMatch(/\.wb-dp-tailrow\.is-cur:has\(> \.wb-dp-tail:not\(:empty\)\)\s*\{[^}]*height:\s*auto/)
     // --wb-lh is a UNITLESS number (1.6): `min-height: var(--wb-lh, 1.6em)` is invalid then and the opened empty row was ~2px high
     // (measured); the line height must be built as calc(var(--wb-lh, 1.6) * 1em) like .wb-dp-edit does.
     expect(css).toMatch(/\.wb-dp-tailrow\.is-cur\s*>\s*\.wb-dp-tail\s*\{[^}]*min-height:\s*calc\(var\(--wb-lh,\s*1\.6\)\s*\*\s*1em\)/)
