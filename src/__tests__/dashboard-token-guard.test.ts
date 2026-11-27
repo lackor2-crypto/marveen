@@ -296,6 +296,6 @@ describe('the dashboard actually runs the guard', () => {
 
   it('the self-check includes the guard rows', () => {
     const health = readFileSync(join(__dirname, '..', 'web', 'system-health.ts'), 'utf-8')
-    expect(health).toContain('...dashboardTokenGuardRows(now),')
+    expect(health).toContain('() => dashboardTokenGuardRows(now),')
   })
 })

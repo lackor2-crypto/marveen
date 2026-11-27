@@ -1,4 +1,5 @@
-import { statSync, readdirSync, existsSync, realpathSync } from 'node:fs'
+import { readdir, stat } from 'node:fs/promises'
+import { existsSync, realpathSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { createReadStream } from 'node:fs'
@@ -41,15 +42,15 @@ interface AgentTranscriptSource {
 // resolveAgentConfigDirForRead() already uses: the isolated dir is found by
 // probing the filesystem, so the probe root has to be redirectable to a
 // fixture. Production callers pass nothing.
-export function discoverAgentSources(projectRootOverride?: string): AgentTranscriptSource[] {
+export async function discoverAgentSources(projectRootOverride?: string): Promise<AgentTranscriptSource[]> {
   const sources: AgentTranscriptSource[] = []
   if (!existsSync(PROJECTS_DIR)) return sources
   const mainDirName = encodeProjectPath(PROJECT_ROOT)
-  for (const entry of readdirSync(PROJECTS_DIR)) {
+  for (const entry of await readdir(PROJECTS_DIR)) {
     const full = join(PROJECTS_DIR, entry)
-    let stat
-    try { stat = statSync(full) } catch { continue }
-    if (!stat.isDirectory()) continue
+    let info
+    try { info = await stat(full) } catch { continue }
+    if (!info.isDirectory()) continue
 
     // sanitizeAgentName() allows [a-z0-9-], so the old /([a-z]+)$/ silently
     // skipped every agent with a digit or a hyphen in its name -- the whole
@@ -107,12 +108,12 @@ export function discoverAgentSources(projectRootOverride?: string): AgentTranscr
     // where attribution comes from the encoded directory name.
     if (resolvesToSharedProjectsRoot(isolatedProjects)) continue
     let entries: string[]
-    try { entries = readdirSync(isolatedProjects) } catch { continue }
+    try { entries = await readdir(isolatedProjects) } catch { continue }
     for (const entry of entries) {
       const full = join(isolatedProjects, entry)
-      let stat
-      try { stat = statSync(full) } catch { continue }
-      if (!stat.isDirectory()) continue
+      let info
+      try { info = await stat(full) } catch { continue }
+      if (!info.isDirectory()) continue
       // Attribution comes from WHOSE config dir this is, not from the encoded
       // project name: an agent's isolated dir holds only that agent's work.
       if (sources.some((s) => s.agent === name && s.projectDir === full)) continue
@@ -163,28 +164,28 @@ export function discoverAgentSources(projectRootOverride?: string): AgentTranscr
   return sources
 }
 
-function findJsonlFiles(dir: string): string[] {
+// #988: asynchronous -- walking thousands of transcripts with blocking calls held the main thread at boot.
+async function findJsonlFiles(dir: string): Promise<string[]> {
   const files: string[] = []
-  if (!existsSync(dir)) return files
 
-  function scanDir(d: string) {
+  async function scanDir(d: string): Promise<void> {
     let entries: string[]
-    try { entries = readdirSync(d) } catch { return }
+    try { entries = await readdir(d) } catch { return }
     for (const entry of entries) {
       const full = join(d, entry)
       if (entry.endsWith('.jsonl')) {
         files.push(full)
       } else {
-        let stat
-        try { stat = statSync(full) } catch { continue }
-        if (stat.isDirectory()) {
-          scanDir(full)
+        let info
+        try { info = await stat(full) } catch { continue }
+        if (info.isDirectory()) {
+          await scanDir(full)
         }
       }
     }
   }
 
-  scanDir(dir)
+  await scanDir(dir)
   return files
 }
 
@@ -327,7 +328,7 @@ async function parseJsonlFile(
 
 export async function collectTokenUsage(): Promise<{ inserted: number; files: number }> {
   const db = getDb()
-  const sources = discoverAgentSources()
+  const sources = await discoverAgentSources()
   let totalInserted = 0
   let totalFiles = 0
 
@@ -343,10 +344,10 @@ export async function collectTokenUsage(): Promise<{ inserted: number; files: nu
   `)
 
   for (const source of sources) {
-    const files = findJsonlFiles(source.projectDir)
+    const files = await findJsonlFiles(source.projectDir)
     for (const file of files) {
       let fileSize: number
-      try { fileSize = statSync(file).size } catch { continue }
+      try { fileSize = (await stat(file)).size } catch { continue }
 
       const cursor = getCursor.get(file) as { last_line: number; last_size: number } | undefined
       if (cursor && cursor.last_size === fileSize) continue

@@ -65,7 +65,7 @@ describe('discoverAgentSources and the main agent isolated config dir', () => {
 
   it('finds the live isolated dir as well as the shared one, both booked to the main agent', async () => {
     const { discoverAgentSources } = await import('../web/token-usage.js')
-    const dirs = discoverAgentSources()
+    const dirs = (await discoverAgentSources())
       .filter((s) => s.agent === 'marveen')
       .map((s) => s.projectDir)
       .sort()
@@ -78,7 +78,7 @@ describe('discoverAgentSources and the main agent isolated config dir', () => {
     roots = [join(HOME, '.claude'), SYMLINKED_CONFIG]
     vi.resetModules()
     const { discoverAgentSources } = await import('../web/token-usage.js')
-    const dirs = discoverAgentSources().filter((s) => s.agent === 'marveen')
+    const dirs = (await discoverAgentSources()).filter((s) => s.agent === 'marveen')
 
     expect(dirs).toHaveLength(1)
     expect(dirs[0].projectDir).toBe(SHARED_MAIN_DIR)

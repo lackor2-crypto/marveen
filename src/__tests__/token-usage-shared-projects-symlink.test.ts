@@ -57,7 +57,7 @@ describe('discoverAgentSources with a symlinked isolated projects dir', () => {
 
   it('attributes each transcript dir to exactly one agent', async () => {
     const { discoverAgentSources } = await import('../web/token-usage.js')
-    const sources = discoverAgentSources()
+    const sources = await discoverAgentSources()
 
     expect(sources.map((s) => [s.agent, s.projectDir]).sort()).toEqual(
       [
@@ -70,7 +70,7 @@ describe('discoverAgentSources with a symlinked isolated projects dir', () => {
 
   it('never hands one agent another agent\'s transcript dir', async () => {
     const { discoverAgentSources } = await import('../web/token-usage.js')
-    const sources = discoverAgentSources()
+    const sources = await discoverAgentSources()
 
     // The defect's signature: each sub-agent ending up with all three
     // dirs, which is what made their totals identical.

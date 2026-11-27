@@ -68,6 +68,8 @@ import { scanInstalledClaude } from './claude-model-discovery.js'
 import { startClaudeCliUpdateScheduler } from './claude-cli-updater.js'
 import { registerDiscoveredClaudeModels } from './config-registry.js'
 import { initVisionAdapters } from './life-vision-adapter.js'
+import { primeOcrLanguages } from './life-inbox-systools.js'
+import { yieldToLoop } from './yield-loop.js'
 import { autoInstallVision } from './vision-install.js'
 import { tryHandleAuth } from './web/routes/auth.js'
 import { tryHandleSecurity } from './web/routes/security.js'
@@ -945,7 +947,10 @@ export function startWebServer(port = 3420): http.Server {
   // utan, `scripts/install-vision.sh`), koti be a valodi adaptereket -- ha
   // nincs (friss telepites), csendben az alapertelmezett "nincs telepitve"
   // adapterek maradnak, lasd `life-inbox-analyze.ts`.
-  initVisionAdapters()
+  // #988: the language list is asked for without blocking, then the adapters are wired.
+  void primeOcrLanguages()
+    .then(() => initVisionAdapters())
+    .catch((err) => logger.warn({ err }, 'vision adapters could not be wired'))
   // #514: a hianyzo arcfelismerot a dashboard magatol felrakja (hatterben,
   // naponta legfeljebb egy probalkozas) -- nem kell a Varazslo gombja.
   if (!webOnly && !process.env.VITEST) autoInstallVision()
@@ -1002,7 +1007,9 @@ export function startWebServer(port = 3420): http.Server {
   if (!hookDecision.register) {
     logger.info({ reason: hookDecision.reason, projectRoot: PROJECT_ROOT }, 'Hook registration skipped')
   } else {
-    try {
+    // #988: dozens of synchronous file reads per agent. The event loop gets a turn
+    // between agents, so the backfill no longer adds up into one freeze at boot.
+    void (async () => { try {
       const patched: string[] = []
       const stalePatched: string[] = []
       const egressPatched: string[] = []
@@ -1024,6 +1031,7 @@ export function startWebServer(port = 3420): http.Server {
       // Once, not per agent -- see ensureUserPermissionMode for why.
       if (ensureUserPermissionMode()) logger.info('permissions.defaultMode backfilled into ~/.claude/settings.json')
       for (const agentName of [MAIN_AGENT_ID, ...listAgentNames()]) {
+        await yieldToLoop()
         // Self-heal FIRST: drop entries this app previously wrote whose script
         // file no longer exists (e.g. a deleted worktree instance's paths), so
         // the re-registration below lands on a clean, unblocked settings file.
@@ -1173,6 +1181,7 @@ export function startWebServer(port = 3420): http.Server {
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
       // the only file every Claude Code session reads no matter where it runs.
+      await yieldToLoop()
       ensureGlobalAskBackRule()
       ensureGlobalRecheckRule()
       ensureGlobalWakeGreetingRule()
@@ -1182,6 +1191,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalOneCardOneFixRule()
       ensureGlobalAgentIdentityRule()
       ensureGlobalNoLiveTreeRule()
+      await yieldToLoop()
       ensureGlobalCompletionReportRule()
       ensureGlobalKanbanWaitingMoveRule()
       ensureGlobalCardReferenceRule()
@@ -1191,6 +1201,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalBrowserClickthroughRule()
       ensureGlobalFollowReferenceRule()
       ensureGlobalNoHiddenLimitsRule()
+      await yieldToLoop()
       ensureGlobalTestSandboxRule()
       ensureGlobalWebResearchSaveRule()
       ensureGlobalRootCauseFixRule()
@@ -1201,6 +1212,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalLetterHeadRule()
       // #799: hand-written CLAUDE.md sections above 700 bytes move (byte for byte)
       // to ~/.claude/rule-details/, leaving heading + digest + pointer behind.
+      await yieldToLoop()
       try {
         if (!webOnly) compactClaudeMdFile(join(PROJECT_ROOT, 'CLAUDE.md'), 'main')
         compactAgentClaudeMds(join(PROJECT_ROOT, 'agents'))
@@ -1250,6 +1262,7 @@ export function startWebServer(port = 3420): http.Server {
       // Both halves must be clean before claiming parity: the log used to say
       // "verified" while agents were running without the shared skill library,
       // because only the hook drift was consulted (lackor3's review).
+      await yieldToLoop()
       const parity = checkAgentParity()
       // "Verified" is a claim about a MEASUREMENT, not about silence: the skill
       // half used to return an empty list on three blind branches, and this line
@@ -1261,7 +1274,7 @@ export function startWebServer(port = 3420): http.Server {
       }
     } catch (err) {
       logger.warn({ err }, 'Agent hook backfill skipped')
-    }
+    } })()
   }
 
   try {

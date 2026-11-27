@@ -122,7 +122,7 @@ describe('2. kulcs nélküli ágens nem maradhat néma', () => {
 
   it('a sor be van kötve az Áttekintés önellenőrzésébe', () => {
     const sh = readFileSync(join(SRC, 'web', 'system-health.ts'), 'utf-8')
-    expect(sh).toContain('...providerKeyRows(),')
+    expect(sh).toContain('() => providerKeyRows(),')
   })
 })
 

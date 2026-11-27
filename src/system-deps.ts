@@ -22,6 +22,8 @@
  * capability-probe ugyanazt a szabalyt oriz. Amig meg nem mertunk, a pillanatkep
  * `null`: az "nem tudom", nem "minden rendben".
  */
+import { mapLimit } from './map-limit.js'
+import { yieldToLoop } from './yield-loop.js'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
@@ -338,14 +340,17 @@ let monitorStartedAt: number | null = null
  *  (a felulet "Ellenorzes most" gombja, telepites utan). */
 export async function measureSystemDeps(force = false, deps: SystemDep[] = SYSTEM_DEPS): Promise<DepsSnapshot> {
   const pm = detectPkgManager()
-  const probes = await Promise.all(deps.map(async (d) => {
+  // #988: two programs at a time, each started on its own turn -- spawning all of
+  // them in one turn at boot held the main thread for over a second on a busy disk.
+  const probes = await mapLimit(deps, 2, async (d) => {
+    await yieldToLoop()
     try {
       return toResult(d, await measureOne(d, force), pm)
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e)
       return toResult(d, { available: false, path: null, version: null, reason: 'check_failed', detail, checked_at: Date.now() }, pm)
     }
-  }))
+  })
   const snap: DepsSnapshot = { measured_at: Date.now(), pkg_manager: pm, items: probes }
   if (deps === SYSTEM_DEPS) snapshot = snap
   return snap

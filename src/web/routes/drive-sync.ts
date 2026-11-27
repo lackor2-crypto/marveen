@@ -47,7 +47,7 @@ import { logger } from '../../logger.js'
 import { depotAccountDir, depotHealth, depotRoot, DEPOT_DRIVE, DEPOT_SYSTEM_ROOT } from '../../depot.js'
 import { driveDownloadPlan, driveUploadMime, isSafeFolderId } from './drive-browser.js'
 import {
-  recordSyncFailure, loadSyncFailures, clearSyncFailures, failuresAsText, syncFailureRuns,
+  recordSyncFailure, loadSyncFailures, primeSyncFailures, clearSyncFailures, failuresAsText, syncFailureRuns,
   type SyncFailurePhase,
 } from '../../drive-sync-failures.js'
 import {
@@ -2813,6 +2813,7 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   // "19 nem sikerult" szamhoz keresi a neveket, nem az osszes valahai hibahoz.
   // `run=all` a teljes lista, `run=<runId>` egy korabbi futase.
   if (path === '/api/drive/sync/failures' && method === 'GET') {
+    await primeSyncFailures()
     const runs = syncFailureRuns()
     const kert = ctx.url.searchParams.get('run') || 'last'
     const runId = kert === 'all' ? undefined : (kert === 'last' ? (job?.runId || runs[0]?.runId) : kert)

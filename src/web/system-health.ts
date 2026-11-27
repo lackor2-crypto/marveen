@@ -47,8 +47,8 @@
  * shelling out, bounded work (a tar listing is read as a stream, logs are
  * sampled from the tail), so the overview endpoint stays fast.
  */
-import { mapLimit } from '../map-limit.js'
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs'
+import { open, readdir } from 'node:fs/promises'
 import { statfsSync } from 'node:fs'
 import { execFile, execFileSync } from 'node:child_process'
 import { makeLazyBinResolver } from '../platform.js'
@@ -61,7 +61,8 @@ import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-logi
 import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
 import { readMainExpectedEmail, mainAccountVerdict } from './main-account-identity.js'
-import { syncFailureRuns, loadSyncFailures } from '../drive-sync-failures.js'
+import { syncFailureRuns, loadSyncFailures, primeSyncFailures } from '../drive-sync-failures.js'
+import { yieldToLoop } from '../yield-loop.js'
 import { driveApiEnableUrl, driveErrorKind, driveHibaUzenet, DRIVE_ELUTASITAS_RE, type DriveErrorKind } from '../drive-error-kind.js'
 import { loadDriveQuotas } from '../drive-quota.js'
 import { MAX_FOLDERS, MAX_FILES } from '../drive-sync-limits.js'
@@ -319,6 +320,38 @@ export function secretsInLogs(storeDir = STORE_DIR, now = Date.now()): string[] 
   return hits
 }
 
+/** The same scan without holding the main thread (#988: it was 4 of the 8 stack samples of a 3 s freeze). */
+export async function secretsInLogsAsync(storeDir = STORE_DIR, now = Date.now()): Promise<string[]> {
+  if (logMemo && logMemo.dir === storeDir && now - logMemo.at < LOG_SCAN_TTL_MS) return logMemo.value
+  const hits: string[] = []
+  let names: string[]
+  try { names = await readdir(storeDir) } catch { return hits }
+  for (const name of names) {
+    if (!name.endsWith('.log')) continue
+    if (SECRET_IN_LOG.test(await tailAsync(join(storeDir, name), TAIL_BYTES))) hits.push(name)
+    await yieldToLoop()
+  }
+  logMemo = { at: now, dir: storeDir, value: hits }
+  return hits
+}
+
+async function tailAsync(path: string, bytes: number): Promise<string> {
+  let fh: Awaited<ReturnType<typeof open>> | null = null
+  try {
+    fh = await open(path, 'r')
+    const { size } = await fh.stat()
+    const len = Math.min(bytes, size)
+    if (len === 0) return ''
+    const buf = Buffer.allocUnsafe(len)
+    const { bytesRead } = await fh.read(buf, 0, len, size - len)
+    return buf.toString('utf8', 0, bytesRead)
+  } catch {
+    return ''
+  } finally {
+    if (fh) await fh.close().catch(() => { /* already closed */ })
+  }
+}
+
 function diskRow(): HealthRow | null {
   try {
     const s = statfsSync(PROJECT_ROOT)
@@ -503,10 +536,28 @@ const LOGIN_PROBE_TTL_MS = 60_000
 const loginProbeCache = new Map<string, { st: NamedCred; at: number }>()
 const loginProbeInFlight = new Map<string, Promise<NamedCred>>()
 
+// #943/#988: every expired row asked for a refresh in the same turn, and the
+// spawns (5-155 ms of main thread each) added up into one freeze.
+const PROBE_SLOTS = 2
+let probeSlotsBusy = 0
+const probeQueue: Array<() => void> = []
+
+async function inProbeSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (probeSlotsBusy < PROBE_SLOTS) probeSlotsBusy++
+  else await new Promise<void>(resolve => probeQueue.push(resolve))
+  try {
+    await yieldToLoop()
+    return await fn()
+  } finally {
+    const next = probeQueue.shift()
+    if (next) next(); else probeSlotsBusy--
+  }
+}
+
 function refreshLoginProbe(configDir: string): Promise<NamedCred> {
   const running = loginProbeInFlight.get(configDir)
   if (running) return running
-  const p = namedLoginProbeAsync(configDir)
+  const p = inProbeSlot(() => namedLoginProbeAsync(configDir))
     .then(st => { loginProbeCache.set(configDir, { st, at: Date.now() }); return st })
     .finally(() => { loginProbeInFlight.delete(configDir) })
   loginProbeInFlight.set(configDir, p)
@@ -530,8 +581,8 @@ export function namedLoginProbeCached(configDir: string, now: number = Date.now(
   return st
 }
 
-/** Inditaskor: minden ismert config-konyvtar probaja a hatterben. */
-export function prewarmLoginProbes(): Promise<unknown> {
+/** Every config dir the self-check asks about. */
+function knownLoginDirs(): string[] {
   const dirs = new Set<string>([join(homedir(), '.claude')])
   const main = resolveMainAgentConfigDir()
   if (main) dirs.add(main)
@@ -542,9 +593,23 @@ export function prewarmLoginProbes(): Promise<unknown> {
       }
     }
   } catch { /* olvashatatlan lista: a sor maga majd jelzi */ }
-  // #943: at most 2 `claude auth status` children at once -- all of them together (6+ on a many-account fleet)
-  // right after a dashboard restart pushed the load to 15 on 8 cores and froze the dashboard for 3 s.
-  return mapLimit([...dirs], 2, d => refreshLoginProbe(d).catch((): NamedCred => 'vak'))
+  return [...dirs]
+}
+
+function probeAll(dirs: string[]): Promise<unknown> {
+  return Promise.all(dirs.map(d => refreshLoginProbe(d).catch((): NamedCred => 'vak')))
+}
+
+/** Inditaskor: minden ismert config-konyvtar probaja a hatterben. */
+export function prewarmLoginProbes(): Promise<unknown> {
+  // #943: at most 2 `claude auth status` children at once (inProbeSlot) -- all of them together (6+ on a
+  // many-account fleet) right after a dashboard restart pushed the load to 15 on 8 cores and froze it for 3 s.
+  return probeAll(knownLoginDirs())
+}
+
+/** Only the dirs never probed yet: without this their first row would run the CLI synchronously. */
+export function primeLoginProbes(): Promise<unknown> {
+  return probeAll(knownLoginDirs().filter(d => !loginProbeCache.has(d)))
 }
 
 /** Csak teszthez. */
@@ -2369,42 +2434,46 @@ function creditRows(now: number): HealthRow[] {
   return openRouterCreditRows(balance, undefined, now)
 }
 
-export function systemHealth(now: number = Date.now()): HealthRow[] {
-  const rows: HealthRow[] = [
-    claudeAuthRow(),
+/** Every row builder, one per entry, in the order they run. */
+function healthSteps(now: number): Array<() => HealthRow[]> {
+  return [
+    () => [claudeAuthRow()],
     // The main agent's drift check must read the SAME dir the agent actually
     // runs on: its explicit MAIN_AGENT_CONFIG_DIR when set, else the shared
     // ~/.claude (unchanged default). Otherwise the drift row watches ~/.claude
     // while the agent runs on an isolated dir -- a false alarm, or worse, silence
     // about a real drift on the dir that matters.
-    ...mainAccountRows(resolveMainAgentConfigDir() ?? join(homedir(), '.claude')),
-    ...namedLoginRows(),
-    ...googleClientRows(),
-    ...vaultBindingRows(),
-    ...providerKeyRows(),
+    () => mainAccountRows(resolveMainAgentConfigDir() ?? join(homedir(), '.claude')),
+    () => namedLoginRows(),
+    () => googleClientRows(),
+    () => vaultBindingRows(),
+    () => providerKeyRows(),
     // Before the optional 'not set up' integrations: this one stops a feature already in use.
-    ...creditRows(now),
-    ...keySlotRows(),
-    ...backupRows(now),
-    ...upstreamRows(now),
-    ...gitPullRows(now),
-    ...raktarRows(),
-    ...driveSyncRows(now, undefined, undefined, depotIrhato()),
-    ...commandTaskRows(undefined, existingScheduleNames()),
-    ...mcpAuthRows(now),
-    ...googleLiveRows(now),
-    ...googleDuplicateRows(),
-    ...codeBridgeRows(now),
-    ...dashboardTokenGuardRows(now),
-    ...skillSeedRows(),
-    ...skillScopeReviewRows(),
-    ...passwordChannelRows(),
-    ...voiceRows(),
-    ...integrationRows(),
-    ...systemDepRows(),
-    ...megaRows(),
+    () => creditRows(now),
+    () => keySlotRows(),
+    () => backupRows(now),
+    () => upstreamRows(now),
+    () => gitPullRows(now),
+    () => raktarRows(),
+    () => driveSyncRows(now, undefined, undefined, depotIrhato()),
+    () => commandTaskRows(undefined, existingScheduleNames()),
+    () => mcpAuthRows(now),
+    () => googleLiveRows(now),
+    () => googleDuplicateRows(),
+    () => codeBridgeRows(now),
+    () => dashboardTokenGuardRows(now),
+    () => skillSeedRows(),
+    () => skillScopeReviewRows(),
+    () => passwordChannelRows(),
+    () => voiceRows(),
+    () => integrationRows(),
+    () => systemDepRows(),
+    () => megaRows(),
   ]
-  const leaks = secretsInLogs()
+}
+
+function finishHealth(rows: HealthRow[], now: number): HealthRow[] {
+  const leaks = secretsInLogs(STORE_DIR, now)
   if (leaks.length > 0) {
     rows.push({ id: 'secret_in_log', status: 'warn', params: { n: leaks.length, files: leaks.join(', ') } })
   }
@@ -2412,6 +2481,37 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
   if (disk) rows.push(disk)
   const order: Record<HealthStatus, number> = { bad: 0, warn: 1, ok: 2 }
   return rows.sort((a, b) => order[a.status] - order[b.status])
+}
+
+export function systemHealth(now: number = Date.now()): HealthRow[] {
+  return finishHealth(healthSteps(now).flatMap(step => step()), now)
+}
+
+let healthRunning: Promise<HealthRow[]> | null = null
+
+/**
+ * The same rows for a request handler (#988). In one synchronous run the check
+ * held the main thread for 3 s: here the slow inputs (log tails, the Drive
+ * failure list, first login probes) are read beforehand without blocking, and
+ * the event loop gets a turn between two row builders. Concurrent callers share
+ * one run.
+ */
+export function systemHealthAsync(now: number = Date.now()): Promise<HealthRow[]> {
+  if (healthRunning) return healthRunning
+  healthRunning = (async () => {
+    await primeLoginProbes()
+    await secretsInLogsAsync(STORE_DIR, now)
+    const rows: HealthRow[] = []
+    for (const step of healthSteps(now)) {
+      await yieldToLoop()
+      // Right before every step: a running Drive sync keeps appending to the list.
+      await primeSyncFailures()
+      rows.push(...step())
+    }
+    await yieldToLoop()
+    return finishHealth(rows, now)
+  })().finally(() => { healthRunning = null })
+  return healthRunning
 }
 
 export function worstHealthStatus(rows: HealthRow[]): HealthStatus {

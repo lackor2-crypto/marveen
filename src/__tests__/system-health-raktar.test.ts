@@ -126,9 +126,9 @@ describe('a sor tenyleg kimegy a felhasznalonak', () => {
   const forras = readFileSync(join(ROOT, 'src', 'web', 'system-health.ts'), 'utf-8')
 
   it('a systemHealth() be is koti -- a fuggveny magaban nem er semmit', () => {
-    expect(forras, 'a raktar-sor nincs bekotve a systemHealth()-be').toContain('...raktarRows(),')
-    const raktar = forras.indexOf('...raktarRows(),')
-    const drive = forras.indexOf('...driveSyncRows(')
+    expect(forras, 'a raktar-sor nincs bekotve a systemHealth()-be').toContain('() => raktarRows(),')
+    const raktar = forras.indexOf('() => raktarRows(),')
+    const drive = forras.indexOf('() => driveSyncRows(')
     expect(raktar, 'a raktar az alap: a Drive-mentes ELE tartozik').toBeLessThan(drive)
   })
 
