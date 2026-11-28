@@ -30,7 +30,7 @@ describe('kod-hid: a mentett es a futo allapot kulon latszik', () => {
     // beallitas-tarolobol kell kerdezni, kulonben a felulet nem tudja
     // megkulonboztetni a ketto elterset.
     expect(code).toContain('savedEnabled')
-    expect(code).toMatch(/savedEnabled: String\(getEffectiveSettingValue\('CODE_BRIDGE_ENABLED'\)\)/)
+    expect(code).toMatch(/savedEnabled: codeBridgeEnabled\(\)/)
   })
 
   it('a kartyan BELUL kimondja, hogy ujrainditasra var', () => {

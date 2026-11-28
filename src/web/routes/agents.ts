@@ -9,7 +9,8 @@ const execAsync = promisify(exec)
 import { logger } from '../../logger.js'
 import { isModelProfileId, MODEL_PROFILE_IDS } from '../../model-profiles.js'
 import { isValidModelId, InvalidModelIdError } from '../../model-id.js'
-import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT, APP_LANG, STORE_DIR, CODE_BRIDGE_ENABLED } from '../../config.js'
+import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT, APP_LANG, STORE_DIR } from '../../config.js'
+import { codeBridgeEnabled } from '../code-bridge-switch.js'
 import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed, getRecentVerificationsForAgent, logConfigChange } from '../../db.js'
 import { computeReliabilityScore, type ReliabilityScore } from '../../agent-reliability.js'
 import { isFreeOpenRouterModel } from '../../openrouter-dispatch-throttle.js'
@@ -1092,7 +1093,8 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         // Boss 2026-09-20). A dontes egy kulon, tisztan tesztelheto fuggvenyben
         // all (`codeBridgeDisplayState`), mert a szoveg-egyeztetes egy
         // route-fajlon nem latja, mi tortenik FUTASKOR.
-        const { state, queuedOnly } = codeBridgeDisplayState(act, CODE_BRIDGE_ENABLED)
+        const bridgeOn = codeBridgeEnabled()
+        const { state, queuedOnly } = codeBridgeDisplayState(act, bridgeOn)
         entries.push({
           name: CODE_BRIDGE_ACTIVITY_ID,
           // Termeknev, mindket nyelven ugyanaz -- nem forditando szoveg.
@@ -1145,7 +1147,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           // #397: one VS Code card per project -- each card reads its OWN row
           // here. A project that is missing is idle; a response without this
           // field (old server) makes the card show nothing, not a guess.
-          projects: codeBridgeProjectDisplayStates(act, CODE_BRIDGE_ENABLED),
+          projects: codeBridgeProjectDisplayStates(act, bridgeOn),
         })
       }
     }

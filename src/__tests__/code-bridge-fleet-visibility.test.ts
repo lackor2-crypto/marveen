@@ -139,7 +139,7 @@ describe('/api/agents/activity: a kod-hid is flotta-tag', () => {
     // tesztelheto fuggvenybe (`codeBridgeDisplayState`) -- a route-fajl
     // szoveg-egyeztetese nem latta, mi tortenik valojaban. A szabaly maga
     // valtozatlan: a puszta "be van kapcsolva es online" nem "dolgozik".
-    expect(route).toContain('codeBridgeDisplayState(act, CODE_BRIDGE_ENABLED)')
+    expect(route).toContain('codeBridgeDisplayState(act, bridgeOn)')
     const alap = codeBridgeActivity()
     const tetlen = { ...alap, present: true, workerOnline: true, liveMeasured: true }
     expect(codeBridgeDisplayState(tetlen, true)).toEqual({ state: 'idle', queuedOnly: false })

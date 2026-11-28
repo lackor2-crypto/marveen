@@ -17,7 +17,12 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
-import { STORE_DIR, CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_ENABLED } from '../config.js'
+import {
+  STORE_DIR,
+  CODE_BOT_TOKEN,
+  CODE_BOT_ALLOWED_CHAT_IDS,
+} from '../config.js'
+import { codeBridgeEnabled } from './code-bridge-switch.js'
 import { resolveOwnerChatId } from '../owner-chat.js'
 import { sendTelegramMessage, validateTelegramToken } from './telegram.js'
 import {
@@ -621,6 +626,9 @@ async function pollOnce(): Promise<void> {
   backoffMs = POLL_MIN_MS
   const data = (await resp.json()) as { ok: boolean; result?: TgUpdate[] }
   if (!data.ok || !Array.isArray(data.result)) return
+  // Switched off while this long poll was waiting: leave the offset alone, so Telegram hands the same messages
+  // over again when the bridge is started.
+  if (stopped) return
 
   const ownerChat = resolveOwnerChatId()
   for (const update of data.result) {
@@ -691,8 +699,9 @@ async function loop(): Promise<void> {
 
 /** No token -> no poller, no error: the bridge works fine over REST alone. */
 export function startCodeBotPoller(): boolean {
-  if (!CODE_BRIDGE_ENABLED || !CODE_BOT_TOKEN) return false
-  if (timer) return true
+  if (!codeBridgeEnabled() || !CODE_BOT_TOKEN) return false
+  // The switch watcher calls this every couple of seconds; during a long poll no timer is pending yet.
+  if (!stopped && (running || timer)) return true
   stopped = false
   backoffMs = POLL_MIN_MS
   logger.info('code-bot: Telegram poller started (dedicated /code bot)')

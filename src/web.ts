@@ -79,9 +79,8 @@ import { tryHandleFederation } from './web/routes/federation.js'
 import { startFederationPoller } from './web/federation/poller.js'
 import { startCapabilitySummaryRunner } from './web/federation/capability-runner.js'
 import { tryHandleCode } from './web/routes/code.js'
-import { startCodeBridgeRunner } from './web/code-bridge-runner.js'
+import { startCodeBridgeServices } from './web/code-bridge-services.js'
 import { startProgressMirrorRunner, PROGRESS_MIRROR_INTERVAL_MS } from './web/progress-mirror-runner.js'
-import { startCodeBotPoller } from './web/code-bridge-telegram.js'
 import { ensureFederationClaudeMdSection } from './web/federation/onboarding.js'
 import { tryHandleAgentTerminal } from './web/routes/agent-terminal.js'
 import { tryHandleAgentConversation } from './web/routes/agent-conversation.js'
@@ -715,8 +714,9 @@ export function startWebServer(port = 3420): http.Server {
   const capabilityRunnerInterval = webOnly ? undefined : startCapabilitySummaryRunner()
 
   // Code bridge: lease reaper + the optional dedicated /code Telegram bot.
-  // Both are no-ops when the bridge is off or no CODE_BOT_TOKEN is set.
-  if (!webOnly) { startCodeBridgeRunner(); startCodeBotPoller() }
+  // They follow the master switch while running, so Start/Stop needs no dashboard restart (#993). The bot
+  // also needs a CODE_BOT_TOKEN.
+  if (!webOnly) startCodeBridgeServices()
   if (!webOnly) logger.info('Capability summary runner started (5min poll, 65s offset; idle while federation is off)')
 
   // Collect token usage from JSONL transcripts every hour so the run-history

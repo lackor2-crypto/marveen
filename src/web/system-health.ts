@@ -97,7 +97,7 @@ import { deriveOpenRouterCreditsView } from '../openrouter-credits.js'
 import { openRouterCreditRows } from '../openrouter-credit-note.js'
 import { dashboardTokenGuardRows } from './dashboard-token-guard.js'
 import { expectedWorkerVersion } from './code-worker-version.js'
-import { CODE_BRIDGE_ENABLED } from '../config.js'
+import { codeBridgeEnabled } from './code-bridge-switch.js'
 import { readMegaAccounts, readMegaQuota, rcloneBin, type MegaAccount, type MegaQuota } from '../mega.js'
 import { systemDepsSnapshot, systemDepsMonitorStartedAt, type DepsSnapshot } from '../system-deps.js'
 import { readSkillScope } from './skill-scope.js'
@@ -1434,7 +1434,7 @@ export function codeBridgeRows(
   now: number = Date.now(),
   h: ReturnType<typeof codeBridgeHealth> | null = null,
 ): HealthRow[] {
-  if (!CODE_BRIDGE_ENABLED) return []
+  if (!codeBridgeEnabled()) return []
   let d
   try {
     d = h ?? codeBridgeHealth(now)

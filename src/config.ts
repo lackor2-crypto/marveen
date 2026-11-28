@@ -540,12 +540,10 @@ export const HEARTBEAT_CALENDAR_ID = (cfg('HEARTBEAT_CALENDAR_ID') ?? '').trim()
 // runs `claude.exe -p --resume <sessionId>`. See src/web/code-bridge-store.ts
 // for why the transport runs in that direction.
 //
-// DEFAULT ON, kill switch CODE_BRIDGE_ENABLED=0. The bridge is inert without a
-// registered session: with no worker reporting in, code_sessions stays empty and
-// every dispatch is refused with "unknown project", so an install that never
-// starts the worker sees no behaviour change.
-export const CODE_BRIDGE_ENABLED =
-  !['0', 'false', 'no', 'off'].includes((cfg('CODE_BRIDGE_ENABLED') ?? '').trim().toLowerCase())
+// DEFAULT ON, kill switch CODE_BRIDGE_ENABLED=0, read LIVE through web/code-bridge-switch.ts (#993). The
+// bridge is inert without a registered session: with no worker reporting in, code_sessions stays empty and
+// every dispatch is refused with "unknown project", so an install that never starts the worker sees no
+// behaviour change.
 
 // Permission mode passed to the headless CLI. `acceptEdits` (the default) lets
 // the session edit files on its own but still refuses the destructive tools, so

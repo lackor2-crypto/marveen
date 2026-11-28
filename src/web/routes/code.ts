@@ -24,9 +24,10 @@ import { atomicWriteFileSync } from '../atomic-write.js'
 import { logger } from '../../logger.js'
 import { expectedWorkerVersion } from '../code-worker-version.js'
 import {
-  CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, CODE_MODEL, CODE_WORKTREE_ROOT, PROJECT_ROOT,
+  CODE_PERMISSION_MODE, CODE_MODEL, CODE_WORKTREE_ROOT, PROJECT_ROOT,
   CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_EXCLUDE,
 } from '../../config.js'
+import { codeBridgeEnabled } from '../code-bridge-switch.js'
 import {
   listCodeSessions, getCodeSession, upsertCodeSession, deleteCodeSession,
   setCodeProjectPaused, dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
@@ -290,7 +291,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     || (path === '/api/code/projects' && method === 'GET')
     // The cards keep their Pause / Resume button then, so pressing it must work: it only flips one project's flag.
     || (method === 'POST' && /^\/api\/code\/projects\/[^/]+\/pause$/.test(path))
-  if (!CODE_BRIDGE_ENABLED && !alwaysOn) {
+  if (!codeBridgeEnabled() && !alwaysOn) {
     json(res, { error: 'code bridge disabled (CODE_BRIDGE_ENABLED=0)', errorKey: 'cb.err.bridge_disabled' }, 503)
     return true
   }
@@ -349,14 +350,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // helyes alapertelmezes.
       avatar: findCodeBridgeAvatar() !== null,
       staleAfterMs: WORKER_STALE_MS,
-      enabled: CODE_BRIDGE_ENABLED,
-      // ★ A MENTETT ertek, a futo mellett. A ketto eltérhet: a hid a
-      // beallitast INDULASKOR olvassa be, tehat egy "Leallitas" utan a mentett
-      // mar 0, a futo meg 1. Enelkul a kartya a kattintas utan is azt mutatta,
-      // hogy "Fut" -- a felhasznalo szamara ez ugy nezett ki, mintha a gomb
-      // nem mukodne (Boss, 2026-08-23: "rakattintottam a leallitas gombra. de
-      // nem allt le"). A kulonbseget a KARTYAN KIVUL is ki kell mondani.
-      savedEnabled: String(getEffectiveSettingValue('CODE_BRIDGE_ENABLED')) === '1',
+      enabled: codeBridgeEnabled(),
+      // The switch is live (#993), so the saved and the running value are the same; the field stays for pages
+      // that still compare the two.
+      savedEnabled: codeBridgeEnabled(),
       permissionMode: CODE_PERMISSION_MODE,
       // The token itself is NEVER returned -- only whether one is configured.
       botConfigured: CODE_BOT_TOKEN.length > 0,
@@ -387,7 +384,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // page uses this to show the "restart needed" badge honestly instead of
       // pretending a saved setting already took effect.
       live: {
-        enabled: CODE_BRIDGE_ENABLED,
+        enabled: codeBridgeEnabled(),
         permissionMode: CODE_PERMISSION_MODE,
         // A modell MAR elobol jon (a claim is ezt hasznalja), ezert a "live" es
         // a "stored" ertek egyezik -> nincs hamis "ujrainditas kell" jelzes a
@@ -408,24 +405,28 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       'CODE_BRIDGE_ENABLED', 'CODE_PERMISSION_MODE', 'CODE_MODEL', 'CODE_BOT_TOKEN',
       'CODE_BOT_ALLOWED_CHAT_IDS', 'CODE_BRIDGE_EXCLUDE',
     ]
-    const saved = []
+    const saved: string[] = []
+    // Only a value that really CHANGED can ask for a restart: the page posts every field of a form at once.
+    const changed: string[] = []
     for (const key of ALLOWED) {
       if (!(key in body)) continue
       const raw = body[key]
       // An untouched secret field posts back empty; that must not silently WIPE
       // a configured token. Clearing is deliberate: send null.
       if (key === 'CODE_BOT_TOKEN' && raw === '') continue
+      const before = String(getEffectiveSettingValue(key))
       const out = setOverride(key, raw === null ? '' : raw)
       if (!out.ok) { json(res, { error: key + ': ' + out.error, errorKey: 'cb.err.config_invalid', errorParams: { key, detail: out.error } }, 400); return true }
       saved.push(key)
+      if (String(getEffectiveSettingValue(key)) !== before) changed.push(key)
     }
     if (saved.length === 0) { json(res, { error: 'no known settings in body', errorKey: 'cb.err.no_known_settings' }, 400); return true }
     logger.info({ saved }, 'code-bridge: config updated from dashboard')
-    // A CODE_MODEL AZONNAL el (a claim elobol olvassa) -- ez NEM igenyel
+    // A CODE_MODEL es a fokapcsolo (#993) AZONNAL el -- ezek NEM igenyelnek
     // ujrainditast. A tobbi mezo boot-ideju konstans, azoknal marad a
     // restart-jelzes. Igy egy modell-valtas utan a felulet nem hazudik
     // "ujrainditas kell"-t (Boss, 2026-09-13: eddig ez tette hasznalhatatlanna).
-    const restartRequired = saved.some((k) => k !== 'CODE_MODEL')
+    const restartRequired = changed.some((k) => k !== 'CODE_MODEL' && k !== 'CODE_BRIDGE_ENABLED')
     json(res, { saved, restartRequired, modelLive: saved.includes('CODE_MODEL') })
     return true
   }

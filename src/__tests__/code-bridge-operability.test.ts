@@ -215,7 +215,7 @@ describe('operable from the dashboard alone', () => {
     // that can flip it back.
     const route = readFileSync(join(process.cwd(), 'src', 'web', 'routes', 'code.ts'), 'utf8')
     expect(route).toMatch(/const alwaysOn = [^\n]*\/api\/code\/health/)
-    expect(route).toContain('if (!CODE_BRIDGE_ENABLED && !alwaysOn)')
+    expect(route).toContain('if (!codeBridgeEnabled() && !alwaysOn)')
   })
 
   it('an untouched password field cannot wipe a configured token', () => {

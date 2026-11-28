@@ -142,7 +142,7 @@ describe('/api/agents/activity: ebbol lesz zold az "Elo nezet"', () => {
     // Kartya 5603b3d4 (2026-09-20): a dontes egy kulon fuggvenyben all, es
     // FUTASKOR ellenorizzuk -- a route-fajl szoveg-egyeztetese nem latta, mi
     // tortenik valojaban.
-    expect(route).toContain('codeBridgeDisplayState(act, CODE_BRIDGE_ENABLED)')
+    expect(route).toContain('codeBridgeDisplayState(act, bridgeOn)')
     upsertCodeSession({ project: 'marvin', workspacePath: WS_PATH, sessionId: SID_A, marvinOwned: true })
     recordCodeWorkerSeen('windows', 'discovery', 1)
     recordCodeCandidates('windows', [
