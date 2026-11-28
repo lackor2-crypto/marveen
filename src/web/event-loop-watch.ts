@@ -19,7 +19,7 @@ import { performance, PerformanceObserver } from 'node:perf_hooks'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { logger } from '../logger.js'
 import { ol } from '../owner-lang.js'
-import { busyReasons, currentPressure, describePressure, noteStallForPressure, startPressureWatch, type PressureSnapshot } from '../machine-pressure.js'
+import { busyReasons, currentPressure, describePressure, measurePressure, noteStallForPressure, startPressureWatch, type PressureSnapshot } from '../machine-pressure.js'
 
 export const TICK_MS = 100
 export const STALL_MS = 300
@@ -272,20 +272,38 @@ export function trackRequest(req: http.IncomingMessage, res: http.ServerResponse
 }
 
 /** Record one late tick; exported for the test (the timer calls it with the measured lag). */
-export function noteLag(lagMs: number, now = Date.now()): Stall | null {
+export function noteLag(
+  lagMs: number,
+  now = Date.now(),
+  measure: () => Promise<PressureSnapshot> = () => measurePressure(),
+): Stall | null {
   if (lagMs < STALL_MS) return null
   // #897: what the MACHINE was doing. A freeze on a calm machine is our code; a freeze while tasks were queuing for
   // the CPU, the disk or memory is the machine being short of it. Measured, so nobody has to guess afterwards.
-  const pressure = currentPressure(now)
+  // #1001: only a reading taken inside the stall speaks about it. The timer that reads the pressure cannot run while
+  // the thread stands still, so the cached one is usually from BEFORE and showed a starved machine as calm.
+  const cached = currentPressure(now)
+  const pressure = cached && cached.at >= now - Math.round(lagMs) ? cached : null
   const gcMs = longestGcSince(now - Math.round(lagMs) - 1000)
   const s: Stall = { at: now, lagMs: Math.round(lagMs), inflight: [...new Set(inflight.values())].slice(0, 10), pressure, busy: busyReasons(pressure), gcMs }
   noteStallForPressure(lagMs, now)
   stalls.push(s)
   stalls.sort((a, b) => b.lagMs - a.lagMs)
   if (stalls.length > KEEP) stalls.length = KEEP
-  logger.warn({ lagMs: s.lagMs, inflight: s.inflight, pressure: s.pressure, busy: s.busy, gcMs: s.gcMs }, 'event loop stalled (#490): these requests were running')
-  void alertSevereStall(s)
+  void reportStall(s, measure)
   return s
+}
+
+/** Measure the machine right as the stall ends (the averages cover the last 10 s), then log and warn. */
+async function reportStall(s: Stall, measure: () => Promise<PressureSnapshot>): Promise<void> {
+  if (!s.pressure) {
+    try {
+      s.pressure = await measure()
+      s.busy = busyReasons(s.pressure)
+    } catch { /* stays "not measured" */ }
+  }
+  logger.warn({ lagMs: s.lagMs, inflight: s.inflight, pressure: s.pressure, busy: s.busy, gcMs: s.gcMs }, 'event loop stalled (#490): these requests were running')
+  await alertSevereStall(s)
 }
 
 /**
@@ -305,10 +323,10 @@ export async function alertSevereStall(
     const busy = s.busy ?? []
     const machineHu = busy.length
       ? `A gép ekkor terhelt volt (${describePressure(s.pressure ?? null, 'hu')}), a háttérmunkák ilyenkor várnak.`
-      : `A gép ekkor: ${describePressure(s.pressure ?? null, 'hu')}.`
+      : `A gép a lefagyás végén mérve: ${describePressure(s.pressure ?? null, 'hu')}.`
     const machineEn = busy.length
       ? `The machine was busy then (${describePressure(s.pressure ?? null, 'en')}); background work waits at such times.`
-      : `The machine then: ${describePressure(s.pressure ?? null, 'en')}.`
+      : `The machine, measured as the freeze ended: ${describePressure(s.pressure ?? null, 'en')}.`
     const gcHu = s.gcMs && s.gcMs >= 200 ? ` Ebből memória-takarítás: ${(s.gcMs / 1000).toFixed(1)} mp.` : ''
     const gcEn = s.gcMs && s.gcMs >= 200 ? ` Of this, memory clean-up: ${(s.gcMs / 1000).toFixed(1)} s.` : ''
     await send(ol(
