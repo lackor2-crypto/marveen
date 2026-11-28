@@ -8269,6 +8269,7 @@ window._i18n.en = {
   "workbench.chat.usage_unknown": "I cannot measure the quota right now.",
   "workbench.chat.no_stream": "This browser cannot read the answer continuously. Try reloading the page.",
   "workbench.chat.tool_running": "running...",
+  "workbench.chat.tool_queued": "queued",
   "workbench.chat.tool_ok": "done",
   "workbench.chat.tool_error": "failed",
   "workbench.chat.tool_needs_approval": "waiting for approval",

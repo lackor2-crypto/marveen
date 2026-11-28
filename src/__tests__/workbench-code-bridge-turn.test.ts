@@ -403,6 +403,8 @@ describe('runCodeBridgeTurn -- az ágens válasza nem veszhet el, a sorban áll�
     }))
     const q = events.filter((e) => e.type === 'notice' && (e as { code: string }).code === 'code_bridge_queued')
     expect(q).toHaveLength(1)
+    // #998: the notice does not claim a reason it has not measured.
+    expect((q[0] as { message: string }).message).not.toMatch(/másik feladattal|another task/)
   })
 })
 
