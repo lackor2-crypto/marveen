@@ -25289,7 +25289,11 @@
       if (!res.ok) {
         return res.json().then(function (j) { fail((j && j.message) || t('workbench.file.open_failed')) }, function () { fail() })
       }
-      return res.blob().then(function (blob) {
+      return res.blob().then(function (raw) {
+        var view = !download && !!tab && typeof window._utf8ViewBlob === 'function'
+        return view ? window._utf8ViewBlob(raw) : raw
+      }).then(function (blob) {
+        if (!blob) return
         var url = URL.createObjectURL(blob)
         if (download || !tab) {
           var d = document.createElement('a')
