@@ -29,6 +29,7 @@ import {
 import { tryHandleCode } from '../web/routes/code.js'
 
 const ROOT = process.cwd()
+const huText = readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf8')
 const app = readFileSync(join(ROOT, 'web/app.js'), 'utf8')
 const html = readFileSync(join(ROOT, 'web/index.html'), 'utf8')
 
@@ -224,7 +225,8 @@ describe('a felulet nem ker begepelt utvonalat', () => {
     // nem tortent semmi, es ujra meg ujra rakattint.
     const fn = app.slice(app.indexOf('function cbRenderCandidates('), app.indexOf('function cbRenderTasks('))
     expect(fn).toContain('_cbSavedExclude')
-    expect(fn).toContain('újraindítás után lép életbe')
+    expect(fn).toContain("t('cb.cand.unexclude_pending')")
+    expect(huText).toMatch(/'cb\.cand\.unexclude_pending': '[^']*újraindítás után lép életbe/)
     // Az allapot a MENTETT listabol jon, nem egy helyi zaszlobol: igy egy
     // lapfrissites utan is helyes marad.
     expect(app).toContain('_cbSavedExclude = cbNormList(cfg.CODE_BRIDGE_EXCLUDE, true)')
@@ -284,8 +286,10 @@ describe('a nulla-projektes kartya a KOVETKEZO LEPEST mondja', () => {
   it('the card stops telling the owner to open a project he already has open', () => {
     // Ez volt a rossz tanacs: a Boss egyetlen workspace-e NYITVA volt, csak
     // kizarva -- a kartya megis uj projekt nyitasat kerte tole.
-    expect(app).toContain("' felvehető mappa'")
-    expect(app).toContain("' kizárt mappa'")
+    expect(app).toContain("t('cb.idle.free_note', { n: cand.free })")
+    expect(app).toContain("t('cb.idle.excluded_note', { n: cand.excluded })")
+    expect(huText).toContain("'cb.idle.free_note': '{n} felvehető mappa'")
+    expect(huText).toContain("'cb.idle.excluded_note': '{n} kizárt mappa'")
     expect(app).toMatch(/cand\.excluded > 0/)
     // Regi backend (nincs `candidates` a valaszban) nem torheti el a kartyat.
     expect(app).toMatch(/health\.candidates && health\.candidates\.free/)

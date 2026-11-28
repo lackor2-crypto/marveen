@@ -11796,6 +11796,8 @@ details.upstream-box > summary > h4 {
 }
 .cb-modal-intro .modal-desc { margin: 0; max-width: 620px; }
 #cbModalBody .card { margin-bottom: 14px; }
+/* A long option text must not push the window sideways on a phone (#995). */
+#cbModalBody select.input { max-width: 100%; min-width: 0; }
 #cbModalBody .card:last-child { margin-bottom: 0; }
 
 
