@@ -137,7 +137,7 @@ describe('kod-hid kartya a Csapat lapon', () => {
     expect(fn).not.toContain('/api/code/tasks')
     // Kattintasra ugyanaz tortenik, mint barmelyik masik ugynok kartyajan:
     // kinyilik a beallitasai.
-    expect(fn).toContain('openCodeBridgeModal()')
+    expect(fn).toContain('openCodeBridgeModal(e.project)')
   })
 })
 

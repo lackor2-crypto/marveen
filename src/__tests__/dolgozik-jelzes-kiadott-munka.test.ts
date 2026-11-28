@@ -111,7 +111,9 @@ describe('felulet: EGY meresbol lesz zold minden kartyan', () => {
 
   it('a kod-hid kartyajanak elso kirajzolasa UGYANAZT a feltetelt hasznalja (nincs 3 masodperces villogas)', () => {
     // #397: the same condition, on the card's OWN project counts (cbTc).
-    expect(app).toContain('(cbTc.running > 0 || (cbTc.queued > 0 && codeBridgeCards.workerOnline))')
+    // #987: queued commands of a paused project wait, so they are not "working" in either place.
+    expect(app).toContain('(cbTc.running > 0 || (cbTc.queued > 0 && codeBridgeCards.workerOnline && e.paused !== true))')
+    expect(app).toContain("!(cbState.queuedOnly && cardEl && cardEl.dataset.cbPaused === '1')")
   })
 
   it('a zold cimkeje kimondja, ha a munka meg csak ki van adva', () => {

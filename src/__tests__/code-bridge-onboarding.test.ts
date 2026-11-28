@@ -241,8 +241,9 @@ describe('a kod-hid a VS Code kartya alatt nyilik', () => {
   })
 
   it('the window opens from the card and closes cleanly', () => {
-    expect(app).toContain('function openCodeBridgeModal()')
-    expect(app).toContain("card.addEventListener('click', () => openCodeBridgeModal())")
+    expect(app).toContain('function openCodeBridgeModal(project)')
+    // #987: the card hands over its own project, so the window can mark that row.
+    expect(app).toContain("card.addEventListener('click', () => openCodeBridgeModal(e.project))")
     // Bezaraskor le kell allnia az 5 masodperces kornek: lapnal ezt a
     // switchPage vegezte, ablaknal nincs mas, aki megtenne.
     expect(app).toContain('const close = () => { closeModal(overlay); _cbStopPoll() }')
