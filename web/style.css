@@ -11936,6 +11936,19 @@ details.upstream-box > summary > h4 {
 
 /* A kod-hid ful-sorai: a "nema" jelzes es a bezaras-gomb. A gomb csak akkor
    all ki, ha tudjuk, mit allitanank le -- lasd cbTabsPickHtml. */
+/* #987: one row per project in the code bridge window, each with its own Pause / Resume. */
+/* On a phone the wide tables scroll inside their own box and the tabs wrap; the window itself stays put. */
+#cbTasksList, #cbProjectsTable { overflow-x: auto; max-width: 100%; }
+#cbTabNav { flex-wrap: wrap; }
+.cb-service-projects:empty { display: none; }
+.cb-service-projects { margin: 10px 0 16px; display: flex; flex-direction: column; gap: 6px; }
+.cb-service-projects-title { font-size: 12px; opacity: .75; }
+.cb-service-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 10px; border: 1px solid var(--border, #333); border-radius: 8px; }
+.cb-service-row.is-here { border-color: var(--accent, #d97757); }
+.cb-service-row-name { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; }
+.cb-service-row-name small { opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-service-row-state { font-size: 13px; }
+
 .cb-model-note {
   font-size: 11px;
   color: var(--muted, #888);

@@ -6905,7 +6905,8 @@ async function refreshAgentTerminalBusy() {
         : !project ? cbEntry
         : (cbEntry.projects && typeof cbEntry.projects === 'object') ? (cbEntry.projects[project] || null)
         : null
-      const cbWorking = !!cbState && cbState.state === 'working'
+      // #987: queued commands of a paused project are waiting on purpose, not being worked on.
+      const cbWorking = !!cbState && cbState.state === 'working' && !(cbState.queuedOnly && cardEl && cardEl.dataset.cbPaused === '1')
       el.hidden = !cbWorking
       const whyEl = cardEl ? cardEl.querySelector('[data-cb-wait-why]') : null
       if (whyEl && !cbWorking) { whyEl.textContent = ''; whyEl.hidden = true }
@@ -7252,6 +7253,11 @@ function cbRunOn() {
 }
 function cbRunDotClass() { return cbRunPending() ? 'restarting' : (cbRunOn() ? 'running' : 'stopped') }
 function cbRunLabel() { return cbRunOn() ? t('agents.status.running') : t('agents.status.stopped') }
+/** #987: one card speaks for ONE project: a paused project reads as paused, whatever the bridge as a whole does. */
+function cbProjectRunState(paused) {
+  if (paused && cbRunOn()) return { dot: 'stopped', label: t('cb.card.paused_label'), tip: t('cb.card.paused_tip') }
+  return { dot: cbRunDotClass(), label: cbRunLabel(), tip: cbRunTip() }
+}
 function cbRunTip() {
   return cbRunPending()
     ? t('cb.card.stop_pending_help')
@@ -7692,7 +7698,10 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     const cbTc = e.project
       ? e.taskCounts
       : { running: codeBridgeCards.running, queued: codeBridgeCards.queued }
-    const cbBusyNow = !!cbTc && (cbTc.running > 0 || (cbTc.queued > 0 && codeBridgeCards.workerOnline))
+    // A paused project's queued commands wait: that is not work in progress.
+    const cbBusyNow = !!cbTc && (cbTc.running > 0 || (cbTc.queued > 0 && codeBridgeCards.workerOnline && e.paused !== true))
+    const cbRun = cbProjectRunState(e.paused === true)
+    if (e.paused) card.dataset.cbPaused = '1'
     // #394: dimmed like any other stopped agent (style.css .agent-card.is-stopped).
     card.classList.toggle('is-stopped', cbRunDotClass() === 'stopped' || e.paused === true)
     // A szinkulcs SZANDEKOSAN a projekt aliasa marad: egy projekt egy szin,
@@ -7756,7 +7765,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
              kilep a sablonbol, es a szoveg kozepe kifejezeskent ertekelodik ki
              (ReferenceError: dot is not defined). -->
         <button type="button" class="activity-badge act-working" data-cb-busy title="${escapeAttr(t('cb.card.busy_help'))}"${cbBusyNow ? '' : ' hidden'}>${escapeHtml(cbTc && cbTc.running > 0 ? t('activity.state.working') : t('activity.state.working_queued'))}</button>
-        <span class="process-indicator" title="${escapeAttr(cbRunTip())}"><span class="process-dot ${cbRunDotClass()}"></span>${escapeHtml(cbRunLabel())}</span>
+        <span class="process-indicator" title="${escapeAttr(cbRun.tip)}"><span class="process-dot ${cbRun.dot}"></span>${escapeHtml(cbRun.label)}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>
       <div class="cb-wait-why" data-cb-wait-why hidden></div>
@@ -7776,7 +7785,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // kartya hibaja se akaszthatja meg a rendert -- a `?.` ezt is lezarja.
     card.querySelector('.code-bridge-open-btn')?.addEventListener('click', (ev) => {
       ev.stopPropagation()
-      openCodeBridgeModal()
+      openCodeBridgeModal(e.project)
     })
     // A "dolgozik" jelzo EGYBEN a folyamat megnyitasa is (kanban #213/2. pont):
     // amikor nem Boss inditotta a munkat, hanem Marvin vagy a Jovahagyasok lap,
@@ -7845,14 +7854,16 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // `/compact` -- csak a kartyan nem kinaljuk fel. Ha egyszer lesz mod egy
     // NYITOTT ablak vezerlesere (pl. a VS Code kiterjesztesen keresztul), akkor
     // johet vissza a gomb -- addig nem.
-    card.addEventListener('click', () => openCodeBridgeModal())
+    card.addEventListener('click', () => openCodeBridgeModal(e.project))
     agentsGrid.insertBefore(card, addBtn)
   }
 }
 
 // A kartya alatt nyilik, mint barmelyik masik ugynok beallitasa. A poll
 // csak addig fut, amig az ablak nyitva van -- zarva nincs kinek mutatni.
-function openCodeBridgeModal() {
+function openCodeBridgeModal(project) {
+  // #987: which card the window was opened from -- its row is marked in the project list.
+  window._cbModalProject = typeof project === 'string' ? project : ''
   const overlay = document.getElementById('cbOverlay')
   if (!overlay) return
   // Mint barmelyik masik ugynok-ablak: nyitaskor az Attekintes all elol.
@@ -47069,7 +47080,7 @@ async function _intezoCfgSave() {
       {
         done: Boolean(h.enabled),
         title: 'A kód-híd be van kapcsolva',
-        todo: 'A <em>Működés</em> kártyán kapcsold be, majd indítsd újra a vezérlőpultot az ott megjelenő gombbal.',
+        todo: t('cb.setup.enable_todo'),
         target: 'cbOpsCard',
         optional: false,
       },
@@ -47152,7 +47163,7 @@ async function _intezoCfgSave() {
 
     if (!h.enabled) {
       tone = 'warn'
-      lines.push('<strong>A kód-híd ki van kapcsolva.</strong> A <em>Működés</em> kártyán kapcsold be, majd indítsd újra a vezérlőpultot.')
+      lines.push(t('cb.health.bridge_off'))
     } else if (!h.workerOnline) {
       tone = 'bad'
       if (!h.lastSeenAt) {
@@ -47254,12 +47265,12 @@ async function _intezoCfgSave() {
     const el = document.getElementById('cbProjectsTable')
     if (!el) return
     if (!_cbProjects.length) {
-      el.innerHTML = '<p class="subtitle">Nincs egyetlen regisztrált projekt sem.</p>'
+      el.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.projects.none')) + '</p>'
     } else {
       el.innerHTML =
         '<table style="width:100%;border-collapse:collapse;font-size:14px">' +
         '<thead><tr>' +
-        ['Projekt', 'Workspace', 'Session', 'Kitűzve', 'Frissült', ''].map(function (h) {
+        [t('cb.projects.col_project'), t('cb.projects.col_folder'), t('cb.projects.col_session'), t('cb.projects.col_pinned'), t('cb.projects.col_updated'), ''].map(function (h) {
           return '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border,#333)">' + h + '</th>'
         }).join('') +
         '</tr></thead><tbody>' +
@@ -47268,10 +47279,10 @@ async function _intezoCfgSave() {
             '<td style="padding:6px 8px"><strong>' + escapeHtml(p.project) + '</strong></td>' +
             '<td style="padding:6px 8px"><code>' + escapeHtml(p.workspacePath) + '</code></td>' +
             '<td style="padding:6px 8px" title="' + escapeAttr(p.sessionId) + '"><code>' + escapeHtml(String(p.sessionId).slice(0, 8)) + '…</code></td>' +
-            '<td style="padding:6px 8px">' + (p.pinned ? 'igen' : '—') + '</td>' +
+            '<td style="padding:6px 8px">' + (p.pinned ? escapeHtml(t('cb.projects.yes')) : '—') + '</td>' +
             '<td style="padding:6px 8px">' + cbAgo(p.updatedAt) + '</td>' +
             '<td style="padding:6px 8px;white-space:nowrap">' +
-              '<button class="btn-secondary btn-compact cb-del" data-project="' + escapeAttr(p.project) + '">Törlés</button>' +
+              '<button class="btn-secondary btn-compact cb-del" data-project="' + escapeAttr(p.project) + '">' + escapeHtml(t('cb.projects.delete')) + '</button>' +
             '</td>' +
           '</tr>'
         }).join('') +
@@ -47284,7 +47295,7 @@ async function _intezoCfgSave() {
       const prev = sel.value
       sel.innerHTML = _cbProjects.length
         ? _cbProjects.map(function (p) { return '<option value="' + escapeAttr(p.project) + '">' + escapeHtml(p.project) + '</option>' }).join('')
-        : '<option value="">— nincs regisztrált projekt —</option>'
+        : '<option value="">' + escapeHtml(t('cb.projects.none_option')) + '</option>'
       if (prev && _cbProjects.some(function (p) { return p.project === prev })) sel.value = prev
     }
     // A ful-legordulo a projekt-valasztast koveti: projekt-valtasnal mas fulek
@@ -47699,11 +47710,13 @@ async function _intezoCfgSave() {
       cbRenderTiles(health)
     } catch (e) {
       const el = document.getElementById('cbHealthText')
-      if (el) el.innerHTML = '<strong>Nem sikerült lekérdezni a kód-hidat:</strong> ' + escapeHtml(e.message)
+      if (el) el.innerHTML = '<strong>' + escapeHtml(t('cb.err.health')) + '</strong> ' + escapeHtml(e.message)
       return
     }
     if (health && health.enabled === false) {
       cbRenderProjects([])
+      // The list answers with the bridge off too: the per-project switches stay visible (#987).
+      try { cbRenderServiceProjects(health, (await cbFetch('/api/code/projects')).projects) } catch (_) { cbRenderServiceProjects(health, null) }
       cbRenderTasks([])
       cbRenderCandidates({ disabled: true })
       cbRenderTabs({ disabled: true })
@@ -47721,6 +47734,7 @@ async function _intezoCfgSave() {
       // #482: the 5 s refresh redraws these lists in place inside the window.
       const keepScroll = preserveScrollBegin(document.getElementById('cbModalBody'), { view: _cbTab })
       cbRenderProjects(projects.projects)
+      cbRenderServiceProjects(health, projects.projects)
       cbRenderTiles(health)
       if (_cbTab === 'skills') cbLoadSkills()
       cbRenderTasks(tasks.tasks)
@@ -47731,7 +47745,7 @@ async function _intezoCfgSave() {
       keepScroll()
     } catch (e) {
       const el = document.getElementById('cbTasksList')
-      if (el) el.innerHTML = '<p class="subtitle">Nem sikerült lekérdezni: ' + escapeHtml(e.message) + '</p>'
+      if (el) el.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.err.list', { msg: e.message })) + '</p>'
     }
   }
   window._cbRefresh = cbRefresh
@@ -48006,6 +48020,34 @@ async function _intezoCfgSave() {
     else worker.textContent = t('cb.service.worker_never')
   }
 
+  // #987: every project has its own Pause / Resume here, next to the whole-bridge button -- stopping one must
+  // never need the button that stops them all. `rows === null`: the list could not be read.
+  function cbRenderServiceProjects(health, rows) {
+    const box = document.getElementById('cbServiceProjects')
+    if (!box) return
+    if (!Array.isArray(rows)) {
+      box.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.service.projects_unknown')) + '</p>'
+      return
+    }
+    if (!rows.length) { box.innerHTML = ''; return }
+    const bridgeOff = !!health && (typeof health.savedEnabled === 'boolean' ? !health.savedEnabled : health.enabled === false)
+    box.innerHTML = '<div class="cb-service-projects-title">' + escapeHtml(t('cb.service.projects_title')) + '</div>' +
+      rows.map(function (r) {
+        const paused = r.paused === true
+        const state = bridgeOff ? t(paused ? 'cb.service.row_off_paused' : 'cb.service.row_off')
+          : t(paused ? 'cb.card.paused_label' : 'agents.status.running')
+        const here = r.project === window._cbModalProject
+        return '<div class="cb-service-row' + (here ? ' is-here' : '') + '" data-cb-service-row="' + escapeAttr(r.project) + '">' +
+          '<span class="process-dot ' + (bridgeOff || paused ? 'stopped' : 'running') + '"></span>' +
+          '<span class="cb-service-row-name" title="' + escapeAttr(r.workspacePath || '') + '"><strong>' + escapeHtml(r.project) + '</strong>' +
+          '<small>' + escapeHtml(r.workspacePath || '') + '</small></span>' +
+          '<span class="cb-service-row-state">' + escapeHtml(state) + '</span>' +
+          '<button type="button" class="btn-secondary btn-compact" data-cb-row-pause="' + escapeAttr(r.project) + '" data-cb-paused="' + (paused ? '1' : '0') + '"' +
+          ' title="' + escapeAttr(t(paused ? 'cb.card.resume_help' : 'cb.card.pause_help')) + '">' + escapeHtml(t(paused ? 'cb.card.resume' : 'cb.card.pause')) + '</button>' +
+          '</div>'
+      }).join('')
+  }
+
   async function cbSetService(on) {
     try {
       await cbPostJson('/api/code/config', { CODE_BRIDGE_ENABLED: on ? '1' : '0' })
@@ -48174,8 +48216,16 @@ async function _intezoCfgSave() {
     }
 
     if (tgt.id === 'cbServiceStartBtn') { await cbSetService(true); return }
+    if (tgt.dataset && tgt.dataset.cbRowPause) {
+      tgt.disabled = true
+      await cbPauseProject(tgt.dataset.cbRowPause, tgt.dataset.cbPaused !== '1')
+      await cbRefresh()
+      return
+    }
     if (tgt.id === 'cbServiceStopBtn') {
-      if (!confirm(t('cb.service.stop_confirm'))) return
+      const names = _cbProjects.map(function (p) { return p.project })
+      if (!names.length) names.push.apply(names, codeBridgeCards.projects.map(function (p) { return p.project }))
+      if (!confirm(t(names.length ? 'cb.service.stop_confirm' : 'cb.service.stop_confirm_none', { n: names.length, projects: names.join(', ') }))) return
       await cbSetService(false)
       return
     }
@@ -48294,11 +48344,11 @@ async function _intezoCfgSave() {
 
     if (tgt.classList.contains('cb-del')) {
       const project = tgt.getAttribute('data-project')
-      if (!confirm('Törlöd a(z) "' + project + '" leképezést? A session maga nem sérül; a felderítés vissza is teheti, ha a workspace nyitva van.')) return
+      if (!confirm(t('cb.projects.delete_confirm', { project: project }))) return
       try {
         await cbFetch('/api/code/projects/' + encodeURIComponent(project), { method: 'DELETE' })
         cbRefresh()
-      } catch (err) { showToast('Nem sikerült: ' + err.message, { type: 'error' }) }
+      } catch (err) { showToast(t('cb.err.failed', { msg: err.message }), { type: 'error' }) }
       return
     }
 
