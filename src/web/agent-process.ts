@@ -2464,7 +2464,7 @@ export async function sendPromptToSession(
   session: string,
   text: string,
   host: string | null = null,
-  opts: { waitForIdle?: boolean; onBusyTimeout?: 'send' | 'abort'; idleTimeoutMs?: number } = {},
+  opts: { waitForIdle?: boolean; onBusyTimeout?: 'send' | 'abort'; idleTimeoutMs?: number; noInterrupt?: boolean } = {},
 ): Promise<'sent' | 'aborted-busy'> {
   await dismissSurveyModalIfPresent(session, host)
   await dismissResumeSummaryModalIfPresent(session, host)
@@ -2510,7 +2510,7 @@ export async function sendPromptToSession(
   // worse than the pre-fix status quo.
   try {
     const preCapture = await capturePaneOnHostAsync(session, host)
-    if (preCapture != null && shouldClearTruncatedPreamble(preCapture)) {
+    if (!opts.noInterrupt && preCapture != null && shouldClearTruncatedPreamble(preCapture)) {
       logger.info({ session }, 'Cleared stale preamble from input buffer before sending prompt')
       await clearInputBuffer(session, host)
     }
@@ -2561,6 +2561,11 @@ export async function sendPromptToSession(
     const pane = await capturePaneStrippedAsync(session, host)
     const action = decideSubmitFollowup(pane, payloadHint, attempt, SUBMIT_RETRY_MAX_ATTEMPTS)
     if (action === 'done') break
+    // #998: typed into a running turn -- a Ctrl-C here could cut that turn off.
+    if (action === 'clear-and-resend' && opts.noInterrupt) {
+      logger.warn({ session, attempt }, 'sendPromptToSession: paste placeholder in a running turn; left for the stuck-input watcher')
+      break
+    }
     if (action === 'give-up') {
       logger.warn({ session, attempt }, 'sendPromptToSession: prompt still parked after retries')
       break

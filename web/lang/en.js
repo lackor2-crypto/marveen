@@ -8171,6 +8171,7 @@ window._i18n.en = {
   "workbench.chat.continue": "Continue",
   "workbench.chat.continue_text": "Continue from where you stopped.",
   "workbench.chat.act_queued": "Queued: {n}",
+  "workbench.chat.act_bridge_queued": "Waiting in the queue, not started yet",
   "workbench.chat.unqueue": "Cancel",
   "workbench.chat.reconnecting": "The connection dropped (Marveen is probably restarting after an update). Waiting for it to come back, then checking what happened to the answer.",
   "workbench.chat.interrupted": "Marveen restarted before the answer was finished, so this answer was lost. Your message is kept, please send it again.",

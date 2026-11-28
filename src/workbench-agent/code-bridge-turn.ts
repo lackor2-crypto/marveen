@@ -83,6 +83,9 @@ export interface CodeBridgeTurnDeps {
    *  caller continues the work elsewhere, and the owner only ever sees the
    *  limit when every account is out. Missing = false (old behaviour). */
   canContinueElsewhere?(): boolean
+  /** #998: a task still queued after this long is taken back and the turn ends with `code_bridge_not_started`,
+   *  so the caller starts the work another way (only when `canContinueElsewhere` says it can). Missing = wait. */
+  startElsewhereAfterMs?: number
   /** Set when the task is handed to the background: a continuation that
    *  already took the work over must not get the stale outcome written. */
   wasContinued?(taskId: string): boolean
@@ -402,6 +405,12 @@ export async function* runCodeBridgeTurn(
     chatId: input.chatId ?? null,
   })
   if (!enq.ok) {
+    // #998: a bridge that refuses the task (e.g. no session registered for the
+    // folder) is no reason to start nothing while another way can work.
+    if (deps.cancel && deps.canContinueElsewhere?.()) {
+      yield { type: 'error', code: 'code_bridge_enqueue_failed', message: msg('code_bridge_enqueue_failed', input.lang, { detail: enq.message }) }
+      return
+    }
     // A feladat nem indult el: a chat a megszokott hiba-mondatot mutatja,
     // nem nemul el.
     const m = msg('code_bridge_enqueue_failed', input.lang, { detail: enq.message })
@@ -449,6 +458,16 @@ export async function* runCodeBridgeTurn(
       if (task.status === 'running') {
         yield { type: 'notice', code: 'code_bridge_running', message: msg('code_bridge_running', input.lang) }
       }
+    }
+
+    // #998 (owner law, TG 7958): what was typed starts at once. Nobody took the task: take it back and run it
+    // another way. Status check and cancel run in one synchronous step, so no worker can claim it in between.
+    if (task.status === 'queued' && deps.startElsewhereAfterMs !== undefined && deps.cancel
+      && deps.now() - start > deps.startElsewhereAfterMs && deps.canContinueElsewhere?.()) {
+      deps.cancel(taskId)
+      yield { type: 'tool', name: 'code-bridge', status: 'ok' }
+      yield { type: 'error', code: 'code_bridge_not_started', message: msg('code_bridge_not_started', input.lang) }
+      return
     }
 
     // Boss, 2026-10-14: the chat sat 44 minutes behind another task and said
@@ -499,14 +518,16 @@ export async function* runCodeBridgeTurn(
       // Nem hagyjuk oroktol fogva nyitva a chat-kapcsolatot: a munka a
       // hattérben tovabb mehet, a Kod-hidon kovetheto -- ES a kesve erkezo
       // valasz is bekerul a beszelgetesbe (kulonben sehol nem latszana a chatben).
-      const m = msg('code_bridge_timeout', input.lang, { id: taskId })
+      // #998: a task nobody has started is not "working".
+      const timeoutCode = task.status === 'queued' ? 'code_bridge_timeout_queued' : 'code_bridge_timeout'
+      const m = msg(timeoutCode, input.lang, { id: taskId })
       record('system', m)
       void followInBackground(taskId, deps, input.lang, record)
       // NEM mondjuk kesznek (Boss, 2026-09-29: "ne mutassa nekem itt hogy kesz
       // ha meg nincs keszen"): se zold pipa, se `done`. A folyam `done` nelkul
       // zarul, a felulet a szervert kerdezi, ami a meg futo feladat miatt
       // "fut"-ot mond -- a chat figyel tovabb, az uj uzenet sorba all.
-      yield { type: 'notice', code: 'code_bridge_timeout', message: m }
+      yield { type: 'notice', code: timeoutCode, message: m }
       return
     }
 

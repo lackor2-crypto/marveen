@@ -668,6 +668,22 @@ const CODE_BRIDGE_CHAT_WAIT_MS = TURN_MAX_MS - 30_000
 function bridgeStillWorking(sessionId: string): boolean {
   return !!activeWorkbenchTaskForChat(sessionId)
 }
+/** #998: a chat message no worker took within this time starts in the local live session instead. Longer than an
+ *  extra worker lane needs to come up (a lane polls every 3 s, the server asks for one more after 8 s). */
+const BRIDGE_START_WAIT_MS = 20_000
+/** #998: an earlier message of this chat that was never started (its turn is gone, e.g. after a restart) must not
+ *  hold the new one back. It is taken back; the conversation history carries it into the new run. */
+function releaseUnstartedBridgeTask(sessionId: string, lang: Lang): void {
+  const waiting = activeWorkbenchTaskForChat(sessionId)
+  if (!waiting || waiting.status !== 'queued' || Date.now() - waiting.createdAt <= BRIDGE_START_WAIT_MS) return
+  markBridgeTaskContinued(waiting.id)
+  cancelCodeTask(waiting.id)
+  addAgentMessage(sessionId, 'system', msg('code_bridge_not_started', lang))
+}
+/** #998: the chat's bridge task waits in the queue -- the screen must not call that "working". */
+function bridgeStillQueued(sessionId: string): boolean {
+  return activeWorkbenchTaskForChat(sessionId)?.status === 'queued'
+}
 /** Ilyen suruen megy egy SSE-megjegyzes a csendes chat-kapcsolaton. */
 export const SSE_PING_MS = 15_000
 
@@ -880,6 +896,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
         // Elnavigalas utan visszaterve a felulet ebbol tudja, hogy a valasz
         // meg KESZUL a szerveren (es megvarja), nem pedig elveszett.
         running: isTurnRunning(turnKey(project.id, null)) || pendingResume.has(turnKey(project.id, null)) || bridgeStillWorking(session.id),
+        queued: bridgeStillQueued(session.id),
       })
       return true
     }
@@ -894,6 +911,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       messages: listCaseMessages(session.id),
       toolCalls: listCaseToolCalls(session.id),
       running: isTurnRunning(turnKey(item.project_id, item.id)) || pendingResume.has(turnKey(item.project_id, item.id)) || bridgeStillWorking(session.id),
+      queued: bridgeStillQueued(session.id),
     })
     return true
   }
@@ -1318,6 +1336,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
           }
         } catch { /* an unreadable state never blocks */ }
       }
+      if (body.inject_only !== true && !account && liveSpec && !isTurnRunning(key)) releaseUnstartedBridgeTask(chatSession.id, lang)
       if (triggerHeld) {
         const held = msg('trigger_missing', lang)
         addAgentMessage(chatSession.id, 'user', injectText)
@@ -1371,6 +1390,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             let bridgeLogin = false
             let bridgeError = false
             let bridgeIncomplete = false
+            let bridgeNotStarted = false
+            let bridgeRefusal: string | null = null
             const liveDir = liveFolder && liveFolder.ok ? liveFolder.dirAbs : null
             let bridgeFeed: TranscriptToolFeed | null = null
             const bridgeOpenTools: LiveOpenTool[] = []
@@ -1400,7 +1421,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               {
                 enqueue: (i) => {
                   const r = enqueueCodeTask({ project: i.project, prompt: i.prompt, origin: 'workbench', requestedBy: i.requestedBy, chatId: i.chatId, side: project.bridge_side })
-                  if ('error' in r) return { ok: false, message: r.error }
+                  if ('error' in r) { bridgeRefusal = r.error; return { ok: false, message: r.error } }
                   // While this turn watches the task, IT continues the work on
                   // another account if needed (bridge-continuation.ts).
                   bridgeTaskId = r.task.id
@@ -1414,6 +1435,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                 },
                 canContinueElsewhere: () => !account && !ac.signal.aborted && !!liveResolver(key, liveDir, account),
                 wasContinued: (id) => wasBridgeTaskContinued(id),
+                startElsewhereAfterMs: BRIDGE_START_WAIT_MS,
                 getTask: (id) => {
                   const t = getCodeTask(id)
                   return t ? { status: t.status, result: t.result, summary: t.summary, error: t.error } : null
@@ -1456,7 +1478,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
               // futas (`code_bridge_incomplete` -- hianyzik a teljes-kesz jel) is
               // folytatodik egy masik fiokkal, nem csak a keret/elakadas/elavult --
               // amig a munka nincs kesz. Ha nincs szabad fiok, a sor kiirodik (lent).
-              if (ev.type === 'error' && (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_stalled' || ev.code === 'code_bridge_outdated' || ev.code === 'code_bridge_login' || ev.code === 'code_bridge_error' || ev.code === 'code_bridge_incomplete')) {
+              if (ev.type === 'error' && (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_stalled' || ev.code === 'code_bridge_outdated' || ev.code === 'code_bridge_login' || ev.code === 'code_bridge_error' || ev.code === 'code_bridge_incomplete' || ev.code === 'code_bridge_not_started' || ev.code === 'code_bridge_enqueue_failed')) {
                 // A signed-out worker fails every run the same way: the next messages go straight to a working
                 // account for a while, so the owner does not get the same failure line under every answer.
                 if (ev.code === 'code_bridge_limit' || ev.code === 'code_bridge_outdated' || ev.code === 'code_bridge_login') bridgeLimitedUntil = Date.now() + BRIDGE_LIMIT_COOLDOWN_MS
@@ -1468,6 +1490,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                   bridgeLogin = ev.code === 'code_bridge_login'
                   bridgeError = ev.code === 'code_bridge_error'
                   bridgeIncomplete = ev.code === 'code_bridge_incomplete'
+                  bridgeNotStarted = ev.code === 'code_bridge_not_started' || ev.code === 'code_bridge_enqueue_failed'
                   if (bridgeTaskId) markBridgeTaskContinued(bridgeTaskId)
                   break
                 }
@@ -1479,7 +1502,11 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
             if (bridgeTaskId) unwatchBridgeTask(bridgeTaskId)
             if (liveFallback) {
               const to = liveFallback.account || '?'
-              const switched = bridgeStalled
+              const switched = bridgeRefusal !== null
+                ? msg('code_bridge_refused_fallback', lang, { detail: bridgeRefusal, to })
+                : bridgeNotStarted
+                ? msg('code_bridge_not_started_fallback', lang, { to })
+                : bridgeStalled
                 ? msg('code_bridge_stalled_fallback', lang, { to })
                 : bridgeOutdated
                   ? msg('code_bridge_outdated_fallback', lang, { to })
@@ -1492,7 +1519,8 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                       : msg('code_bridge_limit_fallback', lang, { to })
               addAgentMessage(session.id, 'system', switched)
               send('notice', { type: 'notice', code: 'code_bridge_limit_fallback', message: switched })
-              await runLive(liveFallback, history, msg('bridge_continue_note', lang))
+              // Nobody worked on a task that never started: no "another account was cut off" note then.
+              await runLive(liveFallback, history, bridgeNotStarted ? undefined : msg('bridge_continue_note', lang))
             }
           } finally {
             releaseTurn(key)

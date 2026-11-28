@@ -66,7 +66,10 @@ param(
   # discovery and no self-update; it answers folder browse requests (the main
   # lane is slow at that while a task runs). The main worker starts it and
   # restarts it after an update (Start-ChatLane).
-  [string]$Lane = ''
+  [string]$Lane = '',
+  # #998: chat lane number. Lane 1 is kept running; a higher one is opened when a
+  # typed message waits because every lane is busy, and leaves after 10 idle minutes.
+  [int]$Slot = 1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,7 +78,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-11-28.1'
+$script:WorkerVersion = '2026-11-28.2'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -300,7 +303,10 @@ $script:DiscoveryInterrupted = 'MARVIN-DISCOVERY-INTERRUPTED'
 $script:InTaskId = $null
 $script:InTaskRunSessionId = $null
 $script:IsChatLane = ($Lane -eq 'chat')
-$script:AliveFile = Join-Path $script:StateDir $(if ($script:IsChatLane) { 'alive-chat.txt' } else { 'alive.txt' })
+$script:SlotSuffix = $(if ($Slot -gt 1) { '-' + $Slot } else { '' })
+$script:AliveFile = Join-Path $script:StateDir $(if ($script:IsChatLane) { 'alive-chat' + $script:SlotSuffix + '.txt' } else { 'alive.txt' })
+$script:LastExtraLaneStart = [DateTime]::MinValue
+$script:ExtraLaneIdleSec = 600
 $script:ChatAliveFile = Join-Path $script:StateDir 'alive-chat.txt'
 $script:LastChatLaneCheck = [DateTime]::MinValue
 $script:LastAlive = [DateTime]::MinValue
@@ -408,6 +414,34 @@ function Start-ChatLane {
   }
 }
 
+# #998: a typed message waits although a lane polls every few seconds, so every
+# lane is busy. Open the lowest numbered lane that shows no sign of life; a
+# duplicate start exits on its own mutex. One start per 20 s per process.
+function Start-ExtraChatLane {
+  param($Reply)
+  if ($DiscoverOnly -or $Once) { return }
+  if (-not $Reply -or [int]$Reply.ownerWaiting -le 0) { return }
+  if (((Get-Date) - $script:LastExtraLaneStart).TotalSeconds -lt 20) { return }
+  $script:LastExtraLaneStart = Get-Date
+  try {
+    $n = 1
+    while ($true) {
+      $name = if ($n -gt 1) { 'alive-chat-' + $n + '.txt' } else { 'alive-chat.txt' }
+      $file = Join-Path $script:StateDir $name
+      if (-not (Test-Path -LiteralPath $file)) { break }
+      $parts = ([System.IO.File]::ReadAllText($file)).Trim().Split(' ')
+      if (((Get-Date).ToUniversalTime() - [DateTime]::new([int64]$parts[1], [DateTimeKind]::Utc)).TotalSeconds -ge 60) { break }
+      $n++
+    }
+    Start-Process -FilePath 'powershell.exe' -WindowStyle Minimized -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Lane', 'chat', '-Slot', $n
+    )
+    Write-Log ('chat lane {0}: elinditva (egy beirt uzenet var, minden sav foglalt)' -f $n)
+  } catch {
+    Write-Log ('chat lane: a tovabbi sav inditasa nem sikerult: ' + $_.Exception.Message) 'WARN'
+  }
+}
+
 function Get-CachedFileValue {
   param($File, [string]$Kind, [scriptblock]$Compute)
   $key = $Kind + '|' + $File.FullName
@@ -434,6 +468,7 @@ function Test-WorkWaiting {
     try {
       $hb = Invoke-Bridge -Path ('/api/code/tasks/' + $script:InTaskId + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $script:InTaskRunSessionId }
       if ($hb -and $hb.stop) { $script:StopTaskRequested = $true }
+      Start-ExtraChatLane -Reply $hb
     } catch { }
     return
   }
@@ -442,6 +477,7 @@ function Test-WorkWaiting {
     $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId; workerVersion = $script:WorkerVersion; account = (Get-ClaudeLogin) }
   } catch { return }
   if ($claim -and $claim.browseRequests) { Invoke-BrowseRequests -Requested $claim.browseRequests }
+  Start-ExtraChatLane -Reply $claim
   if ($claim -and $claim.task) {
     $script:PendingTask = $claim
     throw $script:DiscoveryInterrupted
@@ -1297,11 +1333,12 @@ function Invoke-CodeTask {
   while (-not $proc.HasExited) {
     Start-Sleep -Seconds 2
     Update-Alive
-    if (((Get-Date) - $lastBeat).TotalSeconds -ge 60) {
+    if (((Get-Date) - $lastBeat).TotalSeconds -ge 15) {
       $lastBeat = Get-Date
       try {
         $hb = Invoke-Bridge -Path ('/api/code/tasks/' + $Task.id + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $runSessionId }
         if ($hb -and $hb.stop) { $script:StopTaskRequested = $true }
+        Start-ExtraChatLane -Reply $hb
       } catch {
         Write-Log ('heartbeat failed: ' + $_.Exception.Message) 'WARN'
       }
@@ -1592,6 +1629,7 @@ function Invoke-SelfUpdate {
 
 function Start-WorkerLoop {
   $lastDiscover = [DateTime]::MinValue
+  $lastWork = Get-Date
   while ($true) {
     Update-Alive
     try {
@@ -1684,9 +1722,15 @@ function Start-WorkerLoop {
           Write-Log ('result POST failed: ' + $_.Exception.Message) 'ERROR'
         }
         if ($Once) { return }
+        $lastWork = Get-Date
         continue
       }
       if ($Once) { Write-Log 'no queued task'; return }
+      Start-ExtraChatLane -Reply $claim
+      if ($script:IsChatLane -and $Slot -gt 1 -and ((Get-Date) - $lastWork).TotalSeconds -ge $script:ExtraLaneIdleSec) {
+        Write-Log ('chat lane {0}: tetlen, kilep' -f $Slot)
+        return
+      }
     } catch {
       Write-Log ('loop error: ' + $_.Exception.Message) 'WARN'
       Start-Sleep -Seconds 5
@@ -1718,7 +1762,7 @@ if ($DiscoverOnly) {
 # Amit ezzel nem vesztunk el: hogy fut-e worker, nem ebbol tudjuk, hanem a
 # szivverésbol -- a dashboard `code_bridge_dead` jelzese a WORKER_STALE_MS
 # alapjan meri. A csend itt tehat "minden rendben", nem "nem latok oda".
-$mutex = New-Object System.Threading.Mutex($false, $(if ($script:IsChatLane) { 'Global\MarvinCodeWorker.chat' } else { 'Global\MarvinCodeWorker' }))
+$mutex = New-Object System.Threading.Mutex($false, $(if ($script:IsChatLane) { 'Global\MarvinCodeWorker.chat' + $(if ($Slot -gt 1) { '.' + $Slot } else { '' }) } else { 'Global\MarvinCodeWorker' }))
 $script:HaveMutex = $false
 try { $script:HaveMutex = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $script:HaveMutex = $true }
 if (-not $script:HaveMutex) {

@@ -1200,6 +1200,43 @@ export function latestCodeTaskForProject(project: string): CodeTask | null {
   return list[0] ?? null
 }
 
+/** #998 (owner law, TG 7958): what a person typed into any chat starts at once. It never waits behind automatic work
+ *  or behind another conversation -- only behind a run that writes into the very same conversation. Typed = a Workbench
+ *  chat, a Telegram message, or the dashboard's own code-bridge composer (`requestedBy: 'dashboard'`; the Approvals
+ *  page dispatches with the agent's name). Measured 2026-11-28: a chat sat 27 minutes behind queued development
+ *  tasks, and Telegram tasks waited 28 minutes in the median. */
+const OWNER_MESSAGE_SQL = `(origin IN ('workbench', 'telegram') OR (origin = 'dashboard' AND COALESCE(requested_by, '') = 'dashboard'))`
+
+export function isOwnerMessage(task: { origin: string; requestedBy?: string | null }): boolean {
+  return task.origin === 'workbench' || task.origin === 'telegram' || (task.origin === 'dashboard' && task.requestedBy === 'dashboard')
+}
+
+/** A typed message nobody took for this long needs one more lane (the idle lane polls every 3 s). */
+export const OWNER_LANE_WANTED_MS = 8_000
+
+/** How many typed messages wait although nothing but a free lane is missing: the worker opens one for them. */
+export function ownerMessagesWaiting(now = Date.now()): number {
+  ensureTables()
+  const rows = getDb().prepare(
+    `SELECT * FROM code_tasks t WHERE status = 'queued' AND ${OWNER_MESSAGE_SQL} AND created_at <= ?
+        AND COALESCE(topic_state, '') NOT IN ('pending', 'asking', 'held')`,
+  ).all(now - OWNER_LANE_WANTED_MS) as Record<string, unknown>[]
+  return rows.map(rowToTask).filter((t) => {
+    const session = getCodeSession(t.project)
+    if (!session || session.paused) return false
+    if (t.origin !== 'workbench' && activeCodeBridgeLimit(sessionSide(session.workspacePath), now)) return false
+    return !(t.targetSessionId && conversationInUse(t.project, t.targetSessionId))
+  }).length
+}
+
+/** Is a running task of the project writing into this conversation right now? */
+function conversationInUse(project: string, sessionId: string): boolean {
+  return !!getDb().prepare(
+    `SELECT 1 FROM code_tasks WHERE project = ? AND status = 'running'
+        AND (run_session_id = ? OR (COALESCE(start_fresh, 0) = 0 AND session_id = ?)) LIMIT 1`,
+  ).get(project, sessionId, sessionId)
+}
+
 /** What stands between a queued task and its start. Boss (TG 2409) got only
  *  "Handed over" and then silence: the task waited behind a 37-minute one. */
 export interface CodeTaskQueueAhead {
@@ -1226,29 +1263,41 @@ export function codeTaskQueueAhead(taskId: string, now = Date.now()): CodeTaskQu
   if (me['status'] !== 'queued') return none
   const project = me['project'] as string
   const createdAt = me['created_at'] as number
-  const runningRow = db
-    .prepare(`SELECT * FROM code_tasks WHERE project = ? AND status = 'running' ORDER BY started_at LIMIT 1`)
-    .get(project) as Record<string, unknown> | undefined
+  const chatLane = chatLaneAlive(now)
+  const typed = isOwnerMessage(rowToTask(me))
+  const sameQueue = typed ? OWNER_MESSAGE_SQL : `NOT ${OWNER_MESSAGE_SQL}`
+  // A typed message is held back by its own conversation only; automatic work by the project's.
+  const target = typed ? (me['target_session_id'] as string | null) : null
+  const runningRow = (typed
+    ? target && db
+      .prepare(`SELECT * FROM code_tasks WHERE project = ? AND status = 'running' AND (run_session_id = ? OR session_id = ?) ORDER BY started_at LIMIT 1`)
+      .get(project, target, target)
+    : db
+      .prepare(`SELECT * FROM code_tasks WHERE project = ? AND status = 'running' AND ${sameQueue} ORDER BY started_at LIMIT 1`)
+      .get(project)) as Record<string, unknown> | null | undefined
   const ahead = Number((db
     .prepare(
       `SELECT COUNT(*) AS n FROM code_tasks
-        WHERE project = ? AND status = 'queued' AND (created_at < ? OR (created_at = ? AND rowid < ?))`,
+        WHERE project = ? AND status = 'queued' AND ${sameQueue} AND (created_at < ? OR (created_at = ? AND rowid < ?))`,
     )
     .get(project, createdAt, createdAt, me['rid']) as { n: number }).n)
   if (runningRow) return { running: rowToTask(runningRow), ahead, busyElsewhere: null }
 
-  // A workbench task with a live chat lane does not wait for the main worker.
-  const chatLane = chatLaneAlive(now)
-  if (me['origin'] === 'workbench' && chatLane) return { ...none, ahead }
+  // A typed message with a live chat lane waits for nothing: a lane takes it, or one more opens.
+  if (typed && chatLane) return { ...none, ahead }
   // Main-lane tasks a worker is actually running (live lease = it heartbeats).
   const busy = (db
     .prepare(
-      `SELECT * FROM code_tasks WHERE status = 'running' AND lease_expires_at > ? ${chatLane ? `AND origin <> 'workbench'` : ''}
+      `SELECT * FROM code_tasks WHERE status = 'running' AND lease_expires_at > ? ${chatLane ? `AND NOT ${OWNER_MESSAGE_SQL}` : ''}
         ORDER BY started_at`,
     )
     .all(now) as Record<string, unknown>[]).map(rowToTask)
   const busyHosts = new Set(busy.map((t) => t.host))
   const liveHosts = listCodeWorkers().filter((w) => now - w.lastSeenAt <= WORKER_STALE_MS).map((w) => w.host)
+  // #998: no chat lane, so a typed message needs a free worker. One that is running this
+  // project's task does hold it back.
+  const sameProject = typed ? busy.find((t) => t.project === project) : undefined
+  if (sameProject && !liveHosts.some((h) => !busyHosts.has(h))) return { running: sameProject, ahead, busyElsewhere: null }
   // A free live worker takes this task next; no live worker at all is a
   // stopped worker, not "busy with another project".
   if (liveHosts.length === 0 || liveHosts.some((h) => !busyHosts.has(h))) return { ...none, ahead }
@@ -1534,29 +1583,31 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
   ensureTables()
   const db = getDb()
   if (lane === 'chat') noteChatLaneSeen(now)
-  // chat lane: workbench tasks only. main lane: everything, except the
-  // workbench tasks while a live chat lane is there to take them.
+  // chat lanes: typed messages only. main lane: everything, except a typed message
+  // a live chat lane is about to take -- one that waited OWNER_LANE_WANTED_MS (every
+  // lane busy) goes to whoever asks first.
   const originFilter = lane === 'chat'
-    ? `AND origin = 'workbench'`
-    : chatLaneAlive(now) ? `AND origin <> 'workbench'` : ''
+    ? `AND ${OWNER_MESSAGE_SQL}`
+    : chatLaneAlive(now) ? `AND (NOT ${OWNER_MESSAGE_SQL} OR created_at <= ${Math.floor(now - OWNER_LANE_WANTED_MS)})` : ''
   const claim = db.transaction((): CodeTask | null => {
-    // rowid breaks a created_at tie in insertion order -- the order the
-    // Telegram receipt promises (codeTaskQueueAhead).
+    // Typed messages first; then oldest first, rowid breaking a created_at tie in
+    // insertion order -- the order the Telegram receipt promises (codeTaskQueueAhead).
     const rows = db
-      .prepare(`SELECT * FROM code_tasks WHERE status = 'queued' ${originFilter} ORDER BY created_at, rowid LIMIT 50`)
+      .prepare(`SELECT * FROM code_tasks WHERE status = 'queued' ${originFilter} ORDER BY ${OWNER_MESSAGE_SQL} DESC, created_at, rowid LIMIT 50`)
       .all() as Record<string, unknown>[]
 
-    // One running task per project, enforced here rather than by trusting the
-    // worker to be a singleton: two `claude --resume` processes on the SAME
-    // session id interleave their turns in one transcript, which is exactly the
-    // corruption this bridge must not cause. A second worker (or a restarted
-    // one racing the old process) therefore gets the next project's task, not a
-    // second task for a busy session.
-    const isBusy = db.prepare(`SELECT 1 FROM code_tasks WHERE project = ? AND status = 'running' LIMIT 1`)
+    // One running AUTOMATIC task per project, enforced here rather than by
+    // trusting the worker to be a singleton: two `claude --resume` processes on
+    // the SAME session id interleave their turns in one transcript, which is
+    // exactly the corruption this bridge must not cause. A second worker (or a
+    // restarted one racing the old process) therefore gets the next project's
+    // task. A typed message (#998) skips this rule; the conversation itself is
+    // checked below for every task.
+    const automaticBusy = db.prepare(`SELECT 1 FROM code_tasks WHERE project = ? AND status = 'running' AND NOT ${OWNER_MESSAGE_SQL} LIMIT 1`)
 
     for (const row of rows) {
       const task = rowToTask(row)
-      if (isBusy.get(task.project)) continue
+      if (!isOwnerMessage(task) && automaticBusy.get(task.project)) continue
       // #598: an unclassified or held Telegram message does not go out yet.
       if (task.topicState === 'pending') {
         if (now - ((row['topic_at'] as number | null) ?? 0) < TOPIC_PENDING_MAX_MS) continue
@@ -1589,7 +1640,7 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       // #799: the first minutes of a 5h window may spend only WAKE_PHASE_CEILING_PCT on NEW automatic work.
       // Boss's own messages (telegram, workbench) are exempt. The reading is the main account's, so only the
       // WSL-side sessions (the main account's VS Code) are held by it; no fresh reading = nothing is held.
-      if (sessionSide(session.workspacePath) === 'wsl') {
+      if (!isOwnerMessage(task) && sessionSide(session.workspacePath) === 'wsl') {
         const wake = currentWakePhase(MAIN_AGENT_ID, now)
         if (wakePhaseHoldsOrigin(task.origin, wake)) {
           if (lastWakeHoldLogAt !== wake.openedAt) {
@@ -1659,6 +1710,7 @@ export function claimNextCodeTask(host: string, now = Date.now(), lane?: CodeCla
       // kartya, meg nem lezart, meg lathato szalban). Kulonben a worker friss,
       // ures beszelgetest indit (lasd marvin-code-worker.ps1 Invoke-CodeTask).
       const startFresh = !task.targetSessionId && (forcedFresh || topic === null || topic.kind !== 'reuse')
+      if (!startFresh && runIn && conversationInUse(task.project, runIn)) continue
       db.prepare(
         `UPDATE code_tasks
            SET status = 'running', host = ?, session_id = ?, workspace_path = ?,
