@@ -24,6 +24,7 @@ import { closeSync, existsSync, openSync, readSync, readdirSync, readFileSync, s
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { toLocalWorkspacePath } from './code-bridge-workspace.js'
+import { ol, ownerLang, type OwnerLang } from '../owner-lang.js'
 
 /** Egy sor az idovonalon. */
 export interface CodeConvEntry {
@@ -202,7 +203,7 @@ export function readTranscriptTailMeta(path: string): TranscriptTailMeta {
 /** Egy eszkoz-hivas EGY SORBAN, emberi nyelven. Ugyanaz az elv, mint az
  *  ugynok-beszelgetesnel: a nyers JSON olvashatatlan, a puszta eszkoznev
  *  keves. */
-function actionLabel(name: string, input: Record<string, unknown>): string {
+function actionLabel(name: string, input: Record<string, unknown>, lang: OwnerLang): string {
   const base = name.includes('__') ? name.split('__').pop()! : name
   const pick = (k: string): string => (typeof input[k] === 'string' ? (input[k] as string) : '')
   if (base === 'Bash') return `Bash: ${pick('description') || pick('command').slice(0, 120)}`
@@ -211,10 +212,10 @@ function actionLabel(name: string, input: Record<string, unknown>): string {
   if (base === 'Edit') return `Edit: ${pick('file_path')}`
   if (base === 'Glob') return `Glob: ${pick('pattern')}`
   if (base === 'Grep') return `Grep: ${pick('pattern')}`
-  if (base === 'Task' || base === 'Agent') return `Ügynök: ${pick('description')}`
-  if (base === 'WebSearch') return `Web keresés: ${pick('query')}`
-  if (base === 'WebFetch') return `Web lekérés: ${pick('url')}`
-  if (base === 'TodoWrite') return 'Teendőlista frissítése'
+  if (base === 'Task' || base === 'Agent') return `${ol('Ügynök', 'Agent', lang)}: ${pick('description')}`
+  if (base === 'WebSearch') return `${ol('Web keresés', 'Web search', lang)}: ${pick('query')}`
+  if (base === 'WebFetch') return `${ol('Web lekérés', 'Web fetch', lang)}: ${pick('url')}`
+  if (base === 'TodoWrite') return ol('Teendőlista frissítése', 'To-do list update', lang)
   return base
 }
 
@@ -297,7 +298,7 @@ export function findConversationBranchStarts(
 /** A napló-rekord lanc-adatai -- csak a begepelt fordulóknal kell. */
 interface ChainInfo { uuid: string; parentUuid: string | null }
 
-function parseLine(line: string, out: CodeConvEntry[]): ChainInfo | null {
+function parseLine(line: string, out: CodeConvEntry[], lang: OwnerLang): ChainInfo | null {
   let d: Record<string, unknown>
   try {
     d = JSON.parse(line) as Record<string, unknown>
@@ -334,7 +335,7 @@ function parseLine(line: string, out: CodeConvEntry[]): ChainInfo | null {
       } else if (bt === 'tool_use') {
         const name = typeof block['name'] === 'string' ? (block['name'] as string) : ''
         const input = (block['input'] as Record<string, unknown>) ?? {}
-        out.push({ ts, kind: 'action', text: actionLabel(name, input), label: name || null })
+        out.push({ ts, kind: 'action', text: actionLabel(name, input, lang), label: name || null })
       }
     }
   }
@@ -422,7 +423,8 @@ export function statCodeConversation(
 export function readCodeConversation(
   transcriptPath: string | null,
   sessionId: string,
-  opts: { limit: number; offset: number },
+  // `lang`: the language of the screen asking (#995); the install language when not given.
+  opts: { limit: number; offset: number; lang?: OwnerLang },
 ): CodeConvResult {
   const empty = (
     reason: string | null, path: string | null = null, mtime: number | null = null,
@@ -450,7 +452,7 @@ export function readCodeConversation(
     const t = line.trim()
     if (!t) continue
     const at = all.length
-    const chain = parseLine(t, all)
+    const chain = parseLine(t, all, opts.lang ?? ownerLang())
     if (chain) turns.push({ ...chain, at })
   }
   const starts = findConversationBranchStarts(turns)

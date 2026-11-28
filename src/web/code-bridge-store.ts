@@ -53,7 +53,7 @@ import {
   type SessionVisibility,
   type TopicSessionDeps,
 } from './code-topic-session.js'
-import { ol } from '../owner-lang.js'
+import { ol, type OwnerLang } from '../owner-lang.js'
 
 export type CodeTaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 /** `workbench` = the Workbench (Munkapad) chat in full-agent mode (#433): the
@@ -944,11 +944,16 @@ export interface EnqueueInput {
   /** The chat's side switch (Workbench): `wsl` | `windows` forces the VS Code session of that
    *  side, even over the project's own pinned session; empty = by the project / the default. */
   side?: CodeSessionSide | null
+  /** The language of the screen that sends it (#995): for the measured details quoted inside a warning. */
+  lang?: OwnerLang
 }
 
 /** Amit a kiadas melle MONDANI kell, de nem allitja meg: mar landolt munka a
  *  kartyan, vagy egy meres, amit nem sikerult elvegezni. */
-export type EnqueueWarning = CardWorkNotice
+export type EnqueueWarning = CardWorkNotice & {
+  /** Further warnings of the same dispatch; each has its own key, so a screen can show every one (#995). */
+  also?: CardWorkNotice[]
+}
 
 export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?: EnqueueWarning } | CodeBridgeError {
   ensureTables()
@@ -1044,7 +1049,7 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
   // kartyara? A FUTO masik kiadas megallitja a masodikat; a mar landolt munka
   // csak szol, mert a folytatas jogos; amit nem sikerult megmerni, azt sem
   // hallgatjuk el.
-  const verdict = checkCardWork(prompt)
+  const verdict = checkCardWork(prompt, { lang: input.lang })
   // A "nincs kituzott session" figyelmeztetes az alapertelmezes: ha a kartya-orseg
   // nem ir felul egy sajat (fontosabb) uzenettel, ez marad -- a kiadas megtortent,
   // csak jelezzuk, hova kerult valojaban.
@@ -1090,7 +1095,9 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
       project: resolved.session.project,
       until: formatLimitReset(heldBy.resetsAt),
     })
-    warning = warning ? { ...warning, message: `${warning.message} ${limitNotice.message}` } : limitNotice
+    warning = warning
+      ? { ...warning, message: `${warning.message} ${limitNotice.message}`, also: [...(warning.also ?? []), limitNotice] }
+      : limitNotice
   }
 
   const id = randomUUID()

@@ -37,6 +37,7 @@
 import { readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { logger } from './logger.js'
+import { ol, ownerLang, type OwnerLang } from './owner-lang.js'
 
 /** Amit a felulet tudni akar, mielott gombot mutat. */
 export interface RestartAvailability {
@@ -93,13 +94,27 @@ export function unitIsSafeToRestart(unit: string | null): boolean {
   return true
 }
 
-/** Ki tudja-e magat egyaltalan indítani ez a telepites? */
-export function restartAvailability(cgroupText?: string): RestartAvailability {
+/** The one "deliberately not restarted from here" sentence (also used by the restart-all plan). */
+export function unsafeUnitReason(lang: OwnerLang = ownerLang()): string {
+  return ol(
+    'Ezt a szolgáltatást szándékosan nem indítom újra innen, mert az összes futó ügynök munkamenetét megszakítaná.',
+    'I deliberately do not restart this service from here, because that would cut off the session of every running agent.',
+    lang,
+  )
+}
+
+/** Ki tudja-e magat egyaltalan indítani ez a telepites?
+ *  `lang`: the language of the screen the reason is shown on (#995). */
+export function restartAvailability(cgroupText?: string, lang: OwnerLang = ownerLang()): RestartAvailability {
   if (process.platform !== 'linux') {
     return {
       possible: false,
       unit: null,
-      reason: 'Ez a gép nem systemd-vel indítja a Marveent, ezért innen nem tudom újraindítani. Indítsd újra úgy, ahogy elindítottad.',
+      reason: ol(
+        'Ez a gép nem systemd-vel indítja a Marveent, ezért innen nem tudom újraindítani. Indítsd újra úgy, ahogy elindítottad.',
+        'This machine does not start Marveen with systemd, so I cannot restart it from here. Restart it the way you started it.',
+        lang,
+      ),
     }
   }
   const unit = ownSystemdUnit(cgroupText)
@@ -107,14 +122,18 @@ export function restartAvailability(cgroupText?: string): RestartAvailability {
     return {
       possible: false,
       unit: null,
-      reason: 'A Marveen most nem szolgáltatásként fut, ezért innen nem tudom újraindítani. Zárd be és indítsd el újra ugyanúgy, ahogy elindítottad.',
+      reason: ol(
+        'A Marveen most nem szolgáltatásként fut, ezért innen nem tudom újraindítani. Zárd be és indítsd el újra ugyanúgy, ahogy elindítottad.',
+        'Marveen is not running as a service right now, so I cannot restart it from here. Close it and start it again the same way you started it.',
+        lang,
+      ),
     }
   }
   if (!unitIsSafeToRestart(unit)) {
     return {
       possible: false,
       unit,
-      reason: 'Ezt a szolgáltatást szándékosan nem indítom újra innen, mert az összes futó ügynök munkamenetét megszakítaná.',
+      reason: unsafeUnitReason(lang),
     }
   }
   return { possible: true, unit, reason: '' }
@@ -175,7 +194,7 @@ export function performSelfRestart(
     logger.warn({ unit: avail.unit }, '[ujrainditas] a vezerlopult ujraindul, a felulet kerte')
   } catch (err: any) {
     logger.error({ err: err?.message, unit: avail.unit }, '[ujrainditas] nem sikerult elinditani')
-    return { possible: false, unit: avail.unit, reason: 'Az újraindítást nem sikerült elindítani. Nézd meg a naplót.' }
+    return { possible: false, unit: avail.unit, reason: ol('Az újraindítást nem sikerült elindítani. Nézd meg a naplót.', 'The restart could not be started. Check the log.') }
   }
   return avail
 }

@@ -14,7 +14,7 @@
 // src/self-restart.ts-ben es a src/restart-all.ts-ben -- ott is olvashato,
 // miert nem nyul soha egyik ut sem a csatorna-szolgaltatashoz (a kozos tmux
 // szerver miatt).
-import { json } from '../http-helpers.js'
+import { json, reqLang } from '../http-helpers.js'
 import { restartAvailability, performSelfRestart } from '../../self-restart.js'
 import {
   buildRestartAllPlan,
@@ -85,14 +85,17 @@ async function snapshot(): Promise<{ agents: AgentSnapshot[]; main: AgentSnapsho
 export async function tryHandleSystemRestart(ctx: RouteContext): Promise<boolean> {
   const { res, path, method } = ctx
 
+  // #995: the reasons are shown on screen, so they follow the language of the request.
+  const lang = reqLang(ctx.req, ctx.url)
+
   if (path === '/api/system/restart' && method === 'GET') {
-    const a = restartAvailability()
+    const a = restartAvailability(undefined, lang)
     json(res, { possible: a.possible, unit: a.unit, reason: a.reason, alive: true, startedAt: PROCESS_STARTED_AT })
     return true
   }
 
   if (path === '/api/system/restart' && method === 'POST') {
-    const a = restartAvailability()
+    const a = restartAvailability(undefined, lang)
     if (!a.possible) {
       json(res, { error: a.reason, code: 'restart_unavailable', unit: a.unit }, 409)
       return true
@@ -113,14 +116,14 @@ export async function tryHandleSystemRestart(ctx: RouteContext): Promise<boolean
   // szandekosan kimarad. Lasd a hosszu indoklast: src/restart-all.ts.
   if (path === '/api/system/restart-all' && method === 'GET') {
     const { agents, main } = await snapshot()
-    const plan = buildRestartAllPlan({ agents, main, dashboard: restartAvailability() })
+    const plan = buildRestartAllPlan({ agents, main, dashboard: restartAvailability(undefined, lang), lang })
     json(res, { ...plan, startedAt: PROCESS_STARTED_AT })
     return true
   }
 
   if (path === '/api/system/restart-all' && method === 'POST') {
     const { agents, main } = await snapshot()
-    const plan = buildRestartAllPlan({ agents, main, dashboard: restartAvailability() })
+    const plan = buildRestartAllPlan({ agents, main, dashboard: restartAvailability(undefined, lang), lang })
     // A sub-agensek es a foagens MOST indulnak ujra -- ez masodpercek alatt
     // lefut, es a valaszban minden lepes sajat sort kap, a hibasak is.
     const results = await executeRestartAllPlan(plan, {
