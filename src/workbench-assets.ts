@@ -27,6 +27,7 @@
  * A regi fajl SOSE VESZ EL: a Marveen tovabbra sem ir felul semmit
  * (`writeProjectFile` szabad nevet keres), es az athelyezes is szabad nevre megy.
  */
+import { annexOwnerId } from './workbench-docannex.js'
 import { isOwnOutputPath, isSpeechKind, recogniserInstalled, transcriptInfo, type TranscriptInfo } from './workbench-media-state.js'
 import { drainSteps, drainStepsYielding, type Steps } from './yielding.js'
 import { createHash, randomUUID } from 'node:crypto'
@@ -3408,9 +3409,13 @@ export function itemSubfolderOf(project: ProjectRow, folder: string): ItemSubfol
   const last = folder.slice(cut + 1)
   const kind = ['Mellékletek', 'Attachments'].includes(last) ? 'annex' : ['Feltöltések', 'Uploads'].includes(last) ? 'uploads' : null
   if (!kind) return null
-  const row = getDb().prepare('SELECT id FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND folder = ?').get(project.id, parent) as { id: string } | undefined
-  const item = row ? getWorkItem(row.id) : undefined
-  return item ? { item, kind } : null
+  // #990: language versions share the folder of their original. The folder speaks for the original (else the oldest
+  // item filed in it); annexes always belong to the original, wherever the version keeps its own folder.
+  const rows = getDb().prepare('SELECT id FROM work_items WHERE project_id = ? AND deleted_at IS NULL AND folder = ? ORDER BY created_at ASC, rowid ASC').all(project.id, parent) as { id: string }[]
+  const row = rows.find((r) => annexOwnerId(r.id) === r.id) ?? rows[0]
+  if (!row) return null
+  const item = getWorkItem(kind === 'annex' ? annexOwnerId(row.id) : row.id)
+  return item && !item.deleted_at && item.project_id === project.id ? { item, kind } : null
 }
 
 export type LinkUploadOutcome =

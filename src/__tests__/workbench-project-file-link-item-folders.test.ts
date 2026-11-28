@@ -5,9 +5,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { STORE_DIR } from '../config.js'
-import { initDatabase } from '../db.js'
+import { initDatabase, getDb } from '../db.js'
 import { createProject, updateProject, getProject } from '../projects.js'
-import { createWorkItem } from '../workbench.js'
+import { createWorkItem, getWorkItem } from '../workbench.js'
+import { addSection } from '../workbench-docmodel.js'
+import { createVariant } from '../workbench-doclang.js'
 import { ensureWorkItemFolder, listWorkFolders, findWorkItemsBox, itemSubfolderOf } from '../workbench-assets.js'
 import { callWorkbench } from './helpers/workbench-route-call.js'
 
@@ -86,6 +88,23 @@ describe('project-file-link into an item folder', () => {
     const del = await callWorkbench(`/api/workbench/items/${itemId}/assets/${f.link.id}`, 'DELETE')
     expect(del.status).toBeLessThan(300)
     expect((folderList().files[up] || []).some((x) => x.name === 'level.pdf')).toBe(false)
+  })
+  it('#990: a folder shared with a language version links the annex to the original, not refused', async () => {
+    const original = getWorkItem(itemId)!
+    expect(addSection(itemId, 'Antrag').ok).toBe(true)
+    const v = createVariant(original, 'de', null)
+    if (!v.ok) throw new Error(v.detail)
+    expect(v.item.folder).toBe(itemFolder)
+    // The version is returned first by an unordered lookup once its row stands before the original's.
+    getDb().prepare('UPDATE work_items SET rowid = -1 WHERE id = ?').run(v.item.id)
+    const att = sub(['Mellékletek', 'Attachments'])!
+    expect(itemSubfolderOf(getProject(pid)!, att)).toMatchObject({ kind: 'annex', item: { id: itemId } })
+    const r = await link(att)
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    expect(r.body.item).toBe(itemId)
+    expect((r.body.work_folders.files[att] || []).find((x: { name: string }) => x.name === 'level.pdf')).toMatchObject({ link: { kind: 'annex', item: itemId } })
+    const up = sub(['Feltöltések', 'Uploads'])!
+    expect(itemSubfolderOf(getProject(pid)!, up)).toMatchObject({ kind: 'uploads', item: { id: itemId } })
   })
   it('a missing Life file is refused in both folders', async () => {
     for (const names of [['Mellékletek', 'Attachments'], ['Feltöltések', 'Uploads']]) {
