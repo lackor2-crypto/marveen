@@ -8245,6 +8245,7 @@ window._i18n.hu = {
   "workbench.chat.continue": "Folytatás",
   "workbench.chat.continue_text": "Folytasd onnan, ahol abbahagytad.",
   "workbench.chat.act_queued": "Sorban: {n}",
+  "workbench.chat.act_bridge_queued": "Sorban áll, még nem indult el",
   "workbench.chat.unqueue": "Mégse",
   "workbench.chat.reconnecting": "Megszakadt a kapcsolat (valószínűleg a Marveen frissítés miatt újraindul). Várok, amíg visszajön, és megnézem, mi lett a válasszal.",
   "workbench.chat.interrupted": "A Marveen újraindult, mielőtt a válasz elkészült volna, ezért ez a válasz elveszett. Az üzeneted megvan, küldd el újra.",

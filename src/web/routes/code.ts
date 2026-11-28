@@ -32,7 +32,7 @@ import {
   listCodeSessions, getCodeSession, upsertCodeSession, deleteCodeSession,
   setCodeProjectPaused, dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
-  claimNextCodeTask, noteWorkerLogin, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
+  claimNextCodeTask, ownerMessagesWaiting, noteWorkerLogin, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
   recordCodeTaskEndedSession, recordCodeTaskDispatchWorkspace,
   clearFinishedCodeTasks,
   pruneUnreportedCodeSessions,
@@ -1384,8 +1384,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // a worker oldalan "nem egyezik"-nek latszana, es vegtelen
     // frissitesi korbe kergetne. A "nem latok oda" nem "elavult".
     const expect = expectedWorkerVersion()
-    const extra: { expectedWorkerVersion?: string; browseRequests?: { id: string; path: string }[] } =
+    const extra: { expectedWorkerVersion?: string; browseRequests?: { id: string; path: string }[]; ownerWaiting?: number } =
       expect === null ? {} : { expectedWorkerVersion: expect }
+    // #998: typed messages still waiting -> the worker opens one more lane.
+    const waiting = ownerMessagesWaiting()
+    if (waiting > 0) extra.ownerWaiting = waiting
     // A TALLOZAS-KERES EZEN A CSATORNAN IS KIMEGY.
     //
     // Boss, 2026-09-12, eles meres: a mappa-tallozas 60 masodpercig NEM
@@ -1513,7 +1516,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // Kartya 15e9476a (#276): a worker megmondja, melyik fulben fut a munka.
       const ok = heartbeatCodeTask(task.id, hbHost, Date.now(), body?.runSessionId ?? null)
       // #774: `stop` = the owner took this run back; the worker kills claude.exe and posts what it has.
-      json(res, ok && task.stopRequestedAt !== null ? { ok, stop: true } : { ok }, ok ? 200 : 409)
+      const waiting = ownerMessagesWaiting()
+      json(res, { ok, ...(ok && task.stopRequestedAt !== null ? { stop: true } : {}), ...(waiting > 0 ? { ownerWaiting: waiting } : {}) }, ok ? 200 : 409)
       return true
     }
 

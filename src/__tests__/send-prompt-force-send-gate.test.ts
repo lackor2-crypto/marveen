@@ -20,11 +20,11 @@ describe('sendPromptToSession waitForIdle gate', () => {
   it('sendPromptToSession accepts a waitForIdle option', () => {
     const sigIdx = AGENT_PROCESS.indexOf('export async function sendPromptToSession(')
     expect(sigIdx).toBeGreaterThan(0)
-    const sig = AGENT_PROCESS.slice(sigIdx, sigIdx + 300)
+    const sig = AGENT_PROCESS.slice(sigIdx, sigIdx + 320)
     // The opts bag grew onBusyTimeout/idleTimeoutMs for the inbox-nudge
     // watcher (an OPTIONAL prompt aborts instead of best-effort-typing into a
     // busy pane); waitForIdle stays the first, default-ON member.
-    expect(sig).toMatch(/opts:\s*\{\s*waitForIdle\?:\s*boolean;\s*onBusyTimeout\?:\s*'send'\s*\|\s*'abort';\s*idleTimeoutMs\?:\s*number\s*\}/)
+    expect(sig).toMatch(/opts:\s*\{\s*waitForIdle\?:\s*boolean;\s*onBusyTimeout\?:\s*'send'\s*\|\s*'abort';\s*idleTimeoutMs\?:\s*number;\s*noInterrupt\?:\s*boolean\s*\}/)
   })
 
   it('the gate defaults ON (waitForIdle !== false) so all other callers keep it', () => {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { logger } from '../logger.js'
-import { MAIN_AGENT_ID } from '../config.js'
+import { MAIN_AGENT_ID, currentOwnerName } from '../config.js'
 import { resolveAgentChannelStateDir } from './voice-directive.js'
 import {
   getPendingMessages,
@@ -31,7 +31,7 @@ import {
   sessionExistsOnHostAsync,
   capturePaneStrippedAsync,
 } from './agent-process.js'
-import { detectPaneState, type PaneState } from '../pane-state.js'
+import { detectPaneState, detectsPastePlaceholder, type PaneState } from '../pane-state.js'
 import { setLastInboundModality } from './voice-modality.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from './agent-message-wrap.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
@@ -56,6 +56,20 @@ const routerLoggedMisses: Set<number> = new Set()
 // the orchestrator, so a handoff failure is never silent.
 const routerInjectFailures: Map<number, number> = new Map()
 const MAX_INJECT_FAILURES = 3
+
+/** #998 (owner law, TG 7958): did a person type this into a chat? A dashboard request, a relayed channel message, or
+ *  the dashboard agent chat (sent under the owner's name). Delivery timing only -- the trust framing is not touched. */
+export function isOwnerTypedMessage(fromAgent: string, toAgent: string): boolean {
+  const category = classifyAgentMessage(fromAgent, toAgent)?.category
+  return category === 'owner-request' || category === 'channel-inbound' || fromAgent.trim() === currentOwnerName()
+}
+
+/** A turn is running and nothing is parked in the input box: Claude Code queues typed text and takes it in at the
+ *  next step of that turn. A dialog, a parked line or an unreadable pane never qualifies. */
+async function canTypeIntoRunningTurn(session: string, host: string | null): Promise<boolean> {
+  const pane = await capturePaneStrippedAsync(session, host)
+  return pane != null && detectPaneState(pane) === 'busy' && !detectsPastePlaceholder(pane)
+}
 
 /**
  * Pure decision: has a message exhausted its tmux-inject retries?
@@ -136,6 +150,7 @@ function notifyOrchestratorOfFailedHandoff(msg: AgentMessage, reason: string): v
 // channels session. 45s gives enough headroom that a normal turn (typically
 // 5-30s) ends and drain-inbox fires before we would retry.
 let lastMainAgentWakeupMs = 0
+const ownerWokenFor: Set<number> = new Set()
 const MAIN_AGENT_WAKEUP_COOLDOWN_MS = 45 * 1000
 
 // Bounce a terminal federated-delivery failure back to the SENDER's inbox as
@@ -572,7 +587,10 @@ export async function runMessageRouterTick(): Promise<void> {
       // session starts a turn and drain-inbox claims the message immediately.
       // Busy session: Claude Code queues the wakeup for the next turn boundary.
       if (isMainAgent) {
-        if (!mainAgentWakeupFiredThisTick && now - lastMainAgentWakeupMs >= MAIN_AGENT_WAKEUP_COOLDOWN_MS) {
+        // #998: a fresh message of the owner wakes at once, once.
+        const ownerWake = !ownerWokenFor.has(msg.id) && isOwnerTypedMessage(msg.from_agent, msg.to_agent)
+        if (!mainAgentWakeupFiredThisTick && (ownerWake || now - lastMainAgentWakeupMs >= MAIN_AGENT_WAKEUP_COOLDOWN_MS)) {
+          if (ownerWake) ownerWokenFor.add(msg.id)
           mainAgentWakeupFiredThisTick = true
           lastMainAgentWakeupMs = now
           try {
@@ -612,7 +630,15 @@ export async function runMessageRouterTick(): Promise<void> {
       }
 
       const paneKey = `${host ?? 'local'}:${session}`
-      if (notReadyThisTick.has(paneKey) || !(await isSessionReadyForPrompt(session, host))) {
+      let intoRunningTurn = false
+      let notReady = notReadyThisTick.has(paneKey) || !(await isSessionReadyForPrompt(session, host))
+      // #998: what the owner typed does not wait for the end of a long turn.
+      if (notReady && isOwnerTypedMessage(msg.from_agent, msg.to_agent) && await canTypeIntoRunningTurn(session, host)) {
+        notReadyThisTick.add(paneKey)
+        intoRunningTurn = true
+        notReady = false
+      }
+      if (notReady) {
         notReadyThisTick.add(paneKey)
         // ---- session-stuck detection (card 2922e380 thread a) ----
         // Track how long this session has been continuously not-ready.
@@ -779,7 +805,8 @@ export async function runMessageRouterTick(): Promise<void> {
         const { prefix, wrapped } = wrapAgentMessageForDelivery(category, safeFromAgent, msg.from_agent, content, msg.id, msg.origin_note)
         // Inline preamble so a fresh session (post hard-restart) doesn't miss
         // the context that explains the tag semantics.
-        await sendPromptToSession(session, prefix + wrapped, host)
+        // No idle wait into a running turn: it would only delay what Claude Code queues anyway.
+        await sendPromptToSession(session, prefix + wrapped, host, intoRunningTurn ? { waitForIdle: false, noInterrupt: true } : undefined)
         if (!markMessageDelivered(msg.id)) {
           logger.warn({ id: msg.id }, 'markMessageDelivered affected 0 rows (deleted concurrently?)')
         }

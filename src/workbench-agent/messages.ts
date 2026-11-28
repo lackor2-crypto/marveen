@@ -72,8 +72,8 @@ export const MESSAGES = {
 
   // --- teljes erteku agent a kod-hidon (#433, B opcio) ---------------------
   code_bridge_handed_off: {
-    hu: 'Átadtam a teljes értékű ügynöknek (feladat {id}). Dolgozik rajta, a válasza itt jelenik meg, amint kész. A részletes lépések a Kód-híd nézetben is látszanak.',
-    en: 'Handed to the full agent (task {id}). It is working on it; the answer appears here when ready. The detailed steps are also visible in the Code Bridge view.',
+    hu: 'Átadtam a teljes értékű ügynöknek (feladat {id}). A válasza itt jelenik meg, amint kész. A részletes lépések a Kód-híd nézetben is látszanak.',
+    en: 'Handed to the full agent (task {id}). Its answer appears here when ready. The detailed steps are also visible in the Code Bridge view.',
   },
   code_bridge_queued: {
     hu: 'A feladat még sorban áll ({minutes} perce): a kód-híd egy másik feladattal van elfoglalva, és csak az után indul. Nem akadt el, a kérdésed megvan.',
@@ -194,6 +194,22 @@ export const MESSAGES = {
   code_bridge_timeout: {
     hu: 'A teljes értékű ügynök még dolgozik (feladat {id}). Amint végez, a válasza ide érkezik; addig az új üzeneteid sorba állnak, és utána mennek tovább.',
     en: 'The full agent is still working (task {id}). Its answer will arrive here as soon as it finishes; until then your new messages wait in the queue and go on afterwards.',
+  },
+  code_bridge_not_started: {
+    hu: 'A kód-híd végrehajtója nem vette fel a kérdést.',
+    en: 'The code bridge worker did not pick up the question.',
+  },
+  code_bridge_refused_fallback: {
+    hu: 'A kód-híd nem tudta átvenni a kérdést ({detail}), ezért azonnal elindítottam másik úton (fiók: {to}).',
+    en: 'The code bridge could not take the question ({detail}), so it was started another way at once (account: {to}).',
+  },
+  code_bridge_not_started_fallback: {
+    hu: 'A kód-híd végrehajtója nem vette fel a kérdést, ezért azonnal elindítottam másik úton (fiók: {to}).',
+    en: 'The code bridge worker did not pick up the question, so it was started another way at once (account: {to}).',
+  },
+  code_bridge_timeout_queued: {
+    hu: 'A feladat még sorban áll, nem indult el (feladat {id}). Amint sorra kerül és elkészül, a válasz ide érkezik; addig az új üzeneteid is sorban állnak.',
+    en: 'The task is still waiting in the queue and has not started (task {id}). Its answer will arrive here once it has run; until then your new messages wait in the queue too.',
   },
   code_bridge_lost: {
     hu: 'A feladatot nem találom többé a sorban. Próbáld újra elküldeni az üzenetet.',

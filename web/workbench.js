@@ -12008,6 +12008,7 @@
       if (!r.ok) { scheduleChatWatch(key); return } // atmeneti hiba: tovabb figyelunk
       if (r.data && r.data.running) {
         if (WB.chatActivityClock) WB.chatActivityClock.lastEventAt = Date.now()
+        chatState().turns.forEach(function (x) { if (x.watching) x.bridgeQueued = !!r.data.queued })
         scheduleChatWatch(key)
         return
       }
@@ -12234,6 +12235,7 @@
         extra = t('workbench.chat.act_stalled', { s: Math.round(silent / 1000) })
         kind = 'stalled'
       }
+      if (last.bridgeQueued) { label = t('workbench.chat.act_bridge_queued'); kind = 'wait'; extra = t('workbench.chat.act_elapsed', { s: sec }) }
       // K-0.7: "Sorban: N" -- hany uzenet var a futo valasz mogott.
       var waiting = st.turns.filter(function (x) { return x.role === 'user' && x.queued }).length
       if (waiting) extra += ' · ' + t('workbench.chat.act_queued', { n: waiting })
@@ -12753,7 +12755,10 @@
       turn.notices.push(ev.message || ev.code)
       // A kod-hid feladat a hatterben dolgozik tovabb: a folyam `done` nelkul
       // zarul, de ez nem megszakadt kapcsolat -- lasd `endChatStream`.
-      if (ev.code === 'code_bridge_timeout') turn.background = true
+      if (ev.code === 'code_bridge_timeout' || ev.code === 'code_bridge_timeout_queued') turn.background = true
+      // #998: until the bridge says it started, the task is waiting, not working.
+      if (ev.code === 'code_bridge_handed_off' || ev.code === 'code_bridge_timeout_queued') turn.bridgeQueued = true
+      if (ev.code === 'code_bridge_running') turn.bridgeQueued = false
       return
     }
     if (ev.type === 'error') {
@@ -13085,6 +13090,7 @@
         stopChatActivityTicker()
         WB.chatStreaming = false
         enterChatWatch()
+        chatState().turns.forEach(function (x) { if (x.watching) x.bridgeQueued = !!r.data.queued })
         return
       }
       var msgs = ((r.data && r.data.messages) || []).filter(function (m) { return m.role !== 'tool' })
