@@ -47441,6 +47441,7 @@ async function _intezoCfgSave() {
    * nem latunk oda (nem fut a vegrehajto) / megnezte es tenyleg ures /
    * a gep hibat uzent. Az ures lista onmagaban SOHA nem uzenet. */
   let _cbBrowsePath = ''
+  let _cbBrowseParent = ''   // as answered by the server; '' = the drive list
   let _cbBrowseTimer = null
 
   function cbBrowseEls() {
@@ -47466,6 +47467,7 @@ async function _intezoCfgSave() {
     if (!els.box) return
     els.box.hidden = false
     _cbBrowsePath = String(path == null ? '' : path)
+    _cbBrowseParent = ''
     if (els.pathEl) els.pathEl.textContent = _cbBrowsePath || t('cb.browse.drives')
     if (els.list) els.list.innerHTML = ''
     if (els.status) els.status.textContent = t('cb.browse.waiting')
@@ -47503,6 +47505,7 @@ async function _intezoCfgSave() {
         return
       }
       cbBrowseStop()
+      _cbBrowseParent = r.parent || ''
       if (r.status === 'no_worker') { if (els.status) els.status.textContent = t('cb.browse.no_worker'); return }
       if (r.status === 'expired') { if (els.status) els.status.textContent = t('cb.browse.expired'); return }
       if (r.status === 'error') {
@@ -48400,16 +48403,9 @@ async function _intezoCfgSave() {
     }
 
     if (tgt.id === 'cbBrowseUp') {
-      // A szulot a szerver szamolta ki (Windows-alaku ut, a Linux `path` modul
-      // ertelmetlenseget csinalna belole); ha nincs, a meghajtok kovetkeznek.
-      const pathEl = document.getElementById('cbBrowsePath')
-      const cur = _cbBrowsePath
-      if (!cur) return
-      const up = cur.replace(/[\\/]+$/, '')
-      const idx = Math.max(up.lastIndexOf('\\'), up.lastIndexOf('/'))
-      const parent = idx > 2 ? up.slice(0, idx) : ''
-      if (pathEl) pathEl.textContent = parent || t('cb.browse.drives')
-      cbBrowseOpen(parent)
+      // The server answers with the parent (it knows Windows paths); cutting it
+      // here skipped the drive root. Unknown parent: back to the drive list.
+      if (_cbBrowsePath) cbBrowseOpen(_cbBrowseParent)
       return
     }
 

@@ -16,7 +16,7 @@ function fnSource(name: string): string {
 }
 
 /** Runs the real poll with the real cbFetch over a faked network answer. */
-async function poll(body: unknown) {
+async function poll(body: unknown, seen: { parent?: string } = {}) {
   const els = { box: { hidden: false }, list: { innerHTML: '' }, status: { textContent: 'cb.browse.waiting' } }
   const ctx = vm.createContext({
     fetch: async () => ({ ok: true, status: 200, text: async () => JSON.stringify(body) }),
@@ -27,8 +27,9 @@ async function poll(body: unknown) {
     escapeAttr: (s: unknown) => String(s),
     setTimeout: () => 0,
   })
-  vm.runInContext(`let _cbBrowseTimer = null\n${fnSource('cbFetch')}\n${fnSource('cbBrowsePoll')}\ncbBrowsePoll('abc')`, ctx)
+  vm.runInContext(`let _cbBrowseTimer = null\nlet _cbBrowseParent = ''\n${fnSource('cbFetch')}\n${fnSource('cbBrowsePoll')}\ncbBrowsePoll('abc')`, ctx)
   await new Promise((r) => setImmediate(r))
+  seen.parent = vm.runInContext('_cbBrowseParent', ctx)
   return els
 }
 
@@ -55,5 +56,16 @@ describe('#996 folder browser path line', () => {
   it('isolates the path as left-to-right inside the right-to-left box', () => {
     const html = readFileSync(join(PROJECT_ROOT, 'web', 'index.html'), 'utf8')
     expect(html).toContain('<code class="cb-browse-path"><bdi id="cbBrowsePath" dir="ltr"></bdi></code>')
+  })
+})
+
+describe('#996 folder browser Up button', () => {
+  it('goes to the parent the server answered, so the drive root is not skipped', async () => {
+    const seen: { parent?: string } = {}
+    await poll({ status: 'done', entries: [], parent: 'F:\\' }, seen)
+    expect(seen.parent).toBe('F:\\')
+    const at = app.indexOf("if (tgt.id === 'cbBrowseUp')")
+    const handler = app.slice(at, app.indexOf("if (tgt.id === 'cbBrowsePick')", at))
+    expect(handler).toContain('cbBrowseOpen(_cbBrowseParent)')
   })
 })
