@@ -63,7 +63,8 @@ param(
   # #433: 'chat' = the chat lane. A second process next to the main worker that
   # claims ONLY Workbench chat tasks, so a chat message no longer waits behind a
   # long development task (one worker runs one task at a time). It does no
-  # discovery, no browse and no self-update; the main worker starts it and
+  # discovery and no self-update; it answers folder browse requests (the main
+  # lane is slow at that while a task runs). The main worker starts it and
   # restarts it after an update (Start-ChatLane).
   [string]$Lane = ''
 )
@@ -74,7 +75,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-10-25.1'
+$script:WorkerVersion = '2026-11-28.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -1052,7 +1053,9 @@ function Invoke-BrowseRequests {
         if (-not (Test-Path -LiteralPath $reqPath -PathType Container)) {
           throw ('Nincs ilyen mappa a vegrehajto gepen / No such folder on the executor machine: ' + $reqPath)
         }
-        $parentItem = (Get-Item -LiteralPath $reqPath -ErrorAction Stop).Parent
+        # -Force: the list below shows hidden folders (ProgramData, AppData), and
+        # without it Get-Item answers "Could not find item" for them (#996).
+        $parentItem = (Get-Item -LiteralPath $reqPath -Force -ErrorAction Stop).Parent
         if ($parentItem) { $parent = [string]$parentItem.FullName }
         foreach ($d in (Get-ChildItem -LiteralPath $reqPath -Directory -Force -ErrorAction Stop)) {
           # A rejtett/rendszer-mappak csak zajt adnanak a valasztashoz -- a
@@ -1604,7 +1607,7 @@ function Start-WorkerLoop {
         if ($script:IsChatLane) { $claimBody['lane'] = 'chat' }
         $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body $claimBody
       }
-      # The chat lane never runs discovery, browse or self-update: it only runs
+      # The chat lane never runs discovery or self-update: its only tasks are
       # chat tasks. When the bridge expects a newer script it exits once idle;
       # the main worker (already updated) starts the fresh copy within a minute.
       if ($script:IsChatLane -and $claim -and -not $claim.task) {
@@ -1649,7 +1652,10 @@ function Start-WorkerLoop {
       #
       # A jelentes agan SZANDEKOSAN benne marad ugyanez: ha a claim-hivas
       # barmiert elakad, a tallozas akkor sem hal meg -- csak lassabb lesz.
-      if ((-not $script:IsChatLane) -and $claim -and $claim.browseRequests) {
+      # BOTH lanes (#996): while the main lane runs a task it reports only about
+      # once a minute, so a request expired before pickup; the idle chat lane
+      # asks every few seconds. A request answered twice is harmless.
+      if ($claim -and $claim.browseRequests) {
         Invoke-BrowseRequests -Requested $claim.browseRequests
       }
       if ($claim -and $claim.task) {

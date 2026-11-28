@@ -47443,6 +47443,7 @@ async function _intezoCfgSave() {
   let _cbBrowsePath = ''
   let _cbBrowseParent = ''   // as answered by the server; '' = the drive list
   let _cbBrowseTimer = null
+  let _cbBrowseRun = 0   // goes up on every open/close; an answer of an earlier run is dropped
 
   function cbBrowseEls() {
     return {
@@ -47457,12 +47458,14 @@ async function _intezoCfgSave() {
   }
 
   function cbBrowseStop() {
+    _cbBrowseRun++
     if (_cbBrowseTimer) { clearTimeout(_cbBrowseTimer); _cbBrowseTimer = null }
   }
 
   /** Egy szint bejarasa. `path` ures = a vegrehajto gep meghajtoi. */
   async function cbBrowseOpen(path) {
     cbBrowseStop()
+    const run = _cbBrowseRun
     const els = cbBrowseEls()
     if (!els.box) return
     els.box.hidden = false
@@ -47477,16 +47480,19 @@ async function _intezoCfgSave() {
       const started = await cbPostJson('/api/code/browse', { path: _cbBrowsePath })
       id = (started && started.id) || ''
     } catch (err) {
+      if (run !== _cbBrowseRun) return
       // A TENYLEGES hibat mondjuk el, nem tippet arrol, mi lehetett.
       if (els.status) els.status.textContent = t('cb.browse.failed', { msg: String(err && err.message ? err.message : err) })
       return
     }
+    if (run !== _cbBrowseRun) return
     if (!id) { if (els.status) els.status.textContent = t('cb.browse.failed', { msg: 'no id' }); return }
     cbBrowsePoll(id)
   }
 
   function cbBrowsePoll(id) {
     cbBrowseStop()
+    const run = _cbBrowseRun
     const tick = async function () {
       const els = cbBrowseEls()
       if (!els.box || els.box.hidden) { cbBrowseStop(); return }
@@ -47494,10 +47500,11 @@ async function _intezoCfgSave() {
       try {
         r = await cbFetch('/api/code/browse/' + encodeURIComponent(id))
       } catch (err) {
+        if (run !== _cbBrowseRun) return
         if (els.status) els.status.textContent = t('cb.browse.failed', { msg: String(err && err.message ? err.message : err) })
         return
       }
-      if (!r || !r.status) return
+      if (run !== _cbBrowseRun || !r || !r.status) return
       if (r.status === 'pending') {
         // Meg varunk -- ez NEM ugyanaz, mint hogy ures a mappa.
         if (els.status) els.status.textContent = t('cb.browse.waiting')
