@@ -14,6 +14,10 @@ at kell irni szoveggé, de a sajat agens `scripts/voice/venv/` konyvtara nincs
 telepitve (pl. egy ujabb/kulon agens-mappa, ahol a voice-install nem futott le).
 
 ## Eljaras
+> 2026-11-28 (#986): a projekt `scripts/voice/stt.sh`-ja mar maga megtalalja a telepitett venv-et, es
+> lemezen levo hang-/videofajlt is atir (`audio-video-transcribe` skill). Az alabbi 3. lepes csak regi
+> valtozaton kell.
+
 1. Ha meg nincs letoltve a hangfajl, a Telegram MCP `download_attachment`
    toollal az `attachment_file_id`-bol megszerezheto -- de ehhez a skillhez
    nem is kell: az `_vtools.py transcribe` maga tolt le a file_id alapjan.

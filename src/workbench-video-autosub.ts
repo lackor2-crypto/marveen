@@ -6,11 +6,10 @@
  * owner can edit (nothing is burnt in here: the render does that, as for typed ones).
  */
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { availableParallelism, setPriority, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isVoiceInstalled, VENV_PY, VTOOLS_PY } from './web/routes/voice.js'
-import { PROJECT_ROOT } from './config.js'
+import { isVoiceInstalled, VENV_PY, voiceScript } from './web/routes/voice.js'
 import { videoTool, videoRunTo, videoBusy } from './workbench-video.js'
 import { resolveMedia, probeMedia } from './workbench-video-render.js'
 import {
@@ -73,10 +72,7 @@ export function backgroundThreads(cores: number = availableParallelism()): numbe
 
 const defaultTranscriber: Transcriber = (wav, lang, timeoutMs, opts) => new Promise((resolve) => {
   if (!isVoiceInstalled()) { resolve({ ok: false, code: 'autosub_not_installed', detail: null }); return }
-  // The script of this very checkout when there is one (always the newest, and it reads this checkout's
-  // settings); the deployed copy in the voice folder otherwise (it is only as new as the last voice install).
-  const repoScript = join(PROJECT_ROOT, 'scripts', 'voice', '_vtools.py')
-  const args = [existsSync(repoScript) ? repoScript : VTOOLS_PY, 'transcribe-words-lang', wav, lang]
+  const args = [voiceScript(), 'transcribe-words-lang', wav, lang]
   let out = ''
   let err = ''
   let done = false

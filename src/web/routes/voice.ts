@@ -30,6 +30,15 @@ export const VOICE_DIR = join(homedir(), '.local', 'share', 'marveen-voice')
 export const VTOOLS_PY = join(VOICE_DIR, '_vtools.py')
 export const VENV_PY = join(VOICE_DIR, 'venv', 'bin', 'python')
 
+/**
+ * The voice script to run with VENV_PY. The checkout's copy wins: the installed one is only copied at install time,
+ * so it goes stale with every update, and from its folder it cannot find the project's Settings or Vault key (#986).
+ */
+export function voiceScript(): string {
+  const repo = join(PROJECT_ROOT, 'scripts', 'voice', '_vtools.py')
+  return existsSync(repo) ? repo : VTOOLS_PY
+}
+
 // Telegram file_ids are base64url + some punctuation; reject anything else.
 const SAFE_FILE_ID_RE = /^[A-Za-z0-9_\-]{10,200}$/
 
@@ -119,7 +128,7 @@ export async function transcribeVoiceFile(fileId: string, stateDir: string): Pro
   if (!isVoiceInstalled()) return null
   if (!SAFE_FILE_ID_RE.test(fileId)) return null
   if (!isSafeStateDir(stateDir)) return null
-  const result = await runProc(VENV_PY, [VTOOLS_PY, 'transcribe', fileId, stateDir], { timeoutMs: 240_000 })
+  const result = await runProc(VENV_PY, [voiceScript(), 'transcribe', fileId, stateDir], { timeoutMs: 240_000 })
   if (result.code !== 0) {
     logger.warn({ fileId, stderr: result.stderr.slice(0, 200) }, 'transcribeVoiceFile: whisper failed')
     return null
@@ -203,7 +212,7 @@ export async function tryHandleVoice(ctx: RouteContext): Promise<boolean> {
 
     let transcript: string | null = null
     if (inboundWasAudio && isVoiceInstalled()) {
-      const sttResult = await runProc(VENV_PY, [VTOOLS_PY, 'transcribe', fileParam, stateDir], { timeoutMs: 240_000 })
+      const sttResult = await runProc(VENV_PY, [voiceScript(), 'transcribe', fileParam, stateDir], { timeoutMs: 240_000 })
       if (sttResult.code === 0) {
         transcript = sttResult.stdout.trim() || null
       } else {
@@ -303,7 +312,7 @@ export async function tryHandleVoice(ctx: RouteContext): Promise<boolean> {
 
     const result = await runProc(
       VENV_PY,
-      [VTOOLS_PY, 'speak', onnxPath, stateDir, chatId, text],
+      [voiceScript(), 'speak', onnxPath, stateDir, chatId, text],
       { timeoutMs: 90_000 },
     )
     if (result.code !== 0) {
