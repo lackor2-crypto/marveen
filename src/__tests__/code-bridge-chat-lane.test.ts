@@ -15,7 +15,7 @@ import {
   _resetCodeCandidates, enqueueCodeTask, claimNextCodeTask, chatLaneAlive, resetChatLaneForTest,
   CHAT_LANE_ALIVE_MS, codeTaskQueueAhead, ownerMessagesWaiting, OWNER_LANE_WANTED_MS,
 } from '../web/code-bridge-store.js'
-import { runCodeBridgeTurn } from '../workbench-agent/code-bridge-turn.js'
+import { bridgeStartWaitMs, runCodeBridgeTurn } from '../workbench-agent/code-bridge-turn.js'
 import { msg } from '../workbench-agent/messages.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -218,9 +218,32 @@ describe('#998: a chat message does not wait behind development work of the same
     }
   })
 
+  it('a switched-off bridge is not waited for', async () => {
+    expect(bridgeStartWaitMs(true, 20_000)).toBe(20_000)
+    let now = 0
+    const codes: string[] = []
+    const turn = runCodeBridgeTurn(
+      { message: 'x', lang: 'hu', projectRef: 'marveen', requestedBy: null },
+      {
+        enqueue: () => ({ ok: true, id: 't1' }),
+        getTask: () => ({ status: 'queued', result: null, summary: null, error: null }),
+        now: () => (now += 1),
+        sleep: async () => {},
+        timeoutMs: 100,
+        backgroundMs: 0,
+        startElsewhereAfterMs: bridgeStartWaitMs(false, 20_000),
+        canContinueElsewhere: () => true,
+        cancel: () => {},
+      },
+    )
+    for await (const ev of turn) if (ev.type === 'error') codes.push(ev.code)
+    expect(codes).toEqual(['code_bridge_not_started'])
+    expect(now).toBeLessThan(10)
+  })
+
   it('the Workbench route continues it in the live session and releases an orphaned queued message', () => {
     const route = readFileSync(new URL('../web/routes/workbench-agent.ts', import.meta.url), 'utf-8')
-    expect(route).toContain('startElsewhereAfterMs: BRIDGE_START_WAIT_MS')
+    expect(route).toContain('startElsewhereAfterMs: bridgeStartWaitMs(codeBridgeEnabled(), BRIDGE_START_WAIT_MS)')
     expect(route).toContain("ev.code === 'code_bridge_not_started' || ev.code === 'code_bridge_enqueue_failed')) {")
     expect(route).toContain('releaseUnstartedBridgeTask(chatSession.id, lang)')
   })

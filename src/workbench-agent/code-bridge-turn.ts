@@ -374,6 +374,12 @@ export function stripCompletionMarker(text: string): string {
   return text.split(COMPLETION_MARKER).join('').replace(/[ \t]+\n/g, '\n').trim()
 }
 
+/** #998: how long a queued task waits for the worker before the work starts another way. A switched-off bridge
+ *  has no worker to wait for. */
+export function bridgeStartWaitMs(bridgeOn: boolean, waitMs: number): number {
+  return bridgeOn ? waitMs : 0
+}
+
 /**
  * Egy Munkapad-fordulo a kod-hidon at. Ugyanazokat az esemenyeket adja
  * (`session` kivetelevel, azt a hivo mar kiadta), amiket a projekt-asszisztens.
