@@ -65,6 +65,9 @@ socket.setdefaulttimeout(60)
 
 # Resolved relative to this file so PREFIX-based installs work correctly.
 VENV_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "bin", "python")
+if not os.path.exists(VENV_PY):
+    # Run from a checkout: the wrapper / dashboard already started us with the installed venv.
+    VENV_PY = sys.executable
 
 
 def _token(state_dir):
@@ -331,6 +334,9 @@ def transcribe(file_id, state_dir):
     if os.path.isfile(file_id):
         _whisper(file_id)
         return
+    if os.sep in file_id:
+        # A Telegram file_id never contains a path separator: say what is wrong instead of asking Telegram for it.
+        sys.exit("nincs ilyen fajl / no such file: " + file_id)
     token = _token(state_dir)
     d = json.load(urllib.request.urlopen(
         f"https://api.telegram.org/bot{token}/getFile?file_id={urllib.parse.quote(file_id)}",
