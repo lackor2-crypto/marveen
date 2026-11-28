@@ -8343,6 +8343,7 @@ window._i18n.hu = {
   "workbench.chat.usage_unknown": "A keret állapotát most nem tudom megmérni.",
   "workbench.chat.no_stream": "Ez a böngésző nem tudja folyamatosan olvasni a választ. Próbáld újratölteni az oldalt.",
   "workbench.chat.tool_running": "fut...",
+  "workbench.chat.tool_queued": "sorban áll",
   "workbench.chat.tool_ok": "kész",
   "workbench.chat.tool_error": "hibára futott",
   "workbench.chat.tool_needs_approval": "jóváhagyásra vár",

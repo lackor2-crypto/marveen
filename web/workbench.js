@@ -12277,12 +12277,14 @@
     WB.chatActivityTimer = null
   }
 
-  function toolLineHtml(tool) {
+  function toolLineHtml(tool, queued) {
+    // #998: the full agent's row never says "running" while its task waits in the queue.
+    var state = queued && tool.name === 'code-bridge' && tool.status === 'running' ? 'queued' : tool.status
     var cls = tool.status === 'error' || tool.status === 'blocked' ? ' wb-tool-bad'
       : tool.status === 'needs_approval' ? ' wb-tool-wait' : ''
     return '<div class="wb-tool' + cls + '">'
       + '<span class="wb-tool-name" title="' + escA(tool.name) + '">' + esc(toolLabel(tool.name)) + '</span> '
-      + esc(t('workbench.chat.tool_' + tool.status))
+      + esc(t('workbench.chat.tool_' + state))
       + (tool.detail ? ' <span class="wb-muted">' + esc(tool.detail) + '</span>' : '')
       + (tool.approvalId ? ' <span class="wb-muted">' + esc(t('workbench.chat.approval_id', { id: tool.approvalId })) + '</span>' : '')
       + '</div>'
@@ -12366,7 +12368,8 @@
       var tools = st.turns[i].tools
       if (!tools || !tools.length) continue
       total += tools.length
-      groups.push('<div class="wb-chat-tools-group">' + tools.map(toolLineHtml).join('') + '</div>')
+      var queued = st.turns[i].bridgeQueued
+      groups.push('<div class="wb-chat-tools-group">' + tools.map(function (x) { return toolLineHtml(x, queued) }).join('') + '</div>')
     }
     if (!total) return ''
     return chatSplitHandleHtml() + '<div class="wb-chat-tools-head">' + esc(t('workbench.chat.tools_title', { n: total })) + '</div>'

@@ -40,7 +40,7 @@ interface Harness {
   inputs: Record<string, { value: string; focus: () => void }>
   /** `chunks`: a valasz a VALODI olvaso-uton (`body.getReader()`) jon, ezekben
    *  a darabokban -- ahogy a bongeszo egy SSE-folyamot kap. */
-  respond: (fn: (url: string, init?: RequestInit) => { status: number; body: unknown; chunks?: string[] }) => void
+  respond: (fn: (url: string, init?: RequestInit) => { status: number; body: unknown; chunks?: string[]; hold?: boolean }) => void
   /** Huzas a vaszon egyik elemen: lenyomas -> mozgatas -> elengedes.
    *  A `grip` nelkul MOZGATAS, `grip`-pel (nw/ne/sw/se) ATMERETEZES.
    *  A visszaadott `box.style` az, amit a huzas KOZBEN latna a felhasznalo. */
@@ -127,7 +127,7 @@ function harness(): Harness {
   const inputs: Record<string, { value: string; focus: () => void }> = {}
   const toasts: string[] = []
   const fetchCalls: { url: string; init?: RequestInit }[] = []
-  let responder: (url: string, init?: RequestInit) => { status: number; body: unknown; chunks?: string[] } =
+  let responder: (url: string, init?: RequestInit) => { status: number; body: unknown; chunks?: string[]; hold?: boolean } =
     () => ({ status: 200, body: {} })
 
   const doc = {
@@ -183,7 +183,7 @@ function harness(): Harness {
       json: () => (isText ? Promise.reject(new Error('not json')) : Promise.resolve(r.body)),
       text: () => Promise.resolve(isText ? (r.body as string) : JSON.stringify(r.body)),
       body: chunks
-        ? { getReader: () => ({ read: () => Promise.resolve(chunks.length ? { done: false, value: enc.encode(chunks.shift()) } : { done: true, value: undefined }) }) }
+        ? { getReader: () => ({ read: () => chunks.length ? Promise.resolve({ done: false, value: enc.encode(chunks.shift()) }) : r.hold ? new Promise(() => {}) : Promise.resolve({ done: true, value: undefined }) }) }
         : undefined,
     })
   }
@@ -2996,7 +2996,7 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
       { type: 'notice', code: 'code_bridge_handed_off', message: 'Átadtam a teljes értékű ügynöknek.' },
       { type: 'tool', name: 'code-bridge', status: 'running' },
     ]
-    function serve(state: { running: boolean; answered: boolean }, message: { status: number; body: unknown; chunks?: string[] }) {
+    function serve(state: { running: boolean; answered: boolean }, message: { status: number; body: unknown; chunks?: string[]; hold?: boolean }) {
       h.respond((url) => {
         if (url.indexOf('/api/workbench/agent/status') >= 0) return STATUS
         if (url.indexOf('/api/workbench/agent/message') >= 0) return message
@@ -3015,6 +3015,15 @@ describe('#433: elkattintas utan a keszulo valasz, sorba allitas, Allj (Boss, 20
       h.inputs.wbChatInput = { value: 'véleményezd a tervet', focus() {} }
       h.click({ 'data-wb-act': 'chat-send' })
     }
+
+    it('#998: a sorban varo feladat sora nem mondja, hogy fut', async () => {
+      // The stream stays open, as it does while the task waits.
+      serve({ running: true, answered: false }, { status: 200, body: '', chunks: [sse(HANDED)], hold: true })
+      await send()
+      await vi.advanceTimersByTimeAsync(50)
+      await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.chat.tool_queued'))
+      expect(h.rootEl.innerHTML).not.toContain('workbench.chat.tool_running')
+    })
 
     it('nem mondja kesznek: a szerveren mar elmentett valaszt betolti a chatbe', async () => {
       const state = { running: false, answered: false }
