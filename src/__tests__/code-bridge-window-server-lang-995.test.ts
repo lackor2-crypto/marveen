@@ -215,7 +215,19 @@ describe('texts the window writes itself follow a language switch (#995)', () =>
     expect(app).toMatch(/loadCodeBridgePage = function \(\) \{\s*cbDropOtherLanguageTexts\(\)/)
   })
 
-  it('shows every warning of a dispatch, not only the first', () => {
-    expect(app).toMatch(/\[task\.warning\]\.concat\(task\.warning\.also \|\| \[\]\)/)
+  it('empties the character counter together with the sent task', () => {
+    expect(app).toMatch(/prompt\.value = ''\s*\n\s*prompt\.dispatchEvent\(new Event\('input', \{ bubbles: true \}\)\)/)
+  })
+
+  it('shows every warning of a dispatch in the one message there is room for', () => {
+    // There is a single toast element: two calls would leave only the last sentence on screen.
+    const en = dict('en')
+    const ctx = pick(['cbWarningText'], { t: tr(en) })
+    const first = { key: 'cb.warn.card_forced', params: { card: '#7', task: 'abc' } }
+    const second = { key: 'cb.warn.executor_limit', params: { project: 'p', until: '23:50' } }
+    expect(ctx.cbWarningText({ ...first, also: [second] }))
+      .toBe(`${tr(en)(first.key, first.params)} ${tr(en)(second.key, second.params)}`)
+    expect(ctx.cbWarningText(first)).toBe(tr(en)(first.key, first.params))
+    expect(app).toContain("showToast(cbWarningText(task.warning), { type: 'warn', duration: 12000 })")
   })
 })

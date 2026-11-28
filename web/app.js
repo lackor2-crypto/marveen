@@ -47073,6 +47073,11 @@ async function _intezoCfgSave() {
     return text
   }
 
+  /** Every warning of one dispatch as one text: there is a single toast, a second one would replace the first. */
+  function cbWarningText(warning) {
+    return [warning].concat(warning.also || []).map(function (w) { return t(w.key, w.params || {}) }).join(' ')
+  }
+
   // #995: what the window wrote into its status lines stays as written. After a language switch the next
   // opening must not show those sentences in the previous language.
   let _cbTextLang = null
@@ -48367,11 +48372,8 @@ async function _intezoCfgSave() {
           task = await sendTask(true)
         }
         prompt.value = ''
-        if (task && task.warning) {
-          [task.warning].concat(task.warning.also || []).forEach(function (w) {
-            showToast(t(w.key, w.params || {}), { type: 'warn', duration: 12000 })
-          })
-        }
+        prompt.dispatchEvent(new Event('input', { bubbles: true })) // the counter follows the emptied field
+        if (task && task.warning) showToast(cbWarningText(task.warning), { type: 'warn', duration: 12000 })
         if (status) status.textContent = t('cb.send.handed', { project: task.project, id: String(task.id).slice(0, 8) })
         cbRefresh()
       } catch (err) {
