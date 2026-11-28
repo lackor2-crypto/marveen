@@ -25,7 +25,7 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFi
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { json, readBody } from '../http-helpers.js'
+import { json, readBody, reqLang } from '../http-helpers.js'
 import { APP_LANG, PROJECT_ROOT, STORE_DIR } from '../../config.js'
 import { countDashboardUsers, getDashboardUser, getDb } from '../../db.js'
 import { verifyPassword } from '../password-hash.js'
@@ -246,7 +246,7 @@ async function start(ctx: RouteContext): Promise<boolean> {
   const confirmed = await confirmStart(ctx, b)
   // 403, not 401 (#410): a wrong re-typed password must not sign the owner out.
   if (confirmed !== 'ok') return fail(ctx, 403, confirmed)
-  const avail = restartAvailability()
+  const avail = restartAvailability(undefined, reqLang(ctx.req, ctx.url))
   let db: any = null
   try { db = getDb() } catch { db = null }
   try {

@@ -14,7 +14,7 @@
 // 127.0.0.1 (measured), so a remote caller with a leaked token still cannot
 // impersonate the executor or drain the queue.
 
-import { json, readBody, serveFile } from '../http-helpers.js'
+import { json, readBody, serveFile, reqLang } from '../http-helpers.js'
 import { parseMultipart } from '../multipart.js'
 import { probeWorkspace, toLocalWorkspacePath } from '../code-bridge-workspace.js'
 import { AGENTS_BASE_DIR } from '../agent-config.js'
@@ -531,7 +531,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const project = normalizeAlias(url.searchParams.get('project') ?? '')
     const readProject = (alias: string): { session: ReturnType<typeof getCodeSession>; probe: ReturnType<typeof probeWorkspace> | null } => {
       const session = getCodeSession(alias)
-      return { session, probe: session ? probeWorkspace(session.workspacePath) : null }
+      return { session, probe: session ? probeWorkspace(session.workspacePath, reqLang(ctx.req, url)) : null }
     }
 
     if (method === 'GET') {
@@ -742,7 +742,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         if (metaOnly) {
           json(res, { ...base, meta: true, ...statCodeConversation(runPath, sessionId) })
         } else {
-          json(res, { ...base, ...readCodeConversation(runPath, sessionId, { limit, offset }) })
+          json(res, { ...base, ...readCodeConversation(runPath, sessionId, { limit, offset, lang: reqLang(ctx.req, url) }) })
         }
         return true
       }
@@ -773,7 +773,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       })
       return true
     }
-    const conv = readCodeConversation(tab.transcriptPath, sessionId, { limit, offset })
+    const conv = readCodeConversation(tab.transcriptPath, sessionId, { limit, offset, lang: reqLang(ctx.req, url) })
     json(res, {
       sessionId,
       title: tab.title,
@@ -1316,6 +1316,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       chatId: body.chatId ?? null,
       sessionId: body.sessionId ?? null,
       force: body.force === true,
+      lang: reqLang(ctx.req, url),
     })
     if ('error' in out) { json(res, out, 400); return true }
     logger.info({ task: out.task.id, project: out.task.project, origin, cardRef: out.task.cardRef, warning: out.warning?.key }, 'code-bridge: task queued')

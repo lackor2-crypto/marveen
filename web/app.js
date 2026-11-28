@@ -47056,6 +47056,45 @@ async function _intezoCfgSave() {
     return t('cb.dur.ms_s', { m: m, s: s % 60 })
   }
 
+  // #995: the executor reports its last action as a code word, and the server writes two failure reasons
+  // in English on the task itself; both are shown in the selected language. Anything else stays as it came.
+  function cbWorkerAction(action) {
+    const key = 'cb.worker.action.' + action
+    const label = t(key)
+    return label === key ? action : label
+  }
+
+  function cbTaskErrorText(error) {
+    const text = String(error || '')
+    let m = /^project "(.*)" has no registered session any more$/.exec(text)
+    if (m) return t('cb.task.err_no_session', { project: m[1] })
+    m = /^worker stopped responding after (\d+) attempt\(s\)$/.exec(text)
+    if (m) return t('cb.task.err_worker_lost', { n: m[1] })
+    return text
+  }
+
+  /** Every warning of one dispatch as one text: there is a single toast, a second one would replace the first. */
+  function cbWarningText(warning) {
+    return [warning].concat(warning.also || []).map(function (w) { return t(w.key, w.params || {}) }).join(' ')
+  }
+
+  // #995: what the window wrote into its status lines stays as written. After a language switch the next
+  // opening must not show those sentences in the previous language.
+  let _cbTextLang = null
+  function cbDropOtherLanguageTexts() {
+    const lang = window._lang || 'hu'
+    if (_cbTextLang !== null && _cbTextLang !== lang) {
+      ['cbTaskStatus', 'cbTaskCounter', 'cbOpsStatus', 'cbBotStatus', 'cbSkillStatus', 'cbAddStatus', 'cbBrowseStatus'].forEach(function (id) {
+        const el = document.getElementById(id)
+        if (el) el.textContent = ''
+      })
+      cbBrowseStop()
+      const box = document.getElementById('cbBrowseBox')
+      if (box) box.hidden = true
+    }
+    _cbTextLang = lang
+  }
+
   function cbStatusLabel(status) {
     const key = 'cb.taskstate.' + status
     const label = t(key)
@@ -47244,7 +47283,7 @@ async function _intezoCfgSave() {
       seen.innerHTML = h.workers && h.workers.length
         ? h.workers.map(function (w) {
             return escapeHtml(w.host) + ' — ' + cbAgo(w.lastSeenAt) +
-              (w.lastAction ? ' (' + escapeHtml(w.lastAction) + ')' : '') +
+              (w.lastAction ? ' (' + escapeHtml(cbWorkerAction(w.lastAction)) + ')' : '') +
               (w.sessionsReported !== null && w.sessionsReported !== undefined ? ', ' + escapeHtml(t('cb.worker.sessions_seen', { n: w.sessionsReported })) : '')
           }).join('<br>')
         : t('cb.worker.none_seen')
@@ -47656,7 +47695,7 @@ async function _intezoCfgSave() {
     const wrap = document.createElement('div')
     wrap.id = 'cbTaskModal'
     wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px'
-    const body = (task.status === 'error' || task.error) ? (task.error || t('cb.task.no_error')) : (task.result || t('cb.task.no_result'))
+    const body = (task.status === 'error' || task.error) ? (cbTaskErrorText(task.error) || t('cb.task.no_error')) : (task.result || t('cb.task.no_result'))
     wrap.innerHTML =
       '<div class="card" style="max-width:900px;width:100%;max-height:80vh;overflow:auto;margin:0">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">' +
@@ -47788,8 +47827,10 @@ async function _intezoCfgSave() {
     if (!slot) return
     // Ugyanaz az allapot -> hozza sem nyulunk. Kulonben minden Frissites
     // ujraepitene a gombot, es egy eppen futo kattintas allapota elveszne.
-    if (_cbRestartState[slotId] === pending) return
-    _cbRestartState[slotId] = pending
+    // The language is part of the state: the note has to be rebuilt after a switch (#995).
+    const state = pending ? 'pending:' + (window._lang || 'hu') : pending
+    if (_cbRestartState[slotId] === state) return
+    _cbRestartState[slotId] = state
     if (!pending) { slot.innerHTML = ''; return }
     await mountRestartButton(slot, note)
   }
@@ -48184,6 +48225,7 @@ async function _intezoCfgSave() {
   })
 
   window.loadCodeBridgePage = function () {
+    cbDropOtherLanguageTexts()
     cbRefresh()
     cbLoadConfig()
     window.__cbStopPollImpl()
@@ -48330,7 +48372,8 @@ async function _intezoCfgSave() {
           task = await sendTask(true)
         }
         prompt.value = ''
-        if (task && task.warning) showToast(t(task.warning.key, task.warning.params || {}), { type: 'warn', duration: 12000 })
+        prompt.dispatchEvent(new Event('input', { bubbles: true })) // the counter follows the emptied field
+        if (task && task.warning) showToast(cbWarningText(task.warning), { type: 'warn', duration: 12000 })
         if (status) status.textContent = t('cb.send.handed', { project: task.project, id: String(task.id).slice(0, 8) })
         cbRefresh()
       } catch (err) {

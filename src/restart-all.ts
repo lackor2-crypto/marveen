@@ -31,7 +31,8 @@
 // agenst, az szandekosan tette. Egy "ujrainditas" gomb ne keltsen eletre
 // semmit -- ezert azok a lepesek `included: false`-szal, kimondott indoklassal
 // kerulnek a tervbe, nem neman kimaradva.
-import { unitIsSafeToRestart } from './self-restart.js'
+import { unitIsSafeToRestart, unsafeUnitReason } from './self-restart.js'
+import type { OwnerLang } from './owner-lang.js'
 
 export type RestartStepKind = 'agent' | 'main-agent' | 'dashboard'
 
@@ -74,6 +75,8 @@ export interface RestartAllInput {
   agents: AgentSnapshot[]
   main: AgentSnapshot
   dashboard: { possible: boolean; unit: string | null; reason: string }
+  /** The language of the screen the plan is shown on (#995); the install language when not given. */
+  lang?: OwnerLang
 }
 
 /** A leallitott folyamatokhoz tartozo indoklas kulcsa (a felulet forditja). */
@@ -146,7 +149,7 @@ export function buildRestartAllPlan(input: RestartAllInput): RestartAllPlan {
     // tiltas szoveget csak akkor tesszuk a helyere, ha egyedul az unit neve
     // miatt bukik a lepes -- kulonben rossz okot olvasna a Boss.
     dashboardReason: input.dashboard.possible && !unitSafe
-      ? 'Ezt a szolgáltatást szándékosan nem indítom újra innen, mert az összes futó ügynök munkamenetét megszakítaná.'
+      ? unsafeUnitReason(input.lang)
       : input.dashboard.reason,
   }
 }

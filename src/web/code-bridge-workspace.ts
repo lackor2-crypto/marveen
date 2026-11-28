@@ -18,14 +18,11 @@
 
 import { statSync } from 'node:fs'
 import { platform } from 'node:os'
-import { APP_LANG } from '../config.js'
+import { ol, ownerLang, type OwnerLang } from '../owner-lang.js'
 
-// A `reason` a FELULETRE kerul, tehat ketnyelvunek kell lennie -- a szerverrol
-// jovo cimke ugyanugy kepernyore kerulo szoveg, mint barmelyik gomb felirata.
-// A telepites nyelvet hasznaljuk (`APP_LANG`), ugyanugy, mint a `life-tree.ts`
-// mappanev-tablaja. (A Node sajat hibauzenete -- ENOENT/EACCES/EIO -- marad
-// angolul: az a rendszer szo szerinti valasza, nem a mi mondatunk.)
-const HU = APP_LANG === 'hu'
+// The `reason` goes on screen, so it follows the language of the screen asking
+// (#995), with the install language as the default. Node's own error text
+// (ENOENT/EACCES/EIO) stays as the system said it.
 
 export type WorkspaceProbe = {
   /** Amit a worker jelentett, változatlanul (`F:\Marveen\...` vagy `/home/...`). */
@@ -64,7 +61,7 @@ export function toLocalWorkspacePath(windowsPath: string): string | null {
  *   reachable && skills.length === 0  -> „még nincs egyetlen skill sem"
  *   !reachable                        -> „nem látok oda: <valódi ok>"
  */
-export function probeWorkspace(workspacePath: string): WorkspaceProbe {
+export function probeWorkspace(workspacePath: string, lang: OwnerLang = ownerLang()): WorkspaceProbe {
   const localPath = toLocalWorkspacePath(workspacePath)
   if (localPath === null) {
     return {
@@ -73,9 +70,7 @@ export function probeWorkspace(workspacePath: string): WorkspaceProbe {
       reachable: false,
       // Ez NEM tipp: tényszerűen annyi történt, hogy az útnak nincs olyan
       // alakja, amit erről a gépről meg lehetne nyitni.
-      reason: HU
-        ? `Ezt az útvonalat innen nem lehet megnyitni: ${workspacePath}`
-        : `This path cannot be opened from here: ${workspacePath}`,
+      reason: ol(`Ezt az útvonalat innen nem lehet megnyitni: ${workspacePath}`, `This path cannot be opened from here: ${workspacePath}`, lang),
     }
   }
   try {
@@ -83,7 +78,7 @@ export function probeWorkspace(workspacePath: string): WorkspaceProbe {
     if (!st.isDirectory()) {
       return {
         workspacePath, localPath, reachable: false,
-        reason: HU ? `${localPath}: nem mappa` : `${localPath}: not a directory`,
+        reason: ol(`${localPath}: nem mappa`, `${localPath}: not a directory`, lang),
       }
     }
     return { workspacePath, localPath, reachable: true, reason: null }

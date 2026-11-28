@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { APP_LANG, PROJECT_ROOT } from '../config.js'
 import { getDb } from '../db.js'
+import { ol, type OwnerLang } from '../owner-lang.js'
 
 const GIT = existsSync('/usr/bin/git') ? '/usr/bin/git' : 'git'
 const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', GIT_TERMINAL_PROMPT: '0' }
@@ -224,7 +225,7 @@ export function subjectMentionsCard(subject: string, card: { seq: number; cardId
  * a PR szama, nem kartyaszam, es ha azt is beszamitanank, majdnem minden
  * commit talalat lenne.
  */
-function landedCommits(card: CardRef): { ok: true; commits: LandedCommitRef[] } | { ok: false; detail: string } {
+function landedCommits(card: CardRef, lang?: OwnerLang): { ok: true; commits: LandedCommitRef[] } | { ok: false; detail: string } {
   let ref = ''
   for (const candidate of ['origin/main', 'origin/master', 'HEAD']) {
     try {
@@ -236,7 +237,10 @@ function landedCommits(card: CardRef): { ok: true; commits: LandedCommitRef[] } 
     } catch { /* a kovetkezo jelolt */ }
   }
   // Nincs egyetlen olvashato ag sem: ez "nem latok oda", nem "nincs semmi".
-  if (!ref) return { ok: false, detail: 'nincs olvashato git ag (origin/main, origin/master, HEAD)' }
+  if (!ref) {
+    const refs = '(origin/main, origin/master, HEAD)'
+    return { ok: false, detail: ol(`nincs olvashato git ag ${refs}`, `no readable git branch ${refs}`, lang) }
+  }
 
   let out = ''
   try {
@@ -267,6 +271,8 @@ export interface CardWorkOptions {
   skipLanded?: boolean
   /** Ennek a bejelentonek a sajat munkaja nem utkozes onmagaval. */
   ignoreHolder?: string
+  /** The language of the screen that asks (#995), for the `unknown` detail. */
+  lang?: OwnerLang
 }
 
 /**
@@ -316,7 +322,7 @@ export function checkCardWork(text: string, opts: CardWorkOptions = {}): CardWor
 
   // 2. Mar landolt munka. Ez CSAK figyelmeztetes: a folytatas jogos.
   for (const card of refs) {
-    const landed = landedCommits(card)
+    const landed = landedCommits(card, opts.lang)
     if (!landed.ok) return { kind: 'unknown', refs, detail: landed.detail }
     if (landed.commits.length > 0) return { kind: 'landed', card, commits: landed.commits, refs }
   }
