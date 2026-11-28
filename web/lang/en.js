@@ -1994,8 +1994,15 @@ window._i18n.en = {
   'tasks.btn.history':           'Run history',
   'tasks.btn.delete':            'Delete',
   'tasks.retries.title':         'Pending scheduled tasks ({n})',
-  'tasks.retries.hint':          'Busy target session, system keeps retrying. Cancel if there is an obvious error.',
-  'tasks.retries.meta':          '{age} waiting ({n} attempts)',
+  'tasks.retries.hint':          'The system keeps trying and starts it as soon as it can. If you no longer need it, cancel it with the bin button.',
+  'tasks.retries.meta':          '{age} waiting (attempts: {n})',
+  'tasks.retries.reason.quota': 'Reason: the agent has used up its usage limit.',
+  'tasks.retries.reason.starting': 'Reason: the agent is still starting.',
+  'tasks.retries.reason.missing': 'Reason: the agent is not running.',
+  'tasks.retries.reason.busy': 'Reason: the agent is working on something else, or did not pick the task up.',
+  'tasks.retries.reason.first_run': 'Reason: the agent is on its first-run screen (approval or sign-in needed).',
+  'tasks.retries.reason.mcp': 'Reason: an add-on it needs (MCP server) is not running: {servers}. Restart the agent.',
+  'tasks.retries.reason.failed': 'Reason: starting it failed.',
   'tasks.btn.new_task':          'New task',
   'tasks.schedule_empty':        'No scheduled tasks',
   'tasks.empty':                 'No scheduled tasks',
@@ -4641,7 +4648,7 @@ window._i18n.en = {
 
   // --- Tasks heartbeat badges ---
   'tasks.heartbeat.alert_sent':  'Telegram alert sent',
-  'tasks.heartbeat.alert_pending': 'Alert pending, next tick will send it',
+  'tasks.heartbeat.alert_pending': 'An alert is due, the system will send it shortly',
   'tasks.heartbeat.alert_badge_sent': '⚠️ alert sent',
   'tasks.heartbeat.alert_badge_pending': '⏳ alert pending',
 

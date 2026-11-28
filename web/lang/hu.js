@@ -2343,8 +2343,15 @@ window._i18n.hu = {
   'tasks.btn.history':           'Futtatási előzmények',
   'tasks.btn.delete':            'Törlés',
   'tasks.retries.title':         'Függőben lévő ütemezett feladatok ({n})',
-  'tasks.retries.hint':          'Busy cél-session, a rendszer tovább próbálkozik. Nyilvánvaló hibánál visszavonhatod.',
+  'tasks.retries.hint':          'A rendszer tovább próbálja, és magától elindítja, amint lehet. Ha már nem kell, a kuka gombbal visszavonhatod.',
   'tasks.retries.meta':          '{age} vár ({n} próbálkozás)',
+  'tasks.retries.reason.quota': 'Oka: az ágensnek elfogyott a használati kerete.',
+  'tasks.retries.reason.starting': 'Oka: az ágens még indul.',
+  'tasks.retries.reason.missing': 'Oka: az ágens nem fut.',
+  'tasks.retries.reason.busy': 'Oka: az ágens mással dolgozik, vagy nem vette át a feladatot.',
+  'tasks.retries.reason.first_run': 'Oka: az ágens az első indítás képernyőjén áll (jóváhagyás vagy bejelentkezés kell).',
+  'tasks.retries.reason.mcp': 'Oka: nem fut egy hozzá szükséges kiegészítő (MCP szerver): {servers}. Indítsd újra az ágenst.',
+  'tasks.retries.reason.failed': 'Oka: az indítás nem sikerült.',
   'tasks.btn.new_task':          'Új feladat',
   'tasks.schedule_empty':        'Nincsenek ütemezett feladatok',
   'tasks.empty':                 'Nincs ütemezett feladat',
@@ -4708,7 +4715,7 @@ window._i18n.hu = {
 
   // --- Tasks heartbeat badges ---
   'tasks.heartbeat.alert_sent':  'Telegram riasztás elküldve',
-  'tasks.heartbeat.alert_pending': 'Riasztás esedékes, a következő tick küldi',
+  'tasks.heartbeat.alert_pending': 'Riasztás esedékes, hamarosan elküldi a rendszer',
   'tasks.heartbeat.alert_badge_sent': '⚠️ riasztás elküldve',
   'tasks.heartbeat.alert_badge_pending': '⏳ riasztás esedékes',
 
