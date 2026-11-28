@@ -723,6 +723,15 @@ const _netStatus = (() => {
   // send the Authorization header, so every direct /api/... address answered {"error":"Unauthorized"} in the new tab
   // (real case: the Download button of a file in the Explorer). The same address is therefore fetched through the
   // token-adding fetch above and handed to the browser as a blob: saved for a download, opened in the tab for a view.
+  // #1000: a text file VIEWED from a blob: address loses its charset (the browser keeps only "text/markdown" and
+  // reads utf-8 as windows-1252: accented letters fall apart). A byte order mark settles it, only when the bytes
+  // really are utf-8. Only for viewing, never for a download: the saved file keeps its bytes.
+  const utf8ViewBlob = async (blob) => {
+    if (!/^text\//i.test(blob.type || '')) return blob
+    try { new TextDecoder('utf-8', { fatal: true }).decode(await blob.arrayBuffer()) } catch { return blob }
+    return new Blob(['\uFEFF', blob], { type: blob.type.split(';')[0] + ';charset=utf-8' })
+  }
+  window._utf8ViewBlob = utf8ViewBlob
   const nativeOpen = window.open.bind(window)
   const apiNavToken = () => {
     let token = sessionToken
@@ -756,7 +765,7 @@ const _netStatus = (() => {
         return
       }
       const blob = await res.blob()
-      const obj = URL.createObjectURL(blob)
+      const obj = URL.createObjectURL(download ? blob : await utf8ViewBlob(blob))
       if (download) {
         const a = document.createElement('a')
         a.href = obj
@@ -48754,7 +48763,7 @@ async function _gitreposOpenFile(rel) {
       try { msg = (await res.json()).message || '' } catch (e) { msg = '' }
       throw new Error(msg || ('HTTP ' + res.status))
     }
-    const url = URL.createObjectURL(await res.blob())
+    const url = URL.createObjectURL(await window._utf8ViewBlob(await res.blob()))
     const w = window.open(url, '_blank', 'noopener')
     // Felugro-tiltasnal nincs uj lap: akkor letoltesre kinaljuk, nem hallgatunk.
     if (!w) {
