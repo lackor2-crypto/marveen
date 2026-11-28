@@ -97,7 +97,19 @@ export function ensureDocReadTables(): void {
       PRIMARY KEY (sha256, page)
     )
   `)
+  // #989: the path a reading started from. A row written before this column has none.
+  const cols = db.prepare('PRAGMA table_info(doc_reads)').all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'source')) db.exec('ALTER TABLE doc_reads ADD COLUMN source TEXT')
   tablesDb = db
+}
+
+/**
+ * #989: a result is stored per CONTENT, but a failure can belong to the PATH: the file was renamed or moved (or the
+ * drive dropped) while it waited to be read. Such a failure says nothing about the document, so the next call with a
+ * file that exists reads it again. A document that failed while its file was there stays failed (retry=true re-reads).
+ */
+function failedForLostFile(r: DocReadRow): boolean {
+  return r.status === 'failed' && (!r.source || !existsSync(r.source))
 }
 
 export interface DocReadRow {
@@ -110,6 +122,7 @@ export interface DocReadRow {
   error: string | null
   version: number
   updated_at: number
+  source?: string | null
 }
 
 export interface DocPageRow {
@@ -138,19 +151,20 @@ export function lowPages(sha: string): number[] {
   return (getDb().prepare('SELECT page FROM doc_pages WHERE sha256 = ? AND low = 1 ORDER BY page').all(sha) as { page: number }[]).map((r) => r.page)
 }
 
-function setState(sha: string, name: string, kind: DocKind, patch: Partial<Pick<DocReadRow, 'status' | 'pages_total' | 'pages_done' | 'error'>>): void {
+function setState(sha: string, name: string, kind: DocKind, patch: Partial<Pick<DocReadRow, 'status' | 'pages_total' | 'pages_done' | 'error' | 'source'>>): void {
   const db = getDb()
   const now = Math.floor(Date.now() / 1000)
   const cur = getDocRead(sha)
   if (!cur) {
-    db.prepare(`INSERT INTO doc_reads (sha256, name, kind, status, pages_total, pages_done, error, version, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(sha, name, kind, patch.status ?? 'pending', patch.pages_total ?? 0, patch.pages_done ?? 0, patch.error ?? null, DOCREAD_VERSION, now)
+    db.prepare(`INSERT INTO doc_reads (sha256, name, kind, status, pages_total, pages_done, error, version, updated_at, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(sha, name, kind, patch.status ?? 'pending', patch.pages_total ?? 0, patch.pages_done ?? 0, patch.error ?? null, DOCREAD_VERSION, now, patch.source ?? null)
     return
   }
-  db.prepare(`UPDATE doc_reads SET name = ?, kind = ?, status = ?, pages_total = ?, pages_done = ?, error = ?, version = ?, updated_at = ? WHERE sha256 = ?`)
+  db.prepare(`UPDATE doc_reads SET name = ?, kind = ?, status = ?, pages_total = ?, pages_done = ?, error = ?, version = ?, updated_at = ?, source = ? WHERE sha256 = ?`)
     .run(name, kind, patch.status ?? cur.status, patch.pages_total ?? cur.pages_total, patch.pages_done ?? cur.pages_done,
-      patch.error === undefined ? cur.error : patch.error, DOCREAD_VERSION, now, sha)
+      patch.error === undefined ? cur.error : patch.error, DOCREAD_VERSION, now,
+      patch.source === undefined ? cur.source : patch.source, sha)
 }
 
 function savePage(sha: string, p: { page: number; text: string; method: PageMethod; confidence: number | null }): void {
@@ -284,7 +298,7 @@ async function readEmail(sha: string, name: string, abs: string): Promise<void> 
 
 async function processDocument(abs: string, name: string, sha: string, kind: DocKind): Promise<void> {
   getDb().prepare('DELETE FROM doc_pages WHERE sha256 = ?').run(sha)
-  setState(sha, name, kind, { status: 'running', pages_total: 0, pages_done: 0, error: null })
+  setState(sha, name, kind, { status: 'running', pages_total: 0, pages_done: 0, error: null, source: abs })
   try {
     if (kind === 'pdf') await readPdfPages(sha, name, kind, abs)
     else if (kind === 'office') {
@@ -304,7 +318,8 @@ async function processDocument(abs: string, name: string, sha: string, kind: Doc
       }
     } else await readEmail(sha, name, abs)
   } catch (e) {
-    setState(sha, name, kind, { status: 'failed', error: e instanceof Error ? e.message : String(e) })
+    // No source when the file is gone by now: this failure must not stick to the content (#989).
+    setState(sha, name, kind, { status: 'failed', error: e instanceof Error ? e.message : String(e), source: existsSync(abs) ? abs : null })
   }
 }
 
@@ -353,7 +368,7 @@ export function startDocRead(abs: string, name: string, opts: { sha?: string; fo
   const fresh = cur && cur.version === DOCREAD_VERSION && cur.status === 'done'
   if (fresh && !opts.force) return { ok: true, sha, state: cur, started: false, done: Promise.resolve() }
   // Egy korabbi (pl. ujrainditas miatt felbeszakadt) futas: ujrakezdjuk.
-  if (cur && cur.status === 'failed' && cur.version === DOCREAD_VERSION && !opts.force) {
+  if (cur && cur.status === 'failed' && cur.version === DOCREAD_VERSION && !opts.force && !failedForLostFile(cur)) {
     return { ok: true, sha, state: cur, started: false, done: Promise.resolve() }
   }
   setState(sha, name, kind, { status: 'pending', pages_total: 0, pages_done: 0, error: null })
@@ -389,7 +404,7 @@ export function docReadSummary(sha: string): DocReadSummary {
   const ocr = (getDb().prepare("SELECT COUNT(*) AS n FROM doc_pages WHERE sha256 = ? AND method = 'ocr'").get(sha) as { n: number }).n
   const stale = (r.status === 'running' || r.status === 'pending') && !inFlight.has(sha)
   return {
-    status: stale ? 'stale' : (r.version !== DOCREAD_VERSION && r.status === 'done' ? 'stale' : r.status),
+    status: stale || failedForLostFile(r) ? 'stale' : (r.version !== DOCREAD_VERSION && r.status === 'done' ? 'stale' : r.status),
     pages_total: r.pages_total, pages_done: r.pages_done, low_pages: lowPages(sha), ocr_pages: ocr, error: r.error,
   }
 }

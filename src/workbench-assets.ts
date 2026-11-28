@@ -2048,6 +2048,16 @@ export function listWorkItemAssets(itemId: string): WorkItemAssetView[] {
   return drainSteps(listWorkItemAssetsSteps(itemId))
 }
 
+/**
+ * #989: the file behind one of the item's OWN materials, named by its Life-tree path. A linked material stands outside
+ * the project folder, so the project-relative lookup cannot find it. Only a path that is on this item's list is taken.
+ */
+export function itemAssetFile(itemId: string, depotRel: string): string | null {
+  ensureAssetTables()
+  const has = getDb().prepare('SELECT id FROM work_item_assets WHERE work_item_id = ? AND path = ? AND removed_at IS NULL').get(itemId, depotRel)
+  return has ? resolveLifePath(depotRel) : null
+}
+
 export function findAssetByHash(itemId: string, sha: string): WorkItemAssetRow | undefined {
   ensureAssetTables()
   return getDb().prepare('SELECT * FROM work_item_assets WHERE work_item_id = ? AND sha256 = ? AND removed_at IS NULL ORDER BY created_at LIMIT 1')
@@ -2994,6 +3004,8 @@ export function withDocState(assets: WorkItemAssetView[]): WorkItemAssetDocView[
     const k = docKind(a.name)
     if (!k) return { ...a, doc: null }
     const d = docReadSummary(a.sha256)
+    // #989: a file that is not there cannot be read again, so it must not show "being read".
+    if (!a.present && d.status === 'stale') return { ...a, doc: null }
     // Egy kep (logo, fotó) csak kerésre irat: amig senki nem olvasta, nincs allapota.
     return { ...a, doc: k === 'image' && d.status === 'none' ? null : d }
   })

@@ -11217,7 +11217,7 @@
             + ' title="' + escA(t('workbench.assets.remove_title')) + '">' + esc(t('workbench.assets.remove')) + '</button>')
           + '</div>'
           + (WB.warn && WB.warn.kind === 'asset-remove' && WB.warn.id === a.id ? assetRemoveBoxHtml(a) : '')
-          + (WB.redact && WB.redact.itemId === WB.selectedId && WB.redact.path === a.project_path ? redactBoxHtml() : '')
+          + (WB.redact && WB.redact.itemId === WB.selectedId && WB.redact.path === (a.project_path || a.path) ? redactBoxHtml() : '')
           + '</li>'
       }).join('') + '</ul>'
       : '<p class="wb-muted">' + esc(t('workbench.assets.none')) + '</p>'
@@ -11393,16 +11393,18 @@
     var d = a && a.doc
     if (!d || !a.present) return ''
     if (d.status === 'done') {
+      // #989: a linked material has no path inside the project: it is named by its Life-tree path.
+      var docPath = a.project_path || a.path
       var canSearchable = d.ocr_pages > 0 && /\.pdf$/i.test(a.name || '') && !/\((keres\u0151|searchable)\)\.pdf$/i.test(a.name || '') && !archived()
-      var busy = WB.searchableBusy && WB.searchableBusy[a.project_path]
+      var busy = WB.searchableBusy && WB.searchableBusy[docPath]
       var canRedact = /\.pdf$/i.test(a.name || '') && !/\((kitakart|redacted)\)(?: \(\d+\))?\.pdf$/i.test(a.name || '') && !archived()
       return ' <span class="wb-muted wb-doc-state">' + esc(t('workbench.doc.pages', { n: d.pages_total })) + '</span>'
         + (canRedact
-          ? ' <button type="button" class="wb-linklike" data-wb-act="redact-open" data-wb-path="' + escA(a.project_path) + '"'
+          ? ' <button type="button" class="wb-linklike" data-wb-act="redact-open" data-wb-path="' + escA(docPath) + '"'
             + ' title="' + escA(t('workbench.redact.open_title')) + '">' + esc(t('workbench.redact.open')) + '</button>'
           : '')
         + (canSearchable
-          ? ' <button type="button" class="wb-linklike" data-wb-act="doc-searchable" data-wb-path="' + escA(a.project_path) + '"' + (busy ? ' disabled' : '')
+          ? ' <button type="button" class="wb-linklike" data-wb-act="doc-searchable" data-wb-path="' + escA(docPath) + '"' + (busy ? ' disabled' : '')
             + ' title="' + escA(t('workbench.doc.searchable_title')) + '">' + esc(t(busy ? 'workbench.doc.searchable_busy' : 'workbench.doc.searchable')) + '</button>'
           : '')
         + (d.low_pages && d.low_pages.length
