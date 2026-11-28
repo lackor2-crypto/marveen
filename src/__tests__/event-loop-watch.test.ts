@@ -226,6 +226,16 @@ describe('#823 severe stall alert', () => {
     expect(machineBusy(50_500).reasons).toContain('stall')
     _resetPressureWatch()
   })
+  // #1001: a 14.6 s freeze was reported with the reading taken 19.5 s earlier, as a calm machine.
+  it('a reading from before the stall is not reported: the machine is measured as the stall ends', async () => {
+    _setPressureForTest({ at: 40_000, cpu: 0, io: 0, memory: 0, load1: 0.3, cores: 8 })
+    const after = { at: 50_000, cpu: 70, io: 0, memory: 0, load1: 9, cores: 8 }
+    const s = noteLag(1500, 50_000, async () => after)!
+    expect(s.pressure).toBeNull()
+    await vi.waitFor(() => expect(s.pressure).toEqual(after))
+    expect(s.busy).toEqual(['cpu'])
+    _resetPressureWatch()
+  })
   it('does not send for a stall under the limit, and a failing send does not throw', async () => {
     const send = async () => { throw new Error('x') }
     expect(await alertSevereStall({ at: 1, lagMs: SEVERE_STALL_MS - 1, inflight: [] }, send)).toBe(false)
