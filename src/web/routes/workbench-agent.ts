@@ -43,7 +43,8 @@ import {
   runTurn, validateTurn, MESSAGE_MAX_CHARS, turnKey, isTurnRunning, claimTurn, releaseTurn,
 } from '../../workbench-agent/orchestrator.js'
 import { decideWorkbenchBackend, isWindowsDriveBridgePath } from '../../workbench-agent/backend-router.js'
-import { runCodeBridgeTurn, incompleteAnswerText, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, claimsOutsideWait, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
+import { codeBridgeEnabled } from '../code-bridge-switch.js'
+import { bridgeStartWaitMs, runCodeBridgeTurn, incompleteAnswerText, buildCodeBridgePrompt, codeBridgeContinuable, COMPLETION_MARKER, stripCompletionMarker, claimsPendingWork, claimsOutsideWait, completionInstruction, codeBridgeOutdatedDetail, recordCodeBridgeOutcome } from '../../workbench-agent/code-bridge-turn.js'
 import {
   setBridgeContinuationHandler, setBridgeLimitWaitHandler, watchBridgeTask, unwatchBridgeTask, markBridgeTaskContinued, wasBridgeTaskContinued,
 } from '../../workbench-agent/bridge-continuation.js'
@@ -1435,7 +1436,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
                 },
                 canContinueElsewhere: () => !account && !ac.signal.aborted && !!liveResolver(key, liveDir, account),
                 wasContinued: (id) => wasBridgeTaskContinued(id),
-                startElsewhereAfterMs: BRIDGE_START_WAIT_MS,
+                startElsewhereAfterMs: bridgeStartWaitMs(codeBridgeEnabled(), BRIDGE_START_WAIT_MS),
                 getTask: (id) => {
                   const t = getCodeTask(id)
                   return t ? { status: t.status, result: t.result, summary: t.summary, error: t.error } : null
