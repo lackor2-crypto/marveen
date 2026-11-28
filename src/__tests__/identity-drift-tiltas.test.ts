@@ -40,7 +40,7 @@ describe('a szerver vissza is vonja a rossz bejelentkezest', () => {
     const i = RUNNER.indexOf('if (drift) {')
     expect(i).toBeGreaterThan(-1)
     const blokk = RUNNER.slice(i, i + 1200)
-    expect(blokk).toContain('logoutAccount(drift.planId)')
+    expect(blokk).toContain('logoutNow(drift.planId)')
     expect(blokk).toContain('reverted: vissza.ok')
   })
 
@@ -53,7 +53,7 @@ describe('a szerver vissza is vonja a rossz bejelentkezest', () => {
 
   it('a visszavonas a folyamat lezarasa UTAN fut (kulonben a logoutAccount elutasitana)', () => {
     // `logoutAccount` nem nyul hozza, amig fut egy bejelentkezes (`current`).
-    const zaras = RUNNER.indexOf('killSession(); current = null\n\n    // NEM ELEG SZOLNI')
+    const zaras = RUNNER.indexOf('await killSession(); current = null\n\n    // NEM ELEG SZOLNI')
     const vonas = RUNNER.indexOf('if (drift) {')
     expect(zaras).toBeGreaterThan(-1)
     expect(vonas).toBeGreaterThan(zaras)
@@ -61,7 +61,7 @@ describe('a szerver vissza is vonja a rossz bejelentkezest', () => {
 
   it('a lista a visszavonas UTAN kerul ossze (kulonben a bent maradt fiokot mutatna)', () => {
     const vonas = RUNNER.indexOf('if (drift) {')
-    const lista = RUNNER.indexOf('const accounts = listAccounts(true)', vonas)
+    const lista = RUNNER.indexOf('const accounts = await freshAccounts()', vonas)
     expect(lista).toBeGreaterThan(vonas)
   })
 })

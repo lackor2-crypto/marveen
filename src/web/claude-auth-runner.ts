@@ -15,7 +15,7 @@
 //
 // ONE login flow at a time, though: they all drive the same tmux window, and two
 // people pasting codes into one pane helps nobody.
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
@@ -147,37 +147,16 @@ let current: LoginSession | null = null
  *  challenge, and leaving it open forever is neither tidy nor safe. */
 const LOGIN_MAX_AGE_MS = 15 * 60_000
 
-/** Ask the CLI who is logged in. `configDir` selects WHICH account -- omitted,
- *  it reports the install's default (~/.claude), which is where the main agent
- *  lives unless it was given a plan of its own. */
-export function readIdentity(configDir?: string | null): AuthIdentity {
-  return readIdentityDetailed(configDir).identity
-}
-
 /**
- * Ugyanaz, de megmondja azt is, hogy SIKERULT-E megkerdezni.
+ * Ask the CLI who is logged in. `configDir` selects WHICH account -- omitted, it
+ * reports the install's default (~/.claude).
  *
- * A `readIdentity()` a sikertelen probat is "nincs bejelentkezve"-kent adja
- * vissza -- a lapnak ez eleg, az azonossag-orzesnek NEM: ott a "nem latok oda"
- * es a "ki van jelentkezve" ket kulonbozo mondat, es a kettot osszekeverve
- * hamis zold sorokat irnank ki. (MERVE: kijelentkezett fiokra a CLI exit 1-gyel
- * lep ki, de a valasz JSON-t AKKOR IS kiirja -- ezert vesszuk elo a kimenetet a
- * hibaobjektumbol is; csak az az igazi vaksag, amikor nincs mit elolvasni.)
- */
-export function readIdentityDetailed(configDir?: string | null): { identity: AuthIdentity; probeOk: boolean } {
-  let out: string
-  try {
-    out = execFileSync(CLAUDE(), ['auth', 'status', '--json'], {
-      timeout: 20_000, encoding: 'utf-8', env: identityProbeEnv(configDir),
-    })
-  } catch (err) {
-    return interpretIdentityProbe(null, err, configDir)
-  }
-  return interpretIdentityProbe(out, null, configDir)
-}
-
-/**
- * Ugyanaz a proba, de NEM allitja meg a szervert (#390).
+ * `probeOk` keeps "could not ask" apart from "signed out": mixing the two up
+ * would print false green rows. (A signed-out account exits 1 but still prints
+ * the JSON, so the output is read from the error object too.)
+ *
+ * Never synchronous (#390, #997): one `claude auth status` costs about half a
+ * second and seconds on a loaded machine, and the whole dashboard waited for it.
  *
  * MERVE 2026-09-25: egy `claude auth status` 0,45 s, es a szinkron valtozat
  * ezalatt az EGESZ dashboardot megallitja -- a Fiokok lap 1,6 s-ig, a vele
@@ -271,7 +250,25 @@ const ACCOUNT_STALE_OK_MS = 5 * 60_000
 let accountGen = 0
 let accountRefresh: Promise<AccountRow[]> | null = null
 
-export function invalidateAccountCache(): void { accountCache = null; machineIdentity = null; accountGen++ }
+export function invalidateAccountCache(): void {
+  accountCache = null
+  machineIdentity = null
+  // A probe that started before the change must not answer the callers after it.
+  accountRefresh = null
+  machineIdentityRefresh = null
+  accountGen++
+}
+
+/** A list probed NOW: for the decisions that must not rest on a cached row. */
+// A failure is thrown, not swallowed: an empty list here would wave a second
+// registration of the same e-mail address through the duplicate check.
+async function freshAccounts(): Promise<AccountRow[]> {
+  invalidateAccountCache()
+  const gen = accountGen
+  const rows = await buildAccountRowsAsync()
+  if (gen === accountGen) accountCache = { at: Date.now(), rows }
+  return rows
+}
 
 // #390: a gep SAJAT bejelentkezese (~/.claude, a folyamat kornyezete szerint).
 // Ha a foagens kulon mappan fut (MAIN_AGENT_CONFIG_DIR), a Fiokok oldal ezt
@@ -286,13 +283,14 @@ let machineIdentityRefresh: Promise<IdentityProbe> | null = null
 function refreshMachineIdentity(): Promise<IdentityProbe> {
   if (machineIdentityRefresh) return machineIdentityRefresh
   const gen = accountGen
-  machineIdentityRefresh = readIdentityDetailedAsync()
+  const probe: Promise<IdentityProbe> = readIdentityDetailedAsync()
     .then((value) => {
       if (gen === accountGen) machineIdentity = value.probeOk ? { at: Date.now(), value } : null
       return value
     })
-    .finally(() => { machineIdentityRefresh = null })
-  return machineIdentityRefresh
+    .finally(() => { if (machineIdentityRefresh === probe) machineIdentityRefresh = null })
+  machineIdentityRefresh = probe
+  return probe
 }
 
 export async function machineIdentityAsync(): Promise<IdentityProbe> {
@@ -303,21 +301,6 @@ export async function machineIdentityAsync(): Promise<IdentityProbe> {
     return machineIdentity.value
   }
   return refreshMachineIdentity()
-}
-
-export function listAccounts(force = false): AccountRow[] {
-  const now = Date.now()
-  if (!force && accountCache && now - accountCache.at < ACCOUNT_CACHE_MS) return accountCache.rows
-  // Regebbi, de meg elfogadhato lista: azonnal vissza, frissites a hatterben --
-  // a szinkron ujraepites fiokonkent 0,45 s-ra megallitana az egesz szervert.
-  if (!force && accountCache && now - accountCache.at < ACCOUNT_STALE_OK_MS) {
-    void refreshAccountsInBackground()
-    return accountCache.rows
-  }
-  accountGen++
-  const rows = buildAccountRows()
-  accountCache = { at: Date.now(), rows }
-  return rows
 }
 
 /**
@@ -343,7 +326,7 @@ export function identityAuditAsync(): Promise<IdentityAudit> {
 export function refreshAccountsInBackground(): Promise<AccountRow[]> {
   if (accountRefresh) return accountRefresh
   const gen = accountGen
-  accountRefresh = buildAccountRowsAsync()
+  const refresh: Promise<AccountRow[]> = buildAccountRowsAsync()
     .then((rows) => {
       if (gen === accountGen) accountCache = { at: Date.now(), rows }
       return gen === accountGen || !accountCache ? rows : accountCache.rows
@@ -352,19 +335,12 @@ export function refreshAccountsInBackground(): Promise<AccountRow[]> {
       logger.warn({ err }, 'claude-auth: background account refresh failed')
       return accountCache?.rows ?? []
     })
-    .finally(() => { accountRefresh = null })
-  return accountRefresh
+    .finally(() => { if (accountRefresh === refresh) accountRefresh = null })
+  accountRefresh = refresh
+  return refresh
 }
 
 async function buildAccountRowsAsync(): Promise<AccountRow[]> {
-  const mainDir = resolveMainAgentConfigDir()
-  const plans = readClaudePlans()
-  // #943: at most 2 `claude auth status` children at once (see prewarmLoginProbes).
-  const probes = await mapLimit([mainDir, ...plans.map(p => p.configDir)], 2, d => readIdentityDetailedAsync(d))
-  return assembleAccountRows(mainDir, plans, probes)
-}
-
-function buildAccountRows(): AccountRow[] {
   // The default row represents the MAIN AGENT's login. When the operator has
   // pinned an explicit MAIN_AGENT_CONFIG_DIR, that dir -- not the shared
   // ~/.claude -- is where the agent runs, so its identity, drift-audit and the
@@ -373,7 +349,8 @@ function buildAccountRows(): AccountRow[] {
   // carrying a non-null dir here is safe (see app.js liveAccountRowFor).
   const mainDir = resolveMainAgentConfigDir()
   const plans = readClaudePlans()
-  const probes = [readIdentityDetailed(mainDir), ...plans.map(p => readIdentityDetailed(p.configDir))]
+  // #943: at most 2 `claude auth status` children at once (see prewarmLoginProbes).
+  const probes = await mapLimit([mainDir, ...plans.map(p => p.configDir)], 2, d => readIdentityDetailedAsync(d))
   return assembleAccountRows(mainDir, plans, probes)
 }
 
@@ -430,11 +407,6 @@ function assembleAccountRows(
   return rows
 }
 
-/** Az osszes fiok azonossag-vizsgalata (utkozesek is), a gyorsitotarbol. */
-export function identityAudit(force = false): IdentityAudit {
-  return auditRows(listAccounts(force))
-}
-
 function auditRows(rows: AccountRow[]): IdentityAudit {
   return auditIdentities(rows.map(r => ({
     id: r.id,
@@ -446,19 +418,34 @@ function auditRows(rows: AccountRow[]): IdentityAudit {
   })))
 }
 
-function sessionExists(): boolean {
-  try {
-    execFileSync(TMUX(), ['has-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
+/** Every tmux and CLI call of the login flow: off the main thread (#997). */
+function run(bin: string, args: string[], timeout: number, env?: NodeJS.ProcessEnv): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      execFile(bin, args, { timeout, ...(env ? { env } : {}) }, (err) => (err ? reject(err) : resolve()))
+    } catch (err) {
+      reject(err)
+    }
+  })
 }
 
-function killSession(): void {
-  try {
-    execFileSync(TMUX(), ['kill-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
-  } catch { /* not running: nothing to kill */ }
+// ONE flow, one step at a time. While the calls were synchronous nothing could
+// interleave; now they yield, so a start, a status poll, a pasted code, a cancel
+// and a logout take turns here instead of acting on each other's half-done state.
+let flowTail: Promise<unknown> = Promise.resolve()
+function inTurn<T>(job: () => Promise<T>): Promise<T> {
+  const turn = flowTail.then(job)
+  flowTail = turn.catch(() => {})
+  return turn
+}
+
+function sessionExists(): Promise<boolean> {
+  return run(TMUX(), ['has-session', '-t', exactTmuxTarget(LOGIN_SESSION)], 5_000).then(() => true, () => false)
+}
+
+function killSession(): Promise<void> {
+  // A failure means it is not running: nothing to kill.
+  return run(TMUX(), ['kill-session', '-t', exactTmuxTarget(LOGIN_SESSION)], 5_000).catch(() => {})
 }
 
 function capturePane(): Promise<string> {
@@ -549,7 +536,7 @@ function spawnArgs(
  * created, nothing is written to store/claude-plans.json, and the existing
  * parallel accounts are untouched.
  */
-function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?: boolean }): StartLoginResult {
+async function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?: boolean }): Promise<StartLoginResult> {
   // Never silently overwrite a WORKING login: that is the one way this button
   // could make things worse than it found them. `force` is the deliberate
   // "yes, switch accounts" path, and the page has to ask for it.
@@ -569,7 +556,7 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   // inside; once populated the reader + launcher pick it up.
   const mainDir = provisionMainAgentConfigDir()
   if (!opts.force) {
-    const who = readIdentity(mainDir)
+    const who = (await readIdentityDetailedAsync(mainDir)).identity
     if (who.loggedIn) {
       return {
         ok: false,
@@ -584,19 +571,19 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   // okbol, mint a nevesitett-fiok folyamatnal lejjebb: turelmetlen
   // ujraklikkeles ne nullazza az elozo probalkozast, mielott barmit
   // mutathatott volna.
-  if (current && current.planId === null && sessionExists() && Date.now() - current.startedAt <= LOGIN_MAX_AGE_MS) {
+  if (current && current.planId === null && (await sessionExists()) && Date.now() - current.startedAt <= LOGIN_MAX_AGE_MS) {
     logger.info('claude-auth: default login session already running, ignoring duplicate start click')
     return { ok: true, isDefault: true }
   }
 
-  killSession()
+  await killSession()
   const args = ['auth', 'login', opts.useConsole ? '--console' : '--claudeai']
   if (opts.email && /^[^\s@]+@[^\s@]+$/.test(opts.email)) args.push('--email', opts.email)
   const quoted = [CLAUDE(), ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
   const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
   const shim = prepareBrowserShim()
   try {
-    execFileSync(TMUX(), spawnArgs(mainDir, command, shim), { timeout: 10_000 })
+    await run(TMUX(), spawnArgs(mainDir, command, shim), 10_000)
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the default login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
@@ -611,7 +598,11 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   return { ok: true, isDefault: true }
 }
 
-export function startLogin(
+export function startLogin(opts: Parameters<typeof startLoginNow>[0] = {}): Promise<StartLoginResult> {
+  return inTurn(() => startLoginNow(opts))
+}
+
+async function startLoginNow(
   opts: {
     label?: string
     email?: string
@@ -622,8 +613,8 @@ export function startLogin(
      *  sends the id, so a repair never depends on the operator re-typing the
      *  name the same way. */
     planId?: string
-  } = {},
-): StartLoginResult {
+  },
+): Promise<StartLoginResult> {
   // target 'default' logs into ~/.claude -- the login the MAIN AGENT uses.
   //
   // Boss, 2026-08-21: the wizard's "Claude bejelentkezés" step only linked to
@@ -641,7 +632,7 @@ export function startLogin(
   // through the page. Both halves of that live here -- the id path (the page
   // knows WHICH account, nothing is typed) and, below, a `taken` list that no
   // longer counts a signed-out account as an occupied name.
-  const rows = listAccounts(true).filter(r => !r.isDefault && r.id)
+  const rows = (await freshAccounts()).filter(r => !r.isDefault && r.id)
   const reId = (opts.planId ?? '').trim()
   let planId: string
   let label: string
@@ -678,7 +669,7 @@ export function startLogin(
     // A bongeszo azt a fiokot hagyja jova, amelyik EPPEN be van benne
     // jelentkezve -- cim nelkul igy csuszott ket kulon nevu elofizetes egyetlen
     // fiokba. A cimet a slothoz rogzitjuk, meg a bejelentkezes ELOTT.
-    const mind = listAccounts(true)
+    const mind = await freshAccounts()
     const dontes = decideNewAccountEmail(opts.email, mind.map(r => ({
       id: r.id, label: r.label, email: r.identity.email ?? null,
       loggedIn: r.identity.loggedIn, probeOk: r.probeOk, expectedEmail: r.expectedEmail,
@@ -713,7 +704,7 @@ export function startLogin(
     // the name resolves to one of them, repair THAT directory, not a lookalike.
     configDir = rows.find(r => r.id === planId)?.configDir ?? join(accountsRoot(), planId)
     reused = rows.some(r => r.id === planId)
-    if (existsSync(configDir) && readIdentity(configDir).loggedIn) {
+    if (existsSync(configDir) && (await readIdentityDetailedAsync(configDir)).identity.loggedIn) {
       // Never log INTO an account that is actually signed in: that would overwrite
       // a working login, the exact opposite of adding one.
       //
@@ -735,12 +726,12 @@ export function startLogin(
   // elozot, mielott barmi lathato tortenhetett volna. A gomb maga (a
   // Beallitasok fulon) nem is tiltotta le magat a folyamat alatt, ezert semmi
   // nem allitotta meg az ujrakattintast a felhasznalo oldalan.
-  if (current && current.planId === planId && sessionExists() && Date.now() - current.startedAt <= LOGIN_MAX_AGE_MS) {
+  if (current && current.planId === planId && (await sessionExists()) && Date.now() - current.startedAt <= LOGIN_MAX_AGE_MS) {
     logger.info({ planId }, 'claude-auth: login session already running, ignoring duplicate start click')
     return { ok: true, planId }
   }
 
-  killSession()
+  await killSession()
   try {
     mkdirSync(configDir, { recursive: true, mode: 0o700 })
   } catch (err) {
@@ -756,7 +747,7 @@ export function startLogin(
   const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
   const shim = prepareBrowserShim()
   try {
-    execFileSync(TMUX(), spawnArgs(configDir, command, shim), { timeout: 10_000 })
+    await run(TMUX(), spawnArgs(configDir, command, shim), 10_000)
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
@@ -847,8 +838,18 @@ function isDefaultLoggedIn(accounts: AccountRow[]): boolean {
 
 /** Where the flow stands. Cheap enough to poll: two tmux calls plus one status
  *  probe per known account, and it must never throw. */
-export async function loginStatus(): Promise<LoginStatus> {
-  if (!current) return idle(listAccounts())
+// Polls that arrive while one is still being answered share that answer, so a slow
+// machine cannot pile them up in the queue.
+let statusInFlight: Promise<LoginStatus> | null = null
+export function loginStatus(): Promise<LoginStatus> {
+  if (statusInFlight) return statusInFlight
+  const turn: Promise<LoginStatus> = inTurn(loginStatusNow).finally(() => { statusInFlight = null })
+  statusInFlight = turn
+  return turn
+}
+
+async function loginStatusNow(): Promise<LoginStatus> {
+  if (!current) return idle(await listAccountsAsync())
 
   // Completion is tested BEFORE the age limit, deliberately: a login that
   // finished at 14:59 must not be reported as a timeout because the poll landed
@@ -857,7 +858,7 @@ export async function loginStatus(): Promise<LoginStatus> {
   //
   // The CLI's own status in the NEW directory is the authority here, not the
   // pane text: the account is in once `claude auth status` says so there.
-  const identity = readIdentity(current.configDir)
+  const { identity } = await readIdentityDetailedAsync(current.configDir)
   if (isLoginComplete(identity)) {
     const { planId, label, configDir, reused } = current
     // The default login has no plan row to write: it IS the install's account.
@@ -905,7 +906,7 @@ export async function loginStatus(): Promise<LoginStatus> {
         logger.warn('claude-auth: a fo agensbe MAS fiok jelentkezett be, mint amit oda rogzitettunk')
       }
     }
-    killSession(); current = null
+    await killSession(); current = null
 
     // NEM ELEG SZOLNI: VISSZA IS KELL VONNI.
     //
@@ -924,7 +925,7 @@ export async function loginStatus(): Promise<LoginStatus> {
     // tenylegesen a rossz fiok keretet fogyasztja, es ezt kell a legkiabalobb
     // sorban kimondani.
     if (drift) {
-      const vissza = logoutAccount(drift.planId)
+      const vissza = await logoutNow(drift.planId)
       drift = { ...drift, reverted: vissza.ok, revertError: vissza.ok ? null : (vissza.error ?? null) }
       if (vissza.ok) {
         logger.warn({ planId: drift.planId, expected: drift.expected },
@@ -950,7 +951,7 @@ export async function loginStatus(): Promise<LoginStatus> {
     } else if (!registered) {
       logger.error({ planId }, 'claude-auth: a bejelentkezes letrejott, de a nyilvantartasba felvetel BUKOTT')
     }
-    const accounts = listAccounts(true)
+    const accounts = await freshAccounts()
     const status = idle(accounts, 'done')
     return {
       // The default/main login is marked by planId === null, NOT by a null
@@ -966,21 +967,18 @@ export async function loginStatus(): Promise<LoginStatus> {
   }
 
   if (Date.now() - current.startedAt > LOGIN_MAX_AGE_MS) {
-    killSession(); current = null
-    return idle(listAccounts(), 'failed', 'A bejelentkezés túl sokáig tartott, megszakítottam.')
+    await killSession(); current = null
+    return idle(await listAccountsAsync(), 'failed', 'A bejelentkezés túl sokáig tartott, megszakítottam.')
   }
 
-  if (!sessionExists()) {
+  if (!(await sessionExists())) {
     current = null
-    return idle(listAccounts(), 'failed', 'A bejelentkezési ablak bezárult, mielőtt befejeződött volna.')
+    return idle(await listAccountsAsync(), 'failed', 'A bejelentkezési ablak bezárult, mielőtt befejeződött volna.')
   }
 
-  const polled = current
   const screen = await capturePane()
-  // Another poll or a cancel may have ended this login while the screen was read.
-  if (current !== polled) return idle(listAccounts())
   const pane = readLoginPane(screen, current.codeSubmitted)
-  const accounts = listAccounts()
+  const accounts = await listAccountsAsync()
   return {
     active: true, phase: pane.phase, url: pane.url,
     browserUrl: readBrowserUrl(current.urlLog),
@@ -993,8 +991,12 @@ export async function loginStatus(): Promise<LoginStatus> {
 }
 
 /** Hand the pasted code to the waiting CLI. */
-export function submitCode(code: string): { ok: boolean; error?: string } {
-  if (!current || !sessionExists()) return { ok: false, error: 'Nincs futó bejelentkezés.' }
+export function submitCode(code: string): Promise<{ ok: boolean; error?: string }> {
+  return inTurn(() => submitCodeNow(code))
+}
+
+async function submitCodeNow(code: string): Promise<{ ok: boolean; error?: string }> {
+  if (!current || !(await sessionExists())) return { ok: false, error: 'Nincs futó bejelentkezés.' }
   const clean = code.trim()
   // Whitespace and control characters only: the value goes into send-keys, and
   // a newline of its own would submit half a code.
@@ -1004,8 +1006,8 @@ export function submitCode(code: string): { ok: boolean; error?: string } {
   try {
     // '--' so a code that happens to begin with a hyphen is read as the literal
     // text it is, not as an option.
-    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), '-l', '--', clean], { timeout: 5_000 })
-    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), 'Enter'], { timeout: 5_000 })
+    await run(TMUX(), ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), '-l', '--', clean], 5_000)
+    await run(TMUX(), ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), 'Enter'], 5_000)
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not deliver the pasted code')
     return { ok: false, error: 'A kódot nem sikerült átadni.' }
@@ -1017,9 +1019,11 @@ export function submitCode(code: string): { ok: boolean; error?: string } {
 /** Give up on the flow and clean the pane away. The half-created directory is
  *  left alone: it holds no credentials, and removing directories on a cancel is
  *  a worse failure mode than an empty folder. */
-export function cancelLogin(): void {
-  killSession()
-  current = null
+export function cancelLogin(): Promise<void> {
+  return inTurn(async () => {
+    await killSession()
+    current = null
+  })
 }
 
 /** Test seam. */
@@ -1044,7 +1048,11 @@ export interface LogoutResult {
  * why the route hands the page a list of the agents this stops FIRST, and the
  * page asks before calling this.
  */
-export function logoutAccount(planId: string | null): LogoutResult {
+export function logoutAccount(planId: string | null): Promise<LogoutResult> {
+  return inTurn(() => logoutNow(planId))
+}
+
+async function logoutNow(planId: string | null): Promise<LogoutResult> {
   // A live flow owns the tmux window and a half-finished OAuth challenge;
   // pulling the credentials out from under it would leave both in a state
   // neither side could explain.
@@ -1057,7 +1065,7 @@ export function logoutAccount(planId: string | null): LogoutResult {
   // real plan id keeps looking up its own configDir.
   let configDir: string | null = null
   if (planId && planId !== '__main__') {
-    const row = listAccounts(true).find(r => r.id === planId)
+    const row = (await freshAccounts()).find(r => r.id === planId)
     if (!row || !row.configDir) {
       return { ok: false, error: 'Ezt a fiókot nem találom a listában. Frissítsd az oldalt, és próbáld újra.' }
     }
@@ -1066,7 +1074,7 @@ export function logoutAccount(planId: string | null): LogoutResult {
     configDir = resolveMainAgentConfigDir()
   }
 
-  const before = readIdentity(configDir)
+  const before = (await readIdentityDetailedAsync(configDir)).identity
   if (!before.loggedIn) return { ok: false, error: 'Ez a fiók már nincs bejelentkezve.' }
 
   try {
@@ -1077,7 +1085,7 @@ export function logoutAccount(planId: string | null): LogoutResult {
     const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
     if (configDir) env.CLAUDE_CONFIG_DIR = configDir
     else delete env.CLAUDE_CONFIG_DIR
-    execFileSync(CLAUDE(), ['auth', 'logout'], { timeout: 30_000, stdio: 'ignore', env })
+    await run(CLAUDE(), ['auth', 'logout'], 30_000, env)
   } catch (err) {
     logger.warn({ err, planId }, 'claude-auth: logout failed')
     return { ok: false, error: 'A kijelentkeztetés nem sikerült. A részletek a dashboard naplójában vannak.' }
@@ -1086,7 +1094,7 @@ export function logoutAccount(planId: string | null): LogoutResult {
   invalidateAccountCache()
   // Ask the CLI, do not assume: an exit code of 0 is not the same sentence as
   // "this account is signed out now".
-  if (readIdentity(configDir).loggedIn) {
+  if ((await readIdentityDetailedAsync(configDir)).identity.loggedIn) {
     return { ok: false, error: 'A parancs lefutott, de a fiók továbbra is be van jelentkezve.' }
   }
   logger.info({ planId }, 'claude-auth: account signed out')
