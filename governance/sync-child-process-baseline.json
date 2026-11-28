@@ -22,7 +22,6 @@
   "src/web/channel-plugin-unlock.ts": 4,
   "src/web/channel-poller-reap.ts": 6,
   "src/web/claude-auth-presence.ts": 1,
-  "src/web/claude-auth-runner.ts": 8,
   "src/web/claude-credentials-guard.ts": 1,
   "src/web/claude-credentials.ts": 1,
   "src/web/context-restart-gate-runner.ts": 7,

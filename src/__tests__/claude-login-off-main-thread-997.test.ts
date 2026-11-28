@@ -40,6 +40,12 @@ vi.mock('node:child_process', async (orig) => {
   }
 })
 
+// CI machines have no `claude` on PATH, and nothing real is started here anyway.
+vi.mock('../platform.js', async (orig) => {
+  const real = await orig<typeof import('../platform.js')>()
+  return { ...real, makeLazyBinResolver: (name: string) => () => name }
+})
+
 vi.mock('../config.js', async (orig) => {
   const real = await orig<typeof import('../config.js')>()
   const fs = await import('node:fs')
