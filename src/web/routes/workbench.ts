@@ -194,7 +194,7 @@ import {
   workFolderTarget, adviseUploadPlaces, listWorkFolders, listProjectFolderLevel, makeWorkFolder, migrateSubItemsToFolders, moveWorkItemToFolder,
   deleteWorkFolder, findWorkItemsBox,
   renameWorkFolder, moveWorkFolder, adoptExistingFolder, reconcileFolderMarkers, reconcileFolderMarkersYielding, listWorkFoldersYielding, forgetLostFolder, moveLooseFiles, copyLooseFiles, deleteLooseFiles, renameLooseFile, PROJECT_ROOT_PLACE, type FolderReconcile,
-  folderNameFromTitle, projectRelative,
+  folderNameFromTitle, projectRelative, itemAssetFile,
 } from '../../workbench-assets.js'
 import { annexNeedsLifeMove } from '../../workbench-annex-guard.js'
 import type { RouteContext } from './types.js'
@@ -4956,15 +4956,35 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const parts = rel.split('/').filter(Boolean)
     const name = parts.pop() || ''
     if (!name || name === '.' || name === '..') return fail(res, 400, 'document_bad_path', lang)
-    const target = projectFileTarget(owner, parts.join('/'))
-    if (!target.ok) return fail(res, 404, 'asset_not_found', lang)
-    const abs = joinPath(target.dirAbs, name)
+    // #989: a linked material of this item is named by its Life-tree path; it stands outside the project folder.
+    const linked = itemAssetFile(item.id, rel)
     let real = ''
-    try { real = realpathSync(abs) } catch { return fail(res, 404, 'asset_not_found', lang) }
-    const root = projectFileTarget(owner, '')
-    let base = ''
-    try { base = root.ok ? realpathSync(root.dirAbs) : '' } catch { base = '' }
-    if (!base || !real.startsWith(base + pathSep)) return fail(res, 400, 'document_bad_path', lang)
+    let besideAbs = ''
+    if (linked) {
+      try { real = realpathSync(linked) } catch { return fail(res, 404, 'asset_not_found', lang) }
+    } else {
+      const target = projectFileTarget(owner, parts.join('/'))
+      if (!target.ok) return fail(res, 404, 'asset_not_found', lang)
+      besideAbs = target.dirAbs
+      try { real = realpathSync(joinPath(target.dirAbs, name)) } catch { return fail(res, 404, 'asset_not_found', lang) }
+      const root = projectFileTarget(owner, '')
+      let base = ''
+      try { base = root.ok ? realpathSync(root.dirAbs) : '' } catch { base = '' }
+      if (!base || !real.startsWith(base + pathSep)) return fail(res, 400, 'document_bad_path', lang)
+    }
+    // Where a new copy goes: beside a file of the project; for a linked original into the item's uploads folder
+    // (the folder of the original is not touched), and the copy joins the item's materials.
+    const copyPlace = (): { ok: true; dirAbs: string; pathOf: (n: string) => string; register: (n: string) => void } | { ok: false; code: string } => {
+      if (!linked) return { ok: true, dirAbs: besideAbs, pathOf: (n) => (parts.length ? `${parts.join('/')}/${n}` : n), register: () => undefined }
+      const up = ensureItemUploadsFolder(item, lang)
+      if (!up.ok) return { ok: false, code: up.code }
+      const t = projectFileTarget(owner, up.folder)
+      if (!t.ok) return { ok: false, code: t.code }
+      return {
+        ok: true, dirAbs: t.dirAbs, pathOf: (n) => `${up.folder}/${n}`,
+        register: (n) => { linkLifeFileAsUpload(item, `${t.dirRel}/${n}`, actor(ctx)) },
+      }
+    }
     if (redactRoute) {
       if (!/\.pdf$/i.test(name)) return fail(res, 400, 'redact_not_pdf', lang)
       const redactFail = (r: { code: string; detail: string }): true => {
@@ -4979,11 +4999,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
         return true
       }
       if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
-      const dest = freeFileName(target.dirAbs, redactedName(name, lang))
-      const r = await makeRedactedCopy(real, joinPath(target.dirAbs, dest), { terms: body?.['terms'], skip: body?.['skip'] })
+      const place = copyPlace()
+      if (!place.ok) return failDetail(res, 500, 'redact_failed', lang, place.code)
+      const dest = freeFileName(place.dirAbs, redactedName(name, lang))
+      const r = await makeRedactedCopy(real, joinPath(place.dirAbs, dest), { terms: body?.['terms'], skip: body?.['skip'] })
       if (!r.ok) return redactFail(r)
+      place.register(r.name)
       json(res, {
-        ok: true, name: r.name, path: parts.length ? `${parts.join('/')}/${r.name}` : r.name,
+        ok: true, name: r.name, path: place.pathOf(r.name),
         redacted: r.redacted, pages: r.pages, searchable: r.searchable, unreadable_pages: r.unreadable_pages, assets: await assetsOutYielding(item.id),
       }, 201)
       return true
@@ -4992,10 +5015,13 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       if (owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
       if (!/\.pdf$/i.test(name)) return fail(res, 400, 'searchable_not_pdf', lang)
       if (!searchableCopyAvailable()) return fail(res, 424, 'searchable_not_installed', lang)
-      const dest = freeFileName(target.dirAbs, searchableName(name, lang))
-      const r = await makeSearchableCopy(real, joinPath(target.dirAbs, dest))
+      const place = copyPlace()
+      if (!place.ok) return failDetail(res, 500, 'searchable_failed', lang, place.code)
+      const dest = freeFileName(place.dirAbs, searchableName(name, lang))
+      const r = await makeSearchableCopy(real, joinPath(place.dirAbs, dest))
       if (!r.ok) return failDetail(res, 500, 'searchable_failed', lang, r.detail)
-      json(res, { ok: true, name: r.name, path: parts.length ? `${parts.join('/')}/${r.name}` : r.name, assets: await assetsOutYielding(item.id) }, 201)
+      place.register(r.name)
+      json(res, { ok: true, name: r.name, path: place.pathOf(r.name), assets: await assetsOutYielding(item.id) }, 201)
       return true
     }
     const retry = url.searchParams.get('retry') === '1'
