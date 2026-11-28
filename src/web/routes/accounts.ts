@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, TELEGRAM_BOT_TOKEN } from '../../config.js'
 import { getSecret, listSecrets, vaultFileState } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
-import { startLogin, loginStatus, submitCode, cancelLogin, machineIdentityAsync, logoutAccount, listAccounts, listAccountsAsync, identityAuditAsync } from '../claude-auth-runner.js'
+import { startLogin, loginStatus, submitCode, cancelLogin, machineIdentityAsync, logoutAccount, invalidateAccountCache, listAccountsAsync, identityAuditAsync } from '../claude-auth-runner.js'
 import { resolveMainAgentConfigDir } from '../agent-config.js'
 import { pinExpectedEmail } from '../claude-plans.js'
 import { pinMainExpectedEmail } from '../main-account-identity.js'
@@ -97,7 +97,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     const r = planId === '__main__'
       ? pinMainExpectedEmail(email, { force: true })
       : pinExpectedEmail(planId, email, { force: true })
-    if (r.ok) listAccounts(true)
+    if (r.ok) invalidateAccountCache()
     json(res, r.ok ? { ok: true } : { ok: false, error: r.error }, r.ok ? 200 : 500)
     return true
   }
@@ -110,7 +110,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     // both land here (Boss, 2026-08-21: the step used to link to claude.ai,
     // which on a signed-in browser just opens the chat and authenticates
     // nothing on this machine).
-    const result = startLogin({
+    const result = await startLogin({
       label: typeof body.label === 'string' ? body.label : undefined,
       email: typeof body.email === 'string' ? body.email.trim() : undefined,
       useConsole: body.useConsole === true,
@@ -150,8 +150,8 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     const raw = (ctx.url.searchParams.get('planId') ?? '').trim()
     const planId = raw === '' ? null : raw
     const row = planId === null
-      ? listAccounts().find(r => r.isDefault)
-      : listAccounts().find(r => r.id === planId)
+      ? (await listAccountsAsync()).find(r => r.isDefault)
+      : (await listAccountsAsync()).find(r => r.id === planId)
     if (!row) { json(res, { ok: false, error: 'Ezt a fiókot nem találom a listában.' }, 404); return true }
     json(res, {
       ok: true,
@@ -191,7 +191,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     let body: { planId?: unknown } = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
     const planId = typeof body.planId === 'string' && body.planId.trim() !== '' ? body.planId.trim() : null
-    const result = logoutAccount(planId)
+    const result = await logoutAccount(planId)
     json(res, result.ok ? { ok: true, email: result.email ?? null } : { ok: false, error: result.error }, result.ok ? 200 : 400)
     return true
   }
@@ -200,13 +200,13 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     let body: { code?: unknown } = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
     if (typeof body.code !== 'string') { json(res, { ok: false, error: 'code required' }, 400); return true }
-    const result = submitCode(body.code)
+    const result = await submitCode(body.code)
     json(res, result.ok ? { ok: true } : { ok: false, error: result.error }, result.ok ? 200 : 400)
     return true
   }
 
   if (path === '/api/accounts/claude/login/cancel' && method === 'POST') {
-    cancelLogin()
+    await cancelLogin()
     json(res, { ok: true })
     return true
   }
