@@ -17,6 +17,7 @@ import {
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+const huText = readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf8')
 const WS = { project: 'marvin', workspacePath: 'C:\\ws\\marvin', sessionId: 'aaaaaaaa-0000-4000-8000-000000000001' }
 
 beforeEach(() => {
@@ -76,7 +77,7 @@ describe('a REST felulet es a gomb', () => {
   const root = join(process.cwd())
   const route = readFileSync(join(root, 'src/web/routes/code.ts'), 'utf8')
   const html = readFileSync(join(root, 'web/index.html'), 'utf8')
-  const app = readFileSync(join(root, 'web/app.js'), 'utf8')
+const app = readFileSync(join(root, 'web/app.js'), 'utf8')
 
   it('exposes DELETE /api/code/tasks', () => {
     expect(route).toContain(`if (path === '/api/code/tasks' && method === 'DELETE')`)
@@ -114,7 +115,8 @@ describe('kod-hid kartya a Csapat lapon', () => {
     // teendot kaphasson. A kartya maga valtozatlanul kikerul.
     expect(fn.slice(0, 3000)).toContain('cbIdleCardEntry(off)')
     const idle = app.slice(app.indexOf('function cbIdleCardEntry('), app.indexOf('function renderCodeBridgeAgentCards('))
-    expect(idle).toContain('egy projekt sincs regisztrálva')
+    expect(idle).toContain("t('cb.idle.no_project')")
+    expect(huText).toMatch(/'cb\.idle\.no_project': '[^']*egy projekt sincs regisztrálva/)
   })
 
   it('never lets its own fetch break the Csapat page', () => {

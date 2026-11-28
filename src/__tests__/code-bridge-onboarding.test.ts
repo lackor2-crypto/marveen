@@ -18,6 +18,7 @@ import { join } from 'node:path'
 import { detectHostKind } from '../web/routes/code.js'
 
 const ROOT = process.cwd()
+const huText = readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf8')
 const app = readFileSync(join(ROOT, 'web/app.js'), 'utf8')
 const html = readFileSync(join(ROOT, 'web/index.html'), 'utf8')
 const route = readFileSync(join(ROOT, 'src/web/routes/code.ts'), 'utf8')
@@ -54,9 +55,10 @@ describe('a vegrehajto kartyaja a fizetos savban all', () => {
     // -- harom kulon teendo. Egyetlen "nincs projekt" szoveg mindharomra
     // hazudna, es a friss telepites pont az elso kettoben all.
     const fn = app.slice(app.indexOf('function cbIdleCardEntry('), app.indexOf('function renderCodeBridgeAgentCards('))
-    expect(fn).toContain('ki van kapcsolva')
-    expect(fn).toContain('Nincs futó Windows-végrehajtó')
-    expect(fn).toContain('még egy projekt sincs regisztrálva')
+    for (const [key, says] of [['cb.idle.off', 'ki van kapcsolva'], ['cb.idle.no_worker', 'Nincs futó Windows-végrehajtó'], ['cb.idle.no_project', 'még egy projekt sincs regisztrálva']]) {
+      expect(fn).toContain(`t('${key}')`)
+      expect(huText.split('\n').find((l) => l.includes(`'${key}':`))).toContain(says)
+    }
     expect(fn).toContain('codeBridgeCards.workerOnline')
   })
 })
@@ -138,7 +140,8 @@ describe('a telepito parancs a SAJAT telepitesre ervenyes', () => {
     expect(idx).toBeGreaterThan(-1)
     const block = app.slice(idx, idx + 400)
     expect(block).toContain("'-TokenPath \"'")
-    expect(block).toContain('-Token "<IDE-MASOLD-A-TOKENT>"')
+    expect(block).toContain(`'-Token "' + t('cb.worker.token_placeholder') + '"'`)
+    expect(huText).toContain("'cb.worker.token_placeholder': '<IDE-MASOLD-A-TOKENT>'")
   })
 
   it('stops claiming Marveen runs in WSL regardless of the install', () => {
